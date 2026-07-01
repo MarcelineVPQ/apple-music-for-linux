@@ -220,6 +220,26 @@ function createWindow() {
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
       toggleMiniPlayer()
     }
+    else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
+      if (mainWindow.webContents.navigationHistory.canGoBack()) {
+        mainWindow.webContents.navigationHistory.goBack()
+      }
+    }
+    else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowRight') {
+      if (mainWindow.webContents.navigationHistory.canGoForward()) {
+        mainWindow.webContents.navigationHistory.goForward()
+      }
+    }
+  })
+
+  // back/forward mouse buttons
+  mainWindow.on('app-command', (event, command) => {
+    if (command === 'browser-backward' && mainWindow.webContents.navigationHistory.canGoBack()) {
+      mainWindow.webContents.navigationHistory.goBack()
+    }
+    else if (command === 'browser-forward' && mainWindow.webContents.navigationHistory.canGoForward()) {
+      mainWindow.webContents.navigationHistory.goForward()
+    }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {

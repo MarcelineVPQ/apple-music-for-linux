@@ -18,6 +18,7 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
   - queue button that jumps back to the full player and opens *Up Next*
   - drag it anywhere by its background
 - **Dark mode** — follows your desktop theme by default; Ctrl+D toggles light/dark manually and the choice is remembered across launches (upstream always started in light mode and only remembered the theme inside the snap)
+- **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
 - **Sane window sizing** — the main window keeps a minimum size and restores its geometry when expanding from the mini player
 - **`start.sh` launcher** — handles the Chromium sandbox restrictions on modern Ubuntu automatically
 - **`--mini` flag** — launch straight into the mini player
@@ -28,6 +29,7 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 | --- | --- |
 | `Ctrl+M` | Toggle mini player |
 | `Ctrl+D` | Toggle dark / light mode |
+| `Alt+←` / `Alt+→` | Navigate back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |
 
 ## 🚀 Running from source
