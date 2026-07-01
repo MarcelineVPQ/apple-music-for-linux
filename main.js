@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, shell, nativeTheme, components } = require('electron')
 const fs = require('fs');
+const path = require('path');
 
 const appName = 'Apple Music'
 
@@ -7,24 +8,27 @@ let locale = 'US'
 let themeFile = null
 
 function initLocaleAndTheme() {
+  const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
+  fs.mkdirSync(dataDir, { recursive: true });
+
   if (process.env.SNAP_USER_COMMON) {
-    const localeFile = process.env.SNAP_USER_COMMON + '/locale';
+    const localeFile = path.join(dataDir, 'locale');
     if (!fs.existsSync(localeFile)) {
       fs.writeFileSync(localeFile, app.getLocaleCountryCode());
     }
     locale = fs.readFileSync(localeFile).toString().substring(0, 2).toUpperCase();
-
-    themeFile = process.env.SNAP_USER_COMMON + '/theme';
-    if (!fs.existsSync(themeFile)) {
-      fs.writeFileSync(themeFile, 'light');
-    }
-    nativeTheme.themeSource = fs.readFileSync(themeFile).toString().toLowerCase();
   }
   else {
     locale = app.getLocaleCountryCode() || 'US';
-    themeFile = null;
-    nativeTheme.themeSource = 'light';
   }
+
+  // 'system' follows the desktop theme; Ctrl+D toggles and persists an override
+  themeFile = path.join(dataDir, 'theme');
+  if (!fs.existsSync(themeFile)) {
+    fs.writeFileSync(themeFile, 'system');
+  }
+  const savedTheme = fs.readFileSync(themeFile).toString().trim().toLowerCase();
+  nativeTheme.themeSource = ['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'system';
 }
 
 const appUrl = 'https://music.apple.com/'
@@ -47,12 +51,7 @@ function createWindow() {
       mainWindow.reload();
     }
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'd') {
-      if (nativeTheme.themeSource === 'light') {
-        nativeTheme.themeSource = 'dark'
-      }
-      else {
-        nativeTheme.themeSource = 'light'
-      }
+      nativeTheme.themeSource = nativeTheme.shouldUseDarkColors ? 'light' : 'dark'
       if (themeFile) {
         fs.writeFileSync(themeFile, nativeTheme.themeSource);
       }
