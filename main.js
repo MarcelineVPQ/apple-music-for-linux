@@ -56,12 +56,23 @@ function toggleWindow() {
 // Drive the page's own MusicKit player instance
 function playerCommand(command) {
   if (!mainWindow) return
+  // each script scopes its variables in an IIFE: a bare top-level `const`
+  // would permanently claim the name in the page and break later calls
   const scripts = {
-    playPause: 'const mk = MusicKit.getInstance(); mk.isPlaying ? mk.pause() : mk.play();',
-    next: 'MusicKit.getInstance().skipToNextItem();',
-    previous: 'MusicKit.getInstance().skipToPreviousItem();'
+    playPause: '(() => { const mk = MusicKit.getInstance(); mk.isPlaying ? mk.pause() : mk.play(); })();',
+    next: '(() => { MusicKit.getInstance().skipToNextItem(); })();',
+    previous: '(() => { MusicKit.getInstance().skipToPreviousItem(); })();',
+    toggleShuffle: '(() => { const mk = MusicKit.getInstance(); mk.shuffleMode = mk.shuffleMode === 1 ? 0 : 1; })();',
+    // cycle off -> all -> one -> off (MusicKit: 0 = none, 1 = one, 2 = all)
+    cycleRepeat: '(() => { const mk = MusicKit.getInstance(); mk.repeatMode = mk.repeatMode === 0 ? 2 : (mk.repeatMode === 2 ? 1 : 0); })();',
+    // open Apple's Up Next popover in the full player
+    openQueue: `(() => {
+      const btn = document.querySelector('button[aria-label="Up Next"], button[aria-label*="Queue"]');
+      if (btn) btn.click();
+    })();`
   }
-  mainWindow.webContents.executeJavaScript(scripts[command]).catch(() => {})
+  mainWindow.webContents.executeJavaScript(scripts[command])
+    .catch((e) => console.error('player command failed:', command, e.message))
 }
 
 // Read current track state from the page's MusicKit instance
@@ -77,7 +88,10 @@ const nowPlayingScript = `(() => {
       artist: attrs ? (attrs.artistName || '') : '',
       artwork: attrs && attrs.artwork && attrs.artwork.url
         ? attrs.artwork.url.replace('{w}', 168).replace('{h}', 168)
-        : ''
+        : '',
+      shuffle: mk.shuffleMode === 1,
+      repeat: mk.repeatMode,
+      volume: mk.volume
     };
   } catch (e) {
     return { ok: false };
@@ -86,9 +100,11 @@ const nowPlayingScript = `(() => {
 
 function createMiniWindow() {
   miniWindow = new BrowserWindow({
-    width: 420,
-    height: 108,
+    width: 640,
+    height: 72,
     frame: false,
+    transparent: true,
+    hasShadow: false,
     resizable: false,
     alwaysOnTop: true,
     title: appName,
@@ -114,6 +130,13 @@ function createMiniWindow() {
     clearInterval(miniPoll)
     miniPoll = null
     if (mainWindow) {
+      // some window managers remember the mini player's tiny geometry
+      // and reapply it to the main window on show
+      const [width, height] = mainWindow.getSize()
+      if (width < 800 || height < 500) {
+        mainWindow.setSize(1000, 600)
+        mainWindow.center()
+      }
       mainWindow.show()
       mainWindow.focus()
     }
@@ -130,9 +153,20 @@ function toggleMiniPlayer() {
   }
 }
 
-ipcMain.on('mini-command', (event, command) => {
+ipcMain.on('mini-command', (event, command, value) => {
   if (command === 'expand') {
     toggleMiniPlayer()
+  }
+  else if (command === 'queue') {
+    toggleMiniPlayer()
+    playerCommand('openQueue')
+  }
+  else if (command === 'setVolume') {
+    const volume = Math.min(1, Math.max(0, Number(value) || 0))
+    if (mainWindow) {
+      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
+        .catch((e) => console.error('set volume failed:', e.message))
+    }
   }
   else {
     playerCommand(command)
@@ -170,6 +204,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 600,
+    minWidth: 800,
+    minHeight: 500,
     title: appName
   })
   mainWindow.loadURL(appUrl + locale.toLowerCase() + '/browse')
@@ -217,6 +253,9 @@ app.whenReady().then(async () => {
   initLocaleAndTheme()
   createWindow()
   createTray()
+  if (process.argv.includes('--mini')) {
+    toggleMiniPlayer()
+  }
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
