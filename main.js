@@ -1,25 +1,30 @@
-const { app, BrowserWindow, Menu, shell, nativeTheme } = require('electron')
+const { app, BrowserWindow, Menu, shell, nativeTheme, components } = require('electron')
 const fs = require('fs');
 
 const appName = 'Apple Music'
 
-if (process.env.SNAP_USER_COMMON) {
-  localeFile = process.env.SNAP_USER_COMMON + '/locale';
-  if (!fs.existsSync(localeFile)) {
-    fs.writeFileSync(localeFile, app.getLocaleCountryCode());
-  }
-  locale = fs.readFileSync(localeFile).toString().substring(0, 2).toUpperCase();
+let locale = 'US'
+let themeFile = null
 
-  themeFile = process.env.SNAP_USER_COMMON + '/theme';
-  if (!fs.existsSync(themeFile)) {
-    fs.writeFileSync(themeFile, 'light');
+function initLocaleAndTheme() {
+  if (process.env.SNAP_USER_COMMON) {
+    const localeFile = process.env.SNAP_USER_COMMON + '/locale';
+    if (!fs.existsSync(localeFile)) {
+      fs.writeFileSync(localeFile, app.getLocaleCountryCode());
+    }
+    locale = fs.readFileSync(localeFile).toString().substring(0, 2).toUpperCase();
+
+    themeFile = process.env.SNAP_USER_COMMON + '/theme';
+    if (!fs.existsSync(themeFile)) {
+      fs.writeFileSync(themeFile, 'light');
+    }
+    nativeTheme.themeSource = fs.readFileSync(themeFile).toString().toLowerCase();
   }
-  nativeTheme.themeSource = fs.readFileSync(themeFile).toString().toLowerCase();
-}
-else {
-  locale = app.getLocaleCountryCode();
-  themeFile = null;
-  nativeTheme.themeSource = 'light';
+  else {
+    locale = app.getLocaleCountryCode() || 'US';
+    themeFile = null;
+    nativeTheme.themeSource = 'light';
+  }
 }
 
 const appUrl = 'https://music.apple.com/'
@@ -61,9 +66,9 @@ function createWindow() {
     }
   });
 
-  mainWindow.webContents.on('new-window', (event, url, frameName, disposition, options) => {
-    event.preventDefault()
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
+    return { action: 'deny' }
   });
 
   mainWindow.webContents.on('did-navigate', () => {
@@ -80,7 +85,9 @@ function createWindow() {
  });
 }
 
-app.on('widevine-ready', () => {
+app.whenReady().then(async () => {
+  await components.whenReady()
+  initLocaleAndTheme()
   createWindow()
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

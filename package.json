@@ -43,7 +43,7 @@
   "repository": "https://github.com/cross-platform/apple-music-for-linux",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "https://github.com/castlabs/electron-releases#v13.0.1-wvvmp",
+    "electron": "https://github.com/castlabs/electron-releases#v42.3.3+wvcus",
     "electron-builder": "^22.7.0"
   }
 }
