@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, components } = require('electron')
+const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, components } = require('electron')
 const fs = require('fs');
 const path = require('path');
 
@@ -8,6 +8,8 @@ let locale = 'US'
 let themeFile = null
 let mainWindow = null
 let tray = null
+let miniWindow = null
+let miniPoll = null
 
 function initLocaleAndTheme() {
   const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
@@ -62,6 +64,81 @@ function playerCommand(command) {
   mainWindow.webContents.executeJavaScript(scripts[command]).catch(() => {})
 }
 
+// Read current track state from the page's MusicKit instance
+const nowPlayingScript = `(() => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    const attrs = item ? item.attributes : null;
+    return {
+      ok: true,
+      isPlaying: mk.isPlaying,
+      title: attrs ? (attrs.name || '') : '',
+      artist: attrs ? (attrs.artistName || '') : '',
+      artwork: attrs && attrs.artwork && attrs.artwork.url
+        ? attrs.artwork.url.replace('{w}', 168).replace('{h}', 168)
+        : ''
+    };
+  } catch (e) {
+    return { ok: false };
+  }
+})()`
+
+function createMiniWindow() {
+  miniWindow = new BrowserWindow({
+    width: 420,
+    height: 108,
+    frame: false,
+    resizable: false,
+    alwaysOnTop: true,
+    title: appName,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  })
+  miniWindow.loadFile('miniplayer.html')
+
+  miniWindow.webContents.once('did-finish-load', () => {
+    miniPoll = setInterval(async () => {
+      if (!mainWindow || !miniWindow) return
+      try {
+        const state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+        if (miniWindow) miniWindow.webContents.send('now-playing', state)
+      } catch (e) { /* page mid-navigation; try again next tick */ }
+    }, 1000)
+  })
+
+  miniWindow.on('closed', () => {
+    miniWindow = null
+    clearInterval(miniPoll)
+    miniPoll = null
+    if (mainWindow) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
+
+function toggleMiniPlayer() {
+  if (miniWindow) {
+    miniWindow.close()
+  }
+  else {
+    if (mainWindow) mainWindow.hide()
+    createMiniWindow()
+  }
+}
+
+ipcMain.on('mini-command', (event, command) => {
+  if (command === 'expand') {
+    toggleMiniPlayer()
+  }
+  else {
+    playerCommand(command)
+  }
+})
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'apple-music-for-linux.png'))
     .resize({ width: 22, height: 22 })
@@ -69,6 +146,7 @@ function createTray() {
   tray.setToolTip(appName)
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show / Hide', click: toggleWindow },
+    { label: 'Mini Player', click: toggleMiniPlayer },
     { type: 'separator' },
     { label: 'Play / Pause', click: () => playerCommand('playPause') },
     { label: 'Next', click: () => playerCommand('next') },
@@ -102,6 +180,9 @@ function createWindow() {
     }
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'd') {
       toggleTheme()
+    }
+    else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
+      toggleMiniPlayer()
     }
   })
 
