@@ -19,8 +19,10 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
   - drag it anywhere by its background
 - **Dark mode** — follows your desktop theme by default; Ctrl+D toggles light/dark manually and the choice is remembered across launches (upstream always started in light mode and only remembered the theme inside the snap)
 - **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
+- **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)
+- **AppImage releases** — no snap required; grab it from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases)
+- **Sandbox auto-detection** — on Ubuntu's restricted-userns kernels the app falls back to no-sandbox instead of crashing at launch
 - **Sane window sizing** — the main window keeps a minimum size and restores its geometry when expanding from the mini player
-- **`start.sh` launcher** — handles the Chromium sandbox restrictions on modern Ubuntu automatically
 - **`--mini` flag** — launch straight into the mini player
 
 ## ⌨️ Keyboard shortcuts
@@ -32,6 +34,25 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 | `Alt+←` / `Alt+→` | Navigate back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |
 
+## 📦 Install
+
+Download the latest AppImage from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
+
+```bash
+chmod +x apple-music-for-linux-*.AppImage
+./apple-music-for-linux-*.AppImage
+```
+
+> **Raspberry Pi / ARM:** not supported — Google does not publish a Widevine DRM module for desktop linux-arm64, so no Chromium/Electron app can play Apple Music there.
+
+## 🎧 Last.fm scrobbling
+
+1. Create a free API account at <https://www.last.fm/api/account/create> (any name/description works)
+2. Tray menu → **Connect Last.fm…** — the app creates its config file and offers to open it; paste your API key and shared secret in
+3. Tray menu → **Connect Last.fm…** again, authorize in the browser, click **Done**
+
+Scrobbling then runs automatically (tracks longer than 30s, after half their length or 4 minutes). Disconnect any time from the tray.
+
 ## 🚀 Running from source
 
 ```bash
@@ -41,7 +62,7 @@ npm install
 ./start.sh
 ```
 
-`start.sh` runs the app with the sandbox disabled when needed: recent Ubuntu releases block Chromium's unprivileged-userns sandbox via AppArmor. To run with the sandbox enabled instead, make the sandbox helper setuid root (repeat after every `npm install`):
+Recent Ubuntu releases block Chromium's unprivileged-userns sandbox via AppArmor; the app detects this and falls back to no-sandbox automatically. To run with the sandbox enabled instead, make the sandbox helper setuid root (repeat after every `npm install`):
 
 ```bash
 sudo chown root:root node_modules/electron/dist/chrome-sandbox

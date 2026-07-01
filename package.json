@@ -1,23 +1,37 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --linux snap"
+    "dist": "electron-builder --linux AppImage",
+    "dist:snap": "electron-builder --linux snap"
   },
   "build": {
+    "electronVersion": "42.3.3+wvcus",
     "electronDownload": {
-      "mirror": "https://github.com/castlabs/electron-releases/releases/download/v"
+      "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
     "appId": "apple-music-for-linux",
     "productName": "Apple Music",
+    "files": [
+      "main.js",
+      "miniplayer.html",
+      "lastfm.js",
+      "apple-music-for-linux.png"
+    ],
     "linux": {
-      "target": "snap",
+      "target": ["AppImage"],
       "icon": "apple-music-for-linux.png",
-      "category": "Audio"
+      "category": "Audio",
+      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "apple-music-for-linux"
+        }
+      }
     },
     "snap": {
       "grade": "stable",
@@ -32,18 +46,15 @@
         "opengl",
         "x11"
       ],
-      "desktop": {
-        "StartupWMClass": "apple-music-for-linux"
-      },
-      "slots": [ 
-        { "mpris": { "name": "chromium" } } 
+      "slots": [
+        { "mpris": { "name": "chromium" } }
       ]
     }
   },
-  "repository": "https://github.com/cross-platform/apple-music-for-linux",
+  "repository": "https://github.com/MarcelineVPQ/apple-music-for-linux",
   "license": "GPL-3.0",
   "devDependencies": {
     "electron": "https://github.com/castlabs/electron-releases#v42.3.3+wvcus",
-    "electron-builder": "^22.7.0"
+    "electron-builder": "^26.0.12"
   }
 }
