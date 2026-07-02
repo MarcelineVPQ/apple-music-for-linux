@@ -21,7 +21,8 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 - **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
 - **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)
 - **AppImage releases** — no snap required; grab it from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases)
-- **Sandbox auto-detection** — on Ubuntu's restricted-userns kernels the app falls back to no-sandbox instead of crashing at launch
+- **Discord Rich Presence** — "Listening to" status with track, artist, album art, and progress; connect from the tray
+- **No sandbox crashes** — the AppImage launcher and `start.sh` both detect Ubuntu's restricted-userns kernels and fall back to no-sandbox instead of crashing at launch
 - **Sane window sizing** — the main window keeps a minimum size and restores its geometry when expanding from the mini player
 - **`--mini` flag** — launch straight into the mini player
 
@@ -53,6 +54,14 @@ chmod +x apple-music-for-linux-*.AppImage
 
 Scrobbling then runs automatically (tracks longer than 30s, after half their length or 4 minutes). Disconnect any time from the tray.
 
+## 🎮 Discord presence
+
+1. Create an application named "Apple Music" at <https://discord.com/developers/applications> (free, instant)
+2. Tray menu → **Connect Discord…** — the app creates its config file and offers to open it; paste the Application ID in
+3. Tray menu → **Connect Discord…** again (with the Discord desktop app running)
+
+Your Discord profile then shows what you're listening to, with album art and a progress bar. Works with normal, Flatpak, and snap Discord installs. Disconnect any time from the tray.
+
 ## 🚀 Running from source
 
 ```bash
@@ -62,7 +71,7 @@ npm install
 ./start.sh
 ```
 
-Recent Ubuntu releases block Chromium's unprivileged-userns sandbox via AppArmor; the app detects this and falls back to no-sandbox automatically. To run with the sandbox enabled instead, make the sandbox helper setuid root (repeat after every `npm install`):
+Recent Ubuntu releases block Chromium's unprivileged-userns sandbox via AppArmor; `start.sh` detects this and falls back to no-sandbox (this cannot be handled from the app itself — the sandbox aborts before any app code runs). To run with the sandbox enabled instead, make the sandbox helper setuid root (repeat after every `npm install`):
 
 ```bash
 sudo chown root:root node_modules/electron/dist/chrome-sandbox

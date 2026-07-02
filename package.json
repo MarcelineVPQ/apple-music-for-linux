@@ -5,7 +5,7 @@
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "bash start.sh",
     "dist": "electron-builder --linux AppImage",
     "dist:snap": "electron-builder --linux snap"
   },
