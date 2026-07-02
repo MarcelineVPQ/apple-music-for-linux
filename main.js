@@ -50,6 +50,28 @@ function saveSettings() {
   try { fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n') } catch (e) {}
 }
 
+// Restore a saved window size/position into BrowserWindow options.
+function applySavedBounds(opts, key) {
+  const b = settings[key]
+  if (b && Number.isInteger(b.width) && Number.isInteger(b.height)) {
+    opts.width = b.width; opts.height = b.height
+    if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
+  }
+  return opts
+}
+// Persist a window's size/position (debounced) whenever it moves or resizes.
+function persistBounds(win, key) {
+  let timer = null
+  const save = () => {
+    if (win.isDestroyed() || win.isMinimized() || win.isFullScreen() || !win.isVisible()) return
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (!win.isDestroyed()) { settings[key] = win.getBounds(); saveSettings() }
+    }, 500)
+  }
+  win.on('resize', save); win.on('move', save)
+}
+
 function initLocaleAndTheme() {
   const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -296,9 +318,11 @@ function parseTtml(ttml) {
 }
 
 function createLyricsWindow() {
-  lyricsWindow = new BrowserWindow({
+  lyricsWindow = new BrowserWindow(applySavedBounds({
     width: 380,
     height: 560,
+    minWidth: 260,
+    minHeight: 300,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -308,8 +332,9 @@ function createLyricsWindow() {
       nodeIntegration: true,
       contextIsolation: false
     }
-  })
+  }, 'lyricsBounds'))
   lyricsWindow.loadFile('lyrics.html')
+  persistBounds(lyricsWindow, 'lyricsBounds')
   lockDownLocalWindow(lyricsWindow)
 
   lyricsWindow.webContents.once('did-finish-load', () => {
@@ -1035,6 +1060,9 @@ app.whenReady().then(async () => {
   }
   if (process.argv.includes('--settings')) {
     createSettingsWindow()
+  }
+  if (process.argv.includes('--lyrics')) {
+    toggleLyricsWindow()
   }
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
