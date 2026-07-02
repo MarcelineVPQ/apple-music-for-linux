@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
+const { Visualizer } = require('./visualizer');
 
 const appName = 'Sonata'
 
@@ -29,6 +30,10 @@ let discordConfigPath = null
 let discordReconnectTicks = 0
 let lastPresenceKey = ''
 let miniTrackKey = ''
+let vizWindow = null
+let vizPoll = null
+let visualizer = null
+let vizTrackKey = ''
 
 function initLocaleAndTheme() {
   const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
@@ -348,6 +353,69 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     }
   }
 })
+
+// --- audio-reactive visualizer / ambient mode ---
+
+function createVizWindow() {
+  vizWindow = new BrowserWindow({
+    fullscreen: true,
+    frame: false,
+    backgroundColor: '#000000',
+    title: appName + ' — Visualizer',
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  })
+  vizWindow.loadFile('visualizer.html')
+  lockDownLocalWindow(vizWindow)
+
+  visualizer = new Visualizer((bands) => {
+    if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
+  })
+
+  vizWindow.webContents.once('did-finish-load', () => {
+    visualizer.start()
+    vizTrackKey = null
+    // 300ms cadence: frequent enough for smooth synced-lyric highlighting
+    vizPoll = setInterval(async () => {
+      if (!mainAlive() || !vizWindow || vizWindow.isDestroyed()) return
+      let state
+      try {
+        state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+      } catch (e) { return }
+      if (!state || !state.ok || vizWindow.isDestroyed()) return
+
+      const key = state.title + '|' + state.artist
+      if (key !== vizTrackKey) {
+        vizTrackKey = key
+        vizWindow.webContents.send('viz-nowplaying', {
+          title: state.title, artist: state.artist, artwork: state.artworkLarge || state.artwork
+        })
+        // fetch synced lyrics for the new track (same TTML pipeline as the lyrics window)
+        let lines = []
+        if (state.title) {
+          try {
+            const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
+            if (res && res.ttml) lines = parseTtml(res.ttml)
+          } catch (e) { /* no lyrics */ }
+        }
+        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', lines)
+      }
+      if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-time', state.playbackTime)
+    }, 300)
+  })
+
+  vizWindow.on('closed', () => {
+    if (visualizer) { visualizer.stop(); visualizer = null }
+    clearInterval(vizPoll); vizPoll = null
+    vizWindow = null
+  })
+}
+
+function toggleVisualizer() {
+  if (vizWindow) vizWindow.close()
+  else createVizWindow()
+}
+
+ipcMain.on('viz-close', () => { if (vizWindow) vizWindow.close() })
 
 // --- three-dots menu on the mini player ---
 
@@ -723,6 +791,7 @@ function refreshTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show / Hide', click: toggleWindow },
     { label: 'Mini Player', click: toggleMiniPlayer },
+    { label: 'Visualizer', click: toggleVisualizer },
     { type: 'separator' },
     { label: 'Play / Pause', click: () => playerCommand('playPause') },
     { label: 'Next', click: () => playerCommand('next') },
@@ -771,6 +840,9 @@ function createWindow() {
     }
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
       toggleMiniPlayer()
+    }
+    else if (input.type === 'keyUp' && input.control && input.shift && input.key.toLowerCase() === 'v') {
+      toggleVisualizer()
     }
     else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
       if (mainWindow.webContents.navigationHistory.canGoBack()) {
@@ -834,6 +906,9 @@ app.whenReady().then(async () => {
   startNowPlayingLoop()
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
+  }
+  if (process.argv.includes('--viz')) {
+    toggleVisualizer()
   }
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

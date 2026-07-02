@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; cursor: none; }
+  html, body { height: 100%; overflow: hidden; background: #000; }
+  body {
+    font-family: -apple-system, 'SF Pro Display', 'Segoe UI', Ubuntu, sans-serif;
+    color: #fff;
+    -webkit-app-region: drag;
+  }
+  /* blurred album art fills the screen as an ambient backdrop */
+  #bg {
+    position: fixed; inset: 0;
+    background-size: cover; background-position: center;
+    filter: blur(60px) saturate(1.4) brightness(0.5);
+    transform: scale(1.2);
+    transition: background-image 0.6s ease;
+  }
+  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.75) 100%); }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
+  /* now-playing chip, top-left */
+  #meta {
+    position: fixed; left: 40px; top: 40px;
+    display: flex; align-items: center; gap: 16px;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.8); pointer-events: none;
+  }
+  #art {
+    width: 76px; height: 76px; border-radius: 10px; object-fit: cover;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6); flex-shrink: 0;
+  }
+  #title { font-size: 24px; font-weight: 700; }
+  #artist { font-size: 16px; opacity: 0.72; margin-top: 3px; }
+  /* synced lyrics, centered */
+  #lyrics {
+    position: fixed; left: 6%; right: 6%; top: 50%; transform: translateY(-50%);
+    text-align: center; pointer-events: none;
+  }
+  #lyric-current {
+    font-size: 44px; font-weight: 800; line-height: 1.25;
+    text-shadow: 0 4px 40px rgba(0,0,0,0.7);
+    transition: opacity 0.35s ease; min-height: 1.2em;
+  }
+  #lyric-next {
+    font-size: 26px; font-weight: 600; opacity: 0.4; margin-top: 16px;
+    transition: opacity 0.35s ease;
+  }
+  #hint { position: fixed; top: 16px; right: 20px; font-size: 12px; opacity: 0.35; }
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="vignette"></div>
+  <canvas id="c"></canvas>
+  <div id="meta">
+    <img id="art" alt="">
+    <div>
+      <div id="title">Not playing</div>
+      <div id="artist"></div>
+    </div>
+  </div>
+  <div id="lyrics">
+    <div id="lyric-current"></div>
+    <div id="lyric-next"></div>
+  </div>
+  <div id="hint">Esc to exit</div>
+<script>
+  const { ipcRenderer } = require('electron')
+  const canvas = document.getElementById('c')
+  const ctx = canvas.getContext('2d')
+  let W = 0, H = 0, dpr = 1
+  function resize() {
+    dpr = window.devicePixelRatio || 1
+    W = canvas.width = Math.floor(innerWidth * dpr)
+    H = canvas.height = Math.floor(innerHeight * dpr)
+  }
+  addEventListener('resize', resize); resize()
+
+  let bands = []       // latest from main
+  let shown = []       // interpolated values actually drawn
+  window.__frames = 0
+  ipcRenderer.on('viz-bands', (e, b) => { bands = b; window.__frames++; if (shown.length !== b.length) shown = b.slice() })
+  ipcRenderer.on('viz-nowplaying', (e, s) => {
+    if (!s) return
+    document.getElementById('title').textContent = s.title || 'Not playing'
+    document.getElementById('artist').textContent = s.artist || ''
+    const art = document.getElementById('art')
+    if (s.artwork) { art.src = s.artwork; document.getElementById('bg').style.backgroundImage = `url("${s.artwork}")` }
+    art.style.display = s.artwork ? '' : 'none'
+  })
+  document.onkeydown = (e) => { if (e.key === 'Escape') ipcRenderer.send('viz-close') }
+  document.onclick = () => ipcRenderer.send('viz-close')
+
+  // synced lyrics
+  let lyrics = []          // [{ t, text }]
+  let activeIdx = -1
+  ipcRenderer.on('viz-lyrics', (e, lines) => {
+    lyrics = Array.isArray(lines) ? lines : []
+    activeIdx = -1
+    document.getElementById('lyric-current').textContent = ''
+    document.getElementById('lyric-next').textContent = ''
+  })
+  ipcRenderer.on('viz-time', (e, t) => {
+    if (!lyrics.length) return
+    let idx = -1
+    for (let i = 0; i < lyrics.length; i++) { if (lyrics[i].t <= t + 0.15) idx = i; else break }
+    if (idx === activeIdx) return
+    activeIdx = idx
+    document.getElementById('lyric-current').textContent = idx >= 0 ? lyrics[idx].text : ''
+    document.getElementById('lyric-next').textContent = (idx + 1 < lyrics.length) ? lyrics[idx + 1].text : ''
+  })
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H)
+    const n = shown.length
+    if (n) {
+      // ease drawn values toward the latest bands
+      for (let i = 0; i < n; i++) shown[i] += ((bands[i] || 0) - shown[i]) * 0.35
+
+      const gap = W * 0.004
+      const bw = (W - gap * (n - 1)) / n
+      const baseY = H * 0.82
+      const maxH = H * 0.6
+      for (let i = 0; i < n; i++) {
+        const v = shown[i]
+        const h = Math.max(2 * dpr, v * maxH)
+        const x = i * (bw + gap)
+        const hue = 320 - (i / n) * 70          // fuchsia -> violet across the spectrum
+        const grad = ctx.createLinearGradient(0, baseY - h, 0, baseY)
+        grad.addColorStop(0, `hsla(${hue}, 90%, 68%, 0.98)`)
+        grad.addColorStop(1, `hsla(${hue}, 85%, 45%, 0.85)`)
+        ctx.fillStyle = grad
+        roundBar(x, baseY - h, bw, h)
+        // reflection
+        ctx.globalAlpha = 0.18
+        const rg = ctx.createLinearGradient(0, baseY, 0, baseY + h * 0.6)
+        rg.addColorStop(0, `hsla(${hue}, 85%, 55%, 0.6)`); rg.addColorStop(1, 'transparent')
+        ctx.fillStyle = rg
+        ctx.fillRect(x, baseY, bw, h * 0.6)
+        ctx.globalAlpha = 1
+      }
+    }
+    requestAnimationFrame(draw)
+  }
+  function roundBar(x, y, w, h) {
+    const r = Math.min(w / 2, 6 * dpr)
+    ctx.beginPath()
+    ctx.moveTo(x, y + h); ctx.lineTo(x, y + r)
+    ctx.arcTo(x, y, x + r, y, r); ctx.lineTo(x + w - r, y)
+    ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h)
+    ctx.closePath(); ctx.fill()
+  }
+  draw()
+</script>
+</body>
+</html>

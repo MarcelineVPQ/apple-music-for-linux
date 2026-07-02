@@ -22,8 +22,10 @@
       "main.js",
       "miniplayer.html",
       "lyrics.html",
+      "visualizer.html",
       "lastfm.js",
       "discord.js",
+      "visualizer.js",
       "sonata.png"
     ],
     "linux": {
