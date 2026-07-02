@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {

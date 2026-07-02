@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.2" date="2026-07-02">
+      <description>
+        <p>The app-menu entry now uses a stable symlink so it never breaks after an update. The mini player's Always on Top toggle also pins the lyrics window.</p>
+      </description>
+    </release>
     <release version="0.15.1" date="2026-07-02">
       <description>
         <p>Fixed a crash during self-update: the updater no longer deletes the running AppImage (which caused a SIGBUS); old versions are pruned safely on the next launch.</p>
