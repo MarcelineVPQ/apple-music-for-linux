@@ -10,43 +10,32 @@
     color: #fff;
     -webkit-app-region: drag;
   }
-  /* blurred album art fills the screen as an ambient backdrop */
   #bg {
     position: fixed; inset: 0;
     background-size: cover; background-position: center;
-    filter: blur(60px) saturate(1.4) brightness(0.5);
+    filter: blur(64px) saturate(1.4) brightness(0.42);
     transform: scale(1.2);
     transition: background-image 0.6s ease;
   }
-  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.75) 100%); }
+  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.78) 100%); }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
-  /* now-playing chip, top-left */
   #meta {
     position: fixed; left: 40px; top: 40px;
     display: flex; align-items: center; gap: 16px;
     text-shadow: 0 2px 20px rgba(0,0,0,0.8); pointer-events: none;
   }
-  #art {
-    width: 76px; height: 76px; border-radius: 10px; object-fit: cover;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.6); flex-shrink: 0;
-  }
+  #art { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; box-shadow: 0 10px 40px rgba(0,0,0,0.6); flex-shrink: 0; }
   #title { font-size: 24px; font-weight: 700; }
   #artist { font-size: 16px; opacity: 0.72; margin-top: 3px; }
-  /* synced lyrics, centered */
-  #lyrics {
-    position: fixed; left: 6%; right: 6%; top: 50%; transform: translateY(-50%);
-    text-align: center; pointer-events: none;
+  #lyrics { position: fixed; left: 6%; right: 6%; top: 50%; transform: translateY(-50%); text-align: center; pointer-events: none; }
+  #lyric-current { font-size: 44px; font-weight: 800; line-height: 1.25; text-shadow: 0 4px 40px rgba(0,0,0,0.7); transition: opacity 0.35s ease; min-height: 1.2em; }
+  #lyric-next { font-size: 26px; font-weight: 600; opacity: 0.4; margin-top: 16px; transition: opacity 0.35s ease; }
+  #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
+  #mode-label {
+    position: fixed; bottom: 20px; left: 24px; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; opacity: 0;
+    transition: opacity 0.4s ease; text-shadow: 0 2px 12px rgba(0,0,0,0.8);
   }
-  #lyric-current {
-    font-size: 44px; font-weight: 800; line-height: 1.25;
-    text-shadow: 0 4px 40px rgba(0,0,0,0.7);
-    transition: opacity 0.35s ease; min-height: 1.2em;
-  }
-  #lyric-next {
-    font-size: 26px; font-weight: 600; opacity: 0.4; margin-top: 16px;
-    transition: opacity 0.35s ease;
-  }
-  #hint { position: fixed; top: 16px; right: 20px; font-size: 12px; opacity: 0.35; }
 </style>
 </head>
 <body>
@@ -55,32 +44,57 @@
   <canvas id="c"></canvas>
   <div id="meta">
     <img id="art" alt="">
-    <div>
-      <div id="title">Not playing</div>
-      <div id="artist"></div>
-    </div>
+    <div><div id="title">Not playing</div><div id="artist"></div></div>
   </div>
-  <div id="lyrics">
-    <div id="lyric-current"></div>
-    <div id="lyric-next"></div>
-  </div>
-  <div id="hint">Esc to exit</div>
+  <div id="lyrics"><div id="lyric-current"></div><div id="lyric-next"></div></div>
+  <div id="mode-label"></div>
+  <div id="hint">Click to change scene · Esc to exit</div>
 <script>
   const { ipcRenderer } = require('electron')
   const canvas = document.getElementById('c')
   const ctx = canvas.getContext('2d')
   let W = 0, H = 0, dpr = 1
   function resize() {
-    dpr = window.devicePixelRatio || 1
+    dpr = Math.min(1.5, window.devicePixelRatio || 1)   // cap for 4K perf
     W = canvas.width = Math.floor(innerWidth * dpr)
     H = canvas.height = Math.floor(innerHeight * dpr)
+    ctx.clearRect(0, 0, W, H)
   }
   addEventListener('resize', resize); resize()
 
-  let bands = []       // latest from main
-  let shown = []       // interpolated values actually drawn
+  // --- realtime band data + derived audio metrics ---
+  let bands = [], shown = []
   window.__frames = 0
   ipcRenderer.on('viz-bands', (e, b) => { bands = b; window.__frames++; if (shown.length !== b.length) shown = b.slice() })
+  function stepBands() {
+    const n = shown.length
+    for (let i = 0; i < n; i++) shown[i] += ((bands[i] || 0) - shown[i]) * 0.35
+    let e = 0, bass = 0
+    for (let i = 0; i < n; i++) e += shown[i]
+    for (let i = 0; i < Math.min(6, n); i++) bass += shown[i]
+    return { n, energy: n ? e / n : 0, bass: bass / 6 }
+  }
+
+  // --- shared beat + BPM detector (bass-onset based) ---
+  const beat = { avgBass: 0, last: 0, intervals: [], bpm: 120, hit: false }
+  function detectBeat(a) {
+    const now = performance.now()
+    beat.avgBass = beat.avgBass * 0.92 + a.bass * 0.08
+    beat.hit = false
+    if (a.bass > beat.avgBass * 1.35 + 0.02 && now - beat.last > 250) {   // cap ~240 BPM
+      if (beat.last) {
+        beat.intervals.push(now - beat.last)
+        if (beat.intervals.length > 8) beat.intervals.shift()
+        const s = [...beat.intervals].sort((x, y) => x - y)
+        const med = s[s.length >> 1]
+        const b = 60000 / med
+        if (b >= 60 && b <= 190) beat.bpm = beat.bpm * 0.7 + b * 0.3
+      }
+      beat.last = now; beat.hit = true
+    }
+  }
+
+  // --- now playing + synced lyrics ---
   ipcRenderer.on('viz-nowplaying', (e, s) => {
     if (!s) return
     document.getElementById('title').textContent = s.title || 'Not playing'
@@ -89,15 +103,9 @@
     if (s.artwork) { art.src = s.artwork; document.getElementById('bg').style.backgroundImage = `url("${s.artwork}")` }
     art.style.display = s.artwork ? '' : 'none'
   })
-  document.onkeydown = (e) => { if (e.key === 'Escape') ipcRenderer.send('viz-close') }
-  document.onclick = () => ipcRenderer.send('viz-close')
-
-  // synced lyrics
-  let lyrics = []          // [{ t, text }]
-  let activeIdx = -1
+  let lyrics = [], activeIdx = -1
   ipcRenderer.on('viz-lyrics', (e, lines) => {
-    lyrics = Array.isArray(lines) ? lines : []
-    activeIdx = -1
+    lyrics = Array.isArray(lines) ? lines : []; activeIdx = -1
     document.getElementById('lyric-current').textContent = ''
     document.getElementById('lyric-next').textContent = ''
   })
@@ -111,47 +119,198 @@
     document.getElementById('lyric-next').textContent = (idx + 1 < lyrics.length) ? lyrics[idx + 1].text : ''
   })
 
-  function draw() {
-    ctx.clearRect(0, 0, W, H)
-    const n = shown.length
-    if (n) {
-      // ease drawn values toward the latest bands
-      for (let i = 0; i < n; i++) shown[i] += ((bands[i] || 0) - shown[i]) * 0.35
-
-      const gap = W * 0.004
-      const bw = (W - gap * (n - 1)) / n
-      const baseY = H * 0.82
-      const maxH = H * 0.6
-      for (let i = 0; i < n; i++) {
-        const v = shown[i]
-        const h = Math.max(2 * dpr, v * maxH)
-        const x = i * (bw + gap)
-        const hue = 320 - (i / n) * 70          // fuchsia -> violet across the spectrum
-        const grad = ctx.createLinearGradient(0, baseY - h, 0, baseY)
-        grad.addColorStop(0, `hsla(${hue}, 90%, 68%, 0.98)`)
-        grad.addColorStop(1, `hsla(${hue}, 85%, 45%, 0.85)`)
-        ctx.fillStyle = grad
-        roundBar(x, baseY - h, bw, h)
-        // reflection
-        ctx.globalAlpha = 0.18
-        const rg = ctx.createLinearGradient(0, baseY, 0, baseY + h * 0.6)
-        rg.addColorStop(0, `hsla(${hue}, 85%, 55%, 0.6)`); rg.addColorStop(1, 'transparent')
-        ctx.fillStyle = rg
-        ctx.fillRect(x, baseY, bw, h * 0.6)
-        ctx.globalAlpha = 1
-      }
-    }
-    requestAnimationFrame(draw)
+  // --- mode system ---
+  const MODES = ['bars', 'aurora', 'nebula', 'toast']
+  let modeIdx = 0
+  try { const s = localStorage.getItem('viz-mode'); if (s && MODES.includes(s)) modeIdx = MODES.indexOf(s) } catch (e) {}
+  const labelEl = document.getElementById('mode-label')
+  let labelTimer = null
+  function showLabel() {
+    labelEl.textContent = MODES[modeIdx]
+    labelEl.style.opacity = '0.85'
+    clearTimeout(labelTimer)
+    labelTimer = setTimeout(() => { labelEl.style.opacity = '0' }, 1400)
   }
+  function setMode(i) {
+    modeIdx = (i + MODES.length) % MODES.length
+    try { localStorage.setItem('viz-mode', MODES[modeIdx]) } catch (e) {}
+    ctx.clearRect(0, 0, W, H)
+    aurora.streamers = null; nebula.parts = null; toast.items = null   // re-seed on entry
+    showLabel()
+  }
+  window.__mode = () => MODES[modeIdx]   // for testing
+  document.onkeydown = (e) => {
+    if (e.key === 'Escape') ipcRenderer.send('viz-close')
+    else if (e.key === 'ArrowRight') setMode(modeIdx + 1)
+    else if (e.key === 'ArrowLeft') setMode(modeIdx - 1)
+    else if (e.key >= '1' && e.key <= '3') setMode(+e.key - 1)
+  }
+  document.onclick = () => setMode(modeIdx + 1)   // click cycles scenes; Esc exits
+  showLabel()
+
+  // --- helpers ---
   function roundBar(x, y, w, h) {
     const r = Math.min(w / 2, 6 * dpr)
-    ctx.beginPath()
-    ctx.moveTo(x, y + h); ctx.lineTo(x, y + r)
+    ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x, y + r)
     ctx.arcTo(x, y, x + r, y, r); ctx.lineTo(x + w - r, y)
     ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h)
     ctx.closePath(); ctx.fill()
   }
-  draw()
+  function glow(x, y, radius, color) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, radius)
+    g.addColorStop(0, color); g.addColorStop(1, 'transparent')
+    ctx.fillStyle = g
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill()
+  }
+
+  // --- MODE 1: bars (clean modern spectrum) ---
+  function renderBars(a) {
+    ctx.clearRect(0, 0, W, H)
+    ctx.globalCompositeOperation = 'source-over'
+    const n = a.n; if (!n) return
+    const gap = W * 0.004, bw = (W - gap * (n - 1)) / n
+    const baseY = H * 0.82, maxH = H * 0.6
+    for (let i = 0; i < n; i++) {
+      const v = shown[i], h = Math.max(2 * dpr, v * maxH), x = i * (bw + gap)
+      const hue = 320 - (i / n) * 70
+      const grad = ctx.createLinearGradient(0, baseY - h, 0, baseY)
+      grad.addColorStop(0, `hsla(${hue},90%,68%,0.98)`); grad.addColorStop(1, `hsla(${hue},85%,45%,0.85)`)
+      ctx.fillStyle = grad; roundBar(x, baseY - h, bw, h)
+      ctx.globalAlpha = 0.18
+      const rg = ctx.createLinearGradient(0, baseY, 0, baseY + h * 0.6)
+      rg.addColorStop(0, `hsla(${hue},85%,55%,0.6)`); rg.addColorStop(1, 'transparent')
+      ctx.fillStyle = rg; ctx.fillRect(x, baseY, bw, h * 0.6); ctx.globalAlpha = 1
+    }
+  }
+
+  // --- MODE 2: aurora (Flurry-style calm light streams) ---
+  const aurora = { streamers: null, t: 0 }
+  function renderAurora(a) {
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = 'rgba(0,0,0,0.09)'; ctx.fillRect(0, 0, W, H)   // gentle trails
+    if (!aurora.streamers) {
+      aurora.streamers = []
+      for (let i = 0; i < 6; i++) aurora.streamers.push({
+        px: Math.random() * 6.28, py: Math.random() * 6.28,
+        sx: 0.06 + Math.random() * 0.05, sy: 0.05 + Math.random() * 0.05,
+        sy2: 0.02 + Math.random() * 0.03, hue: 300 + i * 14
+      })
+    }
+    aurora.t += 0.016 * (0.6 + a.energy * 2.4)     // music quickens the drift
+    ctx.globalCompositeOperation = 'lighter'
+    for (const s of aurora.streamers) {
+      const t = aurora.t
+      const x = W * (0.5 + 0.44 * Math.sin(t * s.sx + s.px))
+      const y = H * (0.5 + 0.4 * Math.sin(t * s.sy + s.py) * Math.cos(t * s.sy2))
+      const r = (70 + a.bass * 420) * dpr
+      glow(x, y, r, `hsla(${s.hue + a.energy * 40},92%,66%,0.5)`)
+      glow(x, y, r * 0.4, `hsla(${s.hue + 20},95%,78%,0.6)`)
+    }
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  // --- MODE 3: nebula (Magnetosphere-style particle field, blooms on beats) ---
+  const nebula = { parts: null, rot: 0, pulse: 0 }
+  function renderNebula(a) {
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = 'rgba(0,0,0,0.14)'; ctx.fillRect(0, 0, W, H)
+    if (!nebula.parts) {
+      nebula.parts = []
+      for (let i = 0; i < 130; i++) nebula.parts.push({
+        ang: Math.random() * 6.28, rad: 0.1 + Math.random() * 0.9,
+        spd: 0.002 + Math.random() * 0.006, hue: Math.random() * 60
+      })
+    }
+    nebula.pulse += ((beat.hit ? 1 : 0) - nebula.pulse) * (beat.hit ? 0.6 : 0.06)
+    nebula.rot += 0.0015 + a.energy * 0.01
+    const cx = W / 2, cy = H / 2
+    const base = Math.min(W, H) * (0.16 + nebula.pulse * 0.16 + a.bass * 0.5)
+    ctx.globalCompositeOperation = 'lighter'
+    for (const p of nebula.parts) {
+      p.ang += p.spd * (1 + a.energy * 3)
+      const rad = base * (p.rad + a.energy * 0.5)
+      const x = cx + Math.cos(p.ang + nebula.rot) * rad
+      const y = cy + Math.sin(p.ang + nebula.rot) * rad * 0.82
+      const size = (1.5 + nebula.pulse * 4 + a.energy * 5) * dpr
+      const hue = 300 + p.hue + a.energy * 50
+      glow(x, y, size * 3, `hsla(${hue},90%,68%,0.5)`)
+    }
+    // bright core pulsing with the beat
+    glow(cx, cy, (40 + nebula.pulse * 120 + a.bass * 260) * dpr, `hsla(320,95%,72%,0.42)`)
+    ctx.globalCompositeOperation = 'source-over'
+  }
+
+  // --- MODE 4: toast (After Dark homage — original pixel sprites, BPM-flapped wings) ---
+  // '.' transparent; letters map to a palette. All original art.
+  const TOASTER = [
+    '.kk..kk...',
+    'caaaaaaac.',
+    'baAaaaAaab',
+    'baaaaaaaab',
+    'baaaaaaaab',
+    'baaaaaaaab',
+    'cbbbbbbbbc',
+    '.cccccccc.'
+  ]
+  const TPAL = { k: '#15151c', a: '#e6ecf5', A: '#ffffff', b: '#a9b4c3', c: '#7a8492' }
+  const WING_DOWN = ['w..', 'ww.', 'www', '.ww']
+  const WING_UP   = ['.ww', 'www', 'ww.', 'w..']
+  const WPAL = { w: '#f6f8fc' }
+  const TOAST_MAP = ['.gggg.', 'gHHHHg', 'gHHHHg', 'gHHHHg', 'gHHHHg', '.gggg.']
+  const GPAL = { g: '#b9752e', H: '#e6a24e' }
+
+  function drawSprite(map, pal, x, y, s) {
+    for (let r = 0; r < map.length; r++) {
+      const row = map[r]
+      for (let c = 0; c < row.length; c++) {
+        const ch = row[c]
+        if (ch === '.') continue
+        ctx.fillStyle = pal[ch]
+        ctx.fillRect(Math.round(x + c * s), Math.round(y + r * s), Math.ceil(s), Math.ceil(s))
+      }
+    }
+  }
+
+  const toast = { items: null }
+  function renderToast(a) {
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = 'rgba(6,5,12,0.6)'; ctx.fillRect(0, 0, W, H)   // classic dark sky, faint trails
+    if (!toast.items) toast.items = []
+    const now = performance.now()
+    // spawn on the beat, more toasters when the track is busier
+    if (beat.hit && toast.items.length < 26) {
+      const n = 1 + (a.energy > 0.35 ? 1 : 0)
+      for (let k = 0; k < n; k++) {
+        const isToast = Math.random() < 0.22
+        const s = (isToast ? 4 : 5) * dpr * (0.85 + Math.random() * 0.7)
+        toast.items.push({
+          x: W + Math.random() * W * 0.25, y: Math.random() * H * 0.55,
+          vx: -(1.6 + a.energy * 3 + beat.bpm / 130) * dpr * (0.85 + Math.random() * 0.5),
+          vy: (0.9 + a.energy * 2) * dpr * (0.7 + Math.random() * 0.6),
+          s, isToast, ph: Math.random() * 6.28
+        })
+      }
+    }
+    const flapHz = Math.max(1.2, beat.bpm / 60)   // wings flap at the tempo
+    for (let i = toast.items.length - 1; i >= 0; i--) {
+      const t = toast.items[i]
+      t.x += t.vx; t.y += t.vy
+      if (t.x < -80 * dpr || t.y > H + 80 * dpr) { toast.items.splice(i, 1); continue }
+      if (t.isToast) { drawSprite(TOAST_MAP, GPAL, t.x, t.y, t.s); continue }
+      drawSprite(TOASTER, TPAL, t.x, t.y, t.s)
+      const up = Math.sin(now / 1000 * flapHz * 2 * Math.PI + t.ph) > 0
+      drawSprite(up ? WING_UP : WING_DOWN, WPAL, t.x - 3 * t.s, t.y + 1.5 * t.s, t.s)
+    }
+  }
+
+  const RENDER = { bars: renderBars, aurora: renderAurora, nebula: renderNebula, toast: renderToast }
+  function frame() {
+    const a = stepBands()
+    detectBeat(a)
+    RENDER[MODES[modeIdx]](a)
+    requestAnimationFrame(frame)
+  }
+  frame()
 </script>
 </body>
 </html>

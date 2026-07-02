@@ -19,6 +19,11 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
   - volume slider with mute toggle
   - queue button that jumps back to the full player and opens *Up Next*
   - drag it anywhere by its background
+- **Audio-reactive visualizer / ambient mode** (Ctrl+Shift+V) — a full-screen now-playing screen with album art, synced lyrics, and a realtime spectrum driven by the actual audio output (captured via PipeWire/PulseAudio, so it works even with Apple's DRM). Four scenes, cycled by click or ← / →, remembered across launches:
+  - **Bars** — a clean modern spectrum
+  - **Aurora** — soft drifting light streams (a Flurry homage)
+  - **Nebula** — a beat-blooming particle field (an iTunes-visualizer homage)
+  - **Toast** — original pixel-art winged toasters whose wings flap to the detected BPM (an After Dark wink)
 - **Dark mode** — follows your desktop theme by default; Ctrl+D toggles light/dark manually and the choice is remembered across launches (upstream always started in light mode and only remembered the theme inside the snap)
 - **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
 - **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)
@@ -26,13 +31,14 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 - **Discord Rich Presence** — "Listening to" status with track, artist, album art, and progress; connect from the tray
 - **No sandbox crashes** — the AppImage launcher and `start.sh` both detect Ubuntu's restricted-userns kernels and fall back to no-sandbox instead of crashing at launch
 - **Sane window sizing** — the main window keeps a minimum size and restores its geometry when expanding from the mini player
-- **`--mini` flag** — launch straight into the mini player
+- **`--mini` / `--viz` flags** — launch straight into the mini player or the visualizer
 
 ## ⌨️ Keyboard shortcuts
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+M` | Toggle mini player |
+| `Ctrl+Shift+V` | Toggle visualizer / ambient mode (← / → or click to change scene, Esc to exit) |
 | `Ctrl+D` | Toggle dark / light mode |
 | `Alt+←` / `Alt+→` | Navigate back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |
