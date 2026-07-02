@@ -1215,6 +1215,8 @@ function notifyUpdateReady(version, interactive) {
 
 function restartIntoUpdate() {
   shuttingDown = true
+  // free the single-instance lock so the replacement doesn't see us and quit
+  app.releaseSingleInstanceLock()
   spawn(appImagePath, [], { detached: true, stdio: 'ignore' }).unref()
   app.exit(0)
 }
@@ -1247,6 +1249,21 @@ function applyAutostart() {
     }
   } catch (e) { console.error('autostart update failed:', e.message) }
 }
+
+// single instance: launching Sonata again just surfaces the running copy
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+}
+app.on('second-instance', () => {
+  if (miniWindow && !miniWindow.isDestroyed()) {
+    miniWindow.show()
+    miniWindow.focus()
+  } else if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+})
 
 app.whenReady().then(async () => {
   await components.whenReady()
