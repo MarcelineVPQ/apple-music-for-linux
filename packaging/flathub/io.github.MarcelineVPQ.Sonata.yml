@@ -26,7 +26,7 @@ modules:
       - cp -a electron/. /app/sonata/
       # the app itself lives in Electron's resources/app
       - mkdir -p /app/sonata/resources/app
-      - cp -a app/main.js app/miniplayer.html app/lyrics.html app/visualizer.html
+      - cp -a app/main.js app/miniplayer.html app/lyrics.html app/visualizer.html app/settings.html
               app/lastfm.js app/discord.js app/visualizer.js app/package.json app/sonata.png
               /app/sonata/resources/app/
       # launcher (uses the BaseApp's zypak sandbox wrapper)

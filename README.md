@@ -29,6 +29,10 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 - **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)
 - **AppImage releases** — no snap required; grab it from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases)
 - **Discord Rich Presence** — "Listening to" status with track, artist, album art, and progress; connect from the tray
+- **Track-change notifications** — a desktop notification with album art when the song changes (toggle in Settings)
+- **Settings panel** — a tray → Settings… window for notifications, close-to-tray, launch-at-login, start-minimized, and the Last.fm / Discord connections
+- **Remembers your window** — size and position are restored across launches
+- **Launch at login / minimize to tray** — optional; the app can start hidden in the tray on login (via a `~/.config/autostart` entry)
 - **No sandbox crashes** — the AppImage launcher and `start.sh` both detect Ubuntu's restricted-userns kernels and fall back to no-sandbox instead of crashing at launch
 - **Sane window sizing** — the main window keeps a minimum size and restores its geometry when expanding from the mini player
 - **`--mini` / `--viz` flags** — launch straight into the mini player or the visualizer

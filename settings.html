@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #1e1e20; --card: rgba(255,255,255,0.05); --fg: #f5f5f7; --fg-dim: #9a9aa0;
+    --border: rgba(255,255,255,0.09); --accent: #e0219a; --track: rgba(255,255,255,0.16);
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f5f7; --card: rgba(0,0,0,0.03); --fg: #1d1d1f; --fg-dim: #6e6e73;
+      --border: rgba(0,0,0,0.1); --track: rgba(0,0,0,0.18); }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'SF Pro Text', 'Segoe UI', Ubuntu, sans-serif;
+    background: var(--bg); color: var(--fg); padding: 22px 24px; font-size: 14px;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sub { color: var(--fg-dim); font-size: 12px; margin-bottom: 20px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--fg-dim); margin: 22px 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px 16px; }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row .label { font-weight: 500; }
+  .row .desc { font-size: 12px; color: var(--fg-dim); margin-top: 2px; }
+  .grow { flex: 1; min-width: 0; }
+  /* toggle */
+  .switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: var(--track); border-radius: 24px; transition: 0.2s; cursor: pointer; }
+  .slider::before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+  input:checked + .slider { background: var(--accent); }
+  input:checked + .slider::before { transform: translateX(18px); }
+  button {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+  }
+  button.secondary { background: var(--track); color: var(--fg); }
+  .status { font-size: 12px; color: var(--fg-dim); margin-top: 2px; }
+  .connected { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1>Settings</h1>
+  <div class="sub">Sonata</div>
+
+  <h2>General</h2>
+  <div class="card">
+    <div class="row">
+      <div class="grow"><div class="label">Track notifications</div><div class="desc">Show a desktop notification when the song changes</div></div>
+      <label class="switch"><input type="checkbox" id="notifications"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Close to tray</div><div class="desc">Closing the window hides it instead of quitting</div></div>
+      <label class="switch"><input type="checkbox" id="closeToTray"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Launch at login</div><div class="desc">Start Sonata automatically when you log in</div></div>
+      <label class="switch"><input type="checkbox" id="launchAtLogin"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Start minimized</div><div class="desc">Start hidden in the tray (with launch at login)</div></div>
+      <label class="switch"><input type="checkbox" id="startMinimized"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <h2>Connections</h2>
+  <div class="card">
+    <div class="row">
+      <div class="grow"><div class="label">Last.fm</div><div class="status" id="lastfm-status">Not connected</div></div>
+      <button id="lastfm-btn" class="secondary">Connect</button>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Discord Rich Presence</div><div class="status" id="discord-status">Not connected</div></div>
+      <button id="discord-btn" class="secondary">Connect</button>
+    </div>
+  </div>
+
+<script>
+  const { ipcRenderer } = require('electron')
+  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized']
+
+  async function refresh() {
+    const s = await ipcRenderer.invoke('settings:get')
+    for (const k of TOGGLES) document.getElementById(k).checked = !!s[k]
+    const lc = s.lastfmConnected
+    document.getElementById('lastfm-status').textContent = lc ? 'Connected as ' + s.lastfmUser : 'Not connected'
+    document.getElementById('lastfm-status').className = lc ? 'status connected' : 'status'
+    document.getElementById('lastfm-btn').textContent = lc ? 'Disconnect' : 'Connect'
+    const dc = s.discordEnabled
+    document.getElementById('discord-status').textContent = dc ? 'Connected' : 'Not connected'
+    document.getElementById('discord-status').className = dc ? 'status connected' : 'status'
+    document.getElementById('discord-btn').textContent = dc ? 'Disconnect' : 'Connect'
+  }
+
+  for (const k of TOGGLES) {
+    document.getElementById(k).addEventListener('change', (e) => ipcRenderer.send('settings:set', k, e.target.checked))
+  }
+  document.getElementById('lastfm-btn').onclick = () => ipcRenderer.send('settings:action',
+    document.getElementById('lastfm-status').classList.contains('connected') ? 'disconnectLastfm' : 'connectLastfm')
+  document.getElementById('discord-btn').onclick = () => ipcRenderer.send('settings:action',
+    document.getElementById('discord-status').classList.contains('connected') ? 'disconnectDiscord' : 'connectDiscord')
+
+  ipcRenderer.on('settings:refresh', refresh)
+  refresh()
+</script>
+</body>
+</html>

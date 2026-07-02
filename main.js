@@ -815,6 +815,44 @@ async function connectLastFm() {
   }
 }
 
+// --- settings window ---
+
+function createSettingsWindow() {
+  if (settingsWindow) { settingsWindow.focus(); return }
+  settingsWindow = new BrowserWindow({
+    width: 460, height: 560, resizable: false,
+    title: appName + ' — Settings',
+    autoHideMenuBar: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  })
+  settingsWindow.loadFile('settings.html')
+  lockDownLocalWindow(settingsWindow)
+  settingsWindow.on('closed', () => { settingsWindow = null })
+}
+
+ipcMain.handle('settings:get', () => ({
+  ...settings,
+  lastfmConnected: !!(lastfm && lastfm.connected),
+  lastfmUser: lastfm ? lastfm.username : '',
+  discordEnabled: !!discordConfig.enabled
+}))
+
+ipcMain.on('settings:set', (event, key, value) => {
+  if (!(key in settings)) return
+  settings[key] = value
+  saveSettings()
+  if (key === 'launchAtLogin' || key === 'startMinimized') applyAutostart()
+})
+
+ipcMain.on('settings:action', async (event, action) => {
+  if (action === 'connectLastfm') await connectLastFm()
+  else if (action === 'disconnectLastfm') { if (lastfm) lastfm.disconnect() }
+  else if (action === 'connectDiscord') await connectDiscord()
+  else if (action === 'disconnectDiscord') disconnectDiscord()
+  refreshTrayMenu()
+  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:refresh')
+})
+
 // --- tray ---
 
 function refreshTrayMenu() {
@@ -837,6 +875,7 @@ function refreshTrayMenu() {
     lastfmItem,
     discordItem,
     { type: 'separator' },
+    { label: 'Settings…', click: createSettingsWindow },
     { label: 'Quit', click: () => app.exit(0) }
   ]))
 }
@@ -993,6 +1032,9 @@ app.whenReady().then(async () => {
   }
   if (process.argv.includes('--viz')) {
     toggleVisualizer()
+  }
+  if (process.argv.includes('--settings')) {
+    createSettingsWindow()
   }
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
