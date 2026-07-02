@@ -1071,6 +1071,7 @@ function createWindow() {
 // --- AppImage menu integration & self-update ---
 
 const appImagePath = process.env.APPIMAGE || ''
+let installedPath = appImagePath  // follows renames when an update lands
 const appId = 'io.github.MarcelineVPQ.Sonata'
 const updateFeedUrl = 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases/latest/download/latest-linux.yml'
 let pendingUpdateVersion = null
@@ -1079,7 +1080,7 @@ let updateCheckBusy = false
 // Running from an AppImage leaves no menu entry or icon behind; write the
 // XDG pieces ourselves, and keep Exec pointed at the AppImage if it moves.
 function integrateAppImage() {
-  if (process.platform !== 'linux' || !appImagePath) return
+  if (process.platform !== 'linux' || !installedPath) return
   try {
     const share = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'))
     const iconPath = path.join(share, 'icons', 'hicolor', '512x512', 'apps', appId + '.png')
@@ -1088,7 +1089,7 @@ function integrateAppImage() {
     const entry =
       '[Desktop Entry]\nType=Application\nName=Sonata\n' +
       'Comment=Apple Music for Linux\n' +
-      'Exec=' + JSON.stringify(appImagePath) + ' %U\n' +
+      'Exec=' + JSON.stringify(installedPath) + ' %U\n' +
       'Icon=' + appId + '\nTerminal=false\n' +
       'Categories=AudioVideo;Audio;Player;\n' +
       'StartupWMClass=apple-music-for-linux\n'
@@ -1096,7 +1097,11 @@ function integrateAppImage() {
     fs.mkdirSync(path.dirname(desktopPath), { recursive: true })
     let current = ''
     try { current = fs.readFileSync(desktopPath, 'utf8') } catch (e) {}
-    if (current !== entry) fs.writeFileSync(desktopPath, entry)
+    if (current !== entry) {
+      fs.writeFileSync(desktopPath, entry)
+      // nudge KDE's application menu cache; harmless elsewhere
+      exec('kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null', () => {})
+    }
   } catch (e) { console.error('menu integration failed:', e.message) }
 }
 
@@ -1174,7 +1179,8 @@ async function checkForUpdates(interactive) {
     }
     if (pendingUpdateVersion !== feed.version) {
       const url = `https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v${feed.version}/${feed.file}`
-      const tmp = appImagePath + '.update'
+      const newPath = path.join(path.dirname(installedPath), feed.file)
+      const tmp = newPath + '.part'
       await downloadFile(url, tmp)
       const digest = crypto.createHash('sha512').update(fs.readFileSync(tmp)).digest('base64')
       if (feed.sha512 && digest !== feed.sha512) {
@@ -1182,7 +1188,14 @@ async function checkForUpdates(interactive) {
         throw new Error('update checksum mismatch')
       }
       fs.chmodSync(tmp, 0o755)
-      fs.renameSync(tmp, appImagePath)
+      fs.renameSync(tmp, newPath)
+      if (newPath !== installedPath) {
+        try { fs.unlinkSync(installedPath) } catch (e) {}
+        installedPath = newPath
+        process.env.APPIMAGE = newPath
+        integrateAppImage()  // repoint the menu entry at the new file name
+        if (settings.launchAtLogin) applyAutostart()
+      }
       pendingUpdateVersion = feed.version
     }
     notifyUpdateReady(feed.version, interactive)
@@ -1219,7 +1232,14 @@ function restartIntoUpdate() {
   shuttingDown = true
   // free the single-instance lock so the replacement doesn't see us and quit
   app.releaseSingleInstanceLock()
-  spawn(appImagePath, [], { detached: true, stdio: 'ignore' }).unref()
+  // Launch through a detached shell that waits for this instance to fully
+  // exit: helpers started while the old instance's FUSE mount and AppImage
+  // env vars are still around crash at startup (zygote SIGTRAP).
+  const env = { ...process.env }
+  for (const k of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD']) delete env[k]
+  spawn('/bin/sh', ['-c', 'sleep 1; exec ' + JSON.stringify(installedPath)], {
+    detached: true, stdio: 'ignore', env
+  }).unref()
   app.exit(0)
 }
 
