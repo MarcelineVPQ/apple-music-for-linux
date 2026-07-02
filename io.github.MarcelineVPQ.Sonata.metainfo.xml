@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.0" date="2026-07-02">
+      <description>
+        <p>Adaptive album color — the mini player and lyrics window retint to the current album art. The lyrics window now stays on top on KDE Wayland.</p>
+      </description>
+    </release>
     <release version="0.14.3" date="2026-07-02">
       <description>
         <p>Updates install under the new version's file name and restart cleanly, without crashing the replaced instance.</p>
