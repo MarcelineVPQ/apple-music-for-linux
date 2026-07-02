@@ -45,7 +45,8 @@ modules:
         dest: electron
       - type: git
         url: https://github.com/MarcelineVPQ/apple-music-for-linux.git
-        # in-repo template tracks master; for a Flathub PR, replace with a
-        # release tag plus its matching commit sha (see README.md)
-        branch: master
+        # Flathub requires a reproducible pin (tag + matching commit sha);
+        # bump both on every release.
+        tag: v0.10.1
+        commit: eba574bf6346a372ba4f152201600aae167f3894
         dest: app
