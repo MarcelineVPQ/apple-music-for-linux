@@ -38,8 +38,8 @@
       }
     },
     "flatpak": {
-      "runtimeVersion": "24.08",
-      "baseVersion": "24.08",
+      "runtimeVersion": "25.08",
+      "baseVersion": "25.08",
       "artifactName": "sonata-${version}-${arch}.${ext}",
       "finishArgs": [
         "--socket=wayland",
