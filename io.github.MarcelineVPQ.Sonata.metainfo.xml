@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.3" date="2026-07-02">
+      <description>
+        <p>"Restart Now" after an update now reliably relaunches into the new version, waiting for the old instance to fully exit and falling back to extract-and-run if needed.</p>
+      </description>
+    </release>
     <release version="0.15.2" date="2026-07-02">
       <description>
         <p>The app-menu entry now uses a stable symlink so it never breaks after an update. The mini player's Always on Top toggle also pins the lyrics window.</p>
