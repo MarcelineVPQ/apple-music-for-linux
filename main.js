@@ -4,7 +4,7 @@ const path = require('path');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 
-const appName = 'Apple Music'
+const appName = 'Sonata'
 
 // NOTE on sandboxing: recent Ubuntu restricts unprivileged user namespaces via
 // AppArmor, which aborts Chromium's sandbox setup BEFORE this script runs — it
@@ -628,7 +628,7 @@ async function connectDiscord() {
       type: 'info',
       title: 'Discord presence',
       message: 'Discord presence needs a (free) Discord application ID.',
-      detail: '1. Create an application named "Apple Music" at https://discord.com/developers/applications\n' +
+      detail: '1. Create an application named "Sonata" at https://discord.com/developers/applications\n' +
               '2. Copy its Application ID into:\n' + discordConfigPath + '\n' +
               '3. Click "Connect Discord" in the tray menu again.',
       buttons: ['Open config file', 'Open Discord developer portal', 'Close']
@@ -737,7 +737,7 @@ function refreshTrayMenu() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'apple-music-for-linux.png'))
+  const icon = nativeImage.createFromPath(path.join(__dirname, 'sonata.png'))
     .resize({ width: 22, height: 22 })
   tray = new Tray(icon)
   tray.setToolTip(appName)

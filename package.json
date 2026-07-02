@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -16,21 +16,21 @@
     "electronDownload": {
       "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
-    "appId": "io.github.MarcelineVPQ.AppleMusicForLinux",
-    "productName": "Apple Music",
+    "appId": "io.github.MarcelineVPQ.Sonata",
+    "productName": "Sonata",
     "files": [
       "main.js",
       "miniplayer.html",
       "lyrics.html",
       "lastfm.js",
       "discord.js",
-      "apple-music-for-linux.png"
+      "sonata.png"
     ],
     "linux": {
       "target": ["AppImage", "flatpak"],
-      "icon": "apple-music-for-linux.png",
+      "icon": "sonata.png",
       "category": "Audio",
-      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "artifactName": "sonata-${version}-${arch}.${ext}",
       "desktop": {
         "entry": {
           "StartupWMClass": "apple-music-for-linux"
@@ -40,7 +40,7 @@
     "flatpak": {
       "runtimeVersion": "24.08",
       "baseVersion": "24.08",
-      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "artifactName": "sonata-${version}-${arch}.${ext}",
       "finishArgs": [
         "--socket=wayland",
         "--socket=x11",

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.MarcelineVPQ.AppleMusicForLinux</id>
+  <id>io.github.MarcelineVPQ.Sonata</id>
 
-  <name>Apple Music for Linux</name>
+  <name>Sonata</name>
   <summary>Desktop player for the Apple Music web app</summary>
 
   <metadata_license>CC0-1.0</metadata_license>
@@ -14,9 +14,9 @@
 
   <description>
     <p>
-      An unofficial desktop wrapper for the Apple Music web player, with full
-      DRM playback support via Widevine. Not affiliated with or endorsed by
-      Apple Inc.
+      Sonata is an unofficial desktop player for the Apple Music web app, with
+      full DRM playback support via Widevine. Not affiliated with, endorsed by,
+      or sponsored by Apple Inc.; "Apple Music" is a trademark of Apple Inc.
     </p>
     <p>Features:</p>
     <ul>
@@ -28,7 +28,7 @@
     </ul>
   </description>
 
-  <launchable type="desktop-id">io.github.MarcelineVPQ.AppleMusicForLinux.desktop</launchable>
+  <launchable type="desktop-id">io.github.MarcelineVPQ.Sonata.desktop</launchable>
 
   <categories>
     <category>Audio</category>
@@ -43,11 +43,16 @@
   <screenshots>
     <screenshot type="default">
       <caption>The mini player and time-synced lyrics window</caption>
-      <image>https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/apple-music-for-linux.png</image>
+      <image>https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/sonata.png</image>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.10.0" date="2026-07-01">
+      <description>
+        <p>Rebranded to Sonata with a new icon. Mini player favorites, explicit badge, and hover times.</p>
+      </description>
+    </release>
     <release version="0.9.1" date="2026-07-01">
       <description>
         <p>Flatpak packaging and security hardening.</p>

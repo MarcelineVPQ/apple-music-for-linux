@@ -1,6 +1,8 @@
-# Apple Music for Linux
+# Sonata
 
-An unofficial [Apple Music](https://music.apple.com/) desktop app for Linux — a lightweight Electron wrapper with full DRM playback support (Widevine), a system tray, and a mini player.
+An unofficial [Apple Music](https://music.apple.com/) desktop player for Linux — a lightweight Electron wrapper with full DRM playback support (Widevine), a system tray, and a mini player.
+
+> Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" is a trademark of Apple Inc.
 
 This is a fork of [cross-platform/apple-music-for-linux](https://github.com/cross-platform/apple-music-for-linux), revived and extended.
 
@@ -47,8 +49,8 @@ chmod +x apple-music-for-linux-*.AppImage
 **Flatpak** — download the `.flatpak` bundle from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
 
 ```bash
-flatpak install --user apple-music-for-linux-*.flatpak
-flatpak run io.github.MarcelineVPQ.AppleMusicForLinux
+flatpak install --user sonata-*.flatpak
+flatpak run io.github.MarcelineVPQ.Sonata
 ```
 
 The Flatpak is sandboxed and requests only network, audio, GPU, and the Downloads folder.
@@ -62,7 +64,7 @@ Those app stores list **[Flathub](https://flathub.org)**. Note that installing t
 - **Trademark** — "Apple Music" is Apple's trademark; Flathub may require a rename or clear "unofficial" branding.
 - **DRM** — Widevine must be *downloaded at runtime* (it is here, via castlabs Electron), not bundled, and Flathub reviews DRM apps case by case.
 
-The AppStream metadata (`io.github.MarcelineVPQ.AppleMusicForLinux.metainfo.xml`) and reverse-DNS app ID are already in place, so the app is submission-ready if you choose to pursue a Flathub listing. Snapcraft (the Ubuntu App Center) is the other route, since the original app was published there.
+The AppStream metadata (`io.github.MarcelineVPQ.Sonata.metainfo.xml`), reverse-DNS app ID, and the neutral "Sonata" name + original icon are in place, so the app is submission-ready if you choose to pursue a Flathub listing. Snapcraft (the Ubuntu App Center) is the other route, since the original app was published there.
 
 ## 🎧 Last.fm scrobbling
 
