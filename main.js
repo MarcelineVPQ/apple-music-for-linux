@@ -39,6 +39,7 @@ let settings = { notifications: true, closeToTray: false, launchAtLogin: false, 
 let settingsPath = null
 let settingsWindow = null
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
+let trayTooltip = ''
 let saveBoundsTimer = null
 
 function loadSettings() {
@@ -648,7 +649,7 @@ function startNowPlayingLoop() {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
     const wantNotify = settings.notifications
-    if ((!wantLastfm && !wantDiscord && !wantNotify) || !mainAlive()) return
+    if ((!wantLastfm && !wantDiscord && !wantNotify && !tray) || !mainAlive()) return
     let state
     try {
       state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
@@ -656,6 +657,7 @@ function startNowPlayingLoop() {
       return
     }
     if (!state || !state.ok) return
+    if (tray) updateTrayTooltip(state)
     if (wantLastfm && state.title) feedScrobbler(state)
     if (wantDiscord) feedDiscord(state)
     if (wantNotify && state.title) {
@@ -879,6 +881,15 @@ ipcMain.on('settings:action', async (event, action) => {
 })
 
 // --- tray ---
+
+function updateTrayTooltip(state) {
+  const text = state.title
+    ? state.title + ' — ' + state.artist + (state.isPlaying ? '' : ' (paused)')
+    : appName
+  if (text === trayTooltip) return
+  trayTooltip = text
+  tray.setToolTip(text)
+}
 
 function refreshTrayMenu() {
   const lastfmItem = lastfm && lastfm.connected
