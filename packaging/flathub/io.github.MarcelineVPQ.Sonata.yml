@@ -47,6 +47,6 @@ modules:
         url: https://github.com/MarcelineVPQ/apple-music-for-linux.git
         # Flathub requires a reproducible pin (tag + matching commit sha);
         # bump both on every release.
-        tag: v0.10.2
-        commit: 742b0db5d7c4434e3f6bd4a3489f8d5b7c670bfe
+        tag: v0.12.0
+        commit: 76f100397378436f05f4980fef8fb2fd1b8f63c4
         dest: app
