@@ -272,6 +272,17 @@
 <script>
   const { ipcRenderer } = require('electron')
 
+  // adaptive album color: retint the pill to the current artwork (null resets)
+  ipcRenderer.on('palette', (event, p) => {
+    const r = document.documentElement.style
+    const keys = ['--accent', '--pill-bg', '--lcd-bg', '--progress']
+    if (!p) { keys.forEach(k => r.removeProperty(k)); return }
+    r.setProperty('--accent', p.accent)
+    r.setProperty('--pill-bg', p.bg + 'cc')      // translucent album-tinted surface
+    r.setProperty('--lcd-bg', p.accent + '1f')   // faint accent wash on the LCD
+    r.setProperty('--progress', p.accent)
+  })
+
   const send = (cmd, value) => ipcRenderer.send('mini-command', cmd, value)
   document.getElementById('shuffle').onclick = () => send('toggleShuffle')
   document.getElementById('prev').onclick = () => send('previous')

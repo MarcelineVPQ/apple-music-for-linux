@@ -65,6 +65,18 @@
     </div>
   </div>
 
+  <h2>Appearance</h2>
+  <div class="card">
+    <div class="row">
+      <div class="grow"><div class="label">Adaptive album color</div><div class="desc">Tint the mini player and lyrics to the current album art</div></div>
+      <label class="switch"><input type="checkbox" id="adaptiveColor"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div class="grow"><div class="label">Keep lyrics on top</div><div class="desc">Float the lyrics window above other windows</div></div>
+      <label class="switch"><input type="checkbox" id="lyricsAlwaysOnTop"><span class="slider"></span></label>
+    </div>
+  </div>
+
   <h2>Connections</h2>
   <div class="card">
     <div class="row">
@@ -79,7 +91,7 @@
 
 <script>
   const { ipcRenderer } = require('electron')
-  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized']
+  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop']
 
   async function refresh() {
     const s = await ipcRenderer.invoke('settings:get')

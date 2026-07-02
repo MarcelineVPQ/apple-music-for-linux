@@ -25,6 +25,7 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
   - **Aurora** — soft drifting light streams (a Flurry homage)
   - **Nebula** — a beat-blooming particle field (an iTunes-visualizer homage)
   - **Toast** — original pixel-art winged toasters whose wings flap to the detected BPM (an After Dark wink)
+- **Adaptive album color** — the mini player and lyrics window retint to the current album art in real time (accent extracted from the artwork, tinted background, the active lyric line glows in the album's color); toggle in Settings
 - **Dark mode** — follows your desktop theme by default; Ctrl+D toggles light/dark manually and the choice is remembered across launches (upstream always started in light mode and only remembered the theme inside the snap)
 - **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
 - **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)

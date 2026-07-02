@@ -26,6 +26,7 @@
       "lastfm.js",
       "discord.js",
       "visualizer.js",
+      "palette.js",
       "sonata.png"
     ],
     "linux": {

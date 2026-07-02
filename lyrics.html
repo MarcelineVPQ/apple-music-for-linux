@@ -9,6 +9,7 @@
     --fg: #f5f5f7;
     --fg-dim: rgba(245, 245, 247, 0.35);
     --btn-hover: rgba(255, 255, 255, 0.12);
+    --active: #f5f5f7;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -88,7 +89,7 @@
     transition: color 0.3s ease, filter 0.3s ease;
   }
   .line:hover { color: var(--fg); filter: none; }
-  .line.active { color: var(--fg); filter: none; }
+  .line.active { color: var(--active); filter: none; }
   #empty {
     padding: 24px 20px;
     font-size: 13px;
@@ -109,6 +110,16 @@
   </div>
 <script>
   const { ipcRenderer } = require('electron')
+
+  // adaptive album color: tint the card + highlight the active line (null resets)
+  ipcRenderer.on('palette', (event, p) => {
+    const r = document.documentElement.style
+    const keys = ['--bg', '--active', '--border']
+    if (!p) { keys.forEach(k => r.removeProperty(k)); return }
+    r.setProperty('--bg', p.bg + 'e6')          // mostly opaque album-tinted card
+    r.setProperty('--active', p.accent)         // current line glows in the accent
+    r.setProperty('--border', p.accent + '33')
+  })
 
   document.getElementById('close').onclick = () => ipcRenderer.send('lyrics-command', 'close')
 

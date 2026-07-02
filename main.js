@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const { exec, spawn } = require('child_process');
 const crypto = require('crypto');
+const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
@@ -37,7 +38,9 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true }
+let lastPalette = null
+let lastPaletteKey = null
 let settingsPath = null
 let settingsWindow = null
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
@@ -243,6 +246,7 @@ function createMiniWindow() {
 
   miniWindow.webContents.once('did-finish-load', () => {
     miniTrackKey = ''
+    if (lastPalette) miniWindow.webContents.send('palette', lastPalette)
     miniPoll = setInterval(async () => {
       if (!mainAlive() || !miniWindow) return
       try {
@@ -257,6 +261,7 @@ function createMiniWindow() {
           const fav = await mainWindow.webContents.executeJavaScript(ratingFetchScript)
           if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('favorite-state', fav)
         }
+        if (state && state.ok) refreshPalette(state)
       } catch (e) { /* page mid-navigation; try again next tick */ }
     }, 1000)
   })
@@ -367,7 +372,10 @@ function createLyricsWindow() {
         }
       }
       if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime)
+      refreshPalette(state)
     }, 500)
+    if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
+    if (settings.lyricsAlwaysOnTop) setTimeout(() => applyLyricsKeepAbove(true), 300)
   })
 
   lyricsWindow.on('closed', () => {
@@ -593,11 +601,10 @@ async function showMoreMenu() {
 // On Wayland a window can't raise itself, so setAlwaysOnTop is a no-op
 // there. KWin (KDE) exposes keep-above through its D-Bus scripting API;
 // drive that as a fallback. Other Wayland compositors offer no client path.
-function applyMiniKeepAbove(on) {
+function applyKeepAbove(caption, scriptId, on) {
   if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
   if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
-  const caption = appName + ' — Mini Player'
-  const scriptPath = path.join(os.tmpdir(), 'sonata-keep-above.js')
+  const scriptPath = path.join(os.tmpdir(), scriptId + '.js')
   try {
     fs.writeFileSync(scriptPath,
       `for (const w of workspace.windowList()) if (w.caption === ${JSON.stringify(caption)}) w.keepAbove = ${on};`)
@@ -605,12 +612,38 @@ function applyMiniKeepAbove(on) {
   const scripting = '$Q org.kde.KWin /Scripting org.kde.kwin.Scripting'
   exec(
     `Q=$(command -v qdbus6 || command -v qdbus) && ` +
-    `${scripting}.unloadScript sonata-keep-above >/dev/null 2>&1; ` +
-    `id=$(${scripting}.loadScript ${scriptPath} sonata-keep-above) && ` +
+    `${scripting}.unloadScript ${scriptId} >/dev/null 2>&1; ` +
+    `id=$(${scripting}.loadScript ${scriptPath} ${scriptId}) && ` +
     `$Q org.kde.KWin /Scripting/Script$id org.kde.kwin.Script.run && ` +
-    `${scripting}.unloadScript sonata-keep-above`,
+    `${scripting}.unloadScript ${scriptId}`,
     (err) => { if (err) console.error('kwin keep-above failed:', err.message) }
   )
+}
+function applyMiniKeepAbove(on) { applyKeepAbove(appName + ' — Mini Player', 'sonata-keep-above-mini', on) }
+function applyLyricsKeepAbove(on) { applyKeepAbove(appName + ' — Lyrics', 'sonata-keep-above-lyrics', on) }
+
+// --- adaptive album-art color ---
+function broadcastPalette(p) {
+  for (const w of [miniWindow, lyricsWindow, vizWindow]) {
+    if (w && !w.isDestroyed()) w.webContents.send('palette', p)
+  }
+}
+async function refreshPalette(state) {
+  if (!settings.adaptiveColor) {
+    if (lastPalette !== null) { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
+    return
+  }
+  const key = (state.title || '') + '|' + (state.artist || '')
+  if (key === lastPaletteKey) return
+  lastPaletteKey = key
+  const url = state.artworkLarge || state.artwork
+  if (!url) { lastPalette = null; broadcastPalette(null); return }
+  try {
+    const res = await fetch(url)
+    const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())).resize({ width: 32, height: 32 })
+    lastPalette = extractPalette(img.toBitmap(), { bgra: true })
+    broadcastPalette(lastPalette)
+  } catch (e) { /* keep previous palette */ }
 }
 
 function toggleMiniPlayer() {
@@ -909,6 +942,16 @@ ipcMain.on('settings:set', (event, key, value) => {
   settings[key] = value
   saveSettings()
   if (key === 'launchAtLogin' || key === 'startMinimized') applyAutostart()
+  else if (key === 'adaptiveColor') {
+    if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette) }  // re-extract next poll
+    else { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
+  }
+  else if (key === 'lyricsAlwaysOnTop') {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+      lyricsWindow.setAlwaysOnTop(value)
+      applyLyricsKeepAbove(value)
+    }
+  }
 })
 
 ipcMain.on('settings:action', async (event, action) => {
