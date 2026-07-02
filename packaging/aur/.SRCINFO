@@ -1,0 +1,20 @@
+pkgbase = sonata-apple-music-bin
+	pkgdesc = Unofficial Apple Music desktop player (Widevine DRM, tray, mini player, synced lyrics)
+	pkgver = 0.10.0
+	pkgrel = 1
+	url = https://github.com/MarcelineVPQ/apple-music-for-linux
+	arch = x86_64
+	license = GPL-3.0-only
+	depends = gtk3
+	depends = nss
+	depends = alsa-lib
+	optdepends = libnotify: desktop notifications
+	provides = sonata-apple-music
+	conflicts = sonata-apple-music
+	options = !strip
+	source = sonata-0.10.0.AppImage::https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.10.0/sonata-0.10.0-x86_64.AppImage
+	source = io.github.MarcelineVPQ.Sonata.png::https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/v0.10.0/sonata.png
+	sha256sums = 1c98ece8cf074c7bff347a5933510aba772b24530ac73508a1ebed71acf501a8
+	sha256sums = a9843dc4a14d049ade818bbee73bde446dbb931617221aed104d8b39e346bb09
+
+pkgname = sonata-apple-music-bin

@@ -1,0 +1,48 @@
+# Maintainer: MarcelineVPQ <marcyameliakuhn@outlook.com>
+pkgname=sonata-apple-music-bin
+_appid=io.github.MarcelineVPQ.Sonata
+pkgver=0.10.0
+pkgrel=1
+pkgdesc="Unofficial Apple Music desktop player (Widevine DRM, tray, mini player, synced lyrics)"
+arch=('x86_64')
+url="https://github.com/MarcelineVPQ/apple-music-for-linux"
+license=('GPL-3.0-only')
+depends=('gtk3' 'nss' 'alsa-lib')
+optdepends=('libnotify: desktop notifications')
+provides=('sonata-apple-music')
+conflicts=('sonata-apple-music')
+options=('!strip')
+source=("sonata-$pkgver.AppImage::$url/releases/download/v$pkgver/sonata-$pkgver-x86_64.AppImage"
+        "$_appid.png::https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/v$pkgver/sonata.png")
+sha256sums=('1c98ece8cf074c7bff347a5933510aba772b24530ac73508a1ebed71acf501a8'
+            'a9843dc4a14d049ade818bbee73bde446dbb931617221aed104d8b39e346bb09')
+
+package() {
+  cd "$srcdir"
+  chmod +x "sonata-$pkgver.AppImage"
+  # extract (no FUSE needed at build or run time)
+  ./"sonata-$pkgver.AppImage" --appimage-extract >/dev/null
+
+  install -dm755 "$pkgdir/opt/sonata"
+  cp -a squashfs-root/. "$pkgdir/opt/sonata/"
+  # AppImage marks files read-only via the mount; make them normal
+  chmod -R u+w "$pkgdir/opt/sonata"
+
+  install -dm755 "$pkgdir/usr/bin"
+  ln -s /opt/sonata/AppRun "$pkgdir/usr/bin/sonata"
+
+  install -Dm644 "$_appid.png" \
+    "$pkgdir/usr/share/icons/hicolor/512x512/apps/$_appid.png"
+
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/$_appid.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sonata
+Comment=Unofficial Apple Music desktop player
+Exec=sonata %U
+Icon=$_appid
+Terminal=false
+Categories=Audio;AudioVideo;Player;
+StartupWMClass=apple-music-for-linux
+EOF
+}
