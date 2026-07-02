@@ -6,9 +6,8 @@
   "main": "main.js",
   "scripts": {
     "start": "bash start.sh",
-    "dist": "electron-builder --linux AppImage flatpak",
+    "dist": "electron-builder --linux AppImage",
     "dist:appimage": "electron-builder --linux AppImage",
-    "dist:flatpak": "electron-builder --linux flatpak",
     "dist:snap": "electron-builder --linux snap"
   },
   "build": {
@@ -30,7 +29,7 @@
       "sonata.png"
     ],
     "linux": {
-      "target": ["AppImage", "flatpak"],
+      "target": ["AppImage"],
       "icon": "sonata.png",
       "category": "AudioVideo;Audio",
       "artifactName": "sonata-${version}-${arch}.${ext}",
@@ -39,22 +38,6 @@
           "StartupWMClass": "apple-music-for-linux"
         }
       }
-    },
-    "flatpak": {
-      "runtimeVersion": "25.08",
-      "baseVersion": "25.08",
-      "artifactName": "sonata-${version}-${arch}.${ext}",
-      "finishArgs": [
-        "--socket=wayland",
-        "--socket=x11",
-        "--share=ipc",
-        "--device=dri",
-        "--socket=pulseaudio",
-        "--share=network",
-        "--filesystem=xdg-download",
-        "--talk-name=org.freedesktop.Notifications",
-        "--own-name=org.mpris.MediaPlayer2.chromium.*"
-      ]
     },
     "snap": {
       "grade": "stable",

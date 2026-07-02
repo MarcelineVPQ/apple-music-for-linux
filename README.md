@@ -56,25 +56,11 @@ chmod +x sonata-*.AppImage
 ./sonata-*.AppImage
 ```
 
-**Flatpak** — download the `.flatpak` bundle from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
-
-```bash
-flatpak install --user sonata-*.flatpak
-flatpak run io.github.MarcelineVPQ.Sonata
-```
-
-The Flatpak is sandboxed and requests only network, audio, GPU, and the Downloads folder.
-
 > **Raspberry Pi / ARM:** not supported — Google does not publish a Widevine DRM module for desktop linux-arm64, so no Chromium/Electron app can play Apple Music there.
 
-## 🏪 Getting into software centers (GNOME Software / KDE Discover)
+## 🏪 Getting into software centers
 
-Those app stores list **[Flathub](https://flathub.org)**. Note that installing the `.flatpak` bundle above works locally but does *not* make the app searchable there — Flathub builds from source via a manifest submitted to [github.com/flathub/flathub](https://github.com/flathub/flathub) and reviewed by their team. Two things make submission non-trivial for this app:
-
-- **Trademark** — "Apple Music" is Apple's trademark; Flathub may require a rename or clear "unofficial" branding.
-- **DRM** — Widevine must be *downloaded at runtime* (it is here, via castlabs Electron), not bundled, and Flathub reviews DRM apps case by case.
-
-The AppStream metadata (`io.github.MarcelineVPQ.Sonata.metainfo.xml`), reverse-DNS app ID, and the neutral "Sonata" name + original icon are in place, so the app is submission-ready if you choose to pursue a Flathub listing. Snapcraft (the Ubuntu App Center) is the other route, since the original app was published there.
+Snapcraft (the Ubuntu App Center) is the app-store route for this app — the original was published there, and a `dist:snap` build target is already configured. The AppStream metadata (`io.github.MarcelineVPQ.Sonata.metainfo.xml`), reverse-DNS app ID, and the neutral "Sonata" name + original icon are all in place. Note that "Apple Music" is Apple's trademark, so any store listing needs the unofficial "Sonata" branding, and Widevine DRM must be downloaded at runtime (it is here, via castlabs Electron), not bundled.
 
 ## 🎧 Last.fm scrobbling
 

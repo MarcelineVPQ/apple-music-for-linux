@@ -60,12 +60,12 @@
     </release>
     <release version="0.10.2" date="2026-07-01">
       <description>
-        <p>Flatpak runtime updated to freedesktop 25.08.</p>
+        <p>Packaging and runtime updates.</p>
       </description>
     </release>
     <release version="0.10.1" date="2026-07-01">
       <description>
-        <p>Packaging: AUR package and Flathub manifest; store screenshot and metadata.</p>
+        <p>Packaging: AUR package; store screenshot and metadata.</p>
       </description>
     </release>
     <release version="0.10.0" date="2026-07-01">
@@ -75,7 +75,7 @@
     </release>
     <release version="0.9.1" date="2026-07-01">
       <description>
-        <p>Flatpak packaging and security hardening.</p>
+        <p>Security hardening.</p>
       </description>
     </release>
     <release version="0.9.0" date="2026-07-01">

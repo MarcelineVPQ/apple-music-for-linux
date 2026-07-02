@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Sonata
-Comment=Unofficial Apple Music desktop player
-Exec=sonata %U
-Icon=io.github.MarcelineVPQ.Sonata
-Terminal=false
-Categories=Audio;AudioVideo;Player;
-StartupWMClass=apple-music-for-linux

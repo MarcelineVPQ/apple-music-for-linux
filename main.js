@@ -1019,7 +1019,6 @@ function createWindow() {
 // ~/.config/autostart entry for launch-on-login (Electron's setLoginItemSettings
 // is a no-op on Linux, so write the desktop file ourselves)
 function autostartExec() {
-  if (process.env.FLATPAK_ID) return 'flatpak run ' + process.env.FLATPAK_ID
   if (process.env.APPIMAGE) return JSON.stringify(process.env.APPIMAGE)
   return JSON.stringify(process.execPath)
 }
