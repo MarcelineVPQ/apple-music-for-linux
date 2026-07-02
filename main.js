@@ -1233,7 +1233,9 @@ async function checkForUpdates(interactive) {
       fs.chmodSync(tmp, 0o755)
       fs.renameSync(tmp, newPath)
       if (newPath !== installedPath) {
-        try { fs.unlinkSync(installedPath) } catch (e) {}
+        // Do NOT delete installedPath here: the app is still executing from
+        // that AppImage's FUSE mount, and removing it crashes the running
+        // process with SIGBUS. Stale old versions are pruned at next launch.
         installedPath = newPath
         process.env.APPIMAGE = newPath
         integrateAppImage()  // repoint the menu entry at the new file name
@@ -1286,8 +1288,26 @@ function restartIntoUpdate() {
   app.exit(0)
 }
 
+// Remove older-versioned Sonata AppImages left beside the current one by a
+// previous self-update (we couldn't delete them while they were running).
+// Safe now: this process runs from appImagePath, never the files being pruned.
+function pruneOldAppImages() {
+  if (!appImagePath) return
+  try {
+    const dir = path.dirname(appImagePath)
+    const self = path.basename(appImagePath)
+    for (const f of fs.readdirSync(dir)) {
+      const m = f.match(/^sonata-(\d+\.\d+\.\d+)-.*\.AppImage$/i)
+      if (m && f !== self && isNewerVersion(app.getVersion(), m[1])) {
+        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
+      }
+    }
+  } catch (e) {}
+}
+
 function startUpdateChecks() {
   if (!appImagePath) return
+  pruneOldAppImages()
   setTimeout(() => checkForUpdates(false), 20 * 1000)
   setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
 }
