@@ -29,6 +29,7 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 - **Back / forward navigation** — `Alt+←` / `Alt+→` and mouse back/forward buttons
 - **Last.fm scrobbling** — connect from the tray menu; scrobbles follow Last.fm's rules (half the track or 4 minutes)
 - **AppImage releases** — no snap required; grab it from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases)
+- **Self-installing, self-updating AppImage** — running the AppImage adds Sonata to your app menu automatically (desktop entry + icon, kept in sync if you move the file), checks GitHub for new releases in the background, downloads and verifies them, and notifies you to restart into the new version; manual check in tray → *Check for Updates…*
 - **Discord Rich Presence** — "Listening to" status with track, artist, album art, and progress; connect from the tray
 - **Track-change notifications** — a desktop notification with album art when the song changes (toggle in Settings)
 - **Settings panel** — a tray → Settings… window for notifications, close-to-tray, launch-at-login, start-minimized, and the Last.fm / Discord connections

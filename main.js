@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components } = require('electron')
+const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components, net } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
+const crypto = require('crypto');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
@@ -948,6 +949,7 @@ function refreshTrayMenu() {
     lastfmItem,
     discordItem,
     { type: 'separator' },
+    { label: 'Check for Updates…', click: () => checkForUpdates(true) },
     { label: 'Settings…', click: createSettingsWindow },
     { label: 'Quit', click: () => app.exit(0) }
   ]))
@@ -1064,6 +1066,165 @@ function createWindow() {
  });
 }
 
+// --- AppImage menu integration & self-update ---
+
+const appImagePath = process.env.APPIMAGE || ''
+const appId = 'io.github.MarcelineVPQ.Sonata'
+const updateFeedUrl = 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases/latest/download/latest-linux.yml'
+let pendingUpdateVersion = null
+let updateCheckBusy = false
+
+// Running from an AppImage leaves no menu entry or icon behind; write the
+// XDG pieces ourselves, and keep Exec pointed at the AppImage if it moves.
+function integrateAppImage() {
+  if (process.platform !== 'linux' || !appImagePath) return
+  try {
+    const share = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'))
+    const iconPath = path.join(share, 'icons', 'hicolor', '512x512', 'apps', appId + '.png')
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true })
+    fs.writeFileSync(iconPath, fs.readFileSync(path.join(__dirname, 'sonata.png')))
+    const entry =
+      '[Desktop Entry]\nType=Application\nName=Sonata\n' +
+      'Comment=Apple Music for Linux\n' +
+      'Exec=' + JSON.stringify(appImagePath) + ' %U\n' +
+      'Icon=' + appId + '\nTerminal=false\n' +
+      'Categories=AudioVideo;Audio;Player;\n' +
+      'StartupWMClass=apple-music-for-linux\n'
+    const desktopPath = path.join(share, 'applications', appId + '.desktop')
+    fs.mkdirSync(path.dirname(desktopPath), { recursive: true })
+    let current = ''
+    try { current = fs.readFileSync(desktopPath, 'utf8') } catch (e) {}
+    if (current !== entry) fs.writeFileSync(desktopPath, entry)
+  } catch (e) { console.error('menu integration failed:', e.message) }
+}
+
+function fetchText(url) {
+  return new Promise((resolve, reject) => {
+    const req = net.request(url)
+    req.on('response', (res) => {
+      if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return }
+      let body = ''
+      res.on('data', (chunk) => { body += chunk })
+      res.on('end', () => resolve(body))
+      res.on('error', reject)
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+function downloadFile(url, dest) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest)
+    const fail = (e) => { file.close(() => fs.unlink(dest, () => {})); reject(e) }
+    const req = net.request(url)
+    req.on('response', (res) => {
+      if (res.statusCode !== 200) { fail(new Error('HTTP ' + res.statusCode)); return }
+      res.on('data', (chunk) => file.write(chunk))
+      res.on('end', () => file.end(resolve))
+      res.on('error', fail)
+    })
+    req.on('error', fail)
+    req.end()
+  })
+}
+
+// electron-builder publishes latest-linux.yml alongside each release's
+// AppImage; top-level keys only (the indented per-file block is skipped)
+function parseUpdateFeed(text) {
+  const grab = (key) => {
+    const m = text.match(new RegExp('^' + key + ':\\s*(.+)$', 'm'))
+    return m ? m[1].trim() : ''
+  }
+  return { version: grab('version'), file: grab('path'), sha512: grab('sha512') }
+}
+
+function isNewerVersion(a, b) {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d > 0
+  }
+  return false
+}
+
+// Download the new AppImage next to the current one, verify, and swap it in
+// place. The running instance keeps its mount of the old file; the new
+// version takes over on the next launch.
+async function checkForUpdates(interactive) {
+  if (updateCheckBusy) return
+  if (!appImagePath) {
+    if (interactive) dialog.showMessageBox({
+      type: 'info', title: 'Updates',
+      message: 'Not running from an AppImage.',
+      detail: 'Automatic updates only apply to the AppImage build; from a source checkout, update with git pull.'
+    })
+    return
+  }
+  updateCheckBusy = true
+  try {
+    const feed = parseUpdateFeed(await fetchText(updateFeedUrl))
+    if (!feed.version || !feed.file || !isNewerVersion(feed.version, app.getVersion())) {
+      if (interactive) dialog.showMessageBox({
+        type: 'info', title: 'Updates', message: `You're up to date (v${app.getVersion()}).`
+      })
+      return
+    }
+    if (pendingUpdateVersion !== feed.version) {
+      const url = `https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v${feed.version}/${feed.file}`
+      const tmp = appImagePath + '.update'
+      await downloadFile(url, tmp)
+      const digest = crypto.createHash('sha512').update(fs.readFileSync(tmp)).digest('base64')
+      if (feed.sha512 && digest !== feed.sha512) {
+        fs.unlinkSync(tmp)
+        throw new Error('update checksum mismatch')
+      }
+      fs.chmodSync(tmp, 0o755)
+      fs.renameSync(tmp, appImagePath)
+      pendingUpdateVersion = feed.version
+    }
+    notifyUpdateReady(feed.version, interactive)
+  } catch (e) {
+    console.error('update check failed:', e.message)
+    if (interactive) dialog.showMessageBox({ type: 'error', title: 'Update failed', message: e.message })
+  } finally {
+    updateCheckBusy = false
+  }
+}
+
+function notifyUpdateReady(version, interactive) {
+  if (interactive) {
+    dialog.showMessageBox({
+      type: 'info', title: 'Update ready',
+      message: `Sonata v${version} is installed.`,
+      detail: 'Restart to start using it.',
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0
+    }).then(({ response }) => { if (response === 0) restartIntoUpdate() })
+  } else if (Notification.isSupported()) {
+    const note = new Notification({
+      title: `Sonata v${version} is ready`,
+      body: 'Update downloaded — click to restart into it.',
+      icon: path.join(__dirname, 'sonata.png'),
+      silent: true
+    })
+    note.on('click', restartIntoUpdate)
+    note.show()
+  }
+}
+
+function restartIntoUpdate() {
+  shuttingDown = true
+  spawn(appImagePath, [], { detached: true, stdio: 'ignore' }).unref()
+  app.exit(0)
+}
+
+function startUpdateChecks() {
+  if (!appImagePath) return
+  setTimeout(() => checkForUpdates(false), 20 * 1000)
+  setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
+}
+
 // ~/.config/autostart entry for launch-on-login (Electron's setLoginItemSettings
 // is a no-op on Linux, so write the desktop file ourselves)
 function autostartExec() {
@@ -1096,9 +1257,11 @@ app.whenReady().then(async () => {
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   loadSettings()
   applyAutostart()
+  integrateAppImage()
   createWindow()
   createTray()
   startNowPlayingLoop()
+  startUpdateChecks()
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }
