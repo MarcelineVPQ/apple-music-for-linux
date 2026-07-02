@@ -28,6 +28,7 @@ let discordConfig = { applicationId: '', enabled: false }
 let discordConfigPath = null
 let discordReconnectTicks = 0
 let lastPresenceKey = ''
+let miniTrackKey = ''
 
 function initLocaleAndTheme() {
   const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
@@ -167,7 +168,8 @@ const nowPlayingScript = `(() => {
         : '',
       shuffle: mk.shuffleMode === 1,
       repeat: mk.repeatMode,
-      volume: mk.volume
+      volume: mk.volume,
+      contentRating: attrs ? (attrs.contentRating || '') : ''
     };
   } catch (e) {
     return { ok: false };
@@ -193,11 +195,21 @@ function createMiniWindow() {
   lockDownLocalWindow(miniWindow)
 
   miniWindow.webContents.once('did-finish-load', () => {
+    miniTrackKey = ''
     miniPoll = setInterval(async () => {
       if (!mainAlive() || !miniWindow) return
       try {
         const state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
-        if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('now-playing', state)
+        if (!miniWindow || miniWindow.isDestroyed()) return
+        miniWindow.webContents.send('now-playing', state)
+        // refresh the favorite star only when the track changes (avoids an
+        // API call every tick)
+        const key = state && state.ok && state.title ? state.title + '|' + state.artist : ''
+        if (key && key !== miniTrackKey) {
+          miniTrackKey = key
+          const fav = await mainWindow.webContents.executeJavaScript(ratingFetchScript)
+          if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('favorite-state', fav)
+        }
       } catch (e) { /* page mid-navigation; try again next tick */ }
     }, 1000)
   })
@@ -365,6 +377,54 @@ function musicApiCall(script, label) {
     .catch((e) => console.error(label + ' failed:', e.message))
 }
 
+// Read the current song's favorite rating. The id never leaves the page, so
+// there is no string-interpolation/injection surface.
+const ratingFetchScript = `(async () => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    if (!item) return { ok: false };
+    const attrs = item.attributes || {};
+    const pp = attrs.playParams || {};
+    const id = pp.catalogId || pp.id || item.id;
+    const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
+    const entry = r && r.data && r.data.data && r.data.data[0];
+    return { ok: true, rating: entry && entry.attributes ? entry.attributes.value : 0 };
+  } catch (e) {
+    return { ok: true, rating: 0 };
+  }
+})()`
+
+// Toggle the current song's favorite state, entirely in the page context.
+const toggleFavoriteScript = `(async () => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    if (!item) return { ok: false };
+    const attrs = item.attributes || {};
+    const pp = attrs.playParams || {};
+    const id = pp.catalogId || pp.id || item.id;
+    let rating = 0;
+    try {
+      const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
+      const entry = r && r.data && r.data.data && r.data.data[0];
+      rating = entry && entry.attributes ? entry.attributes.value : 0;
+    } catch (e) { /* not rated */ }
+    if (rating === 1) {
+      await mk.api.music('/v1/me/ratings/songs/' + id, {}, { fetchOptions: { method: 'DELETE' } });
+      return { ok: true, rating: 0 };
+    }
+    await mk.api.music('/v1/me/ratings/songs/' + id, {}, { fetchOptions: {
+      method: 'PUT',
+      body: JSON.stringify({ type: 'rating', attributes: { value: 1 } }),
+      headers: { 'Content-Type': 'application/json' }
+    } });
+    return { ok: true, rating: 1 };
+  } catch (e) {
+    return { ok: false };
+  }
+})()`
+
 async function showMoreMenu() {
   if (!mainAlive() || !miniWindow || miniWindow.isDestroyed()) return
   let info = null
@@ -429,6 +489,17 @@ ipcMain.on('mini-command', (event, command, value) => {
   }
   else if (command === 'moreMenu') {
     showMoreMenu()
+  }
+  else if (command === 'toggleFavorite') {
+    if (mainAlive()) {
+      mainWindow.webContents.executeJavaScript(toggleFavoriteScript)
+        .then((res) => {
+          if (res && res.ok && miniWindow && !miniWindow.isDestroyed()) {
+            miniWindow.webContents.send('favorite-state', res)
+          }
+        })
+        .catch((e) => console.error('toggle favorite failed:', e.message))
+    }
   }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)

@@ -94,13 +94,62 @@
     cursor: pointer;
   }
   #info { flex: 1; min-width: 0; text-align: center; padding-bottom: 3px; }
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+  }
   #title {
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 100%;
   }
+  #rating-badge {
+    flex-shrink: 0;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 2px 3px;
+    border-radius: 3px;
+    color: var(--fg-dim);
+    background: var(--btn-hover);
+  }
+  #fav {
+    -webkit-app-region: no-drag;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--fg-dim);
+  }
+  #fav:hover { color: var(--fg); }
+  #fav.active { color: var(--accent); }
+  #fav svg { width: 13px; height: 13px; fill: currentColor; }
+  /* elapsed / remaining, revealed when hovering the LCD (like Apple's) */
+  .lcd-time {
+    position: absolute;
+    bottom: 3px;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-dim);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+  }
+  #time-elapsed { left: 9px; }
+  #time-remaining { right: 9px; }
+  #lcd:hover .lcd-time { opacity: 1; }
   #subtitle {
     font-size: 11px;
     color: var(--fg-dim);
@@ -188,12 +237,21 @@
     <div id="lcd">
       <img id="art" title="Open full player" alt="">
       <div id="info">
-        <div id="title">Not playing</div>
+        <div class="title-row">
+          <span id="title">Not playing</span>
+          <span id="rating-badge" style="display:none">E</span>
+          <button id="fav" title="Favorite">
+            <svg id="icon-fav-off" viewBox="0 0 16 16"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            <svg id="icon-fav-on" viewBox="0 0 16 16" style="display:none"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z"/></svg>
+          </button>
+        </div>
         <div id="subtitle"></div>
       </div>
       <button id="more" class="small" title="More">
         <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
       </button>
+      <span id="time-elapsed" class="lcd-time">0:00</span>
+      <span id="time-remaining" class="lcd-time">-0:00</span>
       <div id="progress-track"><div id="progress-fill"></div></div>
     </div>
 
@@ -224,6 +282,22 @@
   document.getElementById('lyrics').onclick = () => send('lyrics')
   document.getElementById('more').onclick = () => send('moreMenu')
   document.getElementById('art').onclick = () => send('expand')
+  document.getElementById('fav').onclick = () => send('toggleFavorite')
+
+  const fmtTime = (s) => {
+    s = Math.max(0, Math.round(s || 0))
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
+  }
+  function setFavorite(rating) {
+    const on = rating === 1
+    document.getElementById('fav').classList.toggle('active', on)
+    document.getElementById('icon-fav-off').style.display = on ? 'none' : ''
+    document.getElementById('icon-fav-on').style.display = on ? '' : 'none'
+    document.getElementById('fav').title = on ? 'Undo Favorite' : 'Favorite'
+  }
+  ipcRenderer.on('favorite-state', (event, fav) => {
+    if (fav && fav.ok) setFavorite(fav.rating)
+  })
 
   let currentDuration = 0
   const progressTrack = document.getElementById('progress-track')
@@ -268,9 +342,14 @@
     document.getElementById('shuffle').classList.toggle('active', !!state.shuffle)
     document.getElementById('repeat').classList.toggle('active', state.repeat > 0)
     document.getElementById('repeat-one').style.display = state.repeat === 1 ? '' : 'none'
+    document.getElementById('rating-badge').style.display =
+      state.contentRating === 'explicit' ? '' : 'none'
     currentDuration = state.duration || 0
     document.getElementById('progress-fill').style.width =
       currentDuration ? (state.playbackTime / currentDuration * 100) + '%' : '0%'
+    document.getElementById('time-elapsed').textContent = fmtTime(state.playbackTime)
+    document.getElementById('time-remaining').textContent =
+      currentDuration ? '-' + fmtTime(currentDuration - state.playbackTime) : '-0:00'
     if (!draggingVolume && typeof state.volume === 'number') {
       volumeSlider.value = Math.round(state.volume * 100)
       updateMuteIcon(state.volume)
