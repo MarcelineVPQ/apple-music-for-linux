@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { exec } = require('child_process');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
@@ -35,7 +36,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true }
 let settingsPath = null
 let settingsWindow = null
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
@@ -227,8 +228,8 @@ function createMiniWindow() {
     transparent: true,
     hasShadow: false,
     resizable: false,
-    alwaysOnTop: true,
-    title: appName,
+    alwaysOnTop: settings.miniAlwaysOnTop,
+    title: appName + ' — Mini Player',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -236,6 +237,8 @@ function createMiniWindow() {
   })
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
+  // give KWin a moment to map the window before asking it to keep it above
+  if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
 
   miniWindow.webContents.once('did-finish-load', () => {
     miniTrackKey = ''
@@ -570,9 +573,43 @@ async function showMoreMenu() {
     { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url) },
     { label: 'Lyrics', click: toggleLyricsWindow },
     { type: 'separator' },
+    {
+      label: 'Always on Top',
+      type: 'checkbox',
+      checked: settings.miniAlwaysOnTop,
+      click: (item) => {
+        settings.miniAlwaysOnTop = item.checked
+        if (miniWindow && !miniWindow.isDestroyed()) miniWindow.setAlwaysOnTop(item.checked)
+        applyMiniKeepAbove(item.checked)
+        saveSettings()
+      }
+    },
     { label: 'Open Full Player', click: toggleMiniPlayer }
   ])
   menu.popup({ window: miniWindow })
+}
+
+// On Wayland a window can't raise itself, so setAlwaysOnTop is a no-op
+// there. KWin (KDE) exposes keep-above through its D-Bus scripting API;
+// drive that as a fallback. Other Wayland compositors offer no client path.
+function applyMiniKeepAbove(on) {
+  if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
+  if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
+  const caption = appName + ' — Mini Player'
+  const scriptPath = path.join(os.tmpdir(), 'sonata-keep-above.js')
+  try {
+    fs.writeFileSync(scriptPath,
+      `for (const w of workspace.windowList()) if (w.caption === ${JSON.stringify(caption)}) w.keepAbove = ${on};`)
+  } catch (e) { return }
+  const scripting = '$Q org.kde.KWin /Scripting org.kde.kwin.Scripting'
+  exec(
+    `Q=$(command -v qdbus6 || command -v qdbus) && ` +
+    `${scripting}.unloadScript sonata-keep-above >/dev/null 2>&1; ` +
+    `id=$(${scripting}.loadScript ${scriptPath} sonata-keep-above) && ` +
+    `$Q org.kde.KWin /Scripting/Script$id org.kde.kwin.Script.run && ` +
+    `${scripting}.unloadScript sonata-keep-above`,
+    (err) => { if (err) console.error('kwin keep-above failed:', err.message) }
+  )
 }
 
 function toggleMiniPlayer() {

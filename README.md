@@ -19,6 +19,7 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
   - volume slider with mute toggle
   - queue button that jumps back to the full player and opens *Up Next*
   - drag it anywhere by its background
+  - always-on-top is toggleable from the ⋯ menu (see [note below](#-always-on-top-on-wayland) for Wayland)
 - **Audio-reactive visualizer / ambient mode** (Ctrl+Shift+V) — a full-screen now-playing screen with album art, synced lyrics, and a realtime spectrum driven by the actual audio output (captured via PipeWire/PulseAudio, so it works even with Apple's DRM). Four scenes, cycled by click or ← / →, remembered across launches:
   - **Bars** — a clean modern spectrum
   - **Aurora** — soft drifting light streams (a Flurry homage)
@@ -109,6 +110,18 @@ StartupWMClass=apple-music-for-linux
 ```
 
 > **Tip:** don't launch the app from a terminal inside a snap-packaged IDE (VS Code/Codium snap) — the snap's confinement breaks Electron's helper processes. Use a regular terminal or the desktop entry.
+
+## 📌 Always on Top on Wayland
+
+Wayland doesn't let apps raise their own windows, so the mini player's *Always on Top* toggle needs help from the compositor:
+
+- **KDE Plasma (Wayland)** — works out of the box; the app drives KWin's keep-above via its D-Bus scripting API
+- **X11 / XWayland sessions** — works natively
+- **GNOME (Wayland)** — GNOME exposes no API for this, so the toggle has no effect. Either press `Alt+Space` on the focused mini player and pick *Always on Top* from the window menu, or run the app under XWayland, where the toggle works fully:
+
+  ```bash
+  ELECTRON_OZONE_PLATFORM_HINT=x11 ./start.sh
+  ```
 
 ## 🌍 Set your region
 
