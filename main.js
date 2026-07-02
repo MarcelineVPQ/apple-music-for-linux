@@ -1,6 +1,7 @@
-const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, components } = require('electron')
+const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components } = require('electron')
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
@@ -34,6 +35,20 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null }
+let settingsPath = null
+let settingsWindow = null
+let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
+let saveBoundsTimer = null
+
+function loadSettings() {
+  try {
+    settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsPath, 'utf8')) }
+  } catch (e) { /* defaults */ }
+}
+function saveSettings() {
+  try { fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n') } catch (e) {}
+}
 
 function initLocaleAndTheme() {
   const dataDir = process.env.SNAP_USER_COMMON || app.getPath('userData');
@@ -590,11 +605,25 @@ ipcMain.on('mini-command', (event, command, value) => {
 
 // --- now-playing consumers: Last.fm scrobbling and Discord presence ---
 
+async function notifyTrack(state) {
+  if (!settings.notifications || !Notification.isSupported()) return
+  let icon
+  try {
+    if (state.artwork) {
+      const res = await fetch(state.artwork)
+      icon = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()))
+    }
+  } catch (e) { /* no art */ }
+  const body = state.artist + (state.album ? ' — ' + state.album : '')
+  new Notification({ title: state.title, body, icon, silent: true }).show()
+}
+
 function startNowPlayingLoop() {
   setInterval(async () => {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
-    if ((!wantLastfm && !wantDiscord) || !mainAlive()) return
+    const wantNotify = settings.notifications
+    if ((!wantLastfm && !wantDiscord && !wantNotify) || !mainAlive()) return
     let state
     try {
       state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
@@ -604,6 +633,13 @@ function startNowPlayingLoop() {
     if (!state || !state.ok) return
     if (wantLastfm && state.title) feedScrobbler(state)
     if (wantDiscord) feedDiscord(state)
+    if (wantNotify && state.title) {
+      const key = state.title + '|' + state.artist
+      // baseline on the first observed track so launch doesn't fire a notification
+      if (notifyKey === null) notifyKey = key
+      else if (key !== notifyKey && state.isPlaying) { notifyKey = key; notifyTrack(state) }
+      else if (key !== notifyKey) notifyKey = key
+    }
   }, 5000)
 }
 
@@ -822,14 +858,29 @@ const customCss =
 function createWindow() {
   Menu.setApplicationMenu(null)
 
-  mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 600,
-    minWidth: 800,
-    minHeight: 500,
+  const b = settings.windowBounds
+  const opts = {
+    width: 1000, height: 600, minWidth: 800, minHeight: 500,
+    show: !(settings.startMinimized || process.argv.includes('--hidden')),
     title: appName
-  })
+  }
+  if (b && b.width >= 800 && b.height >= 500) {
+    Object.assign(opts, { width: b.width, height: b.height })
+    if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
+  }
+  mainWindow = new BrowserWindow(opts)
   mainWindow.loadURL(appUrl + locale.toLowerCase() + '/browse')
+
+  // remember size/position across launches (debounced)
+  const rememberBounds = () => {
+    if (!mainAlive() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return
+    clearTimeout(saveBoundsTimer)
+    saveBoundsTimer = setTimeout(() => {
+      if (mainAlive() && mainWindow.isVisible()) { settings.windowBounds = mainWindow.getBounds(); saveSettings() }
+    }, 500)
+  }
+  mainWindow.on('resize', rememberBounds)
+  mainWindow.on('move', rememberBounds)
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'r') {
@@ -887,12 +938,42 @@ function createWindow() {
     mainWindow.setTitle(appName);
   });
 
-  mainWindow.on("close", () => {
+  mainWindow.on("close", (e) => {
+    // close-to-tray: hide instead of quitting (tray "Quit" bypasses via app.exit)
+    if (settings.closeToTray && !shuttingDown) {
+      e.preventDefault()
+      mainWindow.hide()
+      return
+    }
     shuttingDown = true
     clearInterval(miniPoll)
     clearInterval(lyricsPoll)
     app.exit(0);
  });
+}
+
+// ~/.config/autostart entry for launch-on-login (Electron's setLoginItemSettings
+// is a no-op on Linux, so write the desktop file ourselves)
+function autostartExec() {
+  if (process.env.FLATPAK_ID) return 'flatpak run ' + process.env.FLATPAK_ID
+  if (process.env.APPIMAGE) return JSON.stringify(process.env.APPIMAGE)
+  return JSON.stringify(process.execPath)
+}
+function applyAutostart() {
+  const dir = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'autostart')
+  const file = path.join(dir, 'io.github.MarcelineVPQ.Sonata.desktop')
+  try {
+    if (settings.launchAtLogin) {
+      fs.mkdirSync(dir, { recursive: true })
+      const exec = autostartExec() + (settings.startMinimized ? ' --hidden' : '')
+      fs.writeFileSync(file,
+        '[Desktop Entry]\nType=Application\nName=Sonata\n' +
+        'Exec=' + exec + '\nIcon=io.github.MarcelineVPQ.Sonata\n' +
+        'Terminal=false\nX-GNOME-Autostart-enabled=true\n')
+    } else if (fs.existsSync(file)) {
+      fs.unlinkSync(file)
+    }
+  } catch (e) { console.error('autostart update failed:', e.message) }
 }
 
 app.whenReady().then(async () => {
@@ -901,6 +982,9 @@ app.whenReady().then(async () => {
   lastfm = new LastFm(path.join(app.getPath('userData'), 'lastfm.json'))
   discordConfigPath = path.join(app.getPath('userData'), 'discord.json')
   loadDiscordConfig()
+  settingsPath = path.join(app.getPath('userData'), 'settings.json')
+  loadSettings()
+  applyAutostart()
   createWindow()
   createTray()
   startNowPlayingLoop()
