@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.13.0" date="2026-07-02">
+      <description>
+        <p>Tray icon tooltip shows the current track and artist; the mini player gained an Always on Top toggle in its ⋯ menu, working on KDE Wayland via KWin.</p>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-07-01">
       <description>
         <p>Track-change notifications, a settings window, launch-at-login and close-to-tray, remembered window sizes, and a refined Nebula visualizer.</p>
