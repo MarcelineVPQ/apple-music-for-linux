@@ -69,7 +69,14 @@ class DiscordPresence {
       const op = this.buffer.readUInt32LE(0)
       const length = this.buffer.readUInt32LE(4)
       if (this.buffer.length < 8 + length) return
-      const payload = JSON.parse(this.buffer.subarray(8, 8 + length).toString())
+      let payload
+      try {
+        payload = JSON.parse(this.buffer.subarray(8, 8 + length).toString())
+      } catch (e) {
+        // malformed frame — drop the connection rather than crash
+        this.close()
+        return
+      }
       this.buffer = this.buffer.subarray(8 + length)
 
       if (op === OP_FRAME && payload.evt === 'READY') {

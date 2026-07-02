@@ -64,6 +64,25 @@ function mainAlive() {
   return mainWindow && !mainWindow.isDestroyed()
 }
 
+// Only hand web/mail links to the OS. The main window shows remote web
+// content, so a page (or a malicious redirect within it) could otherwise
+// trigger navigation to file:// or a scheme wired to a dangerous handler.
+function openExternalSafe(url) {
+  try {
+    const scheme = new URL(url).protocol
+    if (scheme === 'http:' || scheme === 'https:' || scheme === 'mailto:') {
+      shell.openExternal(url)
+    }
+  } catch (e) { /* invalid URL: ignore */ }
+}
+
+// Block navigation and popups for windows that load our trusted local HTML
+// with Node integration — defense in depth so they can never reach remote code.
+function lockDownLocalWindow(win) {
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (event) => event.preventDefault())
+}
+
 function toggleWindow() {
   if (!mainWindow) return
   if (mainWindow.isVisible()) {
@@ -171,6 +190,7 @@ function createMiniWindow() {
     }
   })
   miniWindow.loadFile('miniplayer.html')
+  lockDownLocalWindow(miniWindow)
 
   miniWindow.webContents.once('did-finish-load', () => {
     miniPoll = setInterval(async () => {
@@ -258,6 +278,7 @@ function createLyricsWindow() {
     }
   })
   lyricsWindow.loadFile('lyrics.html')
+  lockDownLocalWindow(lyricsWindow)
 
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
@@ -352,6 +373,10 @@ async function showMoreMenu() {
   } catch (e) { return }
   if (!info || !info.ok) return
 
+  // info.id is interpolated into scripts executed in the page; only allow the
+  // catalog-id character set so a crafted id can't break out of the literal
+  const idSafe = /^[A-Za-z0-9._-]+$/.test(info.id)
+
   const favoriteScript = (value) => `(async () => {
     const mk = MusicKit.getInstance();
     await mk.api.music('/v1/me/ratings/songs/${info.id}', {}, { fetchOptions: {
@@ -369,9 +394,9 @@ async function showMoreMenu() {
     { label: info.title || 'Not playing', enabled: false },
     { type: 'separator' },
     info.rating === 1
-      ? { label: 'Undo Favorite', click: () => musicApiCall(favoriteScript(null), 'undo favorite') }
-      : { label: 'Favorite', click: () => musicApiCall(favoriteScript(1), 'favorite') },
-    { label: 'Add to Library', click: () => musicApiCall(addToLibraryScript, 'add to library') },
+      ? { label: 'Undo Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(null), 'undo favorite') }
+      : { label: 'Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(1), 'favorite') },
+    { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'add to library') },
     { type: 'separator' },
     { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url) },
     { label: 'Lyrics', click: toggleLyricsWindow },
@@ -701,12 +726,12 @@ function createWindow() {
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(appUrl)) {
       event.preventDefault()
-      shell.openExternal(url)
+      openExternalSafe(url)
     }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    openExternalSafe(url)
     return { action: 'deny' }
   });
 
