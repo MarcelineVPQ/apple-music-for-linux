@@ -52,8 +52,8 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 **AppImage** — download from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
 
 ```bash
-chmod +x apple-music-for-linux-*.AppImage
-./apple-music-for-linux-*.AppImage
+chmod +x sonata-*.AppImage
+./sonata-*.AppImage
 ```
 
 **Flatpak** — download the `.flatpak` bundle from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
@@ -108,17 +108,17 @@ sudo chown root:root node_modules/electron/dist/chrome-sandbox
 sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 ```
 
-Optionally add a desktop entry at `~/.local/share/applications/apple-music-for-linux.desktop`:
+Optionally add a desktop entry at `~/.local/share/applications/sonata.desktop`:
 
 ```ini
 [Desktop Entry]
 Type=Application
-Name=Apple Music
+Name=Sonata
 Comment=Apple Music for Linux
 Exec=/path/to/apple-music-for-linux/start.sh
-Icon=/path/to/apple-music-for-linux/apple-music-for-linux.png
+Icon=/path/to/apple-music-for-linux/sonata.png
 Terminal=false
-Categories=Audio;Music;Player;
+Categories=AudioVideo;Audio;Player;
 StartupWMClass=apple-music-for-linux
 ```
 

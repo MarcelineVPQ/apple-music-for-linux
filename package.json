@@ -32,7 +32,7 @@
     "linux": {
       "target": ["AppImage", "flatpak"],
       "icon": "sonata.png",
-      "category": "Audio",
+      "category": "AudioVideo;Audio",
       "artifactName": "sonata-${version}-${arch}.${ext}",
       "desktop": {
         "entry": {
