@@ -213,30 +213,35 @@
   const nebula = { parts: null, rot: 0, pulse: 0 }
   function renderNebula(a) {
     ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = 'rgba(0,0,0,0.14)'; ctx.fillRect(0, 0, W, H)
+    ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(0, 0, W, H)
     if (!nebula.parts) {
       nebula.parts = []
-      for (let i = 0; i < 130; i++) nebula.parts.push({
-        ang: Math.random() * 6.28, rad: 0.1 + Math.random() * 0.9,
-        spd: 0.002 + Math.random() * 0.006, hue: Math.random() * 60
+      for (let i = 0; i < 240; i++) nebula.parts.push({
+        ang: Math.random() * 6.28,
+        rad: 0.12 + Math.random() * 0.9,          // fills center-to-edge: a cloud, not a ring
+        spd: (Math.random() < 0.5 ? -1 : 1) * (0.0015 + Math.random() * 0.004),
+        wob: Math.random() * 6.28,
+        band: (i * 7) % 48                         // each particle tracks a frequency band
       })
     }
     nebula.pulse += ((beat.hit ? 1 : 0) - nebula.pulse) * (beat.hit ? 0.6 : 0.06)
-    nebula.rot += 0.0015 + a.energy * 0.01
+    nebula.rot += 0.001 + a.energy * 0.012
     const cx = W / 2, cy = H / 2
-    const base = Math.min(W, H) * (0.16 + nebula.pulse * 0.16 + a.bass * 0.5)
+    // always a substantial cloud; bass/beat make it breathe outward
+    const base = Math.min(W, H) * (0.30 + a.bass * 0.32 + nebula.pulse * 0.12)
     ctx.globalCompositeOperation = 'lighter'
     for (const p of nebula.parts) {
-      p.ang += p.spd * (1 + a.energy * 3)
-      const rad = base * (p.rad + a.energy * 0.5)
+      p.ang += p.spd * (1 + a.energy * 2); p.wob += 0.03
+      const bandV = shown[p.band] || 0
+      const rad = base * (p.rad + bandV * 0.28) + Math.sin(p.wob) * 8 * dpr
       const x = cx + Math.cos(p.ang + nebula.rot) * rad
-      const y = cy + Math.sin(p.ang + nebula.rot) * rad * 0.82
-      const size = (1.5 + nebula.pulse * 4 + a.energy * 5) * dpr
-      const hue = 300 + p.hue + a.energy * 50
-      glow(x, y, size * 3, `hsla(${hue},90%,68%,0.5)`)
+      const y = cy + Math.sin(p.ang + nebula.rot) * rad * 0.8
+      const size = (2.4 + bandV * 7) * dpr        // reacts to its band, visible baseline
+      const hue = 300 - p.rad * 60 + bandV * 40   // fuchsia core -> violet edges
+      glow(x, y, size * 2.6, `hsla(${hue},88%,66%,0.34)`)
     }
-    // bright core pulsing with the beat
-    glow(cx, cy, (40 + nebula.pulse * 120 + a.bass * 260) * dpr, `hsla(320,95%,72%,0.42)`)
+    // soft core, not a white sun
+    glow(cx, cy, (30 + nebula.pulse * 60 + a.bass * 120) * dpr, `hsla(318,92%,70%,0.20)`)
     ctx.globalCompositeOperation = 'source-over'
   }
 
