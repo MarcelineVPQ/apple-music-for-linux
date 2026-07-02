@@ -43,11 +43,16 @@
   <screenshots>
     <screenshot type="default">
       <caption>The mini player and time-synced lyrics window</caption>
-      <image>https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/v0.10.1/screenshots/lyrics-mini-player.png</image>
+      <image>https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/screenshots/lyrics-mini-player.png</image>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.10.2" date="2026-07-01">
+      <description>
+        <p>Flatpak runtime updated to freedesktop 25.08.</p>
+      </description>
+    </release>
     <release version="0.10.1" date="2026-07-01">
       <description>
         <p>Packaging: AUR package and Flathub manifest; store screenshot and metadata.</p>
