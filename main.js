@@ -1302,14 +1302,21 @@ function restartIntoUpdate() {
   shuttingDown = true
   // free the single-instance lock so the replacement doesn't see us and quit
   app.releaseSingleInstanceLock()
-  // Launch through a detached shell that waits for this instance to fully
-  // exit: helpers started while the old instance's FUSE mount and AppImage
-  // env vars are still around crash at startup (zygote SIGTRAP).
   const env = { ...process.env }
-  for (const k of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD']) delete env[k]
-  spawn('/bin/sh', ['-c', 'sleep 1; exec ' + JSON.stringify(installedPath)], {
-    detached: true, stdio: 'ignore', env
-  }).unref()
+  for (const k of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD', 'APPIMAGE_EXTRACT_AND_RUN']) delete env[k]
+  // Launch the stable symlink (already repointed to the new version). Detach
+  // into a new session so it survives this process exiting, then:
+  //   1. wait until THIS instance is fully gone (its AppImage FUSE mount
+  //      released) — starting too early crashes the child on the stale mount;
+  //   2. try the normal FUSE launch;
+  //   3. if that exits non-zero (the transient zygote crash), retry with
+  //      APPIMAGE_EXTRACT_AND_RUN, which skips FUSE entirely and can't hit it.
+  const target = (stablePath && fs.existsSync(stablePath)) ? stablePath : installedPath
+  const script =
+    'i=0; while kill -0 ' + process.pid + ' 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done; ' +
+    'sleep 0.5; T=' + JSON.stringify(target) + '; ' +
+    '"$T" || APPIMAGE_EXTRACT_AND_RUN=1 "$T"'
+  spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore', env }).unref()
   app.exit(0)
 }
 
