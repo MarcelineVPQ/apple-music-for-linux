@@ -15,8 +15,32 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.electronjs.Electron2.BaseApp//24.08
+
+      # electron-builder does not expose --disable-rofiles-fuse; shim it in so
+      # the flatpak build works on runners without a usable FUSE mount
+      - name: Shim flatpak-builder (disable rofiles-fuse)
+        run: |
+          mkdir -p "$HOME/bin"
+          cat > "$HOME/bin/flatpak-builder" <<'EOF'
+          #!/bin/bash
+          exec /usr/bin/flatpak-builder --disable-rofiles-fuse --user "$@"
+          EOF
+          chmod +x "$HOME/bin/flatpak-builder"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
       - run: npm ci
-      - name: Build and publish AppImage
-        run: npx electron-builder --linux AppImage --publish always
+
+      - name: Build and publish AppImage + Flatpak
+        run: npx electron-builder --linux AppImage flatpak --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

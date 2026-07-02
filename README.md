@@ -37,14 +37,32 @@ The upstream app no longer starts: it pins a 2021 castlabs Electron 13 build who
 
 ## 📦 Install
 
-Download the latest AppImage from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
+**AppImage** — download from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
 
 ```bash
 chmod +x apple-music-for-linux-*.AppImage
 ./apple-music-for-linux-*.AppImage
 ```
 
+**Flatpak** — download the `.flatpak` bundle from [Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases), then:
+
+```bash
+flatpak install --user apple-music-for-linux-*.flatpak
+flatpak run io.github.MarcelineVPQ.AppleMusicForLinux
+```
+
+The Flatpak is sandboxed and requests only network, audio, GPU, and the Downloads folder.
+
 > **Raspberry Pi / ARM:** not supported — Google does not publish a Widevine DRM module for desktop linux-arm64, so no Chromium/Electron app can play Apple Music there.
+
+## 🏪 Getting into software centers (GNOME Software / KDE Discover)
+
+Those app stores list **[Flathub](https://flathub.org)**. Note that installing the `.flatpak` bundle above works locally but does *not* make the app searchable there — Flathub builds from source via a manifest submitted to [github.com/flathub/flathub](https://github.com/flathub/flathub) and reviewed by their team. Two things make submission non-trivial for this app:
+
+- **Trademark** — "Apple Music" is Apple's trademark; Flathub may require a rename or clear "unofficial" branding.
+- **DRM** — Widevine must be *downloaded at runtime* (it is here, via castlabs Electron), not bundled, and Flathub reviews DRM apps case by case.
+
+The AppStream metadata (`io.github.MarcelineVPQ.AppleMusicForLinux.metainfo.xml`) and reverse-DNS app ID are already in place, so the app is submission-ready if you choose to pursue a Flathub listing. Snapcraft (the Ubuntu App Center) is the other route, since the original app was published there.
 
 ## 🎧 Last.fm scrobbling
 

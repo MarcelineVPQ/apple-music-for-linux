@@ -6,7 +6,9 @@
   "main": "main.js",
   "scripts": {
     "start": "bash start.sh",
-    "dist": "electron-builder --linux AppImage",
+    "dist": "electron-builder --linux AppImage flatpak",
+    "dist:appimage": "electron-builder --linux AppImage",
+    "dist:flatpak": "electron-builder --linux flatpak",
     "dist:snap": "electron-builder --linux snap"
   },
   "build": {
@@ -14,7 +16,7 @@
     "electronDownload": {
       "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
-    "appId": "apple-music-for-linux",
+    "appId": "io.github.MarcelineVPQ.AppleMusicForLinux",
     "productName": "Apple Music",
     "files": [
       "main.js",
@@ -25,7 +27,7 @@
       "apple-music-for-linux.png"
     ],
     "linux": {
-      "target": ["AppImage"],
+      "target": ["AppImage", "flatpak"],
       "icon": "apple-music-for-linux.png",
       "category": "Audio",
       "artifactName": "${name}-${version}-${arch}.${ext}",
@@ -34,6 +36,22 @@
           "StartupWMClass": "apple-music-for-linux"
         }
       }
+    },
+    "flatpak": {
+      "runtimeVersion": "24.08",
+      "baseVersion": "24.08",
+      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "finishArgs": [
+        "--socket=wayland",
+        "--socket=x11",
+        "--share=ipc",
+        "--device=dri",
+        "--socket=pulseaudio",
+        "--share=network",
+        "--filesystem=xdg-download",
+        "--talk-name=org.freedesktop.Notifications",
+        "--own-name=org.mpris.MediaPlayer2.chromium.*"
+      ]
     },
     "snap": {
       "grade": "stable",

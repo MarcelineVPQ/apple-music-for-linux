@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.MarcelineVPQ.AppleMusicForLinux</id>
+
+  <name>Apple Music for Linux</name>
+  <summary>Desktop player for the Apple Music web app</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+
+  <developer id="io.github.marcelinevpq">
+    <name>MarcelineVPQ</name>
+  </developer>
+
+  <description>
+    <p>
+      An unofficial desktop wrapper for the Apple Music web player, with full
+      DRM playback support via Widevine. Not affiliated with or endorsed by
+      Apple Inc.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>System tray with playback controls</li>
+      <li>Floating mini player with album art, progress bar, and volume</li>
+      <li>Time-synced lyrics in a separate window</li>
+      <li>Dark mode that follows your desktop theme</li>
+      <li>Last.fm scrobbling and Discord Rich Presence</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.MarcelineVPQ.AppleMusicForLinux.desktop</launchable>
+
+  <categories>
+    <category>Audio</category>
+    <category>AudioVideo</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <url type="homepage">https://github.com/MarcelineVPQ/apple-music-for-linux</url>
+  <url type="bugtracker">https://github.com/MarcelineVPQ/apple-music-for-linux/issues</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>The mini player and time-synced lyrics window</caption>
+      <image>https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/apple-music-for-linux.png</image>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="0.9.0" date="2026-07-01">
+      <description>
+        <p>Mini player, synced lyrics window, Discord Rich Presence, and Last.fm scrobbling.</p>
+      </description>
+    </release>
+  </releases>
+</component>
