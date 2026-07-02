@@ -4,20 +4,26 @@
 <meta charset="utf-8">
 <style>
   :root {
-    --pill-bg: rgba(24, 24, 26, 0.72);
+    --pill-bg: rgba(24, 24, 26, 0.78);
     --pill-border: rgba(255, 255, 255, 0.09);
+    --lcd-bg: rgba(255, 255, 255, 0.07);
     --fg: #f5f5f7;
     --fg-dim: #a0a0a5;
     --btn-hover: rgba(255, 255, 255, 0.12);
     --accent: #fa2c56;
+    --progress: rgba(255, 255, 255, 0.9);
+    --progress-track: rgba(255, 255, 255, 0.18);
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --pill-bg: rgba(245, 245, 247, 0.78);
+      --pill-bg: rgba(245, 245, 247, 0.82);
       --pill-border: rgba(0, 0, 0, 0.08);
+      --lcd-bg: rgba(0, 0, 0, 0.05);
       --fg: #1d1d1f;
       --fg-dim: #6e6e73;
       --btn-hover: rgba(0, 0, 0, 0.08);
+      --progress: rgba(0, 0, 0, 0.65);
+      --progress-track: rgba(0, 0, 0, 0.15);
     }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
@@ -33,56 +39,69 @@
     height: 100%;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 4px 12px 4px 4px;
+    gap: 10px;
+    padding: 6px 14px;
     background: var(--pill-bg);
     border: 1px solid var(--pill-border);
-    border-radius: 18px;
+    border-radius: 14px;
     backdrop-filter: blur(20px);
     color: var(--fg);
   }
-  #art {
+  button {
     -webkit-app-region: no-drag;
-    width: 54px;
-    height: 54px;
-    border-radius: 14px;
+    background: none;
+    border: none;
+    border-radius: 7px;
+    color: var(--fg);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  button:hover { background: var(--btn-hover); }
+  button svg { width: 16px; height: 16px; fill: currentColor; }
+  button.small { width: 28px; height: 28px; color: var(--fg-dim); }
+  button.small svg { width: 14px; height: 14px; }
+  button.small:hover { color: var(--fg); }
+  button.small.active { color: var(--accent); }
+  #controls, #right { display: flex; align-items: center; gap: 2px; }
+
+  /* the LCD — Apple's inset now-playing display */
+  #lcd {
+    -webkit-app-region: no-drag;
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    background: var(--lcd-bg);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  #art {
+    width: 38px;
+    height: 38px;
+    border-radius: 4px;
     background: var(--btn-hover);
     object-fit: cover;
     flex-shrink: 0;
     cursor: pointer;
   }
-  #controls { display: flex; align-items: center; }
-  button {
-    -webkit-app-region: no-drag;
-    background: none;
-    border: none;
-    border-radius: 8px;
-    color: var(--fg);
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  button:hover { background: var(--btn-hover); }
-  button svg { width: 17px; height: 17px; fill: currentColor; }
-  button.small { width: 30px; height: 30px; color: var(--fg-dim); }
-  button.small svg { width: 14px; height: 14px; }
-  button.small.active { color: var(--accent); }
-  #info {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
-  }
+  #info { flex: 1; min-width: 0; text-align: center; padding-bottom: 3px; }
   #title {
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  #artist {
+  #subtitle {
     font-size: 11px;
     color: var(--fg-dim);
     white-space: nowrap;
@@ -90,21 +109,55 @@
     text-overflow: ellipsis;
     margin-top: 1px;
   }
-  #right { display: flex; align-items: center; gap: 2px; }
+  #more {
+    width: 26px;
+    height: 26px;
+    color: var(--fg-dim);
+  }
+  #more svg { width: 14px; height: 14px; }
+  /* hairline progress along the LCD's bottom edge, like Apple's */
+  #progress-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 8px;
+    cursor: pointer;
+  }
+  #progress-track::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--progress-track);
+  }
+  #progress-fill {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 0%;
+    background: var(--progress);
+    transition: width 1s linear;
+  }
   #volume {
     -webkit-app-region: no-drag;
     -webkit-appearance: none;
-    width: 64px;
+    width: 60px;
     height: 4px;
+    margin: 0 4px 0 2px;
     border-radius: 2px;
-    background: var(--btn-hover);
+    background: var(--progress-track);
     outline: none;
     cursor: pointer;
+    flex-shrink: 0;
   }
   #volume::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 11px;
+    height: 11px;
     border-radius: 50%;
     background: var(--fg);
   }
@@ -112,7 +165,6 @@
 </head>
 <body>
   <div id="pill">
-    <img id="art" title="Open full player" alt="">
     <div id="controls">
       <button id="shuffle" class="small" title="Shuffle">
         <svg viewBox="0 0 16 16"><path d="M11.5 2.5h3v3l-1.15-1.15-2.8 2.8-1.06-1.06 2.8-2.8L11.5 2.5zM1 3h2.9c.5 0 .97.2 1.32.55l1.53 1.53-1.06 1.06-1.53-1.53a.37.37 0 0 0-.26-.11H1V3zm13.5 7.5v3h-3l1.15-1.15-2.44-2.44a.37.37 0 0 0-.26-.11H8v-1.5h1.95c.5 0 .97.2 1.32.55l2.44 2.44 1.29-1.29zM1 11.5h2.9c.1 0 .19-.04.26-.11l6.19-6.19 1.5 1.06-6.63 6.63c-.35.35-.83.55-1.32.55H1v-1.5z"/></svg>
@@ -132,36 +184,55 @@
         <span id="repeat-one" style="display:none;position:absolute;font-size:8px;font-weight:700;margin-top:-1px">1</span>
       </button>
     </div>
-    <div id="info">
-      <div id="title">Not playing</div>
-      <div id="artist"></div>
+
+    <div id="lcd">
+      <img id="art" title="Open full player" alt="">
+      <div id="info">
+        <div id="title">Not playing</div>
+        <div id="subtitle"></div>
+      </div>
+      <button id="more" class="small" title="More">
+        <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
+      </button>
+      <div id="progress-track"><div id="progress-fill"></div></div>
     </div>
+
     <div id="right">
+      <button id="lyrics" class="small" title="Lyrics">
+        <svg viewBox="0 0 16 16"><path d="M8 1.5c-3.87 0-7 2.57-7 5.75 0 1.84 1.05 3.47 2.68 4.52-.13.72-.53 1.5-1.32 2.14-.18.15-.06.44.17.42 1.55-.15 2.77-.82 3.55-1.48.61.13 1.25.2 1.92.2 3.87 0 7-2.57 7-5.8S11.87 1.5 8 1.5zM4.5 8.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm3.5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm3.5 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+      </button>
+      <button id="queue" class="small" title="Playlist / Up Next">
+        <svg viewBox="0 0 16 16"><path d="M1 3h9v1.5H1V3zm0 4h9v1.5H1V7zm0 4h6v1.5H1V11zm11.5-8H14v7.55a2.5 2.5 0 1 1-1.5-.51V3z"/></svg>
+      </button>
       <button id="mute" class="small" title="Mute / Unmute">
         <svg id="icon-vol" viewBox="0 0 16 16"><path d="M8.5 2.06a.75.75 0 0 1 .43.68v10.52a.75.75 0 0 1-1.21.59L4.6 11.5H2.25a.75.75 0 0 1-.75-.75v-5.5A.75.75 0 0 1 2.25 4.5H4.6l3.12-2.35a.75.75 0 0 1 .78-.09zM11.3 5.53a.75.75 0 0 1 1.06 0 3.5 3.5 0 0 1 0 4.95.75.75 0 1 1-1.06-1.07 2 2 0 0 0 0-2.82.75.75 0 0 1 0-1.06zm1.94-1.94a.75.75 0 0 1 1.06 0 6.25 6.25 0 0 1 0 8.83.75.75 0 1 1-1.06-1.06 4.75 4.75 0 0 0 0-6.71.75.75 0 0 1 0-1.06z"/></svg>
         <svg id="icon-muted" viewBox="0 0 16 16" style="display:none"><path d="M8.5 2.06a.75.75 0 0 1 .43.68v10.52a.75.75 0 0 1-1.21.59L4.6 11.5H2.25a.75.75 0 0 1-.75-.75v-5.5A.75.75 0 0 1 2.25 4.5H4.6l3.12-2.35a.75.75 0 0 1 .78-.09zM11.03 6.22a.75.75 0 0 1 1.06 0L13 7.13l.91-.91a.75.75 0 1 1 1.06 1.06l-.91.91.91.91a.75.75 0 1 1-1.06 1.06L13 9.25l-.91.91a.75.75 0 1 1-1.06-1.06l.91-.91-.91-.91a.75.75 0 0 1 0-1.06z"/></svg>
       </button>
       <input id="volume" type="range" min="0" max="100" value="100" title="Volume">
-      <button id="queue" class="small" title="Playlist / Up Next">
-        <svg viewBox="0 0 16 16"><path d="M1 3h9v1.5H1V3zm0 4h9v1.5H1V7zm0 4h6v1.5H1V11zm11.5-8H14v7.55a2.5 2.5 0 1 1-1.5-.51V3z"/></svg>
-      </button>
-      <button id="expand" class="small" title="Full player">
-        <svg viewBox="0 0 16 16"><path d="M2 6V2.75A.75.75 0 0 1 2.75 2H6v1.5H3.5V6H2zm12-3.25V6h-1.5V3.5H10V2h3.25a.75.75 0 0 1 .75.75zM2 10v3.25c0 .41.34.75.75.75H6v-1.5H3.5V10H2zm12 3.25V10h-1.5v2.5H10V14h3.25a.75.75 0 0 0 .75-.75z"/></svg>
-      </button>
     </div>
   </div>
 <script>
   const { ipcRenderer } = require('electron')
 
-  const send = (cmd) => ipcRenderer.send('mini-command', cmd)
+  const send = (cmd, value) => ipcRenderer.send('mini-command', cmd, value)
   document.getElementById('shuffle').onclick = () => send('toggleShuffle')
   document.getElementById('prev').onclick = () => send('previous')
   document.getElementById('playpause').onclick = () => send('playPause')
   document.getElementById('next').onclick = () => send('next')
   document.getElementById('repeat').onclick = () => send('cycleRepeat')
   document.getElementById('queue').onclick = () => send('queue')
-  document.getElementById('expand').onclick = () => send('expand')
+  document.getElementById('lyrics').onclick = () => send('lyrics')
+  document.getElementById('more').onclick = () => send('moreMenu')
   document.getElementById('art').onclick = () => send('expand')
+
+  let currentDuration = 0
+  const progressTrack = document.getElementById('progress-track')
+  progressTrack.onclick = (e) => {
+    if (!currentDuration) return
+    const rect = progressTrack.getBoundingClientRect()
+    const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    send('seek', fraction * currentDuration)
+  }
 
   const volumeSlider = document.getElementById('volume')
   let draggingVolume = false
@@ -169,7 +240,7 @@
   volumeSlider.onpointerdown = () => { draggingVolume = true }
   volumeSlider.onpointerup = () => { draggingVolume = false }
   volumeSlider.oninput = () => {
-    ipcRenderer.send('mini-command', 'setVolume', volumeSlider.value / 100)
+    send('setVolume', volumeSlider.value / 100)
     updateMuteIcon(volumeSlider.value / 100)
   }
   document.getElementById('mute').onclick = () => {
@@ -177,7 +248,7 @@
     const next = current > 0 ? 0 : (lastVolume > 0 ? lastVolume : 1)
     if (current > 0) lastVolume = current
     volumeSlider.value = next * 100
-    ipcRenderer.send('mini-command', 'setVolume', next)
+    send('setVolume', next)
     updateMuteIcon(next)
   }
   function updateMuteIcon(volume) {
@@ -188,7 +259,8 @@
   ipcRenderer.on('now-playing', (event, state) => {
     if (!state || !state.ok) return
     document.getElementById('title').textContent = state.title || 'Not playing'
-    document.getElementById('artist').textContent = state.artist || ''
+    document.getElementById('subtitle').textContent =
+      state.artist ? state.artist + (state.album ? ' — ' + state.album : '') : ''
     const art = document.getElementById('art')
     if (state.artwork && art.src !== state.artwork) art.src = state.artwork
     document.getElementById('icon-play').style.display = state.isPlaying ? 'none' : ''
@@ -196,6 +268,9 @@
     document.getElementById('shuffle').classList.toggle('active', !!state.shuffle)
     document.getElementById('repeat').classList.toggle('active', state.repeat > 0)
     document.getElementById('repeat-one').style.display = state.repeat === 1 ? '' : 'none'
+    currentDuration = state.duration || 0
+    document.getElementById('progress-fill').style.width =
+      currentDuration ? (state.playbackTime / currentDuration * 100) + '%' : '0%'
     if (!draggingVolume && typeof state.volume === 'number') {
       volumeSlider.value = Math.round(state.volume * 100)
       updateMuteIcon(state.volume)

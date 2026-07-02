@@ -19,7 +19,9 @@
     "files": [
       "main.js",
       "miniplayer.html",
+      "lyrics.html",
       "lastfm.js",
+      "discord.js",
       "apple-music-for-linux.png"
     ],
     "linux": {

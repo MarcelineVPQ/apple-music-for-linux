@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, components } = require('electron')
+const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, components } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const { LastFm } = require('./lastfm');
@@ -17,6 +17,10 @@ let mainWindow = null
 let tray = null
 let miniWindow = null
 let miniPoll = null
+let lyricsWindow = null
+let lyricsPoll = null
+let lyricsKey = ''
+let shuttingDown = false
 let lastfm = null
 let scrobbleState = null
 let discord = null
@@ -54,6 +58,10 @@ function toggleTheme() {
   if (themeFile) {
     fs.writeFileSync(themeFile, nativeTheme.themeSource);
   }
+}
+
+function mainAlive() {
+  return mainWindow && !mainWindow.isDestroyed()
 }
 
 function toggleWindow() {
@@ -149,7 +157,7 @@ const nowPlayingScript = `(() => {
 
 function createMiniWindow() {
   miniWindow = new BrowserWindow({
-    width: 640,
+    width: 680,
     height: 72,
     frame: false,
     transparent: true,
@@ -166,10 +174,10 @@ function createMiniWindow() {
 
   miniWindow.webContents.once('did-finish-load', () => {
     miniPoll = setInterval(async () => {
-      if (!mainWindow || !miniWindow) return
+      if (!mainAlive() || !miniWindow) return
       try {
         const state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
-        if (miniWindow) miniWindow.webContents.send('now-playing', state)
+        if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('now-playing', state)
       } catch (e) { /* page mid-navigation; try again next tick */ }
     }, 1000)
   })
@@ -178,7 +186,7 @@ function createMiniWindow() {
     miniWindow = null
     clearInterval(miniPoll)
     miniPoll = null
-    if (mainWindow) {
+    if (!shuttingDown && mainWindow && !mainWindow.isDestroyed()) {
       // some window managers remember the mini player's tiny geometry
       // and reapply it to the main window on show
       const [width, height] = mainWindow.getSize()
@@ -190,6 +198,187 @@ function createMiniWindow() {
       mainWindow.focus()
     }
   })
+}
+
+// --- lyrics window ---
+
+// Fetch Apple's time-synced (TTML) lyrics for the current song through the
+// page's MusicKit API session
+const lyricsFetchScript = `(async () => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    if (!item) return { ok: false };
+    const attrs = item.attributes || {};
+    const pp = attrs.playParams || {};
+    const id = pp.catalogId || pp.id || item.id;
+    const res = await mk.api.music('/v1/catalog/{{storefront}}/songs/' + id + '/lyrics');
+    const data = res && res.data && res.data.data && res.data.data[0];
+    return { ok: true, ttml: (data && data.attributes && data.attributes.ttml) || '' };
+  } catch (e) {
+    return { ok: true, ttml: '' };
+  }
+})()`
+
+function parseTtmlClock(value) {
+  value = value.trim()
+  if (!value.includes(':')) return parseFloat(value) || 0
+  return value.split(':').reduce((total, part) => total * 60 + (parseFloat(part) || 0), 0)
+}
+
+function parseTtml(ttml) {
+  const lines = []
+  const re = /<p[^>]*\bbegin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g
+  let match
+  while ((match = re.exec(ttml))) {
+    const text = match[2]
+      .replace(/></g, '> <')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) lines.push({ t: parseTtmlClock(match[1]), text })
+  }
+  return lines
+}
+
+function createLyricsWindow() {
+  lyricsWindow = new BrowserWindow({
+    width: 380,
+    height: 560,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    alwaysOnTop: true,
+    title: appName + ' — Lyrics',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  })
+  lyricsWindow.loadFile('lyrics.html')
+
+  lyricsWindow.webContents.once('did-finish-load', () => {
+    lyricsKey = null // force a lyrics fetch on first tick
+    lyricsPoll = setInterval(async () => {
+      if (!mainAlive() || !lyricsWindow || lyricsWindow.isDestroyed()) return
+      let state
+      try {
+        state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+      } catch (e) { return }
+      if (!state || !state.ok || !lyricsWindow || lyricsWindow.isDestroyed()) return
+
+      const key = state.title + '|' + state.artist
+      if (key !== lyricsKey) {
+        lyricsKey = key
+        let lines = []
+        if (state.title) {
+          try {
+            const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
+            if (res && res.ttml) lines = parseTtml(res.ttml)
+          } catch (e) { /* no lyrics */ }
+        }
+        if (lyricsWindow && !lyricsWindow.isDestroyed()) {
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, lines })
+        }
+      }
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime)
+    }, 500)
+  })
+
+  lyricsWindow.on('closed', () => {
+    lyricsWindow = null
+    clearInterval(lyricsPoll)
+    lyricsPoll = null
+  })
+}
+
+function toggleLyricsWindow() {
+  if (lyricsWindow) {
+    lyricsWindow.close()
+  }
+  else {
+    createLyricsWindow()
+  }
+}
+
+ipcMain.on('lyrics-command', (event, command, value) => {
+  if (command === 'close') {
+    if (lyricsWindow) lyricsWindow.close()
+  }
+  else if (command === 'seek') {
+    const seconds = Math.max(0, Number(value) || 0)
+    if (mainWindow) {
+      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
+        .catch((e) => console.error('lyrics seek failed:', e.message))
+    }
+  }
+})
+
+// --- three-dots menu on the mini player ---
+
+const trackInfoScript = `(async () => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    if (!item) return { ok: false };
+    const attrs = item.attributes || {};
+    const pp = attrs.playParams || {};
+    const id = pp.catalogId || pp.id || item.id;
+    let rating = 0;
+    try {
+      const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
+      const entry = r && r.data && r.data.data && r.data.data[0];
+      rating = entry && entry.attributes ? entry.attributes.value : 0;
+    } catch (e) { /* not rated */ }
+    return { ok: true, id: String(id), title: attrs.name || '', url: attrs.url || '', rating };
+  } catch (e) {
+    return { ok: false };
+  }
+})()`
+
+function musicApiCall(script, label) {
+  if (!mainAlive()) return
+  mainWindow.webContents.executeJavaScript(script)
+    .catch((e) => console.error(label + ' failed:', e.message))
+}
+
+async function showMoreMenu() {
+  if (!mainAlive() || !miniWindow || miniWindow.isDestroyed()) return
+  let info = null
+  try {
+    info = await mainWindow.webContents.executeJavaScript(trackInfoScript)
+  } catch (e) { return }
+  if (!info || !info.ok) return
+
+  const favoriteScript = (value) => `(async () => {
+    const mk = MusicKit.getInstance();
+    await mk.api.music('/v1/me/ratings/songs/${info.id}', {}, { fetchOptions: {
+      method: '${value === null ? 'DELETE' : 'PUT'}',
+      ${value === null ? '' : `body: JSON.stringify({ type: 'rating', attributes: { value: ${value} } }),`}
+      headers: { 'Content-Type': 'application/json' }
+    } });
+  })()`
+  const addToLibraryScript = `(async () => {
+    const mk = MusicKit.getInstance();
+    await mk.api.music('/v1/me/library', { 'ids[songs]': '${info.id}' }, { fetchOptions: { method: 'POST' } });
+  })()`
+
+  const menu = Menu.buildFromTemplate([
+    { label: info.title || 'Not playing', enabled: false },
+    { type: 'separator' },
+    info.rating === 1
+      ? { label: 'Undo Favorite', click: () => musicApiCall(favoriteScript(null), 'undo favorite') }
+      : { label: 'Favorite', click: () => musicApiCall(favoriteScript(1), 'favorite') },
+    { label: 'Add to Library', click: () => musicApiCall(addToLibraryScript, 'add to library') },
+    { type: 'separator' },
+    { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url) },
+    { label: 'Lyrics', click: toggleLyricsWindow },
+    { type: 'separator' },
+    { label: 'Open Full Player', click: toggleMiniPlayer }
+  ])
+  menu.popup({ window: miniWindow })
 }
 
 function toggleMiniPlayer() {
@@ -210,9 +399,22 @@ ipcMain.on('mini-command', (event, command, value) => {
     toggleMiniPlayer()
     playerCommand('openQueue')
   }
+  else if (command === 'lyrics') {
+    toggleLyricsWindow()
+  }
+  else if (command === 'moreMenu') {
+    showMoreMenu()
+  }
+  else if (command === 'seek') {
+    const seconds = Math.max(0, Number(value) || 0)
+    if (mainAlive()) {
+      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
+        .catch((e) => console.error('seek failed:', e.message))
+    }
+  }
   else if (command === 'setVolume') {
     const volume = Math.min(1, Math.max(0, Number(value) || 0))
-    if (mainWindow) {
+    if (mainAlive()) {
       mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
         .catch((e) => console.error('set volume failed:', e.message))
     }
@@ -228,7 +430,7 @@ function startNowPlayingLoop() {
   setInterval(async () => {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
-    if ((!wantLastfm && !wantDiscord) || !mainWindow) return
+    if ((!wantLastfm && !wantDiscord) || !mainAlive()) return
     let state
     try {
       state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
@@ -518,6 +720,9 @@ function createWindow() {
   });
 
   mainWindow.on("close", () => {
+    shuttingDown = true
+    clearInterval(miniPoll)
+    clearInterval(lyricsPoll)
     app.exit(0);
  });
 }
