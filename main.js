@@ -587,10 +587,15 @@ async function showMoreMenu() {
       type: 'checkbox',
       checked: settings.miniAlwaysOnTop,
       click: (item) => {
+        // one toggle keeps both floating windows (mini + lyrics) on top
         settings.miniAlwaysOnTop = item.checked
+        settings.lyricsAlwaysOnTop = item.checked
         if (miniWindow && !miniWindow.isDestroyed()) miniWindow.setAlwaysOnTop(item.checked)
+        if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.setAlwaysOnTop(item.checked)
         applyMiniKeepAbove(item.checked)
+        applyLyricsKeepAbove(item.checked)
         saveSettings()
+        if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:refresh')
       }
     },
     { label: 'Open Full Player', click: toggleMiniPlayer }
@@ -1114,7 +1119,12 @@ function createWindow() {
 // --- AppImage menu integration & self-update ---
 
 const appImagePath = process.env.APPIMAGE || ''
-let installedPath = appImagePath  // follows renames when an update lands
+let installedPath = appImagePath  // the real, versioned AppImage currently in use
+let stablePath = ''               // <dir>/Sonata.AppImage symlink -> installedPath
+if (appImagePath) {
+  try { installedPath = fs.realpathSync(appImagePath) } catch (e) {}
+  stablePath = path.join(path.dirname(installedPath), 'Sonata.AppImage')
+}
 const appId = 'io.github.MarcelineVPQ.Sonata'
 const updateFeedUrl = 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases/latest/download/latest-linux.yml'
 let pendingUpdateVersion = null
@@ -1125,6 +1135,19 @@ let updateCheckBusy = false
 function integrateAppImage() {
   if (process.platform !== 'linux' || !installedPath) return
   try {
+    // Point a stable symlink (Sonata.AppImage) at the current versioned file,
+    // and aim the menu entry at the symlink. That way the .desktop file never
+    // changes across updates, so the menu can't go stale and fire a deleted
+    // versioned path (the "can't find <old version>" bug).
+    let launch = installedPath
+    if (stablePath && stablePath !== installedPath) {
+      try {
+        if (fs.existsSync(stablePath) || fs.lstatSync(stablePath, { throwIfNoEntry: false })) {
+          fs.rmSync(stablePath, { force: true })
+        }
+      } catch (e) {}
+      try { fs.symlinkSync(installedPath, stablePath); launch = stablePath } catch (e) {}
+    }
     const share = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'))
     const iconPath = path.join(share, 'icons', 'hicolor', '512x512', 'apps', appId + '.png')
     fs.mkdirSync(path.dirname(iconPath), { recursive: true })
@@ -1132,18 +1155,20 @@ function integrateAppImage() {
     const entry =
       '[Desktop Entry]\nType=Application\nName=Sonata\n' +
       'Comment=Apple Music for Linux\n' +
-      'Exec=' + JSON.stringify(installedPath) + ' %U\n' +
+      'Exec=' + JSON.stringify(launch) + ' %U\n' +
       'Icon=' + appId + '\nTerminal=false\n' +
       'Categories=AudioVideo;Audio;Player;\n' +
       'StartupWMClass=apple-music-for-linux\n'
-    const desktopPath = path.join(share, 'applications', appId + '.desktop')
-    fs.mkdirSync(path.dirname(desktopPath), { recursive: true })
+    const appsDir = path.join(share, 'applications')
+    const desktopPath = path.join(appsDir, appId + '.desktop')
+    fs.mkdirSync(appsDir, { recursive: true })
     let current = ''
     try { current = fs.readFileSync(desktopPath, 'utf8') } catch (e) {}
     if (current !== entry) {
       fs.writeFileSync(desktopPath, entry)
-      // nudge KDE's application menu cache; harmless elsewhere
-      exec('kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null', () => {})
+      // refresh the XDG desktop DB and KDE's menu cache so the new entry lands
+      exec(`update-desktop-database ${JSON.stringify(appsDir)} 2>/dev/null; ` +
+           `kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null`, () => {})
     }
   } catch (e) { console.error('menu integration failed:', e.message) }
 }
