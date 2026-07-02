@@ -43,7 +43,7 @@
 </head>
 <body>
   <h1>Settings</h1>
-  <div class="sub">Sonata</div>
+  <div class="sub" id="about">Sonata</div>
 
   <h2>General</h2>
   <div class="card">
@@ -83,6 +83,8 @@
 
   async function refresh() {
     const s = await ipcRenderer.invoke('settings:get')
+    document.getElementById('about').textContent =
+      'Sonata v' + s.version + (s.appImage ? '' : ' · running from source')
     for (const k of TOGGLES) document.getElementById(k).checked = !!s[k]
     const lc = s.lastfmConnected
     document.getElementById('lastfm-status').textContent = lc ? 'Connected as ' + s.lastfmUser : 'Not connected'

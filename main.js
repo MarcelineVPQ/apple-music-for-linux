@@ -897,6 +897,8 @@ function createSettingsWindow() {
 
 ipcMain.handle('settings:get', () => ({
   ...settings,
+  version: app.getVersion(),
+  appImage: !!appImagePath,
   lastfmConnected: !!(lastfm && lastfm.connected),
   lastfmUser: lastfm ? lastfm.username : '',
   discordEnabled: !!discordConfig.enabled
