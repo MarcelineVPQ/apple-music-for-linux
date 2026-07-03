@@ -38,7 +38,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, winPos: {} }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -241,7 +241,6 @@ function createMiniWindow() {
   })
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
-  restoreWindowPosition('mini')
   // give KWin a moment to map the window before asking it to keep it above
   if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
 
@@ -347,7 +346,6 @@ function createLyricsWindow() {
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, 'lyricsBounds')
   lockDownLocalWindow(lyricsWindow)
-  restoreWindowPosition('lyrics')
 
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
@@ -633,107 +631,14 @@ function applyLyricsKeepAbove(on) { applyKeepAbove(appName + ' — Lyrics', 'son
 // remember it ourselves. KWin (KDE) can, via a "remember position" window rule
 // (positionrule=4). Install one per window, matched by title, once — then KWin
 // persists each window's spot across sessions on its own.
-// --- per-window position memory (KDE Wayland) ---
-// Wayland won't let the app read or set its own window position, and KWin's
-// "Remember" rule is unreliable. So we do it deterministically via KWin
-// scripting: read each window's geometry (it prints to the journal, which we
-// parse) and set it back on open. Windows are told apart by caption, so the
-// main window works even though its title is the web page's.
-function kdeWayland() {
-  return process.platform === 'linux' && !!process.env.WAYLAND_DISPLAY &&
-    (process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')
-}
-
-function runKwinScript(scriptText, scriptId) {
-  if (!kdeWayland()) return
-  const p = path.join(os.tmpdir(), scriptId + '.js')
-  try { fs.writeFileSync(p, scriptText) } catch (e) { return }
-  const s = '$Q org.kde.KWin /Scripting org.kde.kwin.Scripting.'
-  exec(
-    `Q=$(command -v qdbus6 || command -v qdbus) && ` +
-    `${s}unloadScript ${scriptId} >/dev/null 2>&1; ` +
-    `id=$(${s}loadScript ${p} ${scriptId}) && ` +
-    `$Q org.kde.KWin /Scripting/Script$id org.kde.kwin.Script.run && ` +
-    `${s}unloadScript ${scriptId}`,
-    () => {})
-}
-
-// classify a Sonata window by caption inside a KWin script
-const KWIN_TYPE = "var c=w.caption||'';var t=c.indexOf('Mini Player')>=0?'mini':c.indexOf('Lyrics')>=0?'lyrics':c.indexOf('Visualizer')>=0?'viz':'main';"
-const KWIN_READ =
-  "const ws=workspace.windowList?workspace.windowList():workspace.clientList();" +
-  "for(const w of ws){if(String(w.resourceClass)!=='apple-music-for-linux')continue;" +
-  "if(w.hidden||w.minimized)continue;" +                     // only save windows actually on screen
-  KWIN_TYPE +
-  "const g=w.frameGeometry;print('SONATA_GEOM '+t+' '+Math.round(g.x)+' '+Math.round(g.y)+' '+Math.round(g.width)+' '+Math.round(g.height));}"
-
-function readKwinGeometry() {
-  return new Promise((resolve) => {
-    if (!kdeWayland()) { resolve({}); return }
-    runKwinScript(KWIN_READ, 'sonata-readpos')
-    setTimeout(() => {
-      exec('journalctl --user --since "-4s" -o cat 2>/dev/null | grep "SONATA_GEOM "', (err, out) => {
-        const g = {}
-        for (const line of (out || '').split('\n')) {
-          const m = line.match(/SONATA_GEOM (\w+) (-?\d+) (-?\d+) (\d+) (\d+)/)
-          if (m) g[m[1]] = { x: +m[2], y: +m[3], width: +m[4], height: +m[5] }  // last wins
-        }
-        resolve(g)
-      })
-    }, 300)
-  })
-}
-
-function applyKwinPosition(type, x, y) {
-  // clamp inside the window's screen so a stale/bad value can't put it off-screen
-  const script =
-    "const ws=workspace.windowList?workspace.windowList():workspace.clientList();" +
-    "for(const w of ws){if(String(w.resourceClass)!=='apple-music-for-linux')continue;" + KWIN_TYPE +
-    "if(t===" + JSON.stringify(type) + "){var g=w.frameGeometry;" +
-    "var s=(w.output&&w.output.geometry)?w.output.geometry:workspace.virtualScreenGeometry;" +
-    "var nx=Math.max(s.x,Math.min(" + Math.round(x) + ",s.x+s.width-g.width));" +
-    "var ny=Math.max(s.y,Math.min(" + Math.round(y) + ",s.y+s.height-g.height));" +
-    "w.frameGeometry={x:nx,y:ny,width:g.width,height:g.height};}}"
-  runKwinScript(script, 'sonata-setpos-' + type)
-}
-
-const winPosRestoring = {}
-function restoreWindowPosition(type) {
-  const p = settings.winPos && settings.winPos[type]
-  if (!p || !kdeWayland()) return
-  winPosRestoring[type] = true                     // don't save default pos before restore lands
-  setTimeout(() => applyKwinPosition(type, p.x, p.y), 500)
-  setTimeout(() => { delete winPosRestoring[type] }, 1600)
-}
-
-function startWindowPositionMemory() {
-  if (!kdeWayland()) return
-  cleanupKwinRules()                               // drop the old (flaky) Remember rules
-  // auto-heal: main and mini sharing the exact position is the old collision
-  // bug's fingerprint — clear it so positions rebuild cleanly
-  const wp = settings.winPos || {}
-  if (wp.main && wp.mini && wp.main.x === wp.mini.x && wp.main.y === wp.mini.y) {
-    settings.winPos = {}; saveSettings()
-  }
-  setInterval(async () => {
-    const g = await readKwinGeometry()
-    let changed = false
-    for (const t of ['main', 'mini', 'lyrics']) {
-      if (winPosRestoring[t] || !g[t]) continue
-      const cur = settings.winPos && settings.winPos[t]
-      if (!cur || cur.x !== g[t].x || cur.y !== g[t].y) {
-        settings.winPos = settings.winPos || {}
-        settings.winPos[t] = { x: g[t].x, y: g[t].y }
-        changed = true
-      }
-    }
-    if (changed) saveSettings()
-  }, 4000)
-}
-
-// remove the old "remember position" KWin rules we used to write, so they
-// don't fight the scripting approach
-function cleanupKwinRules() {
+// Earlier versions tried to remember window positions on KDE Wayland (first
+// via KWin rules, then KWin scripting). It fought the compositor and shoved
+// windows around unpredictably, so it's removed — KDE places windows normally.
+// This one-time cleanup undoes what those versions wrote.
+function cleanupWindowPositionMemory() {
+  if (settings.winPos) { delete settings.winPos; saveSettings() }
+  if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
+  if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
   const rulesFile = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'kwinrulesrc')
   let text
   try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e) { return }
@@ -1164,7 +1069,6 @@ function createWindow() {
   }
   mainWindow = new BrowserWindow(opts)
   mainWindow.loadURL(appUrl + locale.toLowerCase() + '/browse')
-  restoreWindowPosition('main')
 
   // remember size/position across launches (debounced)
   const rememberBounds = () => {
@@ -1527,7 +1431,7 @@ app.whenReady().then(async () => {
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   loadSettings()
   applyAutostart()
-  startWindowPositionMemory()
+  cleanupWindowPositionMemory()
   integrateAppImage()
   createWindow()
   createTray()
