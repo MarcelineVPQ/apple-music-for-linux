@@ -627,6 +627,42 @@ function applyKeepAbove(caption, scriptId, on) {
 function applyMiniKeepAbove(on) { applyKeepAbove(appName + ' — Mini Player', 'sonata-keep-above-mini', on) }
 function applyLyricsKeepAbove(on) { applyKeepAbove(appName + ' — Lyrics', 'sonata-keep-above-lyrics', on) }
 
+// Wayland won't let an app read or set its own window position, so we can't
+// remember it ourselves. KWin (KDE) can, via a "remember position" window rule
+// (positionrule=4). Install one per window, matched by title, once — then KWin
+// persists each window's spot across sessions on its own.
+function ensureKwinPositionMemory() {
+  if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
+  if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
+  const cfgDir = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
+  const rulesFile = path.join(cfgDir, 'kwinrulesrc')
+  const MARK = 'Sonata:remember-position'
+  let text = ''
+  try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e) {}
+  if (text.includes(MARK)) return                 // already installed; idempotent
+
+  const wins = [['Sonata', 'main'], [appName + ' — Mini Player', 'mini'], [appName + ' — Lyrics', 'lyrics']]
+  const ids = wins.map(() => crypto.randomUUID())
+
+  // read existing [General] count/rules, then rewrite that section
+  let count = 0, list = []
+  const gen = text.match(/\[General\][\s\S]*?(?=\n\[|$)/)
+  if (gen) {
+    const cm = gen[0].match(/^count=(\d+)/m); if (cm) count = parseInt(cm[1], 10)
+    const rm = gen[0].match(/^rules=(.*)$/m); if (rm && rm[1].trim()) list = rm[1].trim().split(',')
+  }
+  const body = gen ? text.replace(gen[0], '').replace(/^\s+/, '') : text
+  const general = `[General]\ncount=${count + ids.length}\nrules=${list.concat(ids).join(',')}\n`
+  let out = general + (body ? '\n' + body.trimEnd() + '\n' : '')
+  for (let i = 0; i < wins.length; i++) {
+    out += `\n[${ids[i]}]\nDescription=${MARK} (${wins[i][1]})\npositionrule=4\ntitle=${wins[i][0]}\ntitlematch=1\nwmclassmatch=0\n`
+  }
+  try {
+    fs.writeFileSync(rulesFile, out)
+    exec('Q=$(command -v qdbus6 || command -v qdbus) && $Q org.kde.KWin /KWin reconfigure', () => {})
+  } catch (e) { console.error('kwin position rules failed:', e.message) }
+}
+
 // --- adaptive album-art color ---
 function broadcastPalette(p) {
   for (const w of [miniWindow, lyricsWindow, vizWindow]) {
@@ -1391,6 +1427,7 @@ app.whenReady().then(async () => {
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   loadSettings()
   applyAutostart()
+  ensureKwinPositionMemory()
   integrateAppImage()
   createWindow()
   createTray()
