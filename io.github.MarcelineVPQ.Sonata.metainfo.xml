@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.4" date="2026-07-02">
+      <description>
+        <p>On KDE Wayland, window positions are now remembered across sessions (via a KWin rule) — the one thing Wayland won't let an app do on its own.</p>
+      </description>
+    </release>
     <release version="0.15.3" date="2026-07-02">
       <description>
         <p>"Restart Now" after an update now reliably relaunches into the new version, waiting for the old instance to fully exit and falling back to extract-and-run if needed.</p>
