@@ -662,7 +662,9 @@ function runKwinScript(scriptText, scriptId) {
 const KWIN_TYPE = "var c=w.caption||'';var t=c.indexOf('Mini Player')>=0?'mini':c.indexOf('Lyrics')>=0?'lyrics':c.indexOf('Visualizer')>=0?'viz':'main';"
 const KWIN_READ =
   "const ws=workspace.windowList?workspace.windowList():workspace.clientList();" +
-  "for(const w of ws){if(String(w.resourceClass)!=='apple-music-for-linux')continue;" + KWIN_TYPE +
+  "for(const w of ws){if(String(w.resourceClass)!=='apple-music-for-linux')continue;" +
+  "if(w.hidden||w.minimized)continue;" +                     // only save windows actually on screen
+  KWIN_TYPE +
   "const g=w.frameGeometry;print('SONATA_GEOM '+t+' '+Math.round(g.x)+' '+Math.round(g.y)+' '+Math.round(g.width)+' '+Math.round(g.height));}"
 
 function readKwinGeometry() {
@@ -683,11 +685,15 @@ function readKwinGeometry() {
 }
 
 function applyKwinPosition(type, x, y) {
+  // clamp inside the window's screen so a stale/bad value can't put it off-screen
   const script =
     "const ws=workspace.windowList?workspace.windowList():workspace.clientList();" +
     "for(const w of ws){if(String(w.resourceClass)!=='apple-music-for-linux')continue;" + KWIN_TYPE +
     "if(t===" + JSON.stringify(type) + "){var g=w.frameGeometry;" +
-    "w.frameGeometry={x:" + Math.round(x) + ",y:" + Math.round(y) + ",width:g.width,height:g.height};}}"
+    "var s=(w.output&&w.output.geometry)?w.output.geometry:workspace.virtualScreenGeometry;" +
+    "var nx=Math.max(s.x,Math.min(" + Math.round(x) + ",s.x+s.width-g.width));" +
+    "var ny=Math.max(s.y,Math.min(" + Math.round(y) + ",s.y+s.height-g.height));" +
+    "w.frameGeometry={x:nx,y:ny,width:g.width,height:g.height};}}"
   runKwinScript(script, 'sonata-setpos-' + type)
 }
 
@@ -703,6 +709,12 @@ function restoreWindowPosition(type) {
 function startWindowPositionMemory() {
   if (!kdeWayland()) return
   cleanupKwinRules()                               // drop the old (flaky) Remember rules
+  // auto-heal: main and mini sharing the exact position is the old collision
+  // bug's fingerprint — clear it so positions rebuild cleanly
+  const wp = settings.winPos || {}
+  if (wp.main && wp.mini && wp.main.x === wp.mini.x && wp.main.y === wp.mini.y) {
+    settings.winPos = {}; saveSettings()
+  }
   setInterval(async () => {
     const g = await readKwinGeometry()
     let changed = false
