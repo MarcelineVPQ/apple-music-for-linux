@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec, spawn } = require('child_process');
+const { exec, spawn, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
@@ -1336,23 +1336,28 @@ function notifyUpdateReady(version, interactive) {
 
 function restartIntoUpdate() {
   shuttingDown = true
-  // free the single-instance lock so the replacement doesn't see us and quit
+  // free the single-instance lock so the replacement can take it immediately
   app.releaseSingleInstanceLock()
-  const env = { ...process.env }
-  for (const k of ['APPIMAGE', 'APPDIR', 'ARGV0', 'OWD', 'APPIMAGE_EXTRACT_AND_RUN']) delete env[k]
-  // Launch the stable symlink (already repointed to the new version). Detach
-  // into a new session so it survives this process exiting, then:
-  //   1. wait until THIS instance is fully gone (its AppImage FUSE mount
-  //      released) — starting too early crashes the child on the stale mount;
-  //   2. try the normal FUSE launch;
-  //   3. if that exits non-zero (the transient zygote crash), retry with
-  //      APPIMAGE_EXTRACT_AND_RUN, which skips FUSE entirely and can't hit it.
   const target = (stablePath && fs.existsSync(stablePath)) ? stablePath : installedPath
-  const script =
-    'i=0; while kill -0 ' + process.pid + ' 2>/dev/null && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i+1)); done; ' +
-    'sleep 0.5; T=' + JSON.stringify(target) + '; ' +
-    '"$T" || APPIMAGE_EXTRACT_AND_RUN=1 "$T"'
-  spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore', env }).unref()
+  // Relaunch in the CLEAN session environment, the way a menu launch does.
+  // Inheriting THIS process's Chromium-polluted env crashes the new instance
+  // (SIGBUS/SIGTRAP); the user's systemd manager gives it a fresh env and
+  // outlives us. Pass only session vars through, not our whole environment.
+  const sessionVars = ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
+    'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XAUTHORITY', 'HOME', 'LANG', 'PATH']
+  let started = false
+  try {
+    const setenv = sessionVars.filter((v) => process.env[v]).map((v) => '--setenv=' + v + '=' + process.env[v])
+    execFileSync('systemd-run',
+      ['--user', '--collect', '--unit=sonata-relaunch-' + Date.now(), ...setenv, '--', target],
+      { stdio: 'ignore' })
+    started = true
+  } catch (e) { /* systemd-run unavailable; fall back below */ }
+  if (!started) {
+    const env = {}
+    for (const v of sessionVars) if (process.env[v]) env[v] = process.env[v]
+    spawn('/bin/sh', ['-c', 'sleep 0.5; exec ' + JSON.stringify(target)], { detached: true, stdio: 'ignore', env }).unref()
+  }
   app.exit(0)
 }
 
