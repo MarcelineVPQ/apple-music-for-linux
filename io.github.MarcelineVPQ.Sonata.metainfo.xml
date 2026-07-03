@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.7" date="2026-07-02">
+      <description>
+        <p>Window position memory is more robust: it ignores hidden windows, keeps restored windows on screen, and resets a corrupted saved state.</p>
+      </description>
+    </release>
     <release version="0.15.6" date="2026-07-02">
       <description>
         <p>Each window (main, mini player, lyrics) now remembers its own position separately on KDE Wayland, via KWin scripting — reliably, where the previous rule-based approach failed for the main window.</p>
