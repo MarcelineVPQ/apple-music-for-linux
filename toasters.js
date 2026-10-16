@@ -259,18 +259,19 @@ function buildToaster(pose) {
   return g
 }
 
-// the toast: a slice lying tilted, seen from the same camera; its crown (two lobes) to the back
+// the toast: a slice lying flat in the toaster's own axes (as if just popped out of it and flying the
+// same way): its square edges run along the toaster's long axis (z) and short axis (x), its crown (two
+// lobes) to the back, and the crust shows on the same visible faces (top, +x side, +z end)
 function toastSdf(p) {
-  // into the slice's frame: tilt it up toward the viewer a little, turn it along the flight
-  const ca = Math.cos(0.5), sa = Math.sin(0.5)
-  const q = [p[0], p[1] * ca - p[2] * sa, p[1] * sa + p[2] * ca]
+  const k = 0.8                                             // a slice that fits the toaster's slots
+  const q = [p[0] / k, p[1] / k, p[2] / k]
   const flat = Math.abs(q[1]) - 0.07                         // thickness
   // the slice outline in its plane (x, z): a square body under a two-lobed crown
   const bx = Math.abs(q[0]) - 0.48, bz = Math.abs(q[2] - 0.12) - 0.42
   let shape = Math.min(Math.max(bx, bz), 0) + Math.hypot(Math.max(bx, 0), Math.max(bz, 0)) - 0.08
   shape = Math.min(shape, Math.hypot(q[0] - 0.27, q[2] + 0.36) - 0.32, Math.hypot(q[0] + 0.27, q[2] + 0.36) - 0.32)
   const d = Math.min(Math.max(flat, shape), 0) + Math.hypot(Math.max(flat, 0), Math.max(shape, 0))
-  return [d - 0.02, shape > -0.09 ? 'crust' : 'face']
+  return [(d - 0.02) * k, shape > -0.09 ? 'crust' : 'face']
 }
 
 /** A golden-brown toast slice: crust rim, toasted face, highlight. */
@@ -355,6 +356,6 @@ function itemPos(f, item, ox, oy, sw, sh) {
 const DIR = (() => { const a = project([0, 0, 1]), o = project([0, 0, 0]); const l = Math.hypot(a.x - o.x, a.y - o.y); return { x: (a.x - o.x) / l, y: (a.y - o.y) / l } })()
 
 module.exports = {
-  PALETTE, TW, TH, WING_POSES, buildToaster, buildToast, flapPose,
+  PALETTE, TW, TH, WING_POSES, buildToaster, buildToast, flapPose, project,
   spriteScale, formation, wrap, itemPos, DIR
 }
