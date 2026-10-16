@@ -12,6 +12,7 @@ const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
+const railModel = require('./rail-model');
 
 const appName = 'Sonata'
 
@@ -44,7 +45,7 @@ let vizWindow = null
 let visualizer = null
 let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
 let vizArt = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable' }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable', railPinned: false }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -257,6 +258,7 @@ function createMiniWindow() {
   })
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
+  pushRail()
   // give KWin a moment to map the window before asking it to keep it above
   // loop: mini keep-above · 300 ms one-shot · runs once per mini open · stops after firing · cost one qdbus exec (KDE Wayland only)
   if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
@@ -294,6 +296,7 @@ function createMiniWindow() {
     miniWindow = null
     clearInterval(miniPoll)
     miniPoll = null
+    pushRail()
     if (!shuttingDown && mainWindow && !mainWindow.isDestroyed()) {
       // some window managers remember the mini player's tiny geometry
       // and reapply it to the main window on show
@@ -600,6 +603,7 @@ function createLyricsWindow() {
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, 'lyricsBounds')
   lockDownLocalWindow(lyricsWindow)
+  pushRail()
 
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
@@ -613,6 +617,7 @@ function createLyricsWindow() {
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
     stopLyricsFeedIfIdle()
+    pushRail()
   })
 }
 
@@ -660,6 +665,7 @@ function createVizWindow() {
   })
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
+  pushRail()
 
   // lifetime: one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
   // see getSharedListener) per visualizer window; both stopped and dropped on 'closed'
@@ -682,6 +688,7 @@ function createVizWindow() {
     if (visualizer) { visualizer.stop(); visualizer = null }
     vizWindow = null
     stopLyricsFeedIfIdle()
+    pushRail()
   })
 }
 
@@ -707,6 +714,7 @@ function vizAudioTick(isPlaying) {
 // shown as accelerator labels in the tray and "More" menus (labels only; the keys are handled here)
 const LYRICS_KEY = 'Ctrl+Shift+L'
 const VISUALIZER_KEY = 'Ctrl+Shift+V'
+const MINI_KEY = 'Ctrl+M'   // handled in the main window's before-input-event; a label for the rail
 function viewShortcut(input) {
   if (input.type !== 'keyUp' || !input.control || !input.shift || input.alt) return false
   const key = input.key.toLowerCase()
@@ -923,8 +931,10 @@ function broadcastPalette(p) {
   for (const w of [miniWindow, lyricsWindow, vizWindow]) {
     if (w && !w.isDestroyed()) w.webContents.send('palette', p)
   }
+  pushRail()   // the rail's glass takes the accent too
 }
-// lifetime: only called from the mini/lyrics polls, never in tray-only state. One artwork fetch +
+// lifetime: called from the mini/lyrics polls and (for the rail's tint) the 5 s tick while the main
+// window is shown, never in tray-only state. One artwork fetch +
 // nativeImage per track change (keyed by title|artist); the buffer and image are locals, only the
 // small { accent, bg, bg2, hue } object survives in lastPalette. Nothing accumulates per track.
 async function refreshPalette(state) {
@@ -1036,6 +1046,10 @@ function startNowPlayingLoop() {
     }
     if (!state || !state.ok) return
     if (tray) updateTrayTooltip(state)
+    // the rail's album tint (one artwork fetch per track change, while the main window shows) and
+    // its status dots (Discord reconnecting, the align helper starting/stopping): sent on change only
+    if (railMounted && mainWindow.isVisible()) refreshPalette(state)
+    pushRail()
     if (wantLastfm && state.title) feedScrobbler(state)
     if (wantDiscord) feedDiscord(state)
     if (wantNotify && state.title) {
@@ -1238,7 +1252,8 @@ function createSettingsWindow() {
   })
   settingsWindow.loadFile('settings.html')
   lockDownLocalWindow(settingsWindow)
-  settingsWindow.on('closed', () => { settingsWindow = null })
+  settingsWindow.on('closed', () => { settingsWindow = null; pushRail() })
+  pushRail()
 }
 
 ipcMain.handle('settings:get', () => ({
@@ -1299,6 +1314,7 @@ ipcMain.on('settings:set', (event, key, value) => {
       applyLyricsKeepAbove(value)
     }
   }
+  pushRail()   // precise timing, the update channel and the pin show in the rail
 })
 
 ipcMain.on('settings:action', async (event, action) => {
@@ -1348,6 +1364,7 @@ function refreshTrayMenu() {
     { label: 'Settings…', click: createSettingsWindow },
     { label: 'Quit', click: () => app.exit(0) }
   ]))
+  pushRail()   // Last.fm / Discord connected or not
 }
 
 function createTray() {
@@ -1361,8 +1378,91 @@ function createTray() {
 
 const appUrl = 'https://music.apple.com/'
 
-const customCss =
-  '.web-navigation__native-upsell {display: none !important;}'
+// Our CSS for Apple's page: the native-app upsell hidden, plus the rail's room (Apple's layout
+// narrowed by the rail's width, rail-model.js roomCss) once the rail is up in this document.
+const baseCss = '.web-navigation__native-upsell {display: none !important;}'
+const customCss = () => baseCss + (railMounted ? railModel.roomCss(railRoom) : '')
+let applyCustomCss = () => {}
+
+// --- navigation rail in the main window (rail-model.js, rail-ui.js, rail.css, preload-rail.js) ---
+// The rail lives in Apple's page, in a closed shadow root, run in the preload's isolated world.
+// Main owns its state (which windows are open, the pin, connections, the album accent) and sends
+// it only when it changes; the rail sends back command names, checked here.
+let railMounted = false   // the rail said 'mounted' in the current document
+let railRoom = 0          // px of the window the rail takes from Apple's page (applied CSS)
+let railSent = ''         // the last state sent, as JSON
+let railCode = null       // the scripts injected per page load (read once)
+function railScripts() {
+  if (!railCode) {
+    const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8')
+    railCode = [
+      { code: 'globalThis.SONATA_RAIL_CSS = ' + JSON.stringify(read('rail.css')) + ';' },
+      { code: read('rail-model.js') },
+      { code: read('rail-ui.js') }
+    ]
+  }
+  return railCode
+}
+// error: an injection that fails (page torn down mid-load) is logged; the next load injects again,
+// and without 'mounted' Apple's page keeps its full width (no empty strip)
+function injectRail() {
+  if (!mainAlive()) return
+  try {
+    mainWindow.webContents.executeJavaScriptInIsolatedWorld(999, railScripts())
+      .catch((e) => console.error('rail: inject failed:', e.message))
+  } catch (e) { console.error('rail: inject failed:', e.message) }
+}
+function railPrecise() {
+  if (!settings.lyricsPreciseTiming) return 'off'
+  if (!alignInstalled()) return 'missing'
+  return alignHelper && alignHelper.running ? 'busy' : 'ready'
+}
+function railSnapshot() {
+  const layout = railModel.railLayout(mainWindow.getContentSize()[0], !!settings.railPinned)
+  return {
+    pinned: !!settings.railPinned,
+    mode: layout.mode,
+    room: layout.room,
+    open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow, settings: !!settingsWindow },
+    keys: { lyrics: LYRICS_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '' },
+    lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
+    discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
+    precise: railPrecise(),
+    channel: settings.updateChannel,
+    version: app.getVersion(),
+    palette: lastPalette && settings.adaptiveColor ? { accent: lastPalette.accent } : null
+  }
+}
+// Sends the rail's state if it changed, and re-applies Apple's room if the rail's width changed.
+// Called on every event that can change it (windows, settings, connections, palette, resize, the
+// 5 s now-playing tick); unchanged state costs one small JSON.stringify and sends nothing.
+function pushRail() {
+  if (!railMounted || !mainAlive()) return
+  const s = railSnapshot()
+  if (s.room !== railRoom) { railRoom = s.room; applyCustomCss() }
+  const json = JSON.stringify(s)
+  if (json === railSent) return
+  railSent = json
+  mainWindow.webContents.send('rail:state', s)
+}
+function toggleRailPin() {
+  settings.railPinned = !settings.railPinned
+  saveSettings()
+  pushRail()
+}
+// lifetime: registered once at module load (like every ipcMain handler here)
+// error: a command not from the main window's top frame, or not one of the rail's names, is dropped
+ipcMain.on('rail:command', (event, command) => {
+  if (!mainAlive() || event.sender !== mainWindow.webContents) return
+  if (!event.senderFrame || event.senderFrame.parent) return
+  if (!railModel.COMMANDS.includes(command)) return
+  if (command === 'mounted') { railMounted = true; railSent = ''; railRoom = 0; pushRail() }
+  else if (command === 'lyrics') toggleLyricsWindow()
+  else if (command === 'visualizer') toggleVisualizer()
+  else if (command === 'mini') toggleMiniPlayer()
+  else if (command === 'settings') createSettingsWindow()
+  else if (command === 'pin') toggleRailPin()
+})
 
 function createWindow() {
   Menu.setApplicationMenu(null)
@@ -1371,7 +1471,15 @@ function createWindow() {
   const opts = {
     width: 1000, height: 600, minWidth: 800, minHeight: 500,
     show: !(settings.startMinimized || process.argv.includes('--hidden')),
-    title: appName
+    title: appName,
+    // the rail's bridge only (preload-rail.js); the security defaults are spelled out, unchanged:
+    // Apple's page gets no Node, the preload is sandboxed and isolated from the page's scripts
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-rail.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
+    }
   }
   if (b && b.width >= 800 && b.height >= 500) {
     Object.assign(opts, { width: b.width, height: b.height })
@@ -1391,6 +1499,10 @@ function createWindow() {
   // loop: main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
   mainWindow.on('resize', rememberBounds)
   mainWindow.on('move', rememberBounds)
+  // lifetime: one resize listener for the rail, dies with the window · per resize event one
+  // getContentSize + compare; the room CSS and the state go out only when the rail's mode changes
+  // (a pinned rail floats below 996 px and takes its room back above)
+  mainWindow.on('resize', pushRail)
 
   // lifetime: createWindow runs once (plus macOS 'activate' with no windows), so the main window's
   // webContents/window listeners below are registered once and die with the window
@@ -1403,6 +1515,9 @@ function createWindow() {
     }
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
       toggleMiniPlayer()
+    }
+    else if (input.type === 'keyUp' && input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'b') {
+      toggleRailPin()   // Ctrl+B (the rail's tooltip names it: rail-model.js pinItem)
     }
     else if (viewShortcut(input)) return
     else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
@@ -1441,10 +1556,18 @@ function createWindow() {
 
   // lifetime: FIXED — this used to call insertCSS directly, which adds a new stylesheet every time;
   // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
-  const applyCustomCss = createCssReplacer(mainWindow.webContents, customCss)
+  applyCustomCss = createCssReplacer(mainWindow.webContents, customCss)
   mainWindow.webContents.on('did-navigate', () => {
+    // a new document (load, reload): no rail in it until it says 'mounted', so no room either
+    railMounted = false
+    railRoom = 0
+    railSent = ''
     applyCustomCss()
   });
+
+  // lifetime: one dom-ready listener, dies with the window · per page load (not per SPA route
+  // change: Apple's routes keep the document, and the rail re-attaches itself) one injection
+  mainWindow.webContents.on('dom-ready', injectRail)
 
   mainWindow.webContents.on('page-title-updated', () => {
     applyCustomCss()
