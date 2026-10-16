@@ -38,3 +38,4 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | Bigger album circle | **Done** | Next build. +50 % (34 px → ~51 px) in the lyrics header, ring and flip scaled with it; the header grows to match. |
 | Discover / KDE availability | **Planned** | The earlier store submission was a hassle with endless hoops. Preferred route: Sonata's own Flatpak repository (GitHub Pages, built and signed in CI), installable in Discover via a one-click .flatpakref; no gatekeeper. Research current Flathub / Snap / OBS rules first and confirm. |
 | "Back to stable" | **Planned** | From Development, offer a downgrade to the current stable build (DS5 has it). |
+| Lyrics service busy: message + retry | **Planned** | Next build. When LRCLIB fails (503/429/network), say "Lyrics service busy, trying again…" instead of "No lyrics available", and retry while the lyrics window is open: 30 s, 1 min, 2 min (capped). |
