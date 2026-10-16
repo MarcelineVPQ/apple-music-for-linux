@@ -7,6 +7,30 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.32] — Settings beside the page, Glass and updates you can see
+
+### Added
+
+- **Settings and About in the main window.** The rail's Settings and new About items open a panel beside Apple's page instead of a separate window; Apple's page makes room for it, like the pinned rail. Pressing the item again hides it. In a narrow window it slides in as a drawer over the page (Esc closes it). Its sections fold and unfold one at a time; pin the ones you want to keep open. A small ⋮ menu collapses all of them or clears the pins. Sonata remembers which sections were open. The tray's *Settings…* and the new *About Sonata* open the panel (and bring the window back if it was hidden).
+- **Every setting found its section:** Playback & lyrics, Precise timing, Appearance, Mini player & windows, Integrations (Last.fm, Discord), Updates and Startup. Each header says the current state in a few words. New: a Theme choice (same as the desktop, light or dark).
+- **About:** what's new in this version (older releases one click away), what's coming soon, credits and licences (castlabs Electron, LRCLIB, the hyphenation patterns language by language, the sonata-align models, the toaster's lighting from Poly Haven), the "not affiliated with Apple" note, and links to the source, bug reports and 42 Pixel Studios.
+- **Glass look** (Settings → Appearance, on by default): the rail, the panel, the lyrics window and the mini player share one material made from the album artwork, blurred and tinted, like Apple's own now-playing screens. It changes with the track (a short crossfade) and is otherwise still. Words keep at least 4.5:1 contrast over the busiest artwork. On KDE (X11) the mini player blurs your desktop behind it instead.
+- **Mini player, Apple-style:** one pill with a hairline outline. Point at the song to get a scrubber with bigger times and a longer, thicker bar: click or drag to seek, or use ← / → (5 s) when it has the focus. The lyrics button lights up while the lyrics window is open.
+- **Mouse wheel on the volume:** over the mini player's volume slider or speaker, and over the volume in Apple's player bar: 5 % per notch, up is louder. A trackpad's small movements add up to notches.
+- **Updates you can see:** "Sonata X is available" with *Update* and *Details* (the release notes), a progress bar while it downloads, "Sonata X is installed" with *Restart now* (only while nothing plays; otherwise it starts next time), and "Updated to X" with *See what's new* after the restart. *Install updates automatically* is asked once and can be changed any time; *Check for updates automatically* off means Sonata goes online for updates only when you press *Check now*.
+- **Back to stable:** on the Development channel, Settings → Updates → *Back to stable* installs the newest stable release, even if it's older (it asks first). Switching the channel alone never installs an older version.
+- **Repaired, not reset:** if Sonata's settings file or lyrics cache gets damaged (a crash in the middle of a save), Sonata keeps everything that still reads, puts only the damaged parts back to their defaults, keeps a copy of the damaged file beside it, and says so once.
+
+### Changed
+
+- **One colour system for every Sonata window.** The rail, the panel, notices, the lyrics window, the mini player and the visualizer's text all take their colours from one set, light or dark and tinted by the album, with contrast checked.
+- **Notices instead of pop-ups.** Connecting Last.fm or Discord, update results and similar messages appear in the panel (with their buttons and a ×) or as short notifications at the bottom right, not as separate dialog windows.
+- Settings are saved safely (a new file is written, then swapped in), so a crash can't leave a half-written settings file.
+
+### Removed
+
+- The separate Settings window (everything is in the panel now).
+
 ## [0.15.31] — The rail never covers Apple's page
 
 ### Fixed

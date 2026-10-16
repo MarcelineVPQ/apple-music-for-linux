@@ -1,6 +1,8 @@
 # Sonata backlog
 
-One list for planned work. Status words: **Planned**, **Building**, **Done**.
+One list for planned work. Status words: **Planned**, **Building**, **Done** (and **Idea**).
+
+**Coming soon:** a row whose Notes start with `Soon: <one sentence for users>.` is listed in the app's About → Coming soon (about-data.js). Only that sentence is shown; the rest of the Notes stay developer notes.
 
 | Item | Status | Notes |
 |------|--------|-------|
@@ -15,18 +17,18 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | 0.15.10: click the cover to show the album | **Done** | Brings the main window to the front and clicks the page's own link to the playing album when one is on screen; otherwise only shows the window. |
 | 0.15.10: spin album art like a record | **Done** | Settings switch, off by default; 9 s per turn, only while playing and visible. |
 | 0.15.10: scaled words stay inside the padding | **Done** | The sung word grows inward at a row's start (left lines) or end (right lines). |
-| After 0.15.10: romanization and translations | **Planned** | From Apple's lyrics data when present; a toggle in the lyrics window, shown only when the song has it. |
-| After 0.15.10: songwriter credits | **Planned** | "Written by …" at the end of the lyrics, from the same data. |
+| After 0.15.10: romanization and translations | **Planned** | Soon: romanized and translated lyrics, when Apple has them for a song. From Apple's lyrics data when present; a toggle in the lyrics window, shown only when the song has it. |
+| After 0.15.10: songwriter credits | **Planned** | Soon: songwriter credits at the end of the lyrics. "Written by …" at the end of the lyrics, from the same data. |
 | After 0.15.10: Electron update (own release) | **Planned** | castlabs 42.3.3 → 44.5.1+wvcus (stable 2026-10-03), then 45 once castlabs ships it stable. Must stay castlabs (Widevine). |
 | After 0.15.10: CI on GitHub | **Planned** | Tests on every push; CI checked after every push (first-class standard). |
 | After 0.15.10: gate tests | **Planned** | Every loop has a `// loop:` verdict; no duplicate code. |
 | After 0.15.10: CHANGELOG and release checklist | **Planned** | Same release discipline as the other projects. |
 | After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
 | Light mode active-line contrast | **Planned** | With album colours off, the active line is near-white on the light card (existing issue). |
-| View the album cover | **Planned** | Open the cover large (click or menu), as most players do. A missing basic feature. |
+| View the album cover | **Planned** | Soon: open the album cover large. Open the cover large (click or menu), as most players do. A missing basic feature. |
 | Feature comparison vs other players | **Done** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
-| MPRIS fixes | **Planned** | (S) Desktop media widgets show no track length/progress (mpris:length unset) and the player is named "apple-music-for-linux", not Sonata. See docs/FEATURE-COMPARISON.md. |
-| Global shortcuts | **Planned** | (S–M) X11 directly; Wayland via the GlobalShortcuts portal (KDE supports it). |
+| MPRIS fixes | **Planned** | Soon: track length and progress in your desktop's media controls, under the name Sonata. (S) Desktop media widgets show no track length/progress (mpris:length unset) and the player is named "apple-music-for-linux", not Sonata. See docs/FEATURE-COMPARISON.md. |
+| Global shortcuts | **Planned** | Soon: play, pause and skip from anywhere with keyboard shortcuts. (S–M) X11 directly; Wayland via the GlobalShortcuts portal (KDE supports it). |
 | Keyboard and accessibility pass | **Planned** | (S) aria labels, visible focus, reduced motion, keys in the mini player and lyrics. The lyrics shortcut (Ctrl+Shift+L) and tray item are done (0.15.24), as are Ctrl+Shift+L/V in the mini player. |
 | Easier Discord / Last.fm setup | **Planned** | (S/M) Ship a Discord app id; a Last.fm key can't ship its secret in open source. |
 | Equalizer | **Idea** | (M–L) A one-hour test first: Web Audio on DRM playback may be silent; PipeWire EQ on Sonata's stream is the safe route. |
@@ -39,8 +41,8 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | Signed update feed + Development channel | **Done** | Same system as DS5: Ed25519-signed feed verified in the app (today only a sha512 from the same release), Stable + Development channels, release workflow signs the feed. Old installs must keep updating through the transition. |
 | Record spin at real speeds | **Done** | Next build. Albums 33⅓ rpm (1.8 s/turn); singles and EPs ("- Single" / "- EP") 45 rpm (1.33 s/turn), like the vinyl. Currently a decorative 9 s/turn (~6.7 rpm). |
 | Bigger album circle | **Done** | Next build. +50 % (34 px → ~51 px) in the lyrics header, ring and flip scaled with it; the header grows to match. |
-| Discover / KDE availability | **Planned** | Researched (docs/DISTRIBUTION.md): own Flatpak repo on GitHub Pages, GPG-signed in CI, one-click .flatpakref opens Discover. Flathub is blocked in practice by its AI-code policy. ~2–3 days. Code: hide updater UI in Flatpak, autostart via Background portal, keep-above on KDE Wayland, About shows Flatpak. |
-| "Back to stable" | **Planned** | From Development, offer a downgrade to the current stable build (DS5 has it). |
+| Discover / KDE availability | **Planned** | Soon: install and update Sonata from KDE Discover and GNOME Software (Flatpak). Researched (docs/DISTRIBUTION.md): own Flatpak repo on GitHub Pages, GPG-signed in CI, one-click .flatpakref opens Discover. Flathub is blocked in practice by its AI-code policy. ~2–3 days. Code: hide updater UI in Flatpak, autostart via Background portal, keep-above on KDE Wayland, About shows Flatpak. |
+| "Back to stable" | **Done** | 0.15.32: Settings → Updates → Back to stable (confirmed): from Development, the newest stable release is installed even when it's older (updater.js `offers`). |
 | Lyrics service busy: message + retry | **Done** | Next build. When LRCLIB fails (503/429/network), say "Lyrics service busy, trying again…" instead of "No lyrics available", and retry while the lyrics window is open: 30 s, 1 min, 2 min (capped). |
 | Prefetch next song's lyrics | **Done** | While a song plays, fetch the next queued track's lyrics (MusicKit queue) quietly in the background, so a busy lyrics service is usually over before you get there. One lookup per track; respects the retry backoff. |
 | Lyrics disk cache | **Done** | Keep fetched lyrics on disk (bounded, e.g. last 2,000 songs / ~20 MB, oldest out), so replays load instantly offline and LRCLIB gets fewer requests. Empty or failed results aren't cached. |
@@ -58,4 +60,15 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | Visualizer audio from Sonata's own stream | **Done** | 0.15.22. audio-listen.js capture (22.05 kHz, 1024-point FFT) instead of the default sink monitor; system monitor only as a fallback when our stream can't be found. 0.15.24: the visualizer takes a handle of `getSharedListener()` (audio-listen.js `shareListener`, same 22.05 kHz rate), so one parec feeds the visualizer, Level 1 and Level 2. |
 | Flying toasters formation | **Done** | 0.15.22 formation (screen-filling, wrapped, music-tied flap, per-toaster phase); 0.15.23 sprites rendered from Marcy's Blender model (~/projects/3d/flying-toaster, 8 flap frames + toast, assets/toaster/, ~0.47 MB). |
 | Flying toasters: After Dark flight | **Done** | Unreleased (branch toaster-flight). Empty sky at scene entry; each flyer launches at its own random moment from just off the top/right edges (weighted by the diagonal flow, so coverage is even; the freest of 6 spots, never within one sprite height of another flyer); cubic ease-out swoop 3.2× → own cruise (±18 %) over 1.2–1.8 s; re-entry after 0.4–2.4 s. Depth = cruise (faster on top, ±11 % size); flap 2.4× at launch easing to the music rate. Pool sized for the old formation's density (one flyer per lattice cell, ~34 on screen at 16:9), fixed pool + in-place draw order, rescaled on resize. toasters.js `createFlight`/`stepFlight`, test/toasters.test.js. |
-| Tonearm | **Planned** | A small tonearm over the vinyl cover, seen from above. Its angle follows song progress (moves inward like a real stylus); it lifts on pause and song end and sets down on track start. Transform only. |
+| Tonearm | **Planned** | Soon: a little tonearm over the vinyl cover that follows the song. A small tonearm over the vinyl cover, seen from above. Its angle follows song progress (moves inward like a real stylus); it lifts on pause and song end and sets down on track start. Transform only. |
+| Side panel, notices, theme tokens, DS5 updater UX (0.15.32) | **Done** | 0.15.32. Settings and About as an accordion side panel in the main window (panel.html, its own view between Apple's page and the rail; drawer in narrow windows); the floating Settings window is retired. One theme system (theme.js / theme.css: --s-* tokens, contrast-checked) for every Sonata window, with the Glass material (blurred album-art backdrop, once per track). Notices + toasts replace Sonata's informational dialogs. Damaged settings.json / lyrics-cache.json are repaired (kept what reads, copy aside, one notice). Updater: available / progress / installed / Updated to, Install updates automatically (asked once), Check for updates automatically, Back to stable, local signed test feed (SONATA_UPDATE_FEED). Mouse wheel on the mini player's volume. |
+| Hyphenation pattern licences | **Planned** | Checked 2026-10-16 (about-data.js PATTERNS, shown in About → Credits): most are MIT/LPPL/BSD/permissive, but **ro** states no licence, **id** is GPL-2.0 (only or later not stated), **cs** "GPL" (version not stated), **hu** MPL 1.1 or GPL 2.0. Decide: keep, drop, or ship the licence notices (LPPL wants the notice kept) before the next stable release. |
+| CI on every push for Sonata | **Planned** | Approved 2026-10-16, after 0.15.32. `npm test` + the verdict gate on GitHub Actions for every push and PR; CI checked after every push (first-class standard). |
+| Rule gates everywhere | **Planned** | Approved 2026-10-16, after 0.15.32. Extend test/verdicts.test.js to every file (main.js loops and catches included), IPC sender checks for every ipcMain handler (mini, lyrics, viz windows too), the no-literal-colours gate (test/theme.test.js) to every page, and a no-dupes check. |
+| UI checker for every window | **Planned** | Approved 2026-10-16, after 0.15.32. tools/ui-check.js covers the main window (Apple's page, panel, rail, toasts); add the lyrics window, mini player and visualizer (sizes, light/dark, contrast, hit targets, names). |
+| Performance budgets + 30-min soak | **Planned** | Approved 2026-10-16, after 0.15.32. Idle CPU, repaints, memory and listener counts as numbers with limits; a 30-minute soak (playback logged in, windows opened and closed) that blocks a release when a budget is broken. |
+| Build attestations on releases | **Planned** | Approved 2026-10-16, after 0.15.32. GitHub artifact attestations (provenance) for the AppImage in release.yml, documented in docs/RELEASING.md. |
+| Languages (i18n) | **Planned** | Approved 2026-10-16, after 0.15.32. Every Sonata string through one translation layer; start with the DS5 app's 7 languages. |
+| Accessibility pass: lyrics, mini player, visualizer | **Planned** | Approved 2026-10-16, after 0.15.32. Keyboard paths, names, focus rings, reduced motion and contrast in the three floating windows (the panel and rail have theirs). |
+| README: "How it's built and tested" + updates | **Planned** | Approved 2026-10-16, after 0.15.32. A section on the views, the theme system, the test suites, the UI checker and the release flow, and a fuller updates section. |
+| Apple player bar volume: mouse wheel | **Idea** | 0.15.32 adds the wheel to the mini player's volume. Apple's own player bar volume (main window) could get it from the isolated-world focus script; see the 0.15.32 report for whether that is reliable. |
