@@ -261,6 +261,10 @@ function createMiniWindow() {
   // loop: mini keep-above · 300 ms one-shot · runs once per mini open · stops after firing · cost one qdbus exec (KDE Wayland only)
   if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
 
+  // the lyrics and visualizer shortcuts work in the mini player too (shown in its "More" menu)
+  // lifetime: registered once per mini window, dies with its webContents
+  miniWindow.webContents.on('before-input-event', (event, input) => { viewShortcut(input) })
+
   miniWindow.webContents.once('did-finish-load', () => {
     miniTrackKey = ''
     if (lastPalette) miniWindow.webContents.send('palette', lastPalette)
@@ -699,6 +703,19 @@ function vizAudioTick(isPlaying) {
   else if (vizListener.state !== 'idle') { vizListener.stop(); visualizer.silence() }
 }
 
+// Lyrics and visualizer from either player: the same keys in the main window and the mini player,
+// shown as accelerator labels in the tray and "More" menus (labels only; the keys are handled here)
+const LYRICS_KEY = 'Ctrl+Shift+L'
+const VISUALIZER_KEY = 'Ctrl+Shift+V'
+function viewShortcut(input) {
+  if (input.type !== 'keyUp' || !input.control || !input.shift || input.alt) return false
+  const key = input.key.toLowerCase()
+  if (key === 'l') toggleLyricsWindow()
+  else if (key === 'v') toggleVisualizer()
+  else return false
+  return true
+}
+
 function toggleVisualizer() {
   if (vizWindow) vizWindow.close()
   else createVizWindow()
@@ -817,7 +834,8 @@ async function showMoreMenu() {
     { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'add to library') },
     { type: 'separator' },
     { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url) },
-    { label: 'Lyrics', click: toggleLyricsWindow },
+    { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
+    { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },
     {
       label: 'Always on Top',
@@ -1315,7 +1333,8 @@ function refreshTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show / Hide', click: toggleWindow },
     { label: 'Mini Player', click: toggleMiniPlayer },
-    { label: 'Visualizer', click: toggleVisualizer },
+    { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
+    { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },
     { label: 'Play / Pause', click: () => playerCommand('playPause') },
     { label: 'Next', click: () => playerCommand('next') },
@@ -1385,9 +1404,7 @@ function createWindow() {
     else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
       toggleMiniPlayer()
     }
-    else if (input.type === 'keyUp' && input.control && input.shift && input.key.toLowerCase() === 'v') {
-      toggleVisualizer()
-    }
+    else if (viewShortcut(input)) return
     else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
       if (mainWindow.webContents.navigationHistory.canGoBack()) {
         mainWindow.webContents.navigationHistory.goBack()

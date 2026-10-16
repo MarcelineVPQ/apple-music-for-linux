@@ -55,7 +55,7 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 ### Player
 
 - **System tray:** click to hide or show the window; right-click for play/pause, next, previous, mini player, visualizer, dark mode, settings and quit. Music keeps playing while the window is hidden.
-- **Mini player** (Ctrl+M): a small, translucent, always-on-top pill with artwork, shuffle, previous / play-pause / next, repeat, a seekable progress bar, volume and mute, favourite, and a ⋯ menu (Add to Library, Copy Link, Lyrics, Always on Top). Drag it anywhere.
+- **Mini player** (Ctrl+M): a small, translucent, always-on-top pill with artwork, shuffle, previous / play-pause / next, repeat, a seekable progress bar, volume and mute, favourite, and a ⋯ menu (Add to Library, Copy Link, Lyrics, Visualizer, Always on Top). Drag it anywhere.
 - **Visualizer / ambient mode** (Ctrl+Shift+V): full-screen album art, synced lyrics and a real-time spectrum from the actual audio output (captured through PipeWire/PulseAudio, so it works with Apple's DRM). Four scenes: **Bars**, **Aurora** (a Flurry homage), **Nebula** (an iTunes-visualizer homage) and **Toast** (pixel-art winged toasters that flap to the beat, an After Dark wink). Click or ← / → to change, Esc to leave.
 - **Adaptive album colours:** the mini player and lyrics window take their colours from the current album art, and the active lyric line glows in the album's colour. Toggle in Settings.
 - **Dark mode** follows your desktop; Ctrl+D switches by hand and is remembered.
@@ -99,7 +99,8 @@ Sonata talks to Apple (through the Apple Music web player you sign in to) and, o
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+M` | Toggle mini player |
-| `Ctrl+Shift+V` | Toggle visualizer (← / → or click to change scene, Esc to exit) |
+| `Ctrl+Shift+L` | Toggle lyrics (also in the mini player) |
+| `Ctrl+Shift+V` | Toggle visualizer (also in the mini player; ← / → or click to change scene, Esc to exit) |
 | `Ctrl+D` | Toggle dark / light mode |
 | `Alt+←` / `Alt+→` | Back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |

@@ -16,6 +16,7 @@ See docs/RELEASING.md.
 
 ### Changed
 
+- **Lyrics and visualizer from either player.** The tray menu and the mini player's ⋯ menu now have both *Lyrics* and *Visualizer*, and the shortcuts work in the full-size and the mini player: Ctrl+Shift+L for lyrics, Ctrl+Shift+V for the visualizer.
 - **One audio capture for everything.** The visualizer's spectrum, refine by listening and precise word timing now share a single recording of Sonata's own stream instead of each starting its own.
 
 ## [0.15.23] — Flying toasters from a real 3D model

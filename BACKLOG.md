@@ -26,7 +26,7 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | Feature comparison vs other players | **Done** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
 | MPRIS fixes | **Planned** | (S) Desktop media widgets show no track length/progress (mpris:length unset) and the player is named "apple-music-for-linux", not Sonata. See docs/FEATURE-COMPARISON.md. |
 | Global shortcuts | **Planned** | (S–M) X11 directly; Wayland via the GlobalShortcuts portal (KDE supports it). |
-| Keyboard and accessibility pass | **Planned** | (S) aria labels, visible focus, reduced motion, keys in the mini player and lyrics; a lyrics shortcut and tray item. |
+| Keyboard and accessibility pass | **Planned** | (S) aria labels, visible focus, reduced motion, keys in the mini player and lyrics. The lyrics shortcut (Ctrl+Shift+L) and tray item are done (0.15.24), as are Ctrl+Shift+L/V in the mini player. |
 | Easier Discord / Last.fm setup | **Planned** | (S/M) Ship a Discord app id; a Last.fm key can't ship its secret in open source. |
 | Equalizer | **Idea** | (M–L) A one-hour test first: Web Audio on DRM playback may be silent; PipeWire EQ on Sonata's stream is the safe route. |
 | Output device choice | **Idea** | (S–M) setSinkId likely works; fallback is moving the PipeWire stream. |
