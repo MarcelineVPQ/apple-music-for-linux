@@ -54,14 +54,14 @@
   #ring circle { fill: none; stroke-width: 2; }
   #ring .track { stroke: var(--border); }
   #ring .fill { stroke: var(--active); stroke-linecap: round; }
-  #spin { position: absolute; inset: 4.5px; border-radius: 50%; }
+  #spin { position: absolute; inset: 4px; border-radius: 50%; overflow: hidden; }
   body.spin #spin { animation: spin var(--turn, 1.8s) linear infinite; }
   body.spin.still #spin { animation-play-state: paused; }
   @keyframes spin { to { transform: rotate(360deg); } }
   #thumb {
     display: block;
-    width: 28px;
-    height: 28px;
+    width: 100%;   /* fills the spinning disc inside the ring */
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);

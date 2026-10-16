@@ -7,7 +7,7 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
-## [0.15.13] — Signed updates, Development channel, bigger album art
+## [0.15.14] — Signed updates, Development channel, bigger album art
 
 ### Added
 
