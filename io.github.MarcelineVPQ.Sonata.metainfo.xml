@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.11" date="2026-10-15">
+      <description>
+        <p>Lyrics, upgraded: words light up as they are sung (karaoke-style), dots count down through instrumental breaks, duets are laid out by singer with background vocals underneath, and the lyrics window shows the album cover with a progress ring (click it to show the album). When Apple has no lyrics for a song, Sonata now finds them on LRCLIB (can be turned off in Settings). Also fixes a slow memory build-up from styling being re-added on every page title change.</p>
+      </description>
+    </release>
     <release version="0.15.8" date="2026-07-02">
       <description>
         <p>Removed the window-position memory that was shoving windows around on KDE Wayland; windows are placed normally again.</p>
