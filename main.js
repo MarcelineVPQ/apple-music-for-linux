@@ -213,7 +213,14 @@ const nowPlayingScript = `(() => {
       artist: attrs ? (attrs.artistName || '') : '',
       album: attrs ? (attrs.albumName || '') : '',
       duration: attrs && attrs.durationInMillis ? attrs.durationInMillis / 1000 : 0,
-      playbackTime: mk.currentPlaybackTime || 0,
+      // precise time from the playing media element (fractional seconds); MusicKit's own value
+      // can be whole seconds. Used only when the two agree, so a stray element never wins.
+      playbackTime: (() => {
+        const mkTime = mk.currentPlaybackTime || 0;
+        const el = document.getElementById('apple-music-player') || document.querySelector('audio');
+        const t = el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
+        return Number.isFinite(t) && t > 0 && Math.abs(t - mkTime) < 1.5 ? t : mkTime;
+      })(),
       artworkLarge: attrs && attrs.artwork && attrs.artwork.url
         ? attrs.artwork.url.replace('{w}', 512).replace('{h}', 512)
         : '',

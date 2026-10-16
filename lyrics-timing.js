@@ -135,6 +135,20 @@ function hasWordTiming(lines) {
   return !!lines && lines.some((l) => (l.words && l.words.length) || (l.bg && l.bg.length))
 }
 
+// How long a word takes to sing, in rough units: syllables (vowel groups; a silent final "e"
+// doesn't count), a small base per word, and a short breath after , ; : . ! ? —
+// Scripts without Latin vowels fall back to characters / 2.
+function syllables(word) {
+  const w = word.toLowerCase().replace(/[^\p{L}]/gu, '')
+  if (!w) return 1
+  if (!/[a-zà-ÿ]/.test(w)) return Math.max(1, Math.round(w.length / 2))
+  const groups = w.replace(/(?<!l)e$/, '').match(/[aeiouyà-ÿ]+/g)
+  return Math.max(1, groups ? groups.length : 1)
+}
+function wordWeight(word) {
+  return syllables(word) + 0.35 + (/[,;:.!?…—-]$/.test(word) ? 0.6 : 0)
+}
+
 const EST_FILL = 0.9        // estimated words fill this share of a line's time (the rest is the tail)
 
 /**
@@ -152,7 +166,7 @@ function estimateWords(lines) {
     let end = line.end != null ? line.end : (next && next.t != null ? next.t : line.t + 0.45 * parts.length + 1)
     end = Math.min(end, line.t + 0.6 * parts.length + 2)   // a long gap after the line isn't singing
     const span = Math.max(0.2, (end - line.t) * EST_FILL)
-    const weights = parts.map((w) => w.replace(/[^\p{L}\p{N}]/gu, '').length + 2)
+    const weights = parts.map(wordWeight)
     const total = weights.reduce((a, b) => a + b, 0)
     let acc = 0
     const words = parts.map((text, k) => {
@@ -181,11 +195,17 @@ function syncClock(clock, received, isPlaying, nowMs) {
   const next = { anchor: received, at: nowMs, playing, last: received, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
   if (!playing || !prev.playing || prev.anchor == null) return next
   const predicted = clockTime(prev, nowMs)
-  const ok = Number.isInteger(received)
-    ? predicted >= received - 0.05 && predicted < received + 1.05
-    : Math.abs(predicted - received) <= 0.25
   const seeking = prev.seekAt != null && nowMs - prev.seekAt < 1200 && Math.abs(predicted - received) > 1.05
-  if (ok || seeking) { next.anchor = predicted; next.at = nowMs }
+  if (Number.isInteger(received)) {
+    // coarse whole-second time: keep the smooth clock while it's inside [v, v+1)
+    if (seeking || (predicted >= received - 0.05 && predicted < received + 1.05)) { next.anchor = predicted; next.at = nowMs }
+    return next
+  }
+  // precise media time: ease halfway toward it on every push (smooth, converges in ~1 s);
+  // further off than 0.3 s is a seek or a stall, so snap
+  const d = received - predicted
+  if (seeking) { next.anchor = predicted; next.at = nowMs }
+  else if (Math.abs(d) <= 0.3) { next.anchor = predicted + d / 2; next.at = nowMs }
   return next
 }
 
@@ -203,5 +223,5 @@ function clockTime(clock, nowMs) {
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, estimateWords, syncClock, seekClock, clockTime
+  lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime
 }

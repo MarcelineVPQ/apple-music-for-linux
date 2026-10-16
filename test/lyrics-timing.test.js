@@ -91,8 +91,8 @@ test('clock: counts on between pushes and keeps a consistent fractional time', (
   let c = T.syncClock(null, 10.0, true, 0)
   c = T.syncClock(c, 10.5, true, 500)
   assert.equal(T.clockTime(c, 750), 10.75)
-  c = T.syncClock(c, 11.1, true, 1000)            // 0.1 s off: keep the smooth clock
-  assert.equal(T.clockTime(c, 1000), 11)
+  c = T.syncClock(c, 11.1, true, 1000)            // 0.1 s off: ease halfway toward it
+  assert.ok(Math.abs(T.clockTime(c, 1000) - 11.05) < 1e-9)
   c = T.syncClock(c, 40.2, true, 1500)            // seek elsewhere: snap
   assert.equal(T.clockTime(c, 1500), 40.2)
 })
@@ -177,4 +177,17 @@ test('estimateWords: leaves word-timed and unsynced lyrics alone', () => {
   assert.equal(T.estimateWords(timed), timed)
   const plain = [{ t: null, text: 'a b' }]
   assert.equal(T.estimateWords(plain), plain)
+})
+
+test('syllables: vowel groups, silent final e, minimum one', () => {
+  assert.equal(T.syllables('forever'), 3)
+  assert.equal(T.syllables('make'), 1)
+  assert.equal(T.syllables('little'), 2)
+  assert.equal(T.syllables("I'm"), 1)
+  assert.equal(T.syllables('rhythm'), 1)
+  assert.equal(T.syllables('anarchist'), 3)
+})
+
+test('wordWeight: punctuation adds a short breath', () => {
+  assert.ok(T.wordWeight('young,') > T.wordWeight('young'))
 })

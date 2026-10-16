@@ -7,6 +7,13 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.19] — Tighter lyrics timing
+
+### Changed
+
+- **Lyrics follow the music more closely.** The lyrics clock now reads the exact playback position of the audio (to the millisecond) instead of a value that could be up to a second coarse, and eases smoothly onto it.
+- **Better estimated word timing:** words are timed by syllables, with a short breath after commas and full stops, which fits fast vocals much better than counting letters.
+
 ## [0.15.18] — Lyrics load faster
 
 ### Added
