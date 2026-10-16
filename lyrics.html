@@ -343,6 +343,7 @@
   let raf = 0
   let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
   let refined = false       // learned or live-refined word timing in use
+  let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
   let notesEl = null
   let notes = []
 
@@ -367,6 +368,7 @@
     lines = data.estimate ? T.estimateWords(data.lines || []) : (data.lines || [])
     songKey = (data.title || '') + '|' + (data.artist || '')
     refined = !!data.refined
+    aligned = !!data.aligned
     notesEl = null
     duration = Number(data.duration) || 0
     updateRing(0, true)
@@ -431,12 +433,12 @@
     })
     notes = []
     if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : ''))
-    if (lines.length && lines[0].estimated) notes.push(null)   // word timing note, see showNotes
+    if (lines.some((l) => l.estimated || l.aligned)) notes.push(null)   // word timing note, see showNotes
     showNotes()
   })
 
   function showNotes() {
-    const text = notes.map((n) => n === null ? (refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated') : n).join(' · ')
+    const text = notes.map((n) => n === null ? timingNote() : n).join(' · ')
     if (!text) return
     if (!notesEl) {
       notesEl = document.createElement('div')
@@ -445,6 +447,36 @@
     }
     notesEl.textContent = text
   }
+
+  // aligned beats refined beats estimated; a song with some lines left estimated says so
+  function timingNote() {
+    if (aligned) return lines.some((l) => l.estimated) ? 'Word timing aligned on this PC (some lines estimated)' : 'Word timing aligned on this PC'
+    return refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated'
+  }
+
+  // precise word timing (Settings, experimental): main sends the aligned words when the alignment of
+  // the song on screen finishes; only those lines' timing changes (same words, so the spans stay)
+  ipcRenderer.on('lyrics-aligned', (event, msg) => {
+    if (!msg || msg.key !== songKey || !msg.lines) return
+    let changed = false
+    for (const [k, a] of Object.entries(msg.lines)) {
+      const i = Number(k)
+      const line = lines[i]
+      const entry = lineEls[i]
+      const words = a && a.words
+      if (!line || !entry || line.aligned || !line.words || !Array.isArray(words) || a.text !== line.text ||
+          words.length !== line.words.length || words.some((w, j) => w.text !== line.words[j].text)) continue
+      const next = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), aligned: true })
+      delete next.estimated
+      lines[i] = next
+      entry.pos = null
+      changed = true
+    }
+    if (!changed) return
+    aligned = true
+    showNotes()
+    if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
+  })
 
   // refine by listening (Settings, experimental): main sends a line's new word timing once the line
   // has been sung; only that line's timing changes (same words, so the spans stay)

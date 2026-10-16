@@ -296,4 +296,34 @@ function createListener(opts, deps = {}) {
   }
 }
 
-module.exports = { createListener, pickSinkInput, descendants, toMidSide, ownProcessTree, RATE }
+/**
+ * One parec for several users (Level 1 refine and Level 2 precise timing both listen to the same
+ * stream): shareListener(createListener) returns a createListener-compatible factory. The real
+ * listener runs while at least one handle is started; each chunk goes to every started handle.
+ * lifetime: the real listener is stopped when the last handle stops
+ */
+function shareListener(create) {
+  let real = null
+  const users = new Set()
+  function dispatch(mid, wallMs, side) {
+    // loop: one call per started handle (at most 2) per chunk
+    for (const u of users) { try { u.onChunk(mid, wallMs, side) } catch (e) { /* one user's failure doesn't stop the other */ } }
+  }
+  return function createShared(opts) {
+    const user = { onChunk: opts.onChunk }
+    return {
+      start() {
+        users.add(user)
+        if (!real) real = create(Object.assign({}, opts, { onChunk: dispatch }))
+        real.start()
+      },
+      stop() {
+        if (!users.delete(user)) return
+        if (!users.size && real) real.stop()
+      },
+      get state() { return users.has(user) && real ? real.state : 'idle' }
+    }
+  }
+}
+
+module.exports = { createListener, shareListener, pickSinkInput, descendants, toMidSide, ownProcessTree, RATE }

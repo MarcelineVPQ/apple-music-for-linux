@@ -1,6 +1,11 @@
 # Level 2: precise word timing from the audio (sonata-align)
 
-Status: working prototype on branch `level2-align`, not wired into Sonata yet.
+Status: wired into Sonata in 0.15.21 as Settings → *Precise word timing (GPU, experimental)*
+(align-session.js, align-helper.js; steps 1–6 of the integration plan below, without the in-app
+installer, plain-lyrics mode and transcription). As built: recording runs only while the lyrics
+window is open (like Level 1, one shared parec), the song is aligned once its lyric span was heard
+(≥ 90 %) via stream mode, so no audio file is ever written, and the helper is the user's venv
+python running the `align/` scripts shipped unpacked next to app.asar.
 Level 1 (docs/LISTEN-SPEC.md) nudges estimated words toward onsets it hears. Level 2 finds where
 each word is actually sung: it separates the vocals and force-aligns the KNOWN lyrics to them on
 the GPU. A fallback mode transcribes songs that have no lyrics anywhere.
