@@ -167,7 +167,7 @@
     modeIdx = (i + MODES.length) % MODES.length
     try { localStorage.setItem('viz-mode', MODES[modeIdx]) } catch (e) {}
     ctx.clearRect(0, 0, W, H)
-    aurora.streamers = null; nebula.parts = null; toast.f = null   // re-seed on entry
+    aurora.streamers = null; nebula.parts = null; toast.reset = true   // re-seed on entry (toast: empty sky)
     showLabel()
   }
   window.__mode = () => MODES[modeIdx]   // for testing
@@ -278,25 +278,34 @@
   }
 
   // --- MODE 4: toast (After Dark homage; sprites rendered from Marcy's Blender model: toasters.js) ---
-  // A full-screen staggered formation flies diagonally (upper right -> lower left, where the noses
-  // point) at a steady speed and wraps around, so the screen never empties; the music sets the wing
-  // flap rate (tempo, energy) and nudges the speed. The 8 flap frames and the toast are loaded once;
-  // a frame is one drawImage per visible sprite (smoothed, scaled to the screen height).
+  // The sky starts empty; toasters and slices launch one by one from just off the top/right edges,
+  // swoop in fast, ease down to their own cruising speed and fly the diagonal their noses point along
+  // (toasters.js flight). When one leaves at the bottom/left it comes back after its own random wait.
+  // Faster flyers are nearer: drawn last (on top) and a touch larger. The music sets the wing flap rate
+  // (tempo, energy) and nudges everyone's speed. The 8 flap frames and the toast are loaded once; a
+  // frame is one drawImage per visible flyer (smoothed, scaled to the screen height).
   const TOASTERS = require('./toasters')
   // lifetime: the 9 images are loaded once at page load and live as long as the window
   function loadImage(src) { const img = new Image(); img.src = src; return img }
   const toastImages = { frames: TOASTERS.TOASTER_FILES.map(loadImage), slice: loadImage(TOASTERS.TOAST_FILE) }
-  const toast = { f: null, w: 0, h: 0, sw: 0, sh: 0, tw: 0, th: 0, dist: 0, flap: 0, speed: 1, last: 0, time: 0, list: [] }
-  function setupToast() {
+  // lifetime: toast.fl (the flyer pool) is made on the first toast frame and kept for the window's life;
+  // a scene (re)entry empties the sky in place (resetFlight), a resize rescales it (resizeFlight)
+  const toast = { fl: null, reset: true, k: 1, w: 0, h: 0, sw: 0, sh: 0, speed: 1, last: 0, time: 0 }
+  function sizeToast() {
     const size = TOASTERS.spriteSize(H)
-    toast.sw = size.w; toast.sh = size.h
-    toast.tw = Math.round(TOASTERS.TOAST_SIZE.w * size.k); toast.th = Math.round(TOASTERS.TOAST_SIZE.h * size.k)
-    toast.f = TOASTERS.formation(W, H, size.w, size.h)
+    toast.sw = size.w; toast.sh = size.h; toast.k = size.k
     toast.w = W; toast.h = H
-    toast.list = toast.f.items.map((item) => ({ item, x: 0, y: 0 }))
   }
   function renderToast(a) {
-    if (!toast.f || toast.w !== W || toast.h !== H) setupToast()
+    if (!toast.fl) {
+      sizeToast()
+      toast.fl = TOASTERS.createFlight(W, H, toast.sw, toast.sh)
+      toast.reset = false
+    } else if (toast.w !== W || toast.h !== H) {
+      sizeToast()
+      TOASTERS.resizeFlight(toast.fl, W, H, toast.sw, toast.sh)   // keep the flyers, rescale the sky
+    }
+    if (toast.reset) { TOASTERS.resetFlight(toast.fl); toast.reset = false; toast.last = 0 }
     const now = performance.now()
     const dt = toast.last ? Math.min(0.05, (now - toast.last) / 1000) : 0
     toast.last = now
@@ -306,27 +315,33 @@
     ctx.imageSmoothingQuality = 'high'
     ctx.clearRect(0, 0, W, H)
     ctx.fillStyle = 'rgba(6,5,12,0.84)'; ctx.fillRect(0, 0, W, H)    // night sky, the album glow faint behind
-    const sw = toast.sw, sh = toast.sh
-    // steady flight; the music nudges it (±15 %), smoothed so it never jerks
+    // the music nudges everyone's speed (±15 %), smoothed so it never jerks
     toast.speed += ((0.9 + 0.35 * Math.min(1, a.energy * 1.6)) - toast.speed) * Math.min(1, dt * 1.5)
-    toast.dist += sh * 0.5 * toast.speed * dt
     // wings flap at the tempo, quicker when the track is busy (one cycle = the 8 frames)
-    toast.flap += dt * Math.min(3.2, Math.max(1, beat.bpm / 60)) * (0.75 + 0.5 * Math.min(1, a.energy * 1.6))
-    const ox = TOASTERS.DIR.x * toast.dist, oy = TOASTERS.DIR.y * toast.dist
-    const list = toast.list
-    for (const e of list) { const p = TOASTERS.itemPos(toast.f, e.item, ox, oy, sw, sh); e.x = p.x; e.y = p.y }
-    list.sort((p, q) => p.y - q.y)           // lower ones in front
-    for (const e of list) {
-      if (e.x >= W || e.y >= H || e.x + sw <= 0 || e.y + sh <= 0) continue
-      if (e.item.toast) {
-        // a slice tumbles gently as it flies
-        const ang = 0.28 * Math.sin(toast.time * 0.9 + e.item.phase * 6.28)
-        ctx.save()
-        ctx.translate(e.x + sw / 2, e.y + sh / 2)
-        ctx.rotate(ang)
-        ctx.drawImage(toastImages.slice, -toast.tw / 2, -toast.th / 2, toast.tw, toast.th)
-        ctx.restore()
-      } else ctx.drawImage(toastImages.frames[TOASTERS.flapFrame(toast.flap + e.item.phase)], e.x, e.y, sw, sh)
+    const flapRate = Math.min(3.2, Math.max(1, beat.bpm / 60)) * (0.75 + 0.5 * Math.min(1, a.energy * 1.6))
+    const fl = toast.fl
+    TOASTERS.stepFlight(fl, dt, toast.speed, flapRate)
+    // draw slowest (farthest) first, so faster flyers land on top; no allocation per frame
+    const pool = fl.pool, order = fl.order, k = toast.k
+    for (let i = 0; i < order.length; i++) {
+      const f = pool[order[i]]
+      if (!f.active) continue
+      const img = f.toast ? toastImages.slice : toastImages.frames[TOASTERS.flapFrame(f.flap)]
+      if (!img.naturalWidth) continue          // error: still loading or failed: skip, never throw
+      if (f.toast) {
+        const tw = Math.round(TOASTERS.TOAST_SIZE.w * k * f.scale), th = Math.round(TOASTERS.TOAST_SIZE.h * k * f.scale)
+        if (f.x - tw >= W || f.y - th >= H || f.x + tw <= 0 || f.y + th <= 0) continue
+        // a slice rocks gently as it flies
+        const ang = 0.28 * Math.sin(toast.time * 0.9 + f.rock * 6.28)
+        ctx.setTransform(Math.cos(ang), Math.sin(ang), -Math.sin(ang), Math.cos(ang), Math.round(f.x), Math.round(f.y))
+        ctx.drawImage(img, -tw / 2, -th / 2, tw, th)
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+      } else {
+        const w = Math.round(toast.sw * f.scale), h = Math.round(toast.sh * f.scale)
+        const x = Math.round(f.x - w / 2), y = Math.round(f.y - h / 2)
+        if (x >= W || y >= H || x + w <= 0 || y + h <= 0) continue
+        ctx.drawImage(img, x, y, w, h)
+      }
     }
   }
 
@@ -334,6 +349,10 @@
   // loop: render loop · requestAnimationFrame (display rate) · runs while the visualizer window is visible ·
   // Chromium stops rAF when the window is hidden/minimized/occluded and the loop ends with the window · cost one
   // 2D canvas frame (dpr capped at 1.5). Left as is: the ambient modes animate even when paused, by design.
+  // Toast scene per frame: one stepFlight over a fixed flyer pool (~50 at any size, no allocation) and one
+  // cached-frame drawImage per visible flyer; launches cost a few distance checks, only when one launches.
+  // error: drawImage throws on a broken image, which would end this loop; renderToast skips sprites that
+  // have no pixels (still loading or failed), so a missing file leaves an empty sky, not a dead visualizer.
   function frame() {
     const a = stepBands()
     detectBeat(a)
