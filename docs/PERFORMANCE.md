@@ -155,6 +155,7 @@ a colour-scheme change.
 | rail-ui.js `MutationObserver` | the only one; `childList` on `<html>` and `<body>` (no subtree, no attributes) | fires only when Apple adds/removes direct children of those two; never fired during 50 in-app navigations (re-attachments 0). Removing the rail by script: back at once; replacing `<body>`: moves to the new one, observer re-bound, still one |
 | main.js `rail:command` | `ipcMain.on`, module load | 1 throughout; drops anything not from the main window's top frame or not a known command |
 | main.js `dom-ready` → `injectRail`, rail `resize` listener | main window listeners | registered once in `createWindow`; counts flat (dom-ready 1, resize 2 with the bounds saver) |
+| rail lock (0.15.30) | one more button in the rail | no new listener or timer (the panel's delegated click handles it); measured flat (8 listeners) through the same 50/50/5 loops on 0.15.30; locked, hover and focus change no transform |
 | main.js `pushRail` | state send | only on change (JSON compare); called from window open/close, settings, connections, palette, resize and the 5 s tick |
 | preload-rail.js | one `rail:state` listener per document | the preload runs once per page load |
 

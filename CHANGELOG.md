@@ -7,6 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.30] — Rail lock and centred countdown
+
+### Added
+
+- **Lock the rail small.** A small lock sits in the rail's bottom corner, under the icons (as in the DS5 app). Locked, the rail stays icons only: pointing at it or tabbing to it no longer opens it, so its icons are quick to use without the rail sliding open each time. Click it again to unlock. Sonata remembers it. Keeping the rail open and locking it small exclude each other: pinning (Ctrl+B) unlocks it, locking unpins it. The lock works from the keyboard too (arrows reach it, Enter or Space toggles it), and the tooltip says what it does.
+
+### Fixed
+
+- **The visualizer's countdown dots are centred.** Before a line comes in, the three dots now sit in the middle of the screen with the lyrics, instead of at the far left. That includes duets. The lyrics window keeps its dots at the singer's side.
+- **The rail's status lines keep a clear gap** between the dot and the words ("Discord / Connected", "Precise word timing / Helper ready"). The dot's column never shrinks and its symbol stays inside the dot.
+
 ## [0.15.29] — Navigation rail and After Dark flight
 
 ### Added

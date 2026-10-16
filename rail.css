@@ -125,8 +125,10 @@
 }
 .panel.open .label { opacity: 1; }
 
-/* status lines: not buttons, so a little denser; the words say the state */
-.status { min-height: 32px; cursor: default; }
+/* status lines: not buttons, so a little denser; the words say the state. The icon column keeps
+   its 20 px (never shrinks) and the words start 12 px after it, so the dot never touches them */
+.status { min-height: 32px; gap: 12px; cursor: default; }
+.ic { flex-shrink: 0; overflow: hidden; }
 .status .label { display: flex; flex-direction: column; line-height: 1.2; }
 .status .label > span { overflow: hidden; text-overflow: ellipsis; }
 .status .sub { color: var(--rail-soft); font-size: 11.5px; }
@@ -134,8 +136,11 @@
   display: grid;
   place-items: center;
   box-sizing: border-box;
+  flex: none;
   width: 16px;
   height: 16px;
+  overflow: hidden;
+  font-family: system-ui, sans-serif;
   border-radius: 50%;
   font-size: 10px;
   font-weight: 700;
@@ -146,6 +151,28 @@
 .status.wait .dot,
 .status.warn .dot { background: #f2b33d; color: #1d1d1f; }
 .status.off .dot { background: transparent; color: var(--rail-text); border: 1.5px solid var(--rail-soft); }
+
+/* the lock (DS5's bottom corner): a small icon button under the icons' column, 32 px to hit.
+   Locked, the rail stays icons only: hover and keyboard focus no longer open it. */
+.lockbtn {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  margin: 0 0 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--rail-soft);
+  cursor: pointer;
+}
+.lockbtn .ic, .lockbtn svg { width: 16px; height: 16px; flex-basis: 16px; }
+.lockbtn[aria-pressed="true"] { color: var(--rail-text); background: var(--rail-active); }
+.lockbtn:hover { background: var(--rail-hover); color: var(--rail-text); }
+.lockbtn:focus { outline: none; }
+.lockbtn:focus-visible { outline: 2px solid var(--rail-ring); outline-offset: -2px; }
 
 /* "DEVELOPMENT · 0.15.26-dev.1" read bottom to top in the free space (dev channel only) */
 .dev {

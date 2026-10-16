@@ -66,11 +66,11 @@ test('main: the main window keeps no Node in Apple\'s page (preload sandboxed + 
 
 test('main: rail commands are checked (sender, top frame, known names) and run existing toggles', () => {
   const src = read('main.js')
-  const h = src.slice(src.indexOf("ipcMain.on('rail:command'"), src.indexOf("ipcMain.on('rail:command'") + 900)
+  const h = src.slice(src.indexOf("ipcMain.on('rail:command'"), src.indexOf("ipcMain.on('rail:command'") + 1100)
   assert.match(h, /event\.sender !== mainWindow\.webContents/)
   assert.match(h, /event\.senderFrame\.parent/)
   assert.match(h, /railModel\.COMMANDS\.includes\(command\)/)
-  for (const fn of ['toggleLyricsWindow()', 'toggleVisualizer()', 'toggleMiniPlayer()', 'createSettingsWindow()', 'toggleRailPin()']) assert.ok(h.includes(fn), fn)
+  for (const fn of ['toggleLyricsWindow()', 'toggleVisualizer()', 'toggleMiniPlayer()', 'createSettingsWindow()', 'toggleRailPin()', "toggleRailFlag('lock')"]) assert.ok(h.includes(fn), fn)
   assert.equal((src.match(/ipcMain\.on\('rail:command'/g) || []).length, 1)
   // injected into the isolated world (999), never the main world
   assert.match(src, /executeJavaScriptInIsolatedWorld\(999, railScripts\(\)\)/)
@@ -85,8 +85,11 @@ test('main: nothing removed: tray items, menus and shortcuts are all still there
   assert.ok(src.includes("const VISUALIZER_KEY = 'Ctrl+Shift+V'"))
 })
 
-test('main: the pin is a remembered setting, off by default', () => {
-  assert.match(read('main.js'), /railPinned: false \}/)
+test('main: the pin and the lock are remembered settings, off by default, toggled through toggleFlags', () => {
+  const src = read('main.js')
+  assert.match(src, /railPinned: false, railLocked: false \}/)
+  assert.match(src, /railModel\.toggleFlags\(/)
+  assert.match(src, /locked: !!settings\.railLocked/)
 })
 
 test('rail-ui: no timers or animation frames, one MutationObserver (childList only), a closed root', () => {

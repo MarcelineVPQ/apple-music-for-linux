@@ -45,7 +45,7 @@ let vizWindow = null
 let visualizer = null
 let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
 let vizArt = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable', railPinned: false }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable', railPinned: false, railLocked: false }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -1421,6 +1421,7 @@ function railSnapshot() {
   const layout = railModel.railLayout(mainWindow.getContentSize()[0], !!settings.railPinned)
   return {
     pinned: !!settings.railPinned,
+    locked: !!settings.railLocked,
     mode: layout.mode,
     room: layout.room,
     open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow, settings: !!settingsWindow },
@@ -1445,11 +1446,15 @@ function pushRail() {
   railSent = json
   mainWindow.webContents.send('rail:state', s)
 }
-function toggleRailPin() {
-  settings.railPinned = !settings.railPinned
+// Pin (Ctrl+B) and lock exclude each other, as in the DS5 app (rail-model.js toggleFlags)
+function toggleRailFlag(which) {
+  const f = railModel.toggleFlags({ pinned: settings.railPinned, locked: settings.railLocked }, which)
+  settings.railPinned = f.pinned
+  settings.railLocked = f.locked
   saveSettings()
   pushRail()
 }
+function toggleRailPin() { toggleRailFlag('pin') }
 // lifetime: registered once at module load (like every ipcMain handler here)
 // error: a command not from the main window's top frame, or not one of the rail's names, is dropped
 ipcMain.on('rail:command', (event, command) => {
@@ -1462,6 +1467,7 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'mini') toggleMiniPlayer()
   else if (command === 'settings') createSettingsWindow()
   else if (command === 'pin') toggleRailPin()
+  else if (command === 'lock') toggleRailFlag('lock')
 })
 
 function createWindow() {

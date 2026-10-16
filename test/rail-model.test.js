@@ -179,3 +179,38 @@ test('one file, two worlds: without CommonJS it becomes a frozen SonataRailModel
   assert.ok(Object.isFrozen(G))
   assert.equal(JSON.stringify(G.railLayout(1100, true)), '{"mode":"pinned","room":196}')
 })
+
+test('lock: keeps the rail icons only, whatever the pointer or keyboard does (pinned excepted)', () => {
+  for (const t of ['enter', 'focus-visible', 'key']) {
+    const v = M.viewReduce(M.initialView(), t)
+    assert.equal(M.isOpen('collapsed', v, false), true)
+    assert.equal(M.isOpen('collapsed', v, true), false)
+    assert.equal(M.isOpen('floating', v, true), false)
+  }
+  assert.equal(M.isOpen('pinned', M.initialView(), true), true)   // never both: toggleFlags
+})
+
+test('lock and pin exclude each other (DS5 rules): pinning unlocks, locking unpins', () => {
+  assert.deepEqual(M.toggleFlags({ pinned: false, locked: false }, 'lock'), { pinned: false, locked: true })
+  assert.deepEqual(M.toggleFlags({ pinned: true, locked: false }, 'lock'), { pinned: false, locked: true })
+  assert.deepEqual(M.toggleFlags({ pinned: false, locked: true }, 'pin'), { pinned: true, locked: false })
+  assert.deepEqual(M.toggleFlags({ pinned: false, locked: true }, 'lock'), { pinned: false, locked: false })
+  assert.deepEqual(M.toggleFlags({ pinned: true, locked: false }, 'pin'), { pinned: false, locked: false })
+  assert.deepEqual(M.toggleFlags(null, 'pin'), { pinned: true, locked: false })
+  assert.deepEqual(M.toggleFlags({ pinned: true }, 'nope'), { pinned: true, locked: false })
+  // whatever the order of presses, never both on
+  let f = { pinned: false, locked: false }
+  for (const w of ['pin', 'lock', 'lock', 'pin', 'lock', 'pin', 'pin', 'lock']) { f = M.toggleFlags(f, w); assert.ok(!(f.pinned && f.locked)) }
+})
+
+test('lock item: one name, pressed state, tooltip says what it does; the pin tooltip warns it unlocks', () => {
+  const off = M.lockItem({ locked: false })
+  const on = M.lockItem({ locked: true })
+  assert.equal(off.label, on.label)
+  assert.equal(off.active, false); assert.equal(on.active, true)
+  assert.match(off.tip, /icons only/)
+  assert.match(on.tip, /click to unlock/)
+  assert.ok(M.COMMANDS.includes('lock'))
+  assert.match(M.pinItem({ pinned: false, locked: true }).tip, /pinning unlocks it/)
+  assert.doesNotMatch(M.pinItem({ pinned: false, locked: false }).tip, /unlocks/)
+})

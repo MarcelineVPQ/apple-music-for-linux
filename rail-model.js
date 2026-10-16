@@ -56,11 +56,12 @@
     }
   }
 
-  // Is the rail open (labels shown)? Pinned with room: always. Otherwise on hover (unless just
-  // picked) or keyboard focus, and not after Esc.
-  function isOpen(mode, v) {
+  // Is the rail open (labels shown)? Pinned with room: always. Locked: never (icons only; hover
+  // and keyboard focus no longer open it). Otherwise on hover (unless just picked) or keyboard
+  // focus, and not after Esc.
+  function isOpen(mode, v, locked) {
     if (mode === 'pinned') return true
-    if (v.dismissed) return false
+    if (locked || v.dismissed) return false
     return (v.hover && !v.picked) || v.focusVisible
   }
 
@@ -89,7 +90,16 @@
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
     { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'window' }
   ]
-  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'mounted']
+  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'mounted']
+
+  // Pin and lock exclude each other, as in the DS5 app: keeping it open unlocks it, locking it
+  // unpins it. -> the new { pinned, locked } after toggling `which` ('pin' | 'lock')
+  function toggleFlags(flags, which) {
+    const f = { pinned: !!(flags && flags.pinned), locked: !!(flags && flags.locked) }
+    if (which === 'pin') { f.pinned = !f.pinned; if (f.pinned) f.locked = false }
+    else if (which === 'lock') { f.locked = !f.locked; if (f.locked) f.pinned = false }
+    return f
+  }
 
   // 'Ctrl+Shift+L' -> 'Control+Shift+L' (aria-keyshortcuts)
   const ariaKeys = (k) => (k ? k.replace(/\bCtrl\b/g, 'Control') : '')
@@ -113,8 +123,19 @@
     const pinned = !!(s && s.pinned)
     const mode = (s && s.mode) || 'collapsed'
     let tip = pinned ? 'Pinned open · click to unpin (Ctrl+B)' : 'Pin the rail open (Ctrl+B)'
+    if (!pinned && s && s.locked) tip += '\nIt is locked small: pinning unlocks it'
     if (mode === 'floating') tip += '\nThe window is too narrow to make room, so the pinned rail opens over the page until the window is wider'
     return { id: 'pin', label: 'Pin rail', kind: 'toggle', key: 'Ctrl+B', ariaKeys: 'Control+B', active: pinned, tip }
+  }
+
+  // the lock (bottom corner, under the icons): one toggle, its name stays put, aria-pressed says it's on
+  function lockItem(s) {
+    const locked = !!(s && s.locked)
+    return {
+      id: 'lock', label: 'Lock rail', kind: 'toggle', key: '', ariaKeys: '', active: locked,
+      tip: locked ? 'Locked small (icons only) · click to unlock: it opens when you point at it again'
+        : 'Lock the rail small (icons only): it no longer opens when you point at it or Tab to it'
+    }
   }
 
   // --- status: a dot PLUS a symbol and words, never colour alone ---
@@ -226,7 +247,7 @@
 
   const api = {
     RAIL, ITEMS, COMMANDS, railLayout, roomCss, initialView, viewReduce, isOpen, railKey,
-    railItems, pinItem, railStatus, devBadge, glassTheme, contrast, worstContrast, hexRgb
+    railItems, pinItem, lockItem, toggleFlags, railStatus, devBadge, glassTheme, contrast, worstContrast, hexRgb
   }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataRailModel = Object.freeze(api)

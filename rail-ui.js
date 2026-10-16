@@ -16,12 +16,14 @@
 
   const doc = document
   const SVG = 'http://www.w3.org/2000/svg'
-  // Lucide icons (ISC licence): mic-vocal, audio-waveform, picture-in-picture-2, settings, panel-right-open/close
+  // Lucide icons (ISC licence): mic-vocal, audio-waveform, picture-in-picture-2, settings, panel-right-open/close, lock, lock-open
   const ICONS = {
     lyrics: ['path:m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12', 'path:M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5', 'circle:16,7,5'],
     visualizer: ['path:M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2'],
     mini: ['path:M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4', 'rect:12,13,10,7,2'],
     settings: ['path:M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z', 'circle:12,12,3'],
+    lock: ['rect:3,11,18,11,2', 'path:M7 11V7a5 5 0 0 1 10 0v4'],
+    unlock: ['rect:3,11,18,11,2', 'path:M7 11V7a5 5 0 0 1 9.9-1'],
     pinOpen: ['rect:3,3,18,18,2', 'path:M15 3v18', 'path:m10 15-3-3 3-3'],
     pinClose: ['rect:3,3,18,18,2', 'path:M15 3v18', 'path:m8 9 3 3-3 3']
   }
@@ -65,7 +67,7 @@
   panel.setAttribute('aria-label', 'Sonata')
   const nav = el('div', 'nav')
   const footer = el('div', 'footer')
-  const buttons = []   // roving focus order: the items, then the pin
+  const buttons = []   // roving focus order: the items, the pin, the lock
   function makeButton(id, iconName) {
     const b = el('button', 'link')
     b.type = 'button'
@@ -101,7 +103,15 @@
     statusList.appendChild(row)
   }
   const pinBtn = makeButton('pin', 'pinOpen')
-  footer.append(statusList, pinBtn)
+  // the lock: a small icon button in the bottom corner, under the icons' column (as in the DS5 app),
+  // so it stays reachable while the rail is locked small
+  const lockBtn = el('button', 'lockbtn')
+  lockBtn.type = 'button'
+  lockBtn.dataset.rail = 'lock'
+  lockBtn.tabIndex = -1
+  lockBtn.appendChild(el('span', 'ic'))
+  buttons.push(lockBtn)
+  footer.append(statusList, pinBtn, lockBtn)
   panel.append(nav, footer)
   root.appendChild(panel)
 
@@ -120,7 +130,7 @@
 
   function renderButton(b, item) {
     const label = b.querySelector('.label')
-    setText(label, item.label)
+    if (label) setText(label, item.label)
     setAttr(b, 'title', item.tip)
     setAttr(b, 'aria-label', item.label)
     setAttr(b, 'aria-keyshortcuts', item.ariaKeys || null)
@@ -141,9 +151,11 @@
 
   function render() {
     const mode = (state && state.mode) || 'collapsed'
-    const open = M.isOpen(mode, view)
+    const locked = !!(state && state.locked)
+    const open = M.isOpen(mode, view, locked)
     panel.classList.toggle('open', open)
     panel.classList.toggle('pinned', mode === 'pinned')
+    panel.classList.toggle('locked', locked)
     renderTheme()
     if (!state) return
     const items = M.railItems(state)
@@ -153,6 +165,10 @@
     const ic = pinBtn.querySelector('.ic')
     const want = state.pinned ? 'pinClose' : 'pinOpen'
     if (ic.dataset.icon !== want) { ic.dataset.icon = want; ic.replaceChildren(icon(want)) }
+    renderButton(lockBtn, M.lockItem(state))
+    const lic = lockBtn.firstChild
+    const lwant = state.locked ? 'lock' : 'unlock'
+    if (lic.dataset.icon !== lwant) { lic.dataset.icon = lwant; lic.replaceChildren(icon(lwant)) }
     for (const s of M.railStatus(state)) {
       const r = statusRows[s.id]
       r.row.className = 'status ' + s.level

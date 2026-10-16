@@ -129,12 +129,23 @@ const RAIL_STATE = `(() => {
   const panel = R.panel
   const pr = panel.getBoundingClientRect()
   const nav = R.root.querySelector('.nav')
-  const rows = [...R.root.querySelectorAll('.link, .status')].map((b) => {
-    const r = b.getBoundingClientRect(); const lab = b.querySelector('.label'); const cs = getComputedStyle(lab)
+  const rows = [...R.root.querySelectorAll('.link, .status, .lockbtn')].map((b) => {
+    const r = b.getBoundingClientRect(); const lab = b.querySelector('.label'); const cs = getComputedStyle(lab || b)
     const name = b.querySelector('.name') || lab
-    return { id: b.dataset.rail || b.className, button: b.tagName === 'BUTTON', vis: vis(r), rect: [r.left, r.top, r.width, r.height],
-      labelFits: name.scrollWidth <= name.clientWidth + 0.5 && (!b.querySelector('.sub') || b.querySelector('.sub').scrollWidth <= b.querySelector('.sub').clientWidth + 0.5),
-      labelOpacity: cs.opacity, labelColor: cs.color, subColor: b.querySelector('.sub') ? getComputedStyle(b.querySelector('.sub')).color : null,
+    const ic = b.querySelector('.ic')
+    const icR = ic.getBoundingClientRect()
+    // the dot's symbol: its glyph box must stay inside the dot (a wide fallback glyph would spill toward the words)
+    const dot = b.querySelector('.dot')
+    let glyphInside = null
+    if (dot && dot.firstChild) {
+      const rg = document.createRange(); rg.selectNodeContents(dot); const gr = rg.getBoundingClientRect(); const dr = dot.getBoundingClientRect()
+      glyphInside = gr.left >= dr.left - 0.5 && gr.right <= dr.right + 0.5
+    }
+    return { id: b.dataset.rail || b.className, button: b.tagName === 'BUTTON', hasLabel: !!lab, vis: vis(r), rect: [r.left, r.top, r.width, r.height],
+      icGap: lab ? lab.getBoundingClientRect().left - icR.right : null, icW: icR.width, glyphInside,
+      iconColor: getComputedStyle(b).color,
+      labelFits: !lab || (name.scrollWidth <= name.clientWidth + 0.5 && (!b.querySelector('.sub') || b.querySelector('.sub').scrollWidth <= b.querySelector('.sub').clientWidth + 0.5)),
+      labelOpacity: lab ? cs.opacity : null, labelColor: cs.color, subColor: b.querySelector('.sub') ? getComputedStyle(b.querySelector('.sub')).color : null,
       bg: getComputedStyle(b).backgroundColor, active: b.classList.contains('active'),
       aria: { pressed: b.getAttribute('aria-pressed'), current: b.getAttribute('aria-current'), label: b.getAttribute('aria-label'), keys: b.getAttribute('aria-keyshortcuts'), title: b.getAttribute('title'), role: b.getAttribute('role'), tab: b.tabIndex } }
   })
@@ -201,6 +212,18 @@ async function setTheme(p, dark) {
   }
   return (await p.main('matchMedia("(prefers-color-scheme: dark)").matches')) === dark
 }
+// the lock is clicked for real (XTest): the rail ignores untrusted clicks
+async function setLocked(p, locked) {
+  for (let i = 0; i < 2; i++) {
+    const s = await p.iso('globalThis.__sonataRail.state()')
+    if (s && !!s.locked === locked) return true
+    const r = await p.iso('(() => { const b = globalThis.__sonataRail.root.querySelector(".lockbtn").getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2] })()')
+    x('click', Math.round(r[0]), Math.round(r[1])); await sleep(700)
+    x('move', 300, 300); await sleep(300)
+  }
+  const s = await p.iso('globalThis.__sonataRail.state()')
+  return !!s.locked === locked
+}
 async function setPinned(p, pinned) {
   for (let i = 0; i < 2; i++) {
     const s = await p.iso('globalThis.__sonataRail.state()')
@@ -216,15 +239,18 @@ async function matrix() {
   const p = await page()
   const iw = await p.main('innerWidth'); const ih = await p.main('innerHeight')
   check(LABEL + ' window size', true, iw + 'x' + ih)
-  for (const pinned of [false, true]) {
+  for (const which of ['unpinned', 'pinned', 'locked']) {
+    const pinned = which === 'pinned'
+    const locked = which === 'locked'
     for (const dark of [false, true]) {
-      const tag = `${LABEL}-${pinned ? 'pinned' : 'unpinned'}-${dark ? 'dark' : 'light'}`
+      const tag = `${LABEL}-${which}-${dark ? 'dark' : 'light'}`
       check(tag + ' theme set (Ctrl+D)', await setTheme(p, dark))
-      check(tag + ' pin set (Ctrl+B)', await setPinned(p, pinned))
+      if (locked) check(tag + ' lock set (click)', await setLocked(p, true))
+      else { await setLocked(p, false); check(tag + ' pin set (Ctrl+B)', await setPinned(p, pinned)) }
       x('move', 300, Math.round(ih / 2)); await sleep(600)
       for (const hover of pinned ? [false] : [false, true]) {
         if (hover) { x('move', iw - 20, 60); await sleep(600) }
-        const t = tag + (hover ? '-open' : '')
+        const t = tag + (hover ? (locked ? '-hover' : '-open') : '')
         const r = await p.iso(RAIL_STATE)
         const a = await p.main(APPLE_STATE)
         await p.shot(path.join(OUT, t + '.png'))
@@ -238,18 +264,24 @@ async function matrix() {
         check(t + ' scrolling page (and its scrollbar) clear of the rail', !a.page || a.page[2] <= iw - room, { page: a.page, scrollbar: a.pageScrollbar })
         check(t + ' no horizontal scroll', !a.hScroll)
         check(t + ' one host, shadow root closed', a.hosts === 1 && a.hostShadowVisible === null, { hosts: a.hosts })
-        check(t + ' open state', r.open === (pinned ? mode === 'pinned' : hover) || (mode === 'floating' && r.open === hover), { open: r.open, hover })
+        check(t + ' open state', locked ? !r.open : (r.open === (pinned ? mode === 'pinned' : hover) || (mode === 'floating' && r.open === hover)), { open: r.open, hover, locked })
+        check(t + ' pin and lock never both on', !(r.state.pinned && r.state.locked), { pinned: r.state.pinned, locked: r.state.locked })
+        const lk = r.rows.find((x) => x.id === 'lock')
+        check(t + ' lock: aria-pressed matches, tooltip, inside the icon column', lk && lk.aria.pressed === String(locked) && /lock/i.test(lk.aria.title) && lk.vis.x >= r.panel.x - 0.5 && lk.vis.x + lk.vis.w <= r.panel.x + M.RAIL.collapsed + 0.5, lk && { pressed: lk.aria.pressed, vis: lk.vis })
+        check(t + ' lock icon contrast >= 3 over glass', lk && worst(parse(lk.iconColor).rgb, [parse(r.panelBg)].concat(parse(lk.bg) && parse(lk.bg).a > 0 ? [parse(lk.bg)] : [])) >= 3)
+        const labelled = r.rows.filter((x) => x.hasLabel)
+        check(t + ' icon column never touches the words (gap >= 8 px, column 20 px, dot glyph inside the dot)', labelled.every((x) => x.icGap >= 8 && Math.abs(x.icW - 20) < 0.5 && x.glyphInside !== false), labelled.map((x) => x.id + ':' + (x.icGap === null ? '-' : x.icGap.toFixed(1)) + (x.glyphInside === false ? ' glyph-out' : '')).join(', '))
         check(t + ' rail shows its width at the right edge', Math.abs(r.panel.w - shownW) < 1 && Math.abs(r.panel.x + r.panel.w - iw) < 1 && r.panel.h === ih, r.panel)
         check(t + ' nothing clipped in the rail (rows inside the window and the panel, nav not overflowing)',
           r.navOverflow <= 0 && r.rows.every((x) => x.vis.bottom <= ih + 0.5 && x.rect[1] >= 0), { navOverflow: r.navOverflow, lowest: Math.max(...r.rows.map((x) => x.vis.bottom)), ih })
         const buttons = r.rows.filter((x) => x.button)
         check(t + ' hit targets >= 32 px (visible part)', buttons.every((b) => b.vis.w >= 32 && b.vis.h >= 32), buttons.map((b) => b.id + ' ' + Math.round(b.vis.w) + 'x' + Math.round(b.vis.h)).join(', '))
-        if (r.open) check(t + ' labels fit (no ellipsis) and show', r.rows.every((x) => x.labelFits && x.labelOpacity === '1'), r.rows.filter((x) => !x.labelFits || x.labelOpacity !== '1').map((x) => x.id))
-        else check(t + ' labels hidden while closed', r.rows.every((x) => x.labelOpacity === '0'))
+        if (r.open) check(t + ' labels fit (no ellipsis) and show', labelled.every((x) => x.labelFits && x.labelOpacity === '1'), labelled.filter((x) => !x.labelFits || x.labelOpacity !== '1').map((x) => x.id))
+        else check(t + ' labels hidden while closed', labelled.every((x) => x.labelOpacity === '0'))
         // contrast over glass, worst case (glass over white or black), from computed colours
         const glass = parse(r.panelBg)
         const lowest = { label: 99, soft: 99, active: 99 }
-        for (const row of r.rows) {
+        for (const row of labelled) {
           const layers = [glass]
           const bg = parse(row.bg)
           if (bg && bg.a > 0) layers.push(bg)
@@ -263,7 +295,7 @@ async function matrix() {
       }
     }
   }
-  await setTheme(p, false); await setPinned(p, false)
+  await setTheme(p, false); await setLocked(p, false); await setPinned(p, false)
   p.c.close()
 }
 
@@ -293,14 +325,14 @@ async function keys() {
   // arrows, Home/End
   const order = []
   x('key', 'home'); await sleep(150); order.push((await p.iso(RAIL_STATE)).focused)
-  for (let i = 0; i < 5; i++) { x('key', 'down'); await sleep(120); order.push((await p.iso(RAIL_STATE)).focused) }
+  for (let i = 0; i < 6; i++) { x('key', 'down'); await sleep(120); order.push((await p.iso(RAIL_STATE)).focused) }
   x('key', 'up'); await sleep(120); order.push((await p.iso(RAIL_STATE)).focused)
   x('key', 'end'); await sleep(120); order.push((await p.iso(RAIL_STATE)).focused)
-  check('arrow keys move focus (Home, Down x5 wraps, Up, End)', JSON.stringify(order) === JSON.stringify(['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lyrics', 'pin', 'pin']), order)
+  check('arrow keys move focus (Home, Down x6 wraps, Up, End)', JSON.stringify(order) === JSON.stringify(['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'lyrics', 'lock', 'lock']), order)
   // Esc collapses, focus stays; an arrow opens again
   x('key', 'esc'); await sleep(300)
   r = await p.iso(RAIL_STATE)
-  check('Esc collapses (focus stays on the item)', !r.open && r.focused === 'pin', { open: r.open, focused: r.focused })
+  check('Esc collapses (focus stays on the item)', !r.open && r.focused === 'lock', { open: r.open, focused: r.focused })
   x('key', 'home'); await sleep(300)
   r = await p.iso(RAIL_STATE)
   check('an arrow/Home key after Esc opens it again', r.open && r.focused === 'lyrics')
@@ -340,11 +372,42 @@ async function keys() {
   r = await p.iso(RAIL_STATE)
   const saved2 = await mp.ev(`JSON.parse(require('fs').readFileSync(require('path').join(process.mainModule.require('electron').app.getPath('userData'), 'settings.json'), 'utf8')).railPinned`)
   check('Ctrl+B again unpins (saved)', !r.state.pinned && saved2 === false)
+  // the lock: keyboard (focus it with arrows, Enter locks), then the rail stays small for pointer and keyboard
+  const settingsFile = `JSON.parse(require('fs').readFileSync(require('path').join(process.mainModule.require('electron').app.getPath('userData'), 'settings.json'), 'utf8'))`
+  x('move', 400, 300); await sleep(200)
+  await p.iso('(() => { globalThis.__sonataRail.root.querySelector("[data-rail=lyrics]").focus({ focusVisible: true }); return true })()')
+  x('key', 'end'); await sleep(200)
+  r = await p.iso(RAIL_STATE)
+  check('End reaches the lock (keyboard)', r.focused === 'lock')
+  x('key', 'enter'); await sleep(700)
+  r = await p.iso(RAIL_STATE)
+  let saved = await mp.ev(settingsFile)
+  check('Enter on the lock locks it (aria-pressed=true, saved railLocked)', r.state.locked && saved.railLocked === true && r.rows.find((x) => x.id === 'lock').aria.pressed === 'true', { locked: r.state.locked, saved: saved.railLocked })
+  check('locked: keyboard focus keeps it icons only, focus ring still shows', !r.open && r.view.focusVisible && r.focusOutline && r.focusOutline.style === 'solid', { open: r.open, view: r.view, ring: r.focusOutline })
+  x('key', 'home'); await sleep(200)
+  r = await p.iso(RAIL_STATE)
+  check('locked: arrows still move focus, rail stays small', r.focused === 'lyrics' && !r.open)
+  x('move', 300, 300); await sleep(200); x('move', iw - 20, 30); await sleep(600)
+  r = await p.iso(RAIL_STATE)
+  check('locked: hover no longer opens it', !r.open && r.view.hover, r.view)
+  x('move', 300, 300); await sleep(200)
+  // Ctrl+B while locked pins and unlocks; locking while pinned unpins
+  x('key', 'ctrl+b'); await sleep(700)
+  r = await p.iso(RAIL_STATE); saved = await mp.ev(settingsFile)
+  check('Ctrl+B while locked: pinned and unlocked (DS5 rule), both saved', r.state.pinned && !r.state.locked && saved.railPinned === true && saved.railLocked === false, { pinned: r.state.pinned, locked: r.state.locked })
+  await setLocked(p, true)
+  r = await p.iso(RAIL_STATE); saved = await mp.ev(settingsFile)
+  check('locking while pinned unpins (click), both saved', !r.state.pinned && r.state.locked && saved.railPinned === false && saved.railLocked === true && Math.abs((await p.main('document.documentElement.getBoundingClientRect().width')) - (iw - M.RAIL.collapsed)) < 1)
+  await setLocked(p, false)
+  x('move', 300, 300); await sleep(200); x('move', iw - 20, 30); await sleep(600)
+  r = await p.iso(RAIL_STATE)
+  check('unlocked (click again): hover opens it again', !r.state.locked && r.open)
+  x('move', 300, 300); await sleep(300)
   // ARIA
   check('nav has an accessible name', r.navLabel === 'Sonata')
   const btns = r.rows.filter((x) => x.button)
   check('every button has aria-label + tooltip', btns.every((b) => b.aria.label && b.aria.title), btns.map((b) => b.aria.label))
-  check('toggles carry aria-pressed, Settings aria-current only when open', ['lyrics', 'visualizer', 'mini', 'pin'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)) && btns.find((b) => b.id === 'settings').aria.pressed === null)
+  check('toggles carry aria-pressed, Settings aria-current only when open', ['lyrics', 'visualizer', 'mini', 'pin', 'lock'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)) && btns.find((b) => b.id === 'settings').aria.pressed === null)
   check('tooltips name the shortcuts', /Ctrl\+Shift\+L/.test(btns.find((b) => b.id === 'lyrics').aria.title) && /Ctrl\+Shift\+V/.test(btns.find((b) => b.id === 'visualizer').aria.title) && /Ctrl\+M/.test(btns.find((b) => b.id === 'mini').aria.title))
   check('aria-keyshortcuts set', btns.find((b) => b.id === 'lyrics').aria.keys === 'Control+Shift+L')
   const st = r.rows.filter((x) => !x.button)
@@ -363,6 +426,7 @@ async function keys() {
   check('the pick ran its command (Settings opened)', setOpen2)
   await closeWin(mp, 'Sonata — Settings'); await sleep(500)
   // Mini Player through the rail: the main window hides, the mini player opens; closing it brings the main window back
+  x('move', 300, 300); await sleep(300); x('move', iw - 20, 101); await sleep(500)   // reopen it (the pick closed it)
   x('click', iw - 120, 101)
   const miniOpen = await waitFor(async () => (await winTitles(mp)).includes('Sonata — Mini Player'))
   check('Mini Player from the rail opens the mini player', miniOpen)
