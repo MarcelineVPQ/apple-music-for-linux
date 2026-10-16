@@ -32,6 +32,10 @@
       "lyrics-sources.js",
       "lyrics-timing.js",
       "lyrics-store.js",
+      "audio-listen.js",
+      "listen-session.js",
+      "vocal-detect.js",
+      "timing-refine.js",
       "update-feed.js",
       "sonata.png"
     ],

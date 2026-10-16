@@ -240,7 +240,7 @@
   const { ipcRenderer } = require('electron')
   // loop: one rAF loop (word highlight / countdown dots), see wantFrames below; otherwise reacts to
   // 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
-  // lifetime: the five ipcRenderer.on listeners and the visibilitychange listener are added once at
+  // lifetime: the six ipcRenderer.on listeners and the visibilitychange listener are added once at
   // load and die with the window; 'lyrics-data' replaces innerHTML, so old line, word and dot elements
   // and their onclick closures are dropped per track
 
@@ -341,6 +341,10 @@
   let scrollTarget = null
   let clock = null
   let raf = 0
+  let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
+  let refined = false       // learned or live-refined word timing in use
+  let notesEl = null
+  let notes = []
 
   function wordSpans(parent, words) {
     const spans = []
@@ -361,6 +365,9 @@
     single = / - (Single|EP)$/i.test(data.album || '')
     applyTurn()
     lines = data.estimate ? T.estimateWords(data.lines || []) : (data.lines || [])
+    songKey = (data.title || '') + '|' + (data.artist || '')
+    refined = !!data.refined
+    notesEl = null
     duration = Number(data.duration) || 0
     updateRing(0, true)
     lineEls = []
@@ -422,15 +429,36 @@
       linesEl.appendChild(el)
       lineEls.push(entry)
     })
-    const notes = []
+    notes = []
     if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : ''))
-    if (lines.length && lines[0].estimated) notes.push('Word timing estimated')
-    if (notes.length) {
-      const src = document.createElement('div')
-      src.id = 'source'
-      src.textContent = notes.join(' · ')
-      linesEl.appendChild(src)
+    if (lines.length && lines[0].estimated) notes.push(null)   // word timing note, see showNotes
+    showNotes()
+  })
+
+  function showNotes() {
+    const text = notes.map((n) => n === null ? (refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated') : n).join(' · ')
+    if (!text) return
+    if (!notesEl) {
+      notesEl = document.createElement('div')
+      notesEl.id = 'source'
+      linesEl.appendChild(notesEl)
     }
+    notesEl.textContent = text
+  }
+
+  // refine by listening (Settings, experimental): main sends a line's new word timing once the line
+  // has been sung; only that line's timing changes (same words, so the spans stay)
+  ipcRenderer.on('lyrics-refined', (event, msg) => {
+    if (!msg || msg.key !== songKey) return
+    const line = lines[msg.lineIndex]
+    const entry = lineEls[msg.lineIndex]
+    const words = msg.words
+    if (!line || !entry || !line.estimated || !Array.isArray(words) || !line.words ||
+        words.length !== line.words.length || words.some((w, i) => w.text !== line.words[i].text)) return
+    lines[msg.lineIndex] = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), refined: true })
+    entry.pos = null
+    if (!refined) { refined = true; showNotes() }
+    if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
   })
 
   // word classes for one line's words; only touches the DOM when the position changed
