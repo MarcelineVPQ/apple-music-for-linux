@@ -1,0 +1,76 @@
+name: Update feed
+
+# Rebuilds latest.json (Stable) and latest-dev.json (Development: dev
+# prereleases and stable releases) from the releases published on this repo,
+# signs them with the SONATA_FEED_KEY secret and commits them to master:
+# after every release, daily, and on demand. The AppImage is downloaded and
+# hashed by tools/build-feed.js, so a feed never points at a file that doesn't
+# exist or doesn't match. Never edit the feeds by hand (docs/RELEASING.md).
+
+on:
+  workflow_call:
+    secrets:
+      SONATA_FEED_KEY:
+        required: false
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: master
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Feed tests
+        run: node --test test/update-feed.test.js
+      # Until the real public key replaces the placeholder in update-feed.js,
+      # the app ignores these feeds (it reads latest-linux.yml), so there is
+      # nothing to publish and no failure email. Once the key is in, a missing
+      # secret fails the run: an unsigned feed is never published.
+      - name: Signing key in the app?
+        id: ready
+        env:
+          SONATA_FEED_KEY: ${{ secrets.SONATA_FEED_KEY }}
+        run: |
+          if node -e "process.exit(require('./update-feed').signingReady() ? 0 : 1)"; then
+            [ -n "$SONATA_FEED_KEY" ] || { echo "::error::update-feed.js trusts a real key but the SONATA_FEED_KEY secret is not set"; exit 1; }
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::update-feed.js still holds the PLACEHOLDER key; not publishing feeds (docs/RELEASING.md, Signing key)"
+          fi
+      - name: Build latest.json and latest-dev.json
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        # Exit 2 = no matching release yet: nothing to publish.
+        run: |
+          node tools/build-feed.js --channel stable --out latest.json || [ $? -eq 2 ]
+          node tools/build-feed.js --channel dev --out latest-dev.json || [ $? -eq 2 ]
+      - name: Sign
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SONATA_FEED_KEY: ${{ secrets.SONATA_FEED_KEY }}
+        run: |
+          if [ -f latest.json ]; then node tools/sign-feed.js latest.json; fi
+          if [ -f latest-dev.json ]; then node tools/sign-feed.js latest-dev.json; fi
+      - name: Commit if changed
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          files=(); for f in latest.json latest.json.sig latest-dev.json latest-dev.json.sig; do [ -f "$f" ] && files+=("$f"); done
+          if [ ${#files[@]} -gt 0 ] && [ -n "$(git status --porcelain "${files[@]}")" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "${files[@]}"
+            git commit -m "chore(release): update latest.json / latest-dev.json"
+            git push origin HEAD:master
+          else
+            echo "Feeds unchanged."
+          fi

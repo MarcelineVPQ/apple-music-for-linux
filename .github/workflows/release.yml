@@ -1,15 +1,19 @@
 name: Release
 
+# A tag vX.Y.Z (Stable) or vX.Y.Z-dev.N (Development) builds the AppImage,
+# publishes the GitHub release (a prerelease for -dev tags), then refreshes the
+# signed update feeds (feed.yml). See docs/RELEASING.md.
+
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -17,8 +21,49 @@ jobs:
           node-version: 22
 
       - run: npm ci
+      - run: npm test
 
-      - name: Build and publish AppImage
-        run: npx electron-builder --linux AppImage --publish always
+      - name: Tag matches package.json
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json v$v"; exit 1; }
+          case "$v" in
+            *-dev.*) echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$' || { echo "dev versions are X.Y.Z-dev.N"; exit 1; } ;;
+            *) echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "stable versions are X.Y.Z"; exit 1; } ;;
+          esac
+
+      - name: Build AppImage
+        run: npx electron-builder --linux AppImage --publish never
+
+      - name: Draft release, publish when complete
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"; v="${tag#v}"
+          dev=false; case "$v" in *-dev.*) dev=true ;; esac
+          section() { awk -v v="$1" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md; }
+          s="$v"; grep -q "^## \[$s\]" CHANGELOG.md || s=Unreleased
+          section "$s" > notes.md
+          # "## [X.Y.Z] — Short title" in CHANGELOG.md gives "vX.Y.Z — Short title"
+          sub="$(grep -m1 "^## \[$v\]" CHANGELOG.md | sed -n 's/^## \[[^]]*\][^—]*— *//p')"
+          title="$tag${sub:+ — $sub}"
+          if [ "$dev" = true ]; then
+            printf '\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n' >> notes.md
+          fi
+          files=("dist/sonata-$v-x86_64.AppImage")
+          # Installs up to 0.15.12 only read releases/latest/download/latest-linux.yml.
+          # Keep publishing it with every Stable release (docs/RELEASING.md, "Transition").
+          if [ "$dev" = false ]; then
+            [ -f dist/latest-linux.yml ] || { echo "dist/latest-linux.yml missing: old installs could not update"; exit 1; }
+            files+=(dist/latest-linux.yml)
+          fi
+          gh release create "$tag" --draft --verify-tag $([ "$dev" = true ] && echo --prerelease) --title "$title" --notes-file notes.md
+          gh release upload "$tag" "${files[@]}"
+          if [ "$dev" = true ]; then gh release edit "$tag" --draft=false; else gh release edit "$tag" --draft=false --latest; fi
+
+  feed:
+    name: Refresh latest.json / latest-dev.json
+    needs: build
+    uses: ./.github/workflows/feed.yml
+    secrets: inherit

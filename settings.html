@@ -36,6 +36,11 @@
     background: var(--accent); color: #fff; border: none; border-radius: 8px;
     padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; flex-shrink: 0;
   }
+  select {
+    background: var(--track); color: var(--fg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font: inherit; font-size: 13px; flex-shrink: 0; cursor: pointer;
+  }
+  select:disabled { opacity: 0.5; cursor: default; }
   button.secondary { background: var(--track); color: var(--fg); }
   .status { font-size: 12px; color: var(--fg-dim); margin-top: 2px; }
   .connected { color: var(--accent); font-weight: 600; }
@@ -85,6 +90,17 @@
     </div>
   </div>
 
+  <h2>Updates</h2>
+  <div class="card">
+    <div class="row">
+      <div class="grow"><div class="label">Update channel</div><div class="desc" id="updateChannel-desc">Stable gets tested releases; Development also gets newer, less tested builds</div></div>
+      <select id="updateChannel">
+        <option value="stable">Stable</option>
+        <option value="dev">Development</option>
+      </select>
+    </div>
+  </div>
+
   <h2>Connections</h2>
   <div class="card">
     <div class="row">
@@ -106,6 +122,10 @@
     document.getElementById('about').textContent =
       'Sonata v' + s.version + (s.appImage ? '' : ' · running from source')
     for (const k of TOGGLES) document.getElementById(k).checked = !!s[k]
+    const ch = document.getElementById('updateChannel')
+    ch.value = s.updateChannel === 'dev' ? 'dev' : 'stable'
+    ch.disabled = !s.appImage
+    if (!s.appImage) document.getElementById('updateChannel-desc').textContent = 'Only the AppImage updates itself; from source, update with git pull'
     const lc = s.lastfmConnected
     document.getElementById('lastfm-status').textContent = lc ? 'Connected as ' + s.lastfmUser : 'Not connected'
     document.getElementById('lastfm-status').className = lc ? 'status connected' : 'status'
@@ -119,6 +139,7 @@
   for (const k of TOGGLES) {
     document.getElementById(k).addEventListener('change', (e) => ipcRenderer.send('settings:set', k, e.target.checked))
   }
+  document.getElementById('updateChannel').addEventListener('change', (e) => ipcRenderer.send('settings:set', 'updateChannel', e.target.value))
   document.getElementById('lastfm-btn').onclick = () => ipcRenderer.send('settings:action',
     document.getElementById('lastfm-status').classList.contains('connected') ? 'disconnectLastfm' : 'connectLastfm')
   document.getElementById('discord-btn').onclick = () => ipcRenderer.send('settings:action',
