@@ -153,33 +153,180 @@ function wordWeight(word) {
   return syllables(word) + 0.35 + (/[,;:.!?…—-]$/.test(word) ? 0.6 : 0)
 }
 
-const EST_FILL = 0.9        // estimated words fill this share of a line's time (the rest is the tail)
+// Estimated word timing (line-only lyrics), tuned with tools/drift-check (docs/LYRIC-TIMING.md).
+// Singing has a pace: a line is sung at roughly PACE s per weight unit (wordWeight) from its start,
+// and whatever time is left before the next line is a tail of silence, not slower singing. The old
+// estimate stretched the words over 90 % of the line's time, so when a line's time ran on to the
+// next line (Apple's line end is the next line's start in about half the lines; LRCLIB has no end
+// at all) every later word lit up late, worst at the end of the line and of a verse.
+// - A line with a real end (it stops > TIGHT_GAP before the next line starts) is spread over
+//   EST_FILL of [t, end] minus TIGHT_TAIL: Apple's real ends run ~0.3 s past the last sung word.
+// - Otherwise the line takes pace × its weight, at most EST_FILL of the time to the next line.
+// - The pace: PACE blended with the song's own (the SONG_PACE_Q quantile of time-per-weight over
+//   its lines: the lines sung back to back), or the pace learned from lines already aligned or
+//   refined in this song (learnedPace), which beats both.
+// - A line sung faster than its time: the last word holds on for at most LAST_HOLD s, like a sung note.
+const PACE = 0.25             // s per weight unit (JamendoLyrics median 0.22–0.24)
+const PACE_MIN = 0.15
+const PACE_MAX = 0.6
+const SONG_PACE_Q = 0.2
+const SONG_PACE_BLEND = 0.6   // share of the song's own pace in the log blend with PACE
+const EST_FILL = 0.9          // at most this share of the time to the next line is singing
+const TIGHT_TAIL = 0.2        // s: a real [t, end] loses this much more tail than EST_FILL (Apple's ends
+                              // run ~0.3 s past the last sung word)
+const TIGHT_GAP = 0.05        // s: an end this much before the next start is a real end
+const LAST_HOLD = 1.0         // s the last word may hold
+
+function lineParts(line) { return String((line && line.text) || '').split(/\s+/).filter(Boolean) }
+function lineWeight(parts) { return parts.reduce((a, p) => a + wordWeight(p), 0) }
+
+// time from the line's start to its end, else to the next line's start (Infinity: none)
+function lineTime(line, next) {
+  const end = line.end != null ? line.end : (next && next.t != null ? next.t : Infinity)
+  return end - line.t
+}
+function hasRealEnd(line, next) {
+  return line.end != null && (!next || next.t == null || next.t - line.end > TIGHT_GAP)
+}
+
+function clampPace(p) { return p < PACE_MIN ? PACE_MIN : p > PACE_MAX ? PACE_MAX : p }
+
+/** The song's pace from its line times alone (s per weight unit). */
+function songPace(lines) {
+  const r = []
+  // loop: one pass over the song's lines · once per estimate
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].t == null) continue
+    const w = lineWeight(lineParts(lines[i]))
+    const a = lineTime(lines[i], lines[i + 1])
+    if (w >= 3 && a > 0 && a < Infinity) r.push(a / w)
+  }
+  if (r.length < 3) return PACE
+  r.sort((a, b) => a - b)
+  const q = r[Math.round(SONG_PACE_Q * (r.length - 1))]
+  return clampPace(Math.exp((1 - SONG_PACE_BLEND) * Math.log(PACE) + SONG_PACE_BLEND * Math.log(q)))
+}
 
 /**
- * Estimated word timing for line-only lyrics: each synced line's singing time (its end, else
- * the next line's start, at most LRC-style guess per word) is spread across its words, weighted
- * by letter count. Lines that already have word timing, and unsynced lyrics, are left as is.
- * Returns new line objects with `words` and `estimated: true`.
+ * The pace sung in lines whose words were placed from the audio (aligned or refined, not mapped
+ * repeats): median over lines of 3+ words of (last start − first start) / weight of all but the
+ * last word. null for fewer than 2 such lines.
  */
-function estimateWords(lines) {
-  if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
-  return lines.map((line, i) => {
-    const next = lines[i + 1]
-    const parts = String(line.text || '').split(/\s+/).filter(Boolean)
-    if (!parts.length) return line
-    let end = line.end != null ? line.end : (next && next.t != null ? next.t : line.t + 0.45 * parts.length + 1)
-    end = Math.min(end, line.t + 0.6 * parts.length + 2)   // a long gap after the line isn't singing
-    const span = Math.max(0.2, (end - line.t) * EST_FILL)
-    const weights = parts.map(wordWeight)
-    const total = weights.reduce((a, b) => a + b, 0)
-    let acc = 0
-    const words = parts.map((text, k) => {
-      const t = line.t + (acc / total) * span
-      acc += weights[k]
-      return { t, end: line.t + (acc / total) * span, text }
-    })
-    return Object.assign({}, line, { words, estimated: true })
+function learnedPace(lines) {
+  const r = []
+  // loop: one pass over the song's lines · per estimate / alignment / refine message
+  for (const line of lines || []) {
+    if (!(line.aligned || line.refined) || line.repeat || !line.words || line.words.length < 3) continue
+    const ws = line.words
+    const w = lineWeight(ws.slice(0, -1).map((x) => x.text))
+    const d = ws[ws.length - 1].t - ws[0].t
+    if (w > 0 && d > 0) r.push(d / w)
+  }
+  if (r.length < 2) return null
+  r.sort((a, b) => a - b)
+  return clampPace(r[Math.floor(r.length / 2)])
+}
+
+/** One line's estimated words at `pace` (null when it has no words). */
+function estimateLine(line, next, pace) {
+  const parts = lineParts(line)
+  if (!parts.length) return null
+  const time = lineTime(line, next)
+  const weights = parts.map(wordWeight)
+  const total = weights.reduce((a, b) => a + b, 0)
+  const tight = hasRealEnd(line, next)
+  const cap = tight ? Math.max(0.6 * time, time * EST_FILL - TIGHT_TAIL) : time * EST_FILL
+  const span = Math.max(0.2, tight ? cap : Math.min(cap, pace * total))
+  let acc = 0
+  const words = parts.map((text, k) => {
+    const t = line.t + (acc / total) * span
+    acc += weights[k]
+    return { t, end: line.t + (acc / total) * span, text }
   })
+  // sung faster than the line's time: the last word holds into the tail (at most LAST_HOLD s)
+  const last = words[words.length - 1]
+  if (span < cap) last.end = Math.max(last.end, Math.min(line.t + cap, last.t + LAST_HOLD))
+  return words
+}
+
+/**
+ * Estimated word timing for line-only lyrics (see above). Lines that already have word timing, and
+ * unsynced lyrics, are left as is. opts.pace: a known pace (s per weight unit). Returns new line
+ * objects with `words`, `estimated: true` and the `pace` used.
+ */
+function estimateWords(lines, opts = {}) {
+  if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
+  const pace = opts.pace || songPace(lines)
+  return lines.map((line, i) => {
+    const words = estimateLine(line, lines[i + 1], pace)
+    return words ? Object.assign({}, line, { words, estimated: true, pace }) : line
+  })
+}
+
+/**
+ * Re-estimates the plain estimated lines (not refined, not mapped repeats) at the pace learned from
+ * the song's aligned/refined lines. Same array when there's nothing to learn from or nothing changes.
+ */
+function repace(lines) {
+  const pace = learnedPace(lines)
+  if (!pace) return lines
+  let changed = false
+  const out = lines.map((line, i) => {
+    if (!line.estimated || line.refined || line.repeat || !line.words || line.t == null) return line
+    if (line.pace && Math.abs(line.pace - pace) < 0.005) return line
+    // the next line's start is all estimateLine reads from it
+    const words = estimateLine(line, lines[i + 1], pace)
+    if (!words || words.length !== line.words.length) return line
+    changed = true
+    return Object.assign({}, line, { words, pace })
+  })
+  return changed ? out : lines
+}
+
+// which timing a repeat was copied from (its source changes when that line is refined again)
+function sig(line) { return line.t + ':' + line.words[0].t + ':' + line.words[line.words.length - 1].t }
+
+// a line's text for repeat matching: lower case, letters/digits/apostrophes, single spaces
+function repeatKey(text) {
+  return String(text || '').toLowerCase().replace(/[^\p{L}\p{N}'’\s]/gu, '').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * Repeated lines (choruses): a plain estimated line takes the word timing of an identical line that
+ * was aligned (preferred) or refined, shifted to its own start; a repeat mapped from a refined line
+ * is upgraded when an aligned one appears. Words that would run past the next line's start are cut
+ * off there; a line whose words wouldn't start before it is left alone.
+ * Marks mapped lines `repeat: 'aligned' | 'refined'` (they stay `estimated`). Same array when nothing
+ * changes.
+ */
+function reuseRepeats(lines) {
+  if (!lines || !lines.length) return lines
+  const src = new Map()   // key -> { line, kind }
+  // loop: two passes over the song's lines · per estimate / alignment / refine message
+  for (const line of lines) {
+    if (line.repeat || !line.words || line.t == null || !(line.aligned || line.refined)) continue
+    const key = repeatKey(line.text)
+    const kind = line.aligned ? 'aligned' : 'refined'
+    const have = src.get(key)
+    if (key && (!have || (have.kind === 'refined' && kind === 'aligned'))) src.set(key, { line, kind })
+  }
+  if (!src.size) return lines
+  let changed = false
+  const out = lines.map((line, i) => {
+    if (!line.estimated || line.refined || line.aligned || !line.words || line.t == null) return line
+    const s = src.get(repeatKey(line.text))
+    if (!s || s.line.words.length !== line.words.length || (line.repeat === s.kind && line.repeatOf === sig(s.line))) return line
+    if (line.repeat === 'aligned' && s.kind === 'refined') return line
+    const shift = line.t - s.line.t
+    const next = lines[i + 1]
+    const limit = next && next.t != null ? next.t : Infinity
+    const words = s.line.words.map((w, k) => ({ t: w.t + shift, end: Math.min(w.end + shift, limit), text: line.words[k].text }))
+    if (words[words.length - 1].t >= limit - 0.05) return line
+    for (const w of words) if (w.end <= w.t) w.end = w.t + 0.05
+    changed = true
+    return Object.assign({}, line, { words, repeat: s.kind, repeatOf: sig(s.line) })
+  })
+  return changed ? out : lines
 }
 
 /**
@@ -227,5 +374,6 @@ function clockTime(clock, nowMs) {
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime
+  lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime,
+  PACE, songPace, learnedPace, estimateLine, repace, repeatKey, reuseRepeats
 }

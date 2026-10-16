@@ -1,11 +1,15 @@
 // "Precise word timing (GPU, experimental)": Level 2 of lyrics timing (docs/LEVEL2-ALIGN.md).
 // While a lyric view (lyrics window or visualizer) is open and a song with line-only lyrics plays, Sonata's OWN playback
 // stream (the Level 1 listener, audio-listen.js) is recorded into a song-time-indexed buffer in
-// memory. Once enough of the song was heard, the PCM and the lyric lines are streamed to the
-// sonata-align helper (align-helper.js) over its stdin, which separates the vocals and force-aligns
-// the known words on the GPU. The buffer is dropped as soon as it is handed over; no audio is ever
+// memory. Section by section (the lines between two interludes, at most SECTION_LINES each), once a
+// section has been heard its slice of PCM and its lyric lines are streamed to the sonata-align helper
+// (align-helper.js) over its stdin, which separates the vocals and force-aligns the known words on the
+// GPU, while the song plays on; the views get each section's words as soon as they are back, and
+// lyrics-timing.js carries them to later lines (repeats, the song's pace). After the last section a
+// fully heard song is aligned once more as a whole (that result is what stays cached), then the
+// buffer is dropped; no audio is ever
 // written to disk or sent anywhere. Only the word times are kept, in the lyrics store under
-// `aligned|title|artist`.
+// `aligned|title|artist` (`partial` until every section was aligned).
 //
 // Priority of word timing: Apple/LRC word timing (never touched) > aligned > refined (Level 1) >
 // estimated. Aligned lines lose `estimated`, so Level 1 never refines them.
@@ -20,11 +24,13 @@ const CHANNELS = 2
 const FRAME_BYTES = 2 * CHANNELS
 const BLOCK_SECONDS = 10       // the buffer grows in 10 s blocks (882 KB each)
 const MAX_SECONDS = 15 * 60    // longer songs are not recorded past 15 min (79 MB at most)
-const MIN_COVERAGE = 0.9       // share of the lyric span that must have been heard
+const MIN_COVERAGE = 0.9       // share of a section's lyric span that must have been heard
 const GAP_TOLERANCE = 0.25     // s; a bigger jump between chunks is a seek: start a new covered span
 const TAIL_PAD = 3             // s of audio after the last line's end sent along
 const STREAM_CHUNK = 256 * 1024  // PCM bytes per `chunk` message (base64 ≈ 342 KB per line)
 const ENTRY_VERSION = 1
+const SECTION_LINES = 8        // progressive alignment: lines per section at most
+const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
 
 function alignedKey(title, artist) { return 'aligned|' + title + '|' + artist }
 
@@ -164,15 +170,17 @@ function createSongBuffer(opts = {}) {
     get end() { return covered.length ? covered[covered.length - 1][1] / rate : 0 },
     get spans() { return covered.map((s) => [s[0] / rate, s[1] / rate]) },
     get bytes() { return blocks.size * blockFrames * FRAME_BYTES },
-    /** s16le interleaved PCM from song time 0 to `until` (s), silence where nothing was heard. */
-    pcm(until) {
-      const frames = Math.max(0, Math.min(Math.round(until * rate), maxFrames))
+    /** s16le interleaved PCM from song time `from` (default 0) to `until` (s), silence where nothing was heard. */
+    pcm(until, from = 0) {
+      const f0 = Math.max(0, Math.round(from * rate))
+      const frames = Math.max(0, Math.min(Math.round(until * rate), maxFrames) - f0)
       const out = Buffer.alloc(frames * FRAME_BYTES)
-      // loop: copy the recorded blocks · once per alignment · ≤ 90 blocks
+      // loop: copy the recorded blocks that overlap · once per alignment · ≤ 90 blocks
       for (const [bi, b] of blocks) {
-        const at = bi * blockFrames * FRAME_BYTES
-        if (at >= out.length) continue
-        b.copy(out, at, 0, Math.min(b.length, out.length - at))
+        const a = bi * blockFrames - f0                         // block start, in frames of `out`
+        const lo = Math.max(0, -a), hi = Math.min(blockFrames, frames - a)
+        if (hi <= lo) continue
+        b.copy(out, (a + lo) * FRAME_BYTES, lo * FRAME_BYTES, hi * FRAME_BYTES)
       }
       return out
     },
@@ -247,6 +255,85 @@ function entryFromResult(result, raw, heard, meta = {}) {
   }
 }
 
+// --- progressive sections ---
+
+/** Song time (s) by which line i has surely been sung: its end (Apple), else a guess bounded by the next start. */
+function singEnd(raw, i) {
+  const line = raw[i]
+  const next = raw[i + 1]
+  const guess = Math.max(T.lineEnd(line, next), line.t + 0.6 * splitWords(line.text).length + 3)
+  if (!next || next.t == null) return guess                   // the last line: as lyricSpan
+  return line.end != null ? line.end : Math.min(next.t, guess)
+}
+
+/**
+ * The song's sections for progressive alignment: the lines between two interludes (the countdown
+ * gaps, ≥ 4 s), split evenly into parts of at most SECTION_LINES lines. Each section is aligned once
+ * its last line has been sung (TAIL_PAD s after `end`), while the song plays on, so its words reach
+ * the views during the first play (repeats and the song's pace carry them to later lines, see
+ * lyrics-timing reuseRepeats/repace). -> [{ from, to, start, end, at }] (line indexes, song times)
+ */
+function sections(raw) {
+  const idx = []
+  // loop: one pass over the song's lines · per song
+  for (let i = 0; i < (raw || []).length; i++) if (raw[i].t != null && splitWords(raw[i].text).length) idx.push(i)
+  if (!idx.length) return []
+  const gaps = new Set(T.findInterludes(raw).map((g) => g.index))
+  const blocks = [[]]
+  for (const i of idx) {
+    if (blocks[blocks.length - 1].length && gaps.has(i)) blocks.push([])
+    blocks[blocks.length - 1].push(i)
+  }
+  const out = []
+  for (const b of blocks) {
+    const parts = Math.ceil(b.length / SECTION_LINES)
+    const size = Math.ceil(b.length / parts)
+    for (let k = 0; k < b.length; k += size) {
+      const from = b[k], to = b[Math.min(b.length, k + size) - 1]
+      const end = singEnd(raw, to)
+      out.push({ from, to, start: raw[from].t, end, at: end + TAIL_PAD })
+    }
+  }
+  return out
+}
+
+/** A section's helper request: its lines (shifted to the slice) and where its audio slice starts. */
+function sectionRequest(raw, sec, first) {
+  const offset = first ? 0 : Math.max(0, sec.start - SECTION_PRE)
+  const lines = requestLines(raw.slice(sec.from, sec.to + 1)).map((l) => {
+    const r = { t: Math.max(0, l.t - offset), text: l.text }
+    if (l.end != null) r.end = l.end - offset
+    return r
+  })
+  return { offset, lines }
+}
+
+/** A helper result for a section, in song lines and song time (input to entryFromResult). */
+function sectionResult(result, sec, offset) {
+  const lines = []
+  for (const r of (result && result.lines) || []) {
+    if (!r || !Number.isInteger(r.line)) continue
+    lines.push(Object.assign({}, r, {
+      line: sec.from + r.line,
+      words: Array.isArray(r.words) ? r.words.map((w) => Object.assign({}, w, { t: Number(w.t) + offset, end: Number(w.end) + offset })) : r.words
+    }))
+  }
+  return Object.assign({}, result, { lines })
+}
+
+/** prev entry + one section's entry -> the merged entry (new object). */
+function mergeEntry(prev, add, sec, total) {
+  const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
+  const done = [...new Set([...((prev && prev.done) || []), sec.from])].sort((a, b) => a - b)
+  return Object.assign({}, add, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total })
+}
+
+/** prev entry (sections) + the whole-song pass -> the complete entry: whole-song words win. */
+function mergeWhole(prev, add, secs) {
+  const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
+  return Object.assign({}, add, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false })
+}
+
 // --- the session ---
 
 /**
@@ -254,16 +341,23 @@ function entryFromResult(result, raw, heard, meta = {}) {
  *   createListener(opts) -> { start, stop }   (audio-listen.js, shared with Level 1)
  *   helper: { align(id, messages) -> Promise<result> }   (align-helper.js)
  *   store: { get, set }   send(channel, payload)   now() (ms, same base as the clock)   log
+ *
+ * Progressive (0.15.33): the song is aligned section by section while it plays (sections()), one
+ * helper job at a time; each section's words are cached (merged into one entry, `partial` until
+ * every section was aligned) and sent to the views. A section that wasn't heard (seek) is left out;
+ * a partial entry is completed on a later play.
  */
 function createAlignSession(deps) {
   const rate = deps.sampleRate || RATE
   const latency = deps.latency == null ? MONITOR_LATENCY : deps.latency
   const log = deps.log || (() => {})
   let listener = null
-  let song = null          // { key, title, artist, raw, hash, span, buf, sent }
+  let song = null          // { key, title, artist, raw, hash, span, secs, next, buf, sent, failed, entry }
   let clock = null
   let expectNext = null
   let jobs = 0
+  // lifetime: one promise chain of helper jobs (each holds one section's PCM until it is sent)
+  let queue = Promise.resolve()
 
   function onChunk(mid, wallMs, side) {
     if (!song || song.sent || !clock || !clock.playing) return
@@ -288,48 +382,85 @@ function createAlignSession(deps) {
     expectNext = null
   }
 
-  function heardEnough(s) {
-    return s.span && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE
+  function heard(s, sec) {
+    return s.buf.coverage(sec.start, sec.end) >= MIN_COVERAGE
   }
 
-  // hands the recording to the helper and drops it; the result is cached and, if the song is
-  // still on screen, sent to the lyric views (lyrics window, visualizer)
-  function submit(s) {
+  // all sections handed over (or missed): stop recording and drop the audio
+  function wrapUp(s) {
     s.sent = true
     if (s === song) stopCapture()
-    const until = Math.min(s.buf.end, s.span.end + TAIL_PAD)
-    const spans = s.buf.spans
-    const pcm = s.buf.pcm(until)
     s.buf.clear()
-    const heard = (line, next) => {
+  }
+
+  // queues one helper job: a section (sec) or, with sec null, the whole song (the final pass, as
+  // before 0.15.33: one global alignment is a little better than the sections, so it is what gets
+  // cached). The result is merged into the song's cache entry and, if the song is still on screen,
+  // sent to the lyric views (lyrics window, visualizer).
+  function submit(s, sec) {
+    const req = sec ? sectionRequest(s.raw, sec, sec === s.secs[0]) : { offset: 0, lines: requestLines(s.raw) }
+    const until = Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
+    const spans = s.buf.spans
+    let pcm = s.buf.pcm(until, req.offset)
+    const id = 'a' + (++jobs)
+    const lineHeard = (line, next) => {
       const a = line.t
       const b = T.lineEnd(line, next)
       return spans.some((sp) => sp[0] <= a + 0.05 && sp[1] >= b - 0.05)
     }
-    const id = 'a' + (++jobs)
-    const started = deps.now()
-    let messages = alignMessages(id, s.raw, pcm, { rate })
+    const what = sec ? 'lines ' + (sec.from + 1) + '–' + (sec.to + 1) + ' of ' + s.raw.length : 'whole song'
     // error: helper missing, crashed, timed out or refused (no model for the language) -> one log
-    // line; the song keeps its estimated/refined timing. A no-model refusal is remembered so the
-    // song isn't recorded again for nothing.
-    return Promise.resolve()
-      .then(() => deps.helper.align(id, messages))
-      .then((result) => {
-        messages = null
-        const entry = entryFromResult(result, s.raw, heard, { duration: until })
-        deps.store.set(alignedKey(s.title, s.artist), entry)
-        log('aligned ' + entry.aligned + '/' + entry.total + ' lines of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
-        if (song && song.key === s.key && entry.aligned) deps.send('lyrics-aligned', { key: s.key, lines: entry.lines })
-        return entry
-      })
-      .catch((e) => {
-        messages = null
-        log('alignment failed for "' + s.title + '": ' + (e && e.message))
-        if (e && e.code === 'no-model') {
-          deps.store.set(alignedKey(s.title, s.artist), { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null })
-        }
-        return null
-      })
+    // line and no further jobs for this song; its lines keep what they have (aligned sections stay).
+    // A no-model refusal is remembered so the song isn't recorded again for nothing.
+    const run = () => {
+      if (s.failed) { pcm = null; return null }
+      const started = deps.now()
+      let messages = alignMessages(id, req.lines, pcm, { rate })
+      pcm = null
+      return Promise.resolve()
+        .then(() => deps.helper.align(id, messages))
+        .then((result) => {
+          messages = null
+          const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
+          s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount) : mergeWhole(s.entry, add, s.secs)
+          deps.store.set(alignedKey(s.title, s.artist), s.entry)
+          log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+          if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
+          return s.entry
+        })
+        .catch((e) => {
+          messages = null
+          s.failed = true
+          log('alignment failed for "' + s.title + '": ' + (e && e.message))
+          if (e && e.code === 'no-model') {
+            deps.store.set(alignedKey(s.title, s.artist), { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null })
+          }
+          return null
+        })
+    }
+    const job = queue.then(run)
+    queue = job.then(() => {}, () => {})
+    return job
+  }
+
+  // the sections whose audio is complete at song time `time` (all sung ones when final): queued if
+  // heard, else skipped. After the last one, the whole song once more if it was all heard (a song of
+  // one section: that job was the whole song). -> the last queued job or null
+  function due(s, time, final) {
+    let job = null
+    // loop: over the sections not yet handled (≤ ~10 per song) · per tick
+    while (s.next < s.secs.length) {
+      const sec = s.secs[s.next]
+      if (!final && time <= sec.at) break
+      if (final && s.buf.end < sec.end - 0.05) break          // not sung yet: nothing more is due
+      s.next++
+      if (s.skip.has(sec.from) || !heard(s, sec)) continue
+      job = submit(s, sec)
+    }
+    if (s.next < s.secs.length && !final) return job
+    if (s.secs.length > 1 && s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE) job = submit(s, null)
+    wrapUp(s)
+    return job
   }
 
   function finish(submitIfHeard) {
@@ -337,8 +468,9 @@ function createAlignSession(deps) {
     const s = song
     song = null
     clock = null
-    if (s && !s.sent && submitIfHeard && heardEnough(s)) return submit(s)
-    if (s) s.buf.clear()
+    if (!s || s.sent) return null
+    if (submitIfHeard) return due(s, Infinity, true)
+    wrapUp(s)
     return null
   }
 
@@ -348,18 +480,22 @@ function createAlignSession(deps) {
       return validEntry(deps.store.get(alignedKey(title, artist)), lyricsHash(raw))
     },
     /**
-     * New lyrics on screen. The previous song is aligned if enough of it was heard (track ended).
-     * Recording starts for line-only lyrics that have no alignment cached yet.
+     * New lyrics on screen. Sections of the previous song still due are aligned if heard (track
+     * ended). Recording starts for line-only lyrics that aren't fully aligned yet.
      */
     setLyrics(key, title, artist, raw, enabled) {
       if (song && song.key === key) return
       finish(true)
       if (!enabled || !canAlign(raw)) return
       const hash = lyricsHash(raw)
-      if (validEntry(deps.store.get(alignedKey(title, artist)), hash)) return
-      song = { key, title, artist, raw, hash, span: lyricSpan(raw), buf: createSongBuffer({ rate }), sent: false }
+      const have = validEntry(deps.store.get(alignedKey(title, artist)), hash)
+      if (have && !have.partial) return
+      const secs = sections(raw)
+      const skip = new Set(have && have.partial ? have.done || [] : [])
+      if (!secs.some((sec) => !skip.has(sec.from))) return
+      song = { key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null }
     },
-    /** Per lyrics poll tick: records while playing; aligns once the lyric span has been heard. */
+    /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
       if (!enabled) { finish(false); return null }
       if (!song || song.sent) { stopCapture(); return null }
@@ -367,12 +503,11 @@ function createAlignSession(deps) {
       clock = T.syncClock(clock, playbackTime, isPlaying, now)
       if (!clock.playing) { stopCapture(); expectNext = null; return null }
       startCapture()
-      if (T.clockTime(clock, now) > song.span.end + TAIL_PAD && heardEnough(song)) return submit(song)
-      return null
+      return due(song, T.clockTime(clock, now), false)
     },
     /**
      * lifetime: stop() ends the recording (stops our listener handle) and drops the buffer;
-     * submitIfHeard aligns a song that was heard far enough (last lyric view closed at the end).
+     * submitIfHeard aligns the sections that were heard (last lyric view closed at the end).
      */
     stop(submitIfHeard) { return finish(!!submitIfHeard) },
     get recording() { return !!listener },
@@ -382,7 +517,7 @@ function createAlignSession(deps) {
 }
 
 module.exports = {
-  RATE, MIN_COVERAGE, STREAM_CHUNK,
-  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines,
+  RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES,
+  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, sectionResult, mergeEntry, mergeWhole,
   createSongBuffer, requestLines, alignMessages, entryFromResult, createAlignSession
 }

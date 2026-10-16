@@ -5,7 +5,8 @@ Status: wired into Sonata in 0.15.21 as Settings → *Precise word timing (GPU, 
 installer, plain-lyrics mode and transcription). As built: recording runs only while a lyric view
 is open (the lyrics window or, since 0.15.24, the visualizer, like Level 1; one shared parec for the
 visualizer, Level 1 and Level 2), the song is aligned once its lyric span was heard
-(≥ 90 %) via stream mode, so no audio file is ever written, and the helper is the user's venv
+(≥ 90 %) via stream mode, so no audio file is ever written (since 0.15.33 progressively: each section of
+lines is aligned while the song plays, then the whole song once more, see docs/LYRIC-TIMING.md), and the helper is the user's venv
 python running the `align/` scripts shipped unpacked next to app.asar.
 Level 1 (docs/LISTEN-SPEC.md) nudges estimated words toward onsets it hears. Level 2 finds where
 each word is actually sung: it separates the vocals and force-aligns the KNOWN lyrics to them on

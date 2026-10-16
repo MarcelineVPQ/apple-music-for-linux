@@ -1,0 +1,260 @@
+# Lyric word timing: drift on the first play (0.15.32)
+
+Marcy's report (0.15.31): "lots of drift in the majority of songs, by the time it gets to the end
+of each verse." This page has the measurement, the cause, what changed, and the numbers before and
+after. Tools: `tools/drift-check/` (below).
+
+## How it is measured
+
+The **drift check** compares, word by word, what the lyric views light up with where the word is
+really sung.
+
+- **The visual side** is the real engine. `tools/drift-check/lib.js` runs the same code that
+  `render()` in lyrics-view.js runs: `liveLines`, `interludeAt`, and `wordState` at the playback
+  time plus `WORD_LEAD`. It samples every 50 ms. The **DOM proof** (`dom-check.js`) loads the real
+  lyrics view (lyrics-view.js and lyrics-view.css in a Chromium page, isolated under Xvfb) and
+  drives it on a virtual clock through every song. Every 50 ms it reads which words have `.now`
+  inside an `.active` line and compares them with the engine. For the progressive method it also
+  delivers the aligned sections through `view.align()`. Result: **75,411 frames over 22 song runs,
+  DOM = engine on 100.00 % of frames.** The headless numbers below are therefore exactly what the
+  window shows.
+- **The spectrum side** is the ground truth.
+  - Her library: words force-aligned to the separated vocals by sonata-align (Demucs plus
+    wav2vec2 on her GPU). These are the `aligned|…` cache entries, read from a copy of her cache.
+    That aligner is 0.032 s median from hand annotations (docs/LEVEL2-ALIGN.md).
+  - JamendoLyrics MultiLang: 79 songs, 21,580 words with hand-annotated word starts and ends, the
+    Level 2 benchmark. Two input modes: `lrc` gives line starts only, like LRCLIB; `ends` gives line
+    starts plus exact line ends.
+- **Metrics:**
+  - Word-start error: median, mean, p90, and bias. A positive bias means the word lights up late.
+  - Drift slope: the least-squares slope of the error against word index within a line, in ms per
+    word.
+  - Error of each line's last word, and of the last line of each verse. A verse is the lines
+    between two interlude gaps.
+  - Signed error by position in the line, in deciles.
+  - The frame check: the share of sung frames where the word being sung is the lit one.
+
+Methods compared:
+
+| Method | What it is |
+|---|---|
+| `v0` | the 0.15.31 estimate: words stretched over 90 % of the line's time |
+| `estimate` | the new first-play estimate, from the lyrics alone |
+| `progressive` | first play with Precise timing on. Sections are aligned while the song plays. Each arrives `HELPER_DELAY` = 8 s after the section's audio is complete. Later lines then use repeats of aligned lines and the song's measured pace. |
+| `repeat` | first play with Refine by listening. A line refined after it was sung lends its timing to later identical lines. |
+| `refine` | the second play with Refine by listening, using the learned timing |
+| `aligned` | the second play with Precise timing |
+
+Refine is run with the real Level 1 detector on the decoded JamendoLyrics audio
+(`--audio`). Her own audio can't be replayed, so on her songs the refine rows are missing. Her
+`aligned` row is missing too, because there it is the truth itself.
+
+## The cause
+
+On the first play of a song with line-only lyrics (Apple line-timed TTML or LRCLIB), Sonata
+estimates the word times. The old estimate spread a line's words over 90 % of the time until the
+line's end, or until the next line's start. But a line is sung at its own pace, and the time left
+over is silence:
+
+- In her library, **Apple's line end equals the next line's start (within 50 ms) in 51 % of
+  lines**. In those lines the "end" includes the pause before the next line. LRCLIB has no ends at
+  all. Even Apple's real ends run a median **0.32 s past the last sung word** (p75 0.44 s).
+- People sing at about **0.21–0.24 s per weight unit** (wordWeight: syllables + 0.35, plus 0.6
+  after punctuation). This is the median pace in both her songs and JamendoLyrics. Lines whose
+  time runs on hold ~40–70 % singing. *Never Get Old*: "And I'm never ever gonna get old" gets
+  4.7 s and is sung in 1.8 s.
+
+So every word after the first lit up later and later along the line. Signed error by position
+(v0, her 7 songs, ms):
+
+```
+first word → last word:   -57   23   57  109  174  220  285  295  339  393
+```
+
+The slope is +29 ms per word, with a bias of +156 ms. The last line of a verse is worst (+263 ms
+bias), because its time runs into the interlude. On LRC input the last line of a verse is
+**+681 ms late on average**, because the old cap (0.6 s per word + 2 s) still allowed most of the
+gap. That is the "drift by the end of each verse".
+
+Ruled out:
+
+- **The 0.05 s monitor latency.** Her aligned first words sit +0.06 s after Apple's line starts,
+  the same at the start and the end of songs. A constant offset doesn't grow along a line.
+- **Syllable weights.** A grid over base and punctuation weights moved the mean by less than 5 ms.
+- **The clock.** The DOM proof matches the engine on every frame. The bench drives a perfect
+  clock, so clock drift isn't measured here, but the engine adds none.
+
+## What changed
+
+1. **Paced first-play estimate** (lyrics-timing.js `estimateWords`). Tuned on JamendoLyrics
+   English and German, checked on French and Spanish and on her songs, which were held out except
+   for one Apple-specific constant (below).
+   - A line is sung at the song's pace from its start. The rest of its time is tail. The pace is
+     0.25 s per unit, blended in log space with the song's own: the 20th percentile of
+     time-per-weight over its lines, which picks out the lines sung back to back.
+   - The words take at most 90 % of the line's time. A line too long for its time is squeezed in,
+     as before.
+   - A real Apple end (one that stops more than 50 ms before the next line) is trusted. The words
+     take 90 % of [t, end] minus 0.2 s, because Apple's ends run ~0.3 s long. The 0.2 s comes from
+     her songs only; JamendoLyrics has no Apple-style ends. With exact ends, a plain 0.9 spread
+     would be better, see the `ends` table.
+   - The last word of a line sung faster than its time holds for up to 1 s, like a held note.
+2. **Progressive alignment** (align-session.js). With Precise timing on, the song is split into
+   sections: the lines between two interludes, at most 8 each, split evenly. Each section goes to
+   sonata-align as soon as it has been sung (3 s after it ends), as its own slice of audio, while
+   the song plays on. Before this change the song was aligned only once, after it ended.
+   - Jobs run one at a time, in a queue.
+   - Each section's words are cached at once (merged into the entry, `partial: true` until every
+     section is done) and sent to the views as `lyrics-aligned`.
+   - A section skipped by a seek is left out. The partial entry is completed on a later play,
+     which records only the missing sections.
+   - A helper failure stops that song's later sections, with one log line.
+   - When the whole song was heard, it is aligned once more as one job after the last section,
+     and that result is what stays cached (see the cost below). So the audio buffer is still kept
+     until the song is done, as before.
+3. **What the views learn from it** (lyrics-timing.js `repace` and `reuseRepeats`, lyrics-view.js
+   `learnFrom`). These run in `prepare()` and after every `lyrics-aligned` or `lyrics-refined`
+   message, so they act during the same play.
+   - Plain estimated lines are re-estimated at the pace sung in the aligned or refined lines.
+   - A repeated line (chorus) takes the word timing of an identical aligned line, shifted to its
+     own start. A refined line is used when no aligned one exists. The copy is cut at the next
+     line's start.
+   - Priority stays: Apple word timing > aligned > refined > estimated. A repeat copied from an
+     aligned line is marked `repeat: 'aligned'`, and a refine message can't replace it. The line's
+     own alignment always replaces it. A repeat copied from a refined line is upgraded when an
+     aligned source appears.
+   - Lines refined from their own audio are never overwritten by repeats.
+
+No main.js change was needed. main.js already applies the cache through `prepareLines`, sends
+`lyrics-aligned` to both views, and calls `alignSession.tick` and `stop(true)`.
+
+## Numbers
+
+### Her library (7 songs, Apple line-timed, 1,737 words; truth = aligned)
+
+| Method | median | mean | p90 | bias | ≤0.1 s | ≤0.3 s | slope ms/word | line-end mean (bias) | verse-end mean (bias) | frames lit right |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| v0 (0.15.31) | 196 | 353 | 840 | +156 | 30 % | 64 % | +29 | 441 (+251) | 586 (+263) | 49 % |
+| estimate | 181 | 307 | 767 | +37 | 32 % | 68 % | −4 | 396 (−4) | 604 (+187) | 47 % |
+| **progressive** (first play) | **138** | **223** | **508** | −2 | 41 % | 77 % | 0 | 274 (−39) | **362 (+30)** | 53 % |
+
+Signed error by position in the line (ms, first word → last word):
+
+```
+v0           -57   23   57  109  174  220  285  295  339  393
+estimate     -58  -19   -1  -10   70   71   80  104   89  295
+progressive  -41  -23  -20   -4   14    4   33   30   -8   79
+```
+
+Per song, mean |error| (ms) for v0 → estimate → progressive:
+
+- Sofa King: 318 → 323 → 280
+- Ache With Me: 327 → 358 → 258
+- Damn: 248 → 231 → 208
+- Friday Night: 139 → 138 → 122
+- Big Time Nothing: 205 → 222 → 210
+- Never Get Old: 855 → 621 → 314
+- Satan's Bed: 263 → 203 → 175
+
+The estimate alone is worse on two songs, *Ache With Me* and *Big Time Nothing*. Both are sung
+slower than the default pace, so their words now come early. Progressive is better than v0 on
+every song but *Big Time Nothing*, where it is about level (210 vs 205).
+
+### JamendoLyrics, LRC input (79 songs, 21,580 words; truth = hand annotations)
+
+| Method | median | mean | p90 | bias | ≤0.1 s | ≤0.3 s | slope | line-end mean (bias) | verse-end mean (bias) | frames |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| v0 (0.15.31) | 170 | 341 | 883 | +185 | 37 % | 66 % | +35 | 540 (+353) | 1384 (+681) | 49 % |
+| estimate | 140 | 282 | 693 | −66 | 42 % | 72 % | −3 | 422 (−137) | 1007 (−637) | 49 % |
+| repeat (Level 1, first play) | 140 | 282 | 695 | −66 | 42 % | 72 % | −2 | 422 | 1010 | 49 % |
+| **progressive** (first play) | **93** | **243** | 607 | −61 | 52 % | 78 % | −3 | 362 (−127) | 936 (−526) | 53 % |
+| refine (second play, Level 1) | 139 | 282 | 696 | −64 | 42 % | 72 % | −2 | 422 | 1000 | 49 % |
+| aligned (second play, Level 2) | 32 | 80 | 113 | −2 | 88 % | 97 % | 0 | 131 (−11) | 463 (+30) | 68 % |
+
+- **Verse ends on LRC input are still far off: −637 ms mean bias.** Here the sign flipped: the
+  last line of a verse is sung slower (median 0.33 s per unit, against 0.22 s elsewhere), with held
+  notes, so the paced estimate is now early there. A slower pace for verse-end lines (×1.25–1.6)
+  was tried. It moved verse ends but not the overall mean, so it isn't in. Only the audio fixes
+  these lines.
+- Ablation of progressive. Repeats alone: 237 ms mean on JamendoLyrics, 271 ms on hers. Learned
+  pace alone: 289 and 256. Both together: 243 and 223.
+  - On JamendoLyrics, 26 % of lines are repeats of an earlier aligned line on the first play. On
+    hers, 25 %.
+  - The learned pace helps her Apple songs a lot but costs 6 ms on JamendoLyrics LRC. Both are
+    kept, because her case is the real one.
+
+### JamendoLyrics, line starts with exact ends, and with ±0.5 s jittered LRC starts
+
+| Method | exact ends: median / mean / bias | LRC ±0.5 s: median / mean / bias |
+|---|---|---|
+| v0 | 122 / 218 / −15 | 293 / 425 / +173 |
+| estimate | 133 / 234 / −83 | 279 / 391 / −96 |
+| progressive | 90 / 200 / −64 | 284 / 391 / −88 |
+| aligned | 33 / 73 / +9 | 33 / 85 / −3 |
+
+- With exact line ends, the old stretch was already right, and the 0.2 s tail for Apple ends
+  costs 16 ms. Real Apple ends aren't exact (above), and LRCLIB has none.
+- With line starts off by up to ±0.5 s, the start error dominates. Neither the estimate nor
+  progressive helps beyond removing the slope. The aligner doesn't care.
+
+### Refine by listening (Level 1) on real music
+
+The detector and refiner, run on the real JamendoLyrics audio, **refine only 138 of 3,383 lines
+(4 %)**. The gates (noise rate, onset density, ambiguity, half the syllables matched) reject the
+rest. 8 of 79 songs are gated as a whole. The refine and repeat rows are therefore within 1 ms of
+the estimate.
+
+This matches her cache: one `refined|` entry with 3 lines, against 7 aligned songs. Level 1 was
+tuned on the synthetic bench (tools/listen-bench), and on real mixes it mostly stays out of the
+way. It does no harm, but it isn't what fixes drift. Precise timing is.
+
+### Progressive alignment cost (the real helper, RTX 5080)
+
+`tools/drift-check/section-bench.js` runs the real sonata-align helper on JamendoLyrics in two
+ways: section by section, as align-session.js now does, and as one whole-song job, as before.
+
+All 79 songs, LRC anchors:
+
+| | median | mean | ≤0.1 s | ≤0.3 s | lines aligned |
+|---|--:|--:|--:|--:|--:|
+| whole song, one job (0.15.31) | 31 ms | 65 ms | 90 % | 98 % | 3,226 / 3,383 |
+| section jobs (655 jobs, 8.3 per song) | 32 ms | 87 ms | 88 % | 96 % | 3,231 / 3,383 |
+
+- The helper takes a median **0.36 s per section job** (p90 0.65 s). The audio per job is a median
+  26 s. The whole-song job takes 3.1 s.
+- The slowest job took 18.6 s. That was a job whose language switched the model (1.26 GB
+  wav2vec2). In the app a song's language doesn't change, so only a song's first job pays the model
+  load (1.5 s cold).
+- The drift check assumes 8 s from a section's end to its words on screen, which is
+  conservative.
+- Sections are as accurate as the whole song at the median, but the tail is a bit worse: mean
+  87 vs 65 ms. The likely reason is less context at the slice edges. So after the last section,
+  when the whole song was heard, the **whole song is aligned once more**. That costs ~3 s of GPU
+  per song. Its words win in the cache entry, so later plays are exactly as good as in 0.15.31.
+  During the play its message changes nothing on screen, because lines that are already aligned
+  are kept.
+
+## Running it
+
+```
+cp ~/.config/apple-music-for-linux/lyrics-cache.json /some/scratch/cache-copy.json   # never the live file
+node tools/drift-check/drift-check.js --cache /some/scratch/cache-copy.json [--mode lrc|ends] [--jitter 0.5] \
+     [--audio --work /some/scratch/onsets] [--songs] [--deciles] [--json out.json]
+node tools/drift-check/section-bench.js [--limit 79]          # GPU, spawns its own helper
+# DOM proof: isolated Electron, see the header of tools/drift-check/dom-check.js
+```
+
+JamendoLyrics is read from align/bench.py's copy (`~/.local/share/sonata-align/bench`), and its
+aligned words from `bench/results/auto-j0.json`. The `--audio` onsets are cached in `--work`.
+
+## Not verified
+
+- **Progressive alignment hasn't run inside the app yet.** It was tested with node tests, which
+  stub the helper, and with the real helper on decoded files (section-bench). Nobody has played a
+  song in Sonata with it. The per-section log line is new:
+  `align: aligned 6/6 lines (1–6 of 34) of "…" in 0.9 s`.
+- **Stutter.** The helper is its own process and a job takes about a second of GPU. In main, a
+  section costs one buffer copy and base64 of a few MB. No stutter is expected, but playback while
+  sections align hasn't been watched.
+- **The first-play numbers on her songs are from 7 songs.** The constants were tuned on
+  JamendoLyrics, apart from the Apple tail.

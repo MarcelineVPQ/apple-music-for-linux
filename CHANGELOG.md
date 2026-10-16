@@ -23,6 +23,8 @@ See docs/RELEASING.md.
 
 ### Changed
 
+- **Less drift in estimated word timing on a song's first play.** When a song only has line timing (most Apple lyrics and LRCLIB), Sonata now times the words at the pace the line is sung instead of stretching them across the pause that follows. The words no longer lag further and further behind toward the end of a line or verse: on Marcy's songs the average error of a word's start went from 353 ms to 307 ms, and on 79 test songs with hand-annotated words from 341 ms to 282 ms. Measured with a new drift check, details in docs/LYRIC-TIMING.md.
+- **Precise word timing helps during the first play.** With Precise word timing on, each part of the song (the lines between two breaks) is lined up with the singing as soon as it has been sung, while the song plays on, instead of only after the song ends. The parts still to come take the pace the singer actually sang at, and a chorus that comes back takes the timing of its first, aligned appearance. First-play error with it: 223 ms on Marcy's songs (243 ms on the test songs).
 - **One colour system for every Sonata window.** The rail, the panel, notices, the lyrics window, the mini player and the visualizer's text all take their colours from one set, light or dark and tinted by the album, with contrast checked.
 - **Notices instead of pop-ups.** Connecting Last.fm or Discord, update results and similar messages appear in the panel (with their buttons and a ×) or as short notifications at the bottom right, not as separate dialog windows.
 - Settings are saved safely (a new file is written, then swapped in), so a crash can't leave a half-written settings file.
