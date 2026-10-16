@@ -174,3 +174,21 @@ store, software GL because the GPU process can't start under Xvfb), visualizer.h
 Under software GL most of this is rasterising a full-screen canvas every frame, which every scene does;
 the formation itself adds about 3 % (one cached-sprite `drawImage` per visible toaster). On a real GPU the
 canvas is GPU-rasterised and these numbers are much lower; that isn't measurable here.
+
+### After Dark flight (Unreleased, branch toaster-flight)
+
+Same harness, run in our own `npm run dist` build (scratch copy, app.asar unpacked, harness as main),
+1920×1080, the toast scene measured 5 s after entry for 60 s, A/B in the same build (today's
+visualizer.html + toasters.js swapped in for "before"), alternating runs:
+
+| Toast scene | renderer runs | renderer mean | GPU process |
+|---|---|---|---|
+| before: 0.15.26 formation (54 items, ~34 on screen, re-sorted every frame) | 66.3, 67.3 | 66.8 | 9.0–9.1 |
+| after: flight (pool of 49, ~34 on screen once full) | 67.5, 64.5, 67.4, 69.2 | 67.2 | 8.7–10.5 |
+
+No measurable difference (run-to-run spread is ±2–3 %). Per frame the flight is one pass over the
+pool and one `drawImage` per visible flyer; the draw order is only re-sorted (in place) when a flyer
+launches, the pool never grows except on a resize to a bigger sky, and the flight code creates no
+objects per frame
+(test/toasters.test.js: same objects over 10,000 frames). Live resize 1920×1080 → 1100×800 kept
+every flyer in the air and rescaled them.
