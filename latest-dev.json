@@ -1,0 +1,11 @@
+{
+  "channel": "dev",
+  "version": "0.15.15",
+  "file": "sonata-0.15.15-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.15/sonata-0.15.15-x86_64.AppImage",
+  "sha512": "1266181a1ffb80a89a3e3265fe637238c15300b0981d8e2b0b0d4ed459ace1ff48adef2f2d2467fefa33c032635641e5cadee4c6095b6b5f9e70b5fc032448d2",
+  "size": 125818452,
+  "date": "2026-10-16T05:39:54Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.15",
+  "notes": "### Added\n\n- **Update channel** (Settings → Updates): **Stable** (the default) gets tested releases; **Development** also gets newer development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds.\n- **Estimated word timing:** songs that only have line timing now follow the words too, with each line spread across its words. Marked \"Word timing estimated\"; Settings → *Estimated word timing* turns it off.\n\n### Changed\n\n- **Signed updates.** Sonata now only installs an update whose feed is signed with the project's Ed25519 key and whose download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.\n- **The album art is now a little vinyl record** in the lyrics window: bigger, your cover fills the middle with a grooved vinyl rim and a spindle hole, inside the progress ring.\n- **Record speed** for *Spin album art like a record*: **Relaxed** (default, a calm turn) or **True** (33⅓ rpm for albums, 45 for singles and EPs, like the vinyl).\n- Releases are published by the release workflow (development builds as prereleases), and the update feeds are generated and signed in CI, never by hand."
+}
