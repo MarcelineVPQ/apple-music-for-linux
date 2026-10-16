@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.25",
+  "version": "0.15.26",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -33,6 +33,12 @@
       "lyrics-timing.js",
       "lyrics-view.js",
       "lyrics-view.css",
+      "lyrics-syllables.js",
+      "node_modules/hyphen/package.json",
+      "node_modules/hyphen/LICENSE",
+      "node_modules/hyphen/index.js",
+      "node_modules/hyphen/hyphen.js",
+      "node_modules/hyphen/patterns/{en-us,en-gb,de-1996,fr,es,it,pt,nl,sv,da,nb,fi,pl,cs,sk,hu,ro,tr,id,ca,hr,sl}.js",
       "toasters.js",
       "assets/toaster/toaster_0.png",
       "assets/toaster/toaster_1.png",
@@ -95,5 +101,8 @@
   "devDependencies": {
     "electron": "https://github.com/castlabs/electron-releases#v42.3.3+wvcus",
     "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "hyphen": "1.14.1"
   }
 }

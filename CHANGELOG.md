@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.26] — Karaoke syllables for every song
+
+### Changed
+
+- **The syllable pop now works on almost every song.** Apple rarely times syllables, so Sonata now works out the syllables of each timed word itself (with the same hyphenation rules TeX uses, in the lyrics' language; English by default) and moves the pop through the word as it's sung. That covers Apple's word-timed lyrics as well as estimated, refined and aligned timing. Short words like "called" stay one syllable; "critics" becomes crit·ics, "Euphoria" Eu·pho·ria. Apple's own syllable timing still wins when a song has it. Words in non-Latin scripts, or in languages without hyphenation rules here, pop as a whole as before. Apple lyrics saved by 0.15.25 are fetched once more to learn their language.
+
 ## [0.15.25] — Karaoke syllables
 
 ### Changed

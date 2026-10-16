@@ -559,7 +559,7 @@ async function lyricsTick() {
       const session = settings.lyricsListenRefine ? getListenSession() : listenSession
       if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
     } else if (listenSession) listenSession.stop()
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned })
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''

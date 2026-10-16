@@ -246,7 +246,7 @@ test('resolver + store: good results are stored, and served from the store next 
   const mk = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">x</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   await mk()(song)
   assert.equal(apple, 1)
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple', parse: 2 })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple', parse: 3 })
   assert.deepEqual(await mk()(song), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
   assert.equal(apple, 1)
 })
@@ -267,10 +267,24 @@ test('resolver + store: an Apple entry from the older parser is fetched again on
   let apple = 0
   const fresh = L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">new</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   assert.deepEqual(await fresh(song), { lines: [{ t: 1, text: 'new' }], source: 'apple' })
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'new' }], source: 'apple', parse: 2 })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'new' }], source: 'apple', parse: 3 })
   await L.createLyricsResolver({ fetchApple: async () => { apple++; return '' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
   assert.equal(apple, 1)                                    // current parse: served from the store
   store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple' })
   const down = L.createLyricsResolver({ fetchApple: async () => { throw new Error('offline') }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   assert.deepEqual(await down(song), { lines: [{ t: 1, text: 'old' }], source: 'apple' })
+})
+
+test('ttmlLang + resolver: the lyrics language is read from <tt xml:lang>, stored and served', async () => {
+  const ttml = '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="de"><body><div><p begin="1">Hallo</p></div></body></tt>'
+  assert.equal(L.ttmlLang(ttml), 'de')
+  assert.equal(L.ttmlLang('<p begin="1">x</p>'), '')
+  const store = memStore()
+  store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple', parse: 2 })   // 0.15.25 entry: fetched again
+  let apple = 0
+  const get = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return ttml }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
+  assert.deepEqual(await get(), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de' })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de', parse: 3 })
+  assert.deepEqual(await get(), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de' })
+  assert.equal(apple, 1)
 })

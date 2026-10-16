@@ -25,9 +25,10 @@ test('prepare: no estimate keeps line-only lyrics; empty and missing data are sa
   assert.deepEqual(V.prepare(null).lines, [])
 })
 
-test('prepare: same lines as the lyrics window got before (estimateWords result)', () => {
+test('prepare: same lines as the lyrics window got before (estimateWords result; syllables added only)', () => {
   const T = require('../lyrics-timing')
-  assert.deepEqual(V.prepare({ lines: lrc, estimate: true }).lines, T.estimateWords(lrc))
+  const noSyl = (lines) => lines.map((l) => Object.assign({}, l, { words: l.words.map(({ syl, ...w }) => w) }))
+  assert.deepEqual(noSyl(V.prepare({ lines: lrc, estimate: true }).lines), T.estimateWords(lrc))
 })
 
 test('refinedLine: applies new timing for the same words of an estimated line only', () => {

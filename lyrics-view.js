@@ -13,16 +13,25 @@
 //
 // Karaoke: the word being sung is lit as a whole (.w.now). Apple words timed in several spans carry
 // their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word and only
-// the syllable being sung pops (.s.now); other words pop as a whole, as before.
+// the syllable being sung pops (.s.now); other words pop as a whole, as before. Words without Apple
+// syllables get estimated ones (lyrics-syllables.js: hyphenation patterns for data.lang, en-US by
+// default), once per line when the lyrics load or a line's timing is refined or aligned.
 const T = require('./lyrics-timing')
+const S = require('./lyrics-syllables')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
 
-/** Lines and layout facts for a 'lyrics-data' payload (estimated word timing when asked for). */
+/**
+ * Lines and layout facts for a 'lyrics-data' payload (estimated word timing when asked for, estimated
+ * syllables for timed words). hyphenate: the lyrics language's hyphenator (null: no syllables).
+ */
 function prepare(data) {
   const raw = (data && Array.isArray(data.lines)) ? data.lines : []
-  const lines = data && data.estimate ? T.estimateWords(raw) : raw
-  return { lines, wordTimed: T.hasWordTiming(lines), sides: T.lineSides(lines), gaps: T.findInterludes(lines) }
+  const words = data && data.estimate ? T.estimateWords(raw) : raw
+  const hyphenate = S.hyphenatorFor(data && data.lang)
+  const split = hyphenate ? words.map((l) => S.lineWithSyllables(l, hyphenate)) : words
+  const lines = split.every((l, i) => l === words[i]) ? words : split
+  return { lines, hyphenate, wordTimed: T.hasWordTiming(lines), sides: T.lineSides(lines), gaps: T.findInterludes(lines) }
 }
 
 /**
@@ -111,6 +120,7 @@ function createLyricsView(opts) {
   let raf = 0
   let wake = 0
   let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
+  let hyphenate = null      // the song's hyphenator, for syllables of refined/aligned words
   let refined = false       // learned or live-refined word timing in use
   let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
   let notesEl = null
@@ -149,6 +159,7 @@ function createLyricsView(opts) {
   function setData(data) {
     const prep = prepare(data)
     lines = prep.lines
+    hyphenate = prep.hyphenate
     songKey = (data.title || '') + '|' + (data.artist || '')
     refined = !!data.refined
     aligned = !!data.aligned
@@ -240,7 +251,7 @@ function createLyricsView(opts) {
     const line = refinedLine(lines, msg, songKey)
     const entry = line && lineEls[msg.lineIndex]
     if (!entry) return
-    lines[msg.lineIndex] = line
+    lines[msg.lineIndex] = S.lineWithSyllables(line, hyphenate)
     entry.pos = null
     if (!refined) { refined = true; if (opts.notes) showNotes() }
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
@@ -252,7 +263,11 @@ function createLyricsView(opts) {
     const got = alignedLines(lines, msg, songKey)
     if (!got) return
     lines = got.lines
-    for (const i of got.changed) if (lineEls[i]) lineEls[i].pos = null
+    // loop: the aligned lines (at most the song's line count) · per 'lyrics-aligned' message
+    for (const i of got.changed) {
+      lines[i] = S.lineWithSyllables(lines[i], hyphenate)
+      if (lineEls[i]) lineEls[i].pos = null
+    }
     aligned = true
     if (opts.notes) showNotes()
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }

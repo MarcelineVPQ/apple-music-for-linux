@@ -20,6 +20,12 @@ function tagAttrs(tag) {
   return attrs
 }
 
+/** The lyrics language of a TTML document (<tt xml:lang="en">), '' when it has none. */
+function ttmlLang(ttml) {
+  const m = /<tt\b[^>]*>/.exec(ttml || '')
+  return m ? (tagAttrs(m[0])['xml:lang'] || '') : ''
+}
+
 // <ttm:agent xml:id="v1" type="person"/> -> { v1: 'person' }
 function ttmlAgents(ttml) {
   const agents = {}
@@ -267,9 +273,10 @@ async function fetchLrclib(state, deps) {
  * deps: { fetchApple(state) -> ttml string, fetchLrclib(state) -> lines,
  *         lrclibEnabled() -> bool, log(msg), store? ({ get(key), set(key, value) }, on disk) }
  */
-// Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25).
-// A stored Apple entry from an older parser is fetched again once (served as is when that fails).
-const TTML_PARSE = 2
+// Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25),
+// 3 = the lyrics language (xml:lang) is stored too (0.15.26). A stored Apple entry from an older parser
+// is fetched again once (served as is when that fails).
+const TTML_PARSE = 3
 
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
@@ -284,15 +291,16 @@ function createLyricsResolver(deps) {
       const stored = deps.store ? deps.store.get(key) : null
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
-      if (usable && !stale) return { lines: stored.lines, source: stored.source }
+      if (usable && !stale) return stored.lang ? { lines: stored.lines, source: stored.source, lang: stored.lang } : { lines: stored.lines, source: stored.source }
       const remember = (result) => {
-        if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? { lines: result.lines, source: 'apple', parse: TTML_PARSE } : { lines: result.lines, source: result.source })
+        if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source })
         return result
       }
       try {
         const ttml = await deps.fetchApple(state)
         const lines = ttml ? parseTtml(ttml) : []
-        if (lines.length) return remember({ lines, source: 'apple' })
+        const lang = ttml ? ttmlLang(ttml) : ''
+        if (lines.length) return remember(lang ? { lines, source: 'apple', lang } : { lines, source: 'apple' })
       } catch (e) { /* no Apple lyrics */ }
       if (stale) return { lines: stored.lines, source: 'apple' }   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
@@ -315,4 +323,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { parseTtml, parseTtmlClock, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { parseTtml, parseTtmlClock, ttmlLang, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
