@@ -60,6 +60,7 @@
     H = canvas.height = Math.floor(innerHeight * dpr)
     ctx.clearRect(0, 0, W, H)
   }
+  // lifetime: resize + ipcRenderer listeners below are added once at load and die with the window
   addEventListener('resize', resize); resize()
 
   // --- realtime band data + derived audio metrics ---
@@ -129,6 +130,7 @@
     labelEl.textContent = MODES[modeIdx]
     labelEl.style.opacity = '0.85'
     clearTimeout(labelTimer)
+    // loop: mode-label fade · 1400 ms one-shot · after a mode switch · cleared before re-arming · cost ~0
     labelTimer = setTimeout(() => { labelEl.style.opacity = '0' }, 1400)
   }
   function setMode(i) {
@@ -309,6 +311,9 @@
   }
 
   const RENDER = { bars: renderBars, aurora: renderAurora, nebula: renderNebula, toast: renderToast }
+  // loop: render loop · requestAnimationFrame (display rate) · runs while the visualizer window is visible ·
+  // Chromium stops rAF when the window is hidden/minimized/occluded and the loop ends with the window · cost one
+  // 2D canvas frame (dpr capped at 1.5). Left as is: the ambient modes animate even when paused, by design.
   function frame() {
     const a = stepBands()
     detectBeat(a)

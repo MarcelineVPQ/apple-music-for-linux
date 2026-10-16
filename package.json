@@ -28,6 +28,7 @@
       "discord.js",
       "visualizer.js",
       "palette.js",
+      "css-replacer.js",
       "lyrics-sources.js",
       "sonata.png"
     ],

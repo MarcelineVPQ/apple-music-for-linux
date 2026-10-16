@@ -271,6 +271,8 @@
   </div>
 <script>
   const { ipcRenderer } = require('electron')
+  // loop: none in this page — it only reacts to main-process pushes ('palette', 'favorite-state', 'now-playing' at 1/s)
+  // lifetime: the three ipcRenderer.on listeners are added once at load and die with the window
 
   // adaptive album color: retint the pill to the current artwork (null resets)
   ipcRenderer.on('palette', (event, p) => {
@@ -347,6 +349,7 @@
     document.getElementById('subtitle').textContent =
       state.artist ? state.artist + (state.album ? ' — ' + state.album : '') : ''
     const art = document.getElementById('art')
+    // lifetime: the <img> src is only replaced on a track change, so one artwork image is held at a time
     if (state.artwork && art.src !== state.artwork) art.src = state.artwork
     document.getElementById('icon-play').style.display = state.isPlaying ? 'none' : ''
     document.getElementById('icon-pause').style.display = state.isPlaying ? '' : 'none'
