@@ -27,11 +27,20 @@ const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC ho
  */
 function prepare(data) {
   const raw = (data && Array.isArray(data.lines)) ? data.lines : []
-  const words = data && data.estimate ? T.estimateWords(raw) : raw
+  const words = learnFrom(data && data.estimate ? T.estimateWords(raw) : raw)
   const hyphenate = S.hyphenatorFor(data && data.lang)
   const split = hyphenate ? words.map((l) => S.lineWithSyllables(l, hyphenate)) : words
   const lines = split.every((l, i) => l === words[i]) ? words : split
   return { lines, hyphenate, wordTimed: T.hasWordTiming(lines), sides: T.lineSides(lines), gaps: T.findInterludes(lines) }
+}
+
+/**
+ * What the song's aligned/refined lines teach the estimated ones (lyrics-timing.js): plain estimated
+ * lines take the song's sung pace (repace), and repeats of an aligned/refined line (choruses) take
+ * its timing (reuseRepeats). Same array when nothing changes.
+ */
+function learnFrom(lines) {
+  return T.reuseRepeats(T.repace(lines))
 }
 
 /**
@@ -42,9 +51,13 @@ function refinedLine(lines, msg, key) {
   if (!msg || msg.key !== key) return null
   const line = lines[msg.lineIndex]
   const words = msg.words
-  if (!line || !line.estimated || !Array.isArray(words) || !line.words ||
+  // a repeat mapped from an aligned line keeps that (aligned beats refined)
+  if (!line || !line.estimated || line.repeat === 'aligned' || !Array.isArray(words) || !line.words ||
       words.length !== line.words.length || words.some((w, i) => !w || w.text !== line.words[i].text)) return null
-  return Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), refined: true })
+  const out = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), refined: true })
+  delete out.repeat
+  delete out.repeatOf
+  return out
 }
 
 /**
@@ -66,6 +79,8 @@ function alignedLines(lines, msg, key) {
         words.length !== line.words.length || words.some((w, j) => !w || w.text !== line.words[j].text)) continue
     const out = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), aligned: true })
     delete out.estimated
+    delete out.repeat
+    delete out.repeatOf
     next[i] = out
     changed.push(i)
   }
@@ -253,6 +268,7 @@ function createLyricsView(opts) {
     if (!entry) return
     lines[msg.lineIndex] = S.lineWithSyllables(line, hyphenate)
     entry.pos = null
+    relearn()
     if (!refined) { refined = true; if (opts.notes) showNotes() }
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
   }
@@ -268,9 +284,23 @@ function createLyricsView(opts) {
       lines[i] = S.lineWithSyllables(lines[i], hyphenate)
       if (lineEls[i]) lineEls[i].pos = null
     }
+    relearn()
     aligned = true
     if (opts.notes) showNotes()
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
+  }
+
+  // a line just refined or aligned (progressive alignment sends each section as it's done): the
+  // song's later estimated lines take its pace, and its repeats its timing, during this play
+  function relearn() {
+    const next = learnFrom(lines)
+    if (next === lines) return
+    // loop: one pass over the song's lines · per 'lyrics-refined' / 'lyrics-aligned' message
+    for (let i = 0; i < next.length; i++) {
+      if (next[i] === lines[i]) continue
+      lines[i] = S.lineWithSyllables(next[i], hyphenate)
+      if (lineEls[i]) lineEls[i].pos = null
+    }
   }
 
   // scaled words at a row's edge grow inward, so they stay inside the window padding
@@ -423,4 +453,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { WORD_LEAD, prepare, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }
+module.exports = { WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }

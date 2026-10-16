@@ -348,6 +348,139 @@ test('session: a seek leaves a gap that keeps those lines out of the result', as
   assert.equal(env.calls.length, 0)
 })
 
+// --- progressive sections ---
+
+// two verses with a 10 s interlude: [0, 1] and [2, 3]
+const VERSES = [
+  { t: 10, text: 'first verse one' },
+  { t: 13, text: 'first verse two' },
+  { t: 30, text: 'second verse one' },
+  { t: 33, text: 'second verse two' }
+]
+// a helper that "aligns" every line of the request at its anchor (slice time), 0.4 s per word
+function echoHelper(id, msgs) {
+  const head = msgs[0]
+  return {
+    type: 'result', id, source: 'aligned',
+    lines: head.lines.map((l, k) => ({ line: k, aligned: true, confidence: 0.6, words: l.text.split(' ').map((w, j) => ({ t: l.t + 0.4 * j, end: l.t + 0.4 * j + 0.3, text: w })) }))
+  }
+}
+
+test('sections: split at interludes, long blocks evenly into ≤ 8 lines; due TAIL_PAD after the end', () => {
+  const s = A.sections(VERSES)
+  assert.deepEqual(s.map((x) => [x.from, x.to]), [[0, 1], [2, 3]])
+  assert.equal(s[0].start, 10)
+  assert.equal(s[0].end, 13 + 0.6 * 3 + 3)          // LRC line: a guess, bounded by the next start (30)
+  assert.equal(s[0].at, s[0].end + 3)
+  assert.equal(s[1].end, A.lyricSpan(VERSES).end)    // the last section ends where the lyric span does
+  const long = []
+  for (let i = 0; i < 20; i++) long.push({ t: i * 2, end: i * 2 + 1.5, text: 'la la' })
+  const parts = A.sections(long)
+  assert.deepEqual(parts.map((x) => x.to - x.from + 1), [7, 7, 6])
+  assert.equal(parts[0].end, 2 * 6 + 1.5)            // Apple end used as is
+  assert.deepEqual(A.sections([{ t: null, text: 'x' }]), [])
+})
+
+test('sectionRequest/sectionResult: later sections get their own slice; times and indexes map back', () => {
+  const s = A.sections(VERSES)
+  const first = A.sectionRequest(VERSES, s[0], true)
+  assert.equal(first.offset, 0)
+  assert.deepEqual(first.lines, [{ t: 10, text: 'first verse one' }, { t: 13, text: 'first verse two' }])
+  const second = A.sectionRequest(VERSES, s[1], false)
+  assert.equal(second.offset, 27)
+  assert.deepEqual(second.lines.map((l) => l.t), [3, 6])
+  const back = A.sectionResult(echoHelper('x', [{ lines: second.lines }]), s[1], second.offset)
+  assert.deepEqual(back.lines.map((l) => l.line), [2, 3])
+  assert.equal(back.lines[0].words[0].t, 30)
+  const e = A.entryFromResult(back, VERSES, null)
+  assert.deepEqual(Object.keys(e.lines), ['2', '3'])
+})
+
+test('session: progressive: each verse is aligned while the song plays and sent to the views; then the whole song', async () => {
+  const env = setup(echoHelper)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  const job = play(env, 0, secs[0].at + 1)
+  assert.ok(job, 'the first verse is handed over before the song ends')
+  assert.equal(env.s.recording, true, 'still recording the rest')
+  const e1 = await job
+  assert.equal(e1.partial, true)
+  assert.deepEqual(Object.keys(e1.lines), ['0', '1'])
+  assert.equal(env.sent.length, 1)
+  assert.deepEqual(Object.keys(env.sent[0][1].lines), ['0', '1'])
+  assert.equal(env.store.get('aligned|Song|Artist').partial, true)
+  // the second verse: its own slice of audio (from 3 s before its first line)
+  const job2 = play(env, secs[0].at + 1, secs[1].at + 1)
+  const e2 = await job2                      // the last job: the whole song once more (what gets cached)
+  assert.equal(env.calls.length, 3)
+  assert.equal(env.calls[2][0].lines.length, 4)
+  const bytes = env.calls[1].slice(1, -1).reduce((n, m) => n + Buffer.from(m.data, 'base64').length, 0)
+  assert.equal(bytes, (Math.round((secs[1].end + 3) * 22050) - Math.round(27 * 22050)) * 4)
+  assert.equal(e2.partial, false)
+  assert.equal(e2.aligned, 4)
+  assert.deepEqual(env.sent.map(([, p]) => Object.keys(p.lines)), [['0', '1'], ['2', '3'], ['0', '1', '2', '3']])
+  assert.equal(env.s.recording, false)
+  assert.equal(env.s.bufferBytes, 0)
+})
+
+test('session: a verse skipped by a seek stays out; the partial entry is completed on the next play', async () => {
+  const env = setup(echoHelper)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, 5)
+  env.s.tick(5, false, true)                 // pause, seek into the second verse
+  const job = play(env, 29, secs[1].at + 1)
+  const e = await job
+  assert.equal(env.calls.length, 1)          // no whole-song pass: the song wasn't all heard
+  assert.deepEqual(Object.keys(e.lines), ['2', '3'])
+  assert.equal(e.partial, true)
+  // next play: only the first verse is recorded and aligned
+  env.s.setLyrics('x|y', 'x', 'y', [], true)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const again = play(env, 0, secs[1].at + 1)
+  const e2 = await again
+  assert.equal(env.calls.length, 3)          // the missing verse, then the whole song
+  assert.deepEqual(env.calls[1][0].lines.map((l) => l.text), ['first verse one', 'first verse two'])
+  assert.equal(e2.partial, false)
+  assert.deepEqual(Object.keys(e2.lines), ['0', '1', '2', '3'])
+  // complete: not recorded again
+  env.s.setLyrics('x|y', 'x', 'y', [], true)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const before = env.listeners.length
+  play(env, 0, 3)
+  assert.equal(env.listeners.length, before)
+})
+
+test('session: a failed section stops that song\'s later sections (one log line)', async () => {
+  const env = setup(() => { throw new Error('helper exited') })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  await play(env, 0, secs[0].at + 1)
+  const later = play(env, secs[0].at + 1, secs[1].at + 1)
+  assert.equal(await later, null)
+  assert.equal(env.calls.length, 1)
+  assert.equal(env.logs.filter((l) => /failed/.test(l)).length, 1)
+  assert.equal(env.store.get('aligned|Song|Artist'), null)
+})
+
+test('session: jobs run one at a time, in order', async () => {
+  let running = 0, most = 0
+  const order = []
+  const env = setup(async (id, msgs) => {
+    running++; most = Math.max(most, running)
+    await new Promise((r) => setTimeout(r, 5))
+    order.push(msgs[0].lines[0].text)
+    running--
+    return echoHelper(id, msgs)
+  })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  // the window closes after the whole song was heard: both verses are handed over at once
+  play(env, 0, A.sections(VERSES)[1].end + 1)
+  await env.s.stop(true)
+  assert.equal(most, 1)
+  assert.deepEqual(order, ['first verse one', 'second verse one', 'first verse one'])   // + the whole song
+})
+
 // --- shared listener ---
 
 test('shared listener: one real listener for two users, stopped when the last stops', () => {

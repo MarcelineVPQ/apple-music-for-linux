@@ -1,11 +1,24 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { refineWords, mergeLearned, noiseRate, REFINE } = require('../timing-refine')
-const { estimateWords } = require('../lyrics-timing')
+const { estimateWords, wordWeight } = require('../lyrics-timing')
 
-// One estimated LRC line (10 s) followed by another at 13 s.
+// One estimated LRC line (10 s) followed by another at 13 s, in the shape these refine cases were
+// written for: the words spread over 0.9 of the time to the next line (at most 0.6 s per word + 2 s),
+// weighted like the estimate. The paced default estimate is tested in lyrics-timing.test.js and
+// measured with tools/drift-check.
 function lineAt(text = 'hold the line now', t = 10, next = 13) {
-  return estimateWords([{ t, text }, { t: next, text: 'next' }])[0]
+  const parts = text.split(' ')
+  const span = 0.9 * Math.min(next - t, 0.6 * parts.length + 2)
+  const weights = parts.map(wordWeight)
+  const total = weights.reduce((a, b) => a + b, 0)
+  let acc = 0
+  const words = parts.map((w, k) => {
+    const at = t + (acc / total) * span
+    acc += weights[k]
+    return { t: at, end: t + (acc / total) * span, text: w }
+  })
+  return { t, text, words, estimated: true }
 }
 const onset = (t, strength = 1) => ({ t, strength })
 

@@ -155,21 +155,107 @@ test('nextChange: next word start/end or line start, with leads', () => {
   assert.equal(T.nextChange(lines, 7), Infinity)
 })
 
-test('estimateWords: spreads a line across its words by length, marks estimated', () => {
+test('estimateWords: a real line end is spread over (0.9 of it minus a 0.2 s tail), by weight', () => {
   const lines = [{ t: 10, end: 13, text: 'Hold on forever' }, { t: 20, text: 'Go' }]
   const out = T.estimateWords(lines)
   const w = out[0].words
   assert.equal(out[0].estimated, true)
   assert.deepEqual(w.map((x) => x.text), ['Hold', 'on', 'forever'])
   assert.equal(w[0].t, 10)
-  assert.ok(Math.abs(w[2].end - (10 + 3 * 0.9)) < 1e-9)
+  assert.ok(Math.abs(w[2].end - (10 + 3 * 0.9 - 0.2)) < 1e-9)
   for (let i = 1; i < w.length; i++) assert.equal(w[i].t, w[i - 1].end)
   assert.ok(w[2].end - w[2].t > w[1].end - w[1].t) // longer word, longer time
 })
 
-test('estimateWords: no end -> next start, capped so long gaps are not singing', () => {
+test('estimateWords: a line that runs on to the next start is sung at the pace, the rest is tail', () => {
+  // Apple's line end = next start (no real end) and LRC (no end): same rule
+  const text = 'and I am never ever gonna get old'
+  const weight = text.split(' ').reduce((a, x) => a + T.wordWeight(x), 0)
+  for (const first of [{ t: 10, end: 15, text }, { t: 10, text }]) {
+    const out = T.estimateWords([first, { t: 15, text: 'next line' }], { pace: 0.25 })
+    const w = out[0].words
+    assert.ok(Math.abs(w[w.length - 2].end - (10 + 0.25 * (weight - T.wordWeight('old')))) < 1e-9, 'paced, not stretched to 15')
+    assert.ok(w[w.length - 1].end <= w[w.length - 1].t + 1 + 1e-9, 'the last word holds at most 1 s')
+    assert.equal(out[0].pace, 0.25)
+  }
+  // a line too long for its time is squeezed into 0.9 of it
+  const fast = T.estimateWords([{ t: 0, text }, { t: 2, text: 'x' }], { pace: 0.25 })[0].words
+  assert.ok(Math.abs(fast[fast.length - 1].end - 1.8) < 1e-9)
+})
+
+test('estimateWords: no end and no next line -> paced, never the old 0.6 s per word', () => {
   const out = T.estimateWords([{ t: 0, text: 'a b' }, { t: 60, text: 'c' }])
-  assert.ok(out[0].words[1].end <= 0.6 * 2 + 2)
+  assert.ok(out[0].words[1].end < 2)
+  assert.ok(out[1].words[0].end - out[1].words[0].t <= 1 + 1e-9)
+})
+
+test('songPace: the lines sung back to back set it, blended with the default; few lines -> default', () => {
+  assert.equal(T.songPace([{ t: 0, text: 'a b c' }]), T.PACE)
+  const tight = []
+  for (let i = 0; i < 10; i++) tight.push({ t: i * 1.5, text: 'one two three four five' })   // 0.22 s per weight unit
+  const p = T.songPace(tight)
+  assert.ok(p < T.PACE && p > 0.15, String(p))
+  const loose = tight.map((l, i) => ({ t: i * 20, text: l.text }))
+  assert.ok(T.songPace(loose) > T.PACE)
+  assert.ok(T.songPace(loose) <= 0.6)
+})
+
+test('learnedPace: from aligned/refined lines of 3+ words only; repeats and estimates do not count', () => {
+  const sung = (t, step, extra) => Object.assign({ t, text: 'a b c d', words: ['a', 'b', 'c', 'd'].map((x, k) => ({ t: t + k * step, end: t + k * step + step, text: x })) }, extra)
+  assert.equal(T.learnedPace([sung(0, 0.3, { aligned: true })]), null)
+  const p = T.learnedPace([sung(0, 0.27, { aligned: true }), sung(5, 0.27, { refined: true, estimated: true }), sung(9, 0.9, { estimated: true }), sung(12, 0.9, { aligned: true, repeat: 'aligned' })])
+  assert.ok(Math.abs(p - 0.27 / T.wordWeight('a')) < 1e-9)
+})
+
+test('repace: plain estimated lines take the learned pace; aligned, refined and repeats stay', () => {
+  const raw = [{ t: 0, text: 'one two three four' }, { t: 5, text: 'five six seven eight' }, { t: 10, text: 'nine ten eleven twelve' }, { t: 15, text: 'end' }]
+  const est = T.estimateWords(raw, { pace: 0.4 })
+  assert.equal(T.repace(est), est)                  // nothing learned yet
+  const fast = (l) => {
+    const o = Object.assign({}, l, { words: l.words.map((w, k) => ({ t: l.t + k * 0.2, end: l.t + k * 0.2 + 0.2, text: w.text })), aligned: true })
+    delete o.estimated
+    return o
+  }
+  const lines = [fast(est[0]), fast(est[1]), est[2], est[3]]
+  const out = T.repace(lines)
+  assert.equal(out[0], lines[0])
+  assert.equal(out[1], lines[1])
+  assert.notEqual(out[2], lines[2])
+  assert.ok(out[2].words[3].t < lines[2].words[3].t, 'sung faster than estimated')
+  assert.equal(out[2].estimated, true)
+  assert.equal(T.repace(out), out, 'same pace again: no change')
+})
+
+test('reuseRepeats: an identical later line takes the aligned timing, shifted to its own start', () => {
+  const raw = [{ t: 10, text: 'Hold me, closer' }, { t: 14, text: 'tiny dancer' }, { t: 30, text: 'hold me closer' }, { t: 31.2, text: 'x' }]
+  const est = T.estimateWords(raw)
+  const al = Object.assign({}, est[0], { words: [{ t: 10.1, end: 10.4, text: 'Hold' }, { t: 10.5, end: 10.7, text: 'me,' }, { t: 11.0, end: 12, text: 'closer' }], aligned: true })
+  delete al.estimated
+  const lines = [al, est[1], est[2], est[3]]
+  const out = T.reuseRepeats(lines)
+  assert.equal(out[1], lines[1])
+  assert.equal(out[2].repeat, 'aligned')
+  assert.equal(out[2].estimated, true)
+  assert.deepEqual(out[2].words.map((w) => w.text), ['hold', 'me', 'closer'])     // its own word texts
+  assert.ok(Math.abs(out[2].words[0].t - 30.1) < 1e-9)
+  assert.ok(Math.abs(out[2].words[2].t - 31.0) < 1e-9)
+  assert.ok(out[2].words[2].end <= 31.2 + 1e-9, 'cut at the next line')
+  assert.equal(T.reuseRepeats(out), out, 'idempotent')
+  // a refined source maps too, an aligned one upgrades it; own refined/aligned lines are never touched
+  const ref = Object.assign({}, est[0], { refined: true, words: al.words })
+  const viaRef = T.reuseRepeats([ref, est[1], est[2], est[3]])
+  assert.equal(viaRef[2].repeat, 'refined')
+  assert.equal(T.reuseRepeats([al, est[1], viaRef[2], est[3]])[2].repeat, 'aligned')
+  const own = Object.assign({}, est[2], { refined: true })
+  assert.equal(T.reuseRepeats([al, est[1], own, est[3]])[2], own)
+})
+
+test('reuseRepeats: different words, or no room before the next line -> left alone', () => {
+  const al = { t: 0, text: 'a b c', aligned: true, words: [{ t: 0, end: 1, text: 'a' }, { t: 1, end: 2, text: 'b' }, { t: 2, end: 3, text: 'c' }] }
+  const est = T.estimateWords([{ t: 10, text: 'a b d' }, { t: 20, text: 'a b c' }, { t: 21, text: 'z' }])
+  const out = T.reuseRepeats([al, ...est])
+  assert.equal(out[1], est[0])
+  assert.equal(out[2], est[1])       // its last word would start after 21 - 0.05
 })
 
 test('estimateWords: leaves word-timed and unsynced lyrics alone', () => {

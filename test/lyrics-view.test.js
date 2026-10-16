@@ -1,6 +1,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const V = require('../lyrics-view')
+const T = require('../lyrics-timing')
+const noSyl = (lines) => lines.map((l) => Object.assign({}, l, { words: l.words.map(({ syl, ...w }) => w) }))
 
 const lrc = [
   { t: 5, text: 'hello there world' },
@@ -26,8 +28,6 @@ test('prepare: no estimate keeps line-only lyrics; empty and missing data are sa
 })
 
 test('prepare: same lines as the lyrics window got before (estimateWords result; syllables added only)', () => {
-  const T = require('../lyrics-timing')
-  const noSyl = (lines) => lines.map((l) => Object.assign({}, l, { words: l.words.map(({ syl, ...w }) => w) }))
   assert.deepEqual(noSyl(V.prepare({ lines: lrc, estimate: true }).lines), T.estimateWords(lrc))
 })
 
@@ -45,6 +45,32 @@ test('refinedLine: applies new timing for the same words of an estimated line on
   assert.equal(V.refinedLine(lrc, { key: 'a|b', lineIndex: 1, words }, 'a|b'), null)
   assert.equal(V.refinedLine(lines, { key: 'a|b', lineIndex: 9, words }, 'a|b'), null)
   assert.equal(V.refinedLine(lines, null, 'a|b'), null)
+})
+
+test('prepare/learnFrom: repeats of an aligned line take its timing; other estimated lines its pace', () => {
+  const raw = [
+    { t: 10, text: 'we sing this chorus loud' }, { t: 14, text: 'and then a verse goes by' },
+    { t: 18, text: 'some more words in here' }, { t: 30, text: 'we sing this chorus loud' }, { t: 40, text: 'end' }
+  ]
+  const est = T.estimateWords(raw)
+  const sung = (l, step) => {
+    const o = Object.assign({}, l, { words: l.words.map((w, k) => ({ t: l.t + 0.1 + k * step, end: l.t + 0.1 + k * step + step, text: w.text })), aligned: true })
+    delete o.estimated
+    return o
+  }
+  const lines = [sung(est[0], 0.3), sung(est[1], 0.3), est[2], est[3], est[4]]
+  const out = noSyl(V.prepare({ lines }).lines)
+  assert.equal(out[3].repeat, 'aligned')
+  assert.ok(Math.abs(out[3].words[2].t - (30 + 0.1 + 0.6)) < 1e-9)
+  assert.notDeepEqual(out[2].words, est[2].words)          // re-paced
+  assert.equal(out[2].estimated, true)
+  // a refine message can't replace a repeat of an aligned line (aligned beats refined)
+  const msg = { key: 'k', lineIndex: 3, words: out[3].words.map((w) => ({ t: w.t + 1, end: w.end + 1, text: w.text })) }
+  assert.equal(V.refinedLine(out, msg, 'k'), null)
+  // but a real alignment of that line replaces it
+  const got = V.alignedLines(out, { key: 'k', lines: { 3: { text: raw[3].text, words: msg.words } } }, 'k')
+  assert.equal(got.lines[3].aligned, true)
+  assert.equal(got.lines[3].repeat, undefined)
 })
 
 test('stageNext: next line, the line after an interlude, nothing after the last', () => {

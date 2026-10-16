@@ -164,7 +164,7 @@ test('session: a line we started listening in the middle of is not refined', () 
     f.listeners[0].opts.onChunk(new Float32Array(22050), wall)
     f.session.tick(2 + wall / 1000, true, true)
   }
-  assert.equal(f.sent.length, 0)
+  assert.equal(f.sent.filter(([, p]) => p.lineIndex === 0).length, 0)
 })
 
 test('session: no confidence, no change', () => {
