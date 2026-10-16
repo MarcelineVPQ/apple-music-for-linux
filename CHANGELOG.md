@@ -7,11 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.13] — Signed updates, Development channel, bigger album art
+
 ### Added
 
-- **Update channel** (Settings → Updates): **Stable** (the default) gets tested releases; **Development** also gets newer development builds (`X.Y.Z-dev.N`, GitHub prereleases) as soon as they're out. Stable never sees development builds. Switching checks for updates right away.
+- **Update channel** (Settings → Updates): **Stable** (the default) gets tested releases; **Development** also gets newer development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds.
+- **Estimated word timing:** songs that only have line timing now follow the words too, with each line spread across its words. Marked "Word timing estimated"; Settings → *Estimated word timing* turns it off.
 
 ### Changed
 
-- **Signed updates.** The self-updater reads a signed feed (`latest.json`, or `latest-dev.json` on Development) and refuses an update whose feed signature (Ed25519) doesn't verify or whose download doesn't match the feed's size and SHA-512; the log says why, and *Check for Updates…* shows it. Until the signing key is in the app (a later release), it keeps using the old update path, so nothing changes for you yet.
+- **Signed updates.** Sonata now only installs an update whose feed is signed with the project's Ed25519 key and whose download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.
+- **Bigger album art** in the lyrics window (+50 %), with the progress ring scaled to match.
+- **Record speeds:** with *Spin album art like a record* on, albums turn at 33⅓ rpm and singles/EPs at 45 rpm, like the vinyl.
 - Releases are published by the release workflow (development builds as prereleases), and the update feeds are generated and signed in CI, never by hand.
+
