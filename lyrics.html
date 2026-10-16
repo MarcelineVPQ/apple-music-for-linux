@@ -38,6 +38,16 @@
     color: var(--fg);
     overflow: hidden;
   }
+  #thumb {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    object-fit: cover;
+    display: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+  #thumb.shown { display: block; }
   #header {
     flex-shrink: 0;
     display: flex;
@@ -91,6 +101,65 @@
   .line:hover { color: var(--fg); filter: none; }
   .line.active { color: var(--active); filter: none; }
   .line.plain { color: var(--fg); filter: none; cursor: default; }
+  /* duets: singer 1 left, singer 2 right, together centered (one singer: as before) */
+  .line.left { text-align: left; padding-right: 16%; }
+  .line.right { text-align: right; padding-left: 16%; }
+  .line.center { text-align: center; }
+  /* karaoke words: each word reserves its bold width (hidden ::after copy), so the pop
+     (GPU transform + weight) never moves the line. Word colours apply on the active line only. */
+  .w {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    transform-origin: 50% 65%;
+    transition: transform 0.18s ease-out, opacity 0.25s ease;
+  }
+  .w::after {
+    content: attr(data-text);
+    font-weight: 800;
+    -webkit-text-stroke: 0.5px currentColor;
+    height: 0;
+    visibility: hidden;
+    overflow: hidden;
+  }
+  .line.active .w { opacity: 0.4; }
+  .line.active .w.sung { opacity: 1; }
+  .line.active .w.now {
+    opacity: 1;
+    color: var(--active);
+    font-weight: 800;
+    -webkit-text-stroke: 0.5px currentColor;
+    transform: scale(1.15);
+    text-shadow: 0 0 14px var(--active), 0 0 4px var(--active);
+  }
+  /* background vocals: smaller and dimmer, under their line, with their own highlight */
+  .bgv { font-size: 15px; font-weight: 600; line-height: 1.35; margin-top: 2px; opacity: 0.7; }
+  .bgv .w::after { font-weight: 700; }
+  .line.active .bgv .w.now { font-weight: 700; transform: scale(1.12); }
+  /* interlude countdown: three dots in place of the next line */
+  .dots {
+    display: flex;
+    gap: 9px;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: height 0.3s ease, opacity 0.3s ease;
+  }
+  .dots.on { height: 44px; opacity: 1; overflow: visible; }
+  .dots.left, .dots.plainside { justify-content: flex-start; }
+  .dots.right { justify-content: flex-end; }
+  .dots.center { justify-content: center; }
+  .dots .row { display: flex; gap: 9px; align-items: center; transform-origin: 20px 50%; }
+  .dots.right .row { transform-origin: calc(100% - 20px) 50%; }
+  .dots.center .row { transform-origin: 50% 50%; }
+  .dots i {
+    display: block;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--active);
+    opacity: 0.25;
+  }
   #source {
     padding: 18px 0 6px;
     font-size: 11px;
@@ -108,6 +177,7 @@
 <body>
   <div id="card">
     <div id="header">
+      <img id="thumb" alt="">
       <div id="song">Lyrics</div>
       <button id="close" title="Close">
         <svg viewBox="0 0 16 16"><path d="M3.28 2.22a.75.75 0 0 0-1.06 1.06L6.94 8l-4.72 4.72a.75.75 0 1 0 1.06 1.06L8 9.06l4.72 4.72a.75.75 0 1 0 1.06-1.06L9.06 8l4.72-4.72a.75.75 0 0 0-1.06-1.06L8 6.94 3.28 2.22z"/></svg>
@@ -117,9 +187,11 @@
   </div>
 <script>
   const { ipcRenderer } = require('electron')
-  // loop: none in this page — reacts to 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
-  // lifetime: the three ipcRenderer.on listeners are added once at load and die with the window;
-  // 'lyrics-data' replaces innerHTML, so old line elements and their onclick closures are dropped per track
+  // loop: one rAF loop (word highlight / countdown dots), see wantFrames below; otherwise reacts to
+  // 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
+  // lifetime: the four ipcRenderer.on listeners and the visibilitychange listener are added once at
+  // load and die with the window; 'lyrics-data' replaces innerHTML, so old line, word and dot elements
+  // and their onclick closures are dropped per track
 
   // adaptive album color: tint the card + highlight the active line (null resets)
   ipcRenderer.on('palette', (event, p) => {
@@ -131,30 +203,101 @@
     r.setProperty('--border', p.accent + '33')
   })
 
+  // album art thumbnail in the header: the URL the mini player shows, so it usually comes from
+  // Chromium's cache. lifetime: the <img> src is only replaced when the art changes (one image held)
+  const thumb = document.getElementById('thumb')
+  ipcRenderer.on('lyrics-art', (event, url) => {
+    if (url) { thumb.src = url; thumb.classList.add('shown') }
+    else { thumb.classList.remove('shown'); thumb.removeAttribute('src') }
+  })
+
   document.getElementById('close').onclick = () => ipcRenderer.send('lyrics-command', 'close')
 
   const linesEl = document.getElementById('lines')
+  const T = require('./lyrics-timing')
+  const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
   let lines = []
-  let activeIndex = -1
+  let lineEls = []          // per line: { el, words: [span], bg: [span], pos, bgPos }
+  let interludes = []       // [{ index, start, end, el, dots: [i], row }]
+  let wordTimed = false
+  let live = new Set()      // lines currently .active
+  let shownInterlude = -1
+  let scrollTarget = null
+  let clock = null
+  let raf = 0
+
+  function wordSpans(parent, words) {
+    const spans = []
+    words.forEach((w, i) => {
+      if (i) parent.appendChild(document.createTextNode(' '))
+      const span = document.createElement('span')
+      span.className = 'w'
+      span.dataset.text = w.text
+      span.textContent = w.text
+      parent.appendChild(span)
+      spans.push(span)
+    })
+    return spans
+  }
 
   ipcRenderer.on('lyrics-data', (event, data) => {
     lines = data.lines || []
-    activeIndex = -1
+    lineEls = []
+    interludes = []
+    live = new Set()
+    shownInterlude = -1
+    scrollTarget = null
+    stopFrames()
     document.getElementById('song').textContent =
       data.title ? data.title + (data.artist ? ' — ' + data.artist : '') : 'Lyrics'
     linesEl.scrollTop = 0
     if (!lines.length) {
+      wordTimed = false
       linesEl.innerHTML = '<div id="empty">' +
         (data.title ? 'No lyrics available for this song' : 'Play a song to see its lyrics') + '</div>'
       return
     }
+    wordTimed = T.hasWordTiming(lines)
+    const sides = T.lineSides(lines)
+    const gaps = T.findInterludes(lines)
+    let g = 0
     linesEl.innerHTML = ''
     lines.forEach((line, i) => {
+      while (g < gaps.length && gaps[g].index === i) {
+        const dots = document.createElement('div')
+        dots.className = 'dots ' + (sides[i] || 'plainside')
+        const row = document.createElement('div')
+        row.className = 'row'
+        row.innerHTML = '<i></i><i></i><i></i>'
+        dots.appendChild(row)
+        linesEl.appendChild(dots)
+        interludes.push(Object.assign({ el: dots, row, dots: [...row.children] }, gaps[g++]))
+      }
       const el = document.createElement('div')
-      el.className = line.t === null ? 'line plain' : 'line'
-      el.textContent = line.text
-      if (line.t !== null) el.onclick = () => ipcRenderer.send('lyrics-command', 'seek', line.t)
+      el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
+      const entry = { el, words: [], bg: [], pos: null, bgPos: null }
+      if (line.words && line.words.length) {
+        const main = document.createElement('div')
+        entry.words = wordSpans(main, line.words)
+        el.appendChild(main)
+      }
+      else el.textContent = line.text
+      if (line.bg && line.bg.length) {
+        const bg = document.createElement('div')
+        bg.className = 'bgv'
+        entry.bg = wordSpans(bg, line.bg)
+        el.appendChild(bg)
+      }
+      if (line.t !== null) {
+        el.onclick = () => {
+          ipcRenderer.send('lyrics-command', 'seek', line.t)
+          clock = T.seekClock(clock, line.t, performance.now())
+          render(line.t)
+          updateFrames()
+        }
+      }
       linesEl.appendChild(el)
+      lineEls.push(entry)
     })
     if (data.source === 'lrclib') {
       const src = document.createElement('div')
@@ -164,20 +307,100 @@
     }
   })
 
-  ipcRenderer.on('lyrics-time', (event, playbackTime) => {
+  // word classes for one line's words; only touches the DOM when the position changed
+  function paintWords(spans, words, time, last) {
+    const pos = T.wordPos(words, time)
+    if (last && last.k === pos.k && last.now === pos.now) return last
+    for (let i = 0; i < spans.length; i++) {
+      spans[i].classList.toggle('sung', i < pos.k && i !== pos.now)
+      spans[i].classList.toggle('now', i === pos.now)
+    }
+    return pos
+  }
+
+  function render(time) {
     if (!lines.length || lines[0].t === null) return
-    let index = -1
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].t <= playbackTime + 0.2) index = i
-      else break
+    const gi = T.interludeAt(interludes, time)
+    const { latest, live: liveNow } = T.liveLines(lines, time)
+    // during an interlude nobody sings: the dots take the next line's place
+    const next = new Set(gi >= 0 ? [] : liveNow)
+    for (const i of live) if (!next.has(i)) lineEls[i].el.classList.remove('active')
+    for (const i of next) {
+      const e = lineEls[i]
+      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null }
+      if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos)
+      if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos)
     }
-    if (index === activeIndex) return
-    activeIndex = index
-    const els = linesEl.children
-    for (let i = 0; i < els.length; i++) els[i].classList.toggle('active', i === index)
-    if (index >= 0 && els[index]) {
-      els[index].scrollIntoView({ block: 'center', behavior: 'smooth' })
+    live = next
+    if (gi !== shownInterlude) {
+      if (shownInterlude >= 0) interludes[shownInterlude].el.classList.remove('on')
+      if (gi >= 0) interludes[gi].el.classList.add('on')
+      shownInterlude = gi
     }
+    if (gi >= 0) {
+      const g = interludes[gi]
+      const { fills, exit } = T.interludeProgress(g, time)
+      for (let d = 0; d < 3; d++) {
+        g.dots[d].style.opacity = String(0.25 + 0.75 * fills[d])
+        g.dots[d].style.transform = 'scale(' + (0.8 + 0.2 * fills[d]).toFixed(3) + ')'
+      }
+      const breathe = 1 + 0.06 * Math.sin(time * 2.6)
+      g.row.style.transform = 'scale(' + (breathe * exit).toFixed(3) + ')'
+      g.row.style.opacity = String(exit)
+    }
+    const target = gi >= 0 ? interludes[gi].el : (latest >= 0 ? lineEls[latest].el : null)
+    if (target !== scrollTarget) {
+      scrollTarget = target
+      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+  }
+
+  // loop: lyrics word/dot animation · requestAnimationFrame, woken by a setTimeout at the next word/line
+  // change (every frame only while a countdown is showing) · runs only while this window is visible, the
+  // song is playing and the lyrics have word timing (or a countdown is showing) · stops when hidden
+  // (visibilitychange), paused (isPlaying false or the time stops moving), on a new track, or when no
+  // word timing/countdown is left · cost: one frame per word change, DOM class writes only for what
+  // changed; 3 dot styles per frame during a countdown (docs/PERFORMANCE.md)
+  let wake = 0
+  function wantFrames() {
+    return document.visibilityState === 'visible' && !!clock && clock.playing &&
+      lines.length > 0 && lines[0].t !== null && (wordTimed || shownInterlude >= 0)
+  }
+  function schedule(time) {
+    if (shownInterlude >= 0) { raf = requestAnimationFrame(frame); return }
+    const wait = T.nextChange(lines, time, WORD_LEAD)
+    if (wait === Infinity) return                    // nothing left to change until the next push
+    if (wait < 0.03) { raf = requestAnimationFrame(frame); return }
+    wake = setTimeout(() => { wake = 0; raf = requestAnimationFrame(frame) }, (wait - 0.015) * 1000)
+  }
+  function frame() {
+    raf = 0
+    const time = T.clockTime(clock, performance.now())
+    render(time)
+    if (wantFrames()) schedule(time)
+  }
+  function stopFrames() {
+    if (raf) cancelAnimationFrame(raf)
+    if (wake) clearTimeout(wake)
+    raf = wake = 0
+  }
+  function updateFrames() {
+    stopFrames()
+    if (wantFrames()) schedule(T.clockTime(clock, performance.now()))
+  }
+
+  // isPlaying is sent along since 0.15.10; older pushes (undefined) fall back to "time stopped moving"
+  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying) => {
+    clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
+    if (document.visibilityState !== 'visible') { stopFrames(); return }
+    render(T.clockTime(clock, performance.now()))
+    updateFrames()   // re-plans the next wake-up from the resynced clock
+  })
+
+  // lifetime: one listener for the window's life
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && clock) render(T.clockTime(clock, performance.now()))
+    updateFrames()
   })
 </script>
 </body>

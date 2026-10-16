@@ -4,11 +4,11 @@ const L = require('../lyrics-sources')
 
 const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body })
 
-test('parseLrc: timestamps, multi-stamp lines, blanks and metadata dropped, sorted', () => {
+test('parseLrc: timestamps, multi-stamp lines, metadata dropped, empty stamp ends the line before, sorted', () => {
   const lines = L.parseLrc('[ar:Someone]\n[00:12.50] Hello\n[00:05.00][01:00.00] Chorus\n[00:20.00]\nno stamp')
   assert.deepEqual(lines, [
     { t: 5, text: 'Chorus' },
-    { t: 12.5, text: 'Hello' },
+    { t: 12.5, text: 'Hello', end: 20 },
     { t: 60, text: 'Chorus' }
   ])
 })
@@ -138,4 +138,75 @@ test('resolver: LRCLIB errors are logged, not thrown', async () => {
   const { getLyrics, calls } = resolver({ lrclibError: 'lrclib HTTP 429' })
   assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
   assert.match(calls.logs[0], /429/)
+})
+
+// --- word timing, duets, background vocals ---
+
+const SYLLABLE_TTML = `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word">
+<head><metadata><ttm:agent type="person" xml:id="v1"/><ttm:agent type="person" xml:id="v2"/><ttm:agent type="group" xml:id="v3"/></metadata></head>
+<body><div begin="1.000" end="9.000">
+<p begin="1.000" end="3.000" ttm:agent="v1" itunes:key="L1"><span begin="1.000" end="1.400">Beau</span><span begin="1.400" end="1.900">ti</span><span begin="1.900" end="2.200">ful</span> <span begin="2.200" end="3.000">day</span><span ttm:role="x-bg"><span begin="2.500" end="2.900">(oh</span> <span begin="2.900" end="3.400">yeah)</span></span></p>
+<p begin="00:03.500" end="00:05.000" ttm:agent="v2"><span begin="3.5" end="4.0">Rock &amp;</span> <span begin="4.0" end="5.0">roll</span></p>
+<p begin="5.5" end="7" ttm:agent="v3"><span begin="5.5" end="7">Together</span></p>
+<p begin="7.5" end="8.5" ttm:agent="v1000"><span begin="7.5" end="8.5">All</span></p>
+</div></body></tt>`
+
+test('parseTtml: words merge syllables, keep end, agent and background vocals', () => {
+  const lines = L.parseTtml(SYLLABLE_TTML)
+  assert.equal(lines.length, 4)
+  assert.deepEqual(lines[0], {
+    t: 1, end: 3, text: 'Beautiful day', agent: 'v1',
+    words: [{ t: 1, end: 2.2, text: 'Beautiful' }, { t: 2.2, end: 3, text: 'day' }],
+    bg: [{ t: 2.5, end: 2.9, text: '(oh' }, { t: 2.9, end: 3.4, text: 'yeah)' }]
+  })
+  assert.equal(lines[1].text, 'Rock & roll')
+  assert.equal(lines[1].agent, 'v2')
+  assert.equal(lines[1].t, 3.5)
+  assert.equal(lines[2].agent, 'group')   // type="group"
+  assert.equal(lines[3].agent, 'group')   // v1000
+})
+
+test('parseTtml: line-only lyrics keep { t, end, text }; bg-only lines kept; no begin skipped', () => {
+  const ttml = '<p begin="1" end="2.5" ttm:agent="v1">Just a line</p><p>no time</p>' +
+    '<p begin="3" end="4"><span ttm:role="x-bg"><span begin="3" end="4">(ooh)</span></span></p>'
+  assert.deepEqual(L.parseTtml(ttml), [
+    { t: 1, end: 2.5, text: 'Just a line', agent: 'v1' },
+    { t: 3, end: 4, text: '', bg: [{ t: 3, end: 4, text: '(ooh)' }] }
+  ])
+})
+
+test('parseTtml: a document with no whitespace between spans treats each span as a word', () => {
+  const ttml = '<p begin="1" end="2"><span begin="1" end="1.5">one</span><span begin="1.5" end="2">two</span></p>'
+  assert.deepEqual(L.parseTtml(ttml)[0].words.map((w) => w.text), ['one', 'two'])
+  assert.equal(L.parseTtml(ttml)[0].text, 'one two')
+})
+
+test('parseTtml: whitespace inside a span also separates words; missing word end uses the next word', () => {
+  const ttml = '<p begin="1"><span begin="1">Hi </span><span begin="1.5" end="2">there</span></p>'
+  const [line] = L.parseTtml(ttml)
+  assert.deepEqual(line.words, [{ t: 1, end: 1.5, text: 'Hi' }, { t: 1.5, end: 2, text: 'there' }])
+  assert.equal(line.end, 2)
+})
+
+test('parseLrc: enhanced word stamps; trailing stamp ends the last word', () => {
+  const [line] = L.parseLrc('[00:12.00]<00:12.00>Hello <00:12.50>big world <00:13.10>')
+  assert.deepEqual(line, {
+    t: 12, end: 13.1, text: 'Hello big world',
+    words: [{ t: 12, end: 12.5, text: 'Hello' }, { t: 12.5, end: 13.1, text: 'big world' }]
+  })
+})
+
+test('parseLrc: enhanced words without a trailing stamp end within 1 s or at the next line', () => {
+  const lines = L.parseLrc('[00:01.00]<00:01.00>a <00:01.20>b\n[00:01.70]<00:01.70>c')
+  assert.equal(lines[0].words[1].end, 1.7)
+  assert.equal(lines[1].words[0].end, 2.7)
+})
+
+test('parseLrc: repeated enhanced line shifts its word stamps', () => {
+  const lines = L.parseLrc('[00:10.00][00:30.00]<00:10.00>la <00:10.50>la <00:11.00>')
+  assert.deepEqual(lines[1].words, [{ t: 30, end: 30.5, text: 'la' }, { t: 30.5, end: 31, text: 'la' }])
+})
+
+test('lrclibLines: plain lyrics still t null, synced keep old shape', () => {
+  assert.deepEqual(L.lrclibLines({ syncedLyrics: '[00:01.00] a\n[00:02.00] b' }), [{ t: 1, text: 'a' }, { t: 2, text: 'b' }])
 })

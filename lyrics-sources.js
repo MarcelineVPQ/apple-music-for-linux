@@ -8,34 +8,190 @@ function parseTtmlClock(value) {
   return value.split(':').reduce((total, part) => total * 60 + (parseFloat(part) || 0), 0)
 }
 
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'" }
+function decodeEntities(s) {
+  return s.replace(/&(amp|lt|gt|quot|#39|apos);/g, (m) => ENTITIES[m])
+}
+
+// One tag's attributes -> { name: value }, prefixes kept ('ttm:agent', 'xml:id').
+function tagAttrs(tag) {
+  const attrs = {}
+  for (const m of tag.matchAll(/([\w:.-]+)\s*=\s*"([^"]*)"/g)) attrs[m[1]] = m[2]
+  return attrs
+}
+
+// <ttm:agent xml:id="v1" type="person"/> -> { v1: 'person' }
+function ttmlAgents(ttml) {
+  const agents = {}
+  for (const m of ttml.matchAll(/<ttm:agent\b[^>]*>/g)) {
+    const a = tagAttrs(m[0])
+    if (a['xml:id']) agents[a['xml:id']] = a.type || 'person'
+  }
+  return agents
+}
+
+// One <p>'s inner markup -> timed spans ("syllables") per track, main and background
+// (inside <span ttm:role="x-bg">). newWord marks whitespace before the syllable: adjacent
+// spans with nothing between them are syllables of one word.
+function ttmlSyllables(inner) {
+  const out = { main: [], bg: [] }
+  const stack = []                        // open spans: { bg, timed }
+  let cur = null                          // timed span collecting text
+  const gap = { main: true, bg: true }    // whitespace since the last syllable, per track
+  for (const m of inner.matchAll(/<(\/?)([\w:]+)([^>]*)>|([^<]+)/g)) {
+    if (m[4] !== undefined) {
+      const text = decodeEntities(m[4])
+      if (cur) cur.text += text
+      else if (/\s/.test(text)) gap.main = gap.bg = true
+      continue
+    }
+    const [, close, name, rest] = m
+    if (name === 'br') { gap.main = gap.bg = true; continue }
+    if (name !== 'span') continue
+    if (close) {
+      const top = stack.pop()
+      if (top && top.timed && cur) {
+        if (/\s$/.test(cur.text)) gap[cur.track] = true
+        cur = null
+      }
+      continue
+    }
+    if (/\/\s*$/.test(rest)) continue      // <span/>: nothing to show
+    const a = tagAttrs(rest)
+    const isBg = a['ttm:role'] === 'x-bg'
+    const inBg = isBg || stack.some((s) => s.bg)
+    const timed = !isBg && a.begin !== undefined
+    stack.push({ bg: isBg, timed })
+    if (timed) {
+      const track = inBg ? 'bg' : 'main'
+      cur = { t: parseTtmlClock(a.begin), end: a.end !== undefined ? parseTtmlClock(a.end) : null, text: '', track, newWord: gap[track] }
+      out[track].push(cur)
+      gap[track] = false
+    }
+  }
+  return out
+}
+
+// Syllables -> words [{ t, end, text }]. everySpan: treat each span as a word (documents that
+// never put whitespace between spans).
+function mergeSyllables(syllables, everySpan) {
+  const words = []
+  for (const s of syllables) {
+    if (!s.text.trim()) continue
+    const last = words[words.length - 1]
+    if (last && !s.newWord && !/^\s/.test(s.text) && !everySpan) {
+      last.text += s.text
+      if (s.end !== null) last.end = Math.max(last.end === null ? s.end : last.end, s.end)
+    }
+    else words.push({ t: s.t, end: s.end, text: s.text })
+  }
+  for (const w of words) w.text = w.text.replace(/\s+/g, ' ').trim()
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].end === null) words[i].end = i + 1 < words.length ? words[i + 1].t : words[i].t + 1
+  }
+  return words
+}
+
+/**
+ * Apple TTML -> lines [{ t, end?, text, agent?, words?, bg? }]. end comes from the <p>;
+ * agent is the singer id ('v1', 'v2'…) or 'group' (v1000 or a type="group" agent);
+ * words / bg are [{ t, end, text }] and only present for word-timed ("syllable") lyrics.
+ * Line-only TTML gives { t, end, text } as before.
+ */
 function parseTtml(ttml) {
-  const lines = []
-  const re = /<p[^>]*\bbegin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g
+  const agents = ttmlAgents(ttml)
+  const raw = []
+  const re = /<p\b([^>]*)>([\s\S]*?)<\/p>/g
   let match
   while ((match = re.exec(ttml))) {
-    const text = match[2]
-      .replace(/></g, '> <')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (text) lines.push({ t: parseTtmlClock(match[1]), text })
+    const attrs = tagAttrs(match[1])
+    if (attrs.begin === undefined) continue
+    raw.push({ attrs, inner: match[2], syl: ttmlSyllables(match[2]) })
+  }
+  // whitespace between spans separates words; a document without any is word-per-span
+  const multi = raw.filter((r) => r.syl.main.length > 1)
+  const everySpan = multi.length > 0 && !multi.some((r) => r.syl.main.slice(1).some((s) => s.newWord || /^\s/.test(s.text)))
+  const lines = []
+  for (const { attrs, inner, syl } of raw) {
+    const words = mergeSyllables(syl.main, everySpan)
+    const bg = mergeSyllables(syl.bg, everySpan)
+    let text
+    if (words.length) text = words.map((w) => w.text).join(' ')
+    else {
+      text = decodeEntities(inner.replace(/></g, '> <').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
+      if (bg.length) text = ''              // bg-only line: the bg words carry the text
+    }
+    if (!text && !bg.length) continue
+    const line = { t: parseTtmlClock(attrs.begin) }
+    if (attrs.end !== undefined) line.end = parseTtmlClock(attrs.end)
+    else if (words.length) line.end = words[words.length - 1].end
+    line.text = text
+    const agent = attrs['ttm:agent']
+    if (agent) line.agent = agent === 'v1000' || agents[agent] === 'group' ? 'group' : agent
+    if (words.length) line.words = words
+    if (bg.length) line.bg = bg
+    lines.push(line)
   }
   return lines
 }
 
-// "[01:02.50] text" (several stamps per line allowed) -> [{ t, text }]
+const LRC_WORD = /<(\d+):(\d+(?:\.\d+)?)>/g
+
+// Enhanced LRC body "<00:12.00>Hello <00:12.50>world <00:13.10>" -> { text, words }.
+// A stamp with no text after it ends the word before it.
+function lrcWords(body) {
+  const stamps = [...body.matchAll(LRC_WORD)]
+  if (!stamps.length) return { text: body.trim(), words: null }
+  const words = []
+  const lead = body.slice(0, stamps[0].index).trim()
+  for (let i = 0; i < stamps.length; i++) {
+    const m = stamps[i]
+    const t = parseInt(m[1], 10) * 60 + parseFloat(m[2])
+    const prev = words[words.length - 1]
+    if (prev && prev.end === null) prev.end = t
+    const seg = body.slice(m.index + m[0].length, i + 1 < stamps.length ? stamps[i + 1].index : body.length).replace(/\s+/g, ' ').trim()
+    if (seg) words.push({ t, end: null, text: seg })
+  }
+  const text = [lead, ...words.map((w) => w.text)].filter(Boolean).join(' ')
+  return { text, words: words.length ? words : null }
+}
+
+// "[01:02.50] text" (several stamps per line allowed) -> [{ t, end?, text, words? }].
+// Empty "[mm:ss.xx]" lines mark an instrumental break: they set the end of the line before.
+// Enhanced LRC "<mm:ss.xx>" word stamps become words.
 function parseLrc(lrc) {
-  const lines = []
+  const entries = []
   for (const raw of String(lrc || '').split(/\r?\n/)) {
     const stamps = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)]
     if (!stamps.length) continue
-    const text = raw.replace(/\[[^\]]*\]/g, '').trim()
-    if (!text) continue
-    for (const m of stamps) lines.push({ t: parseInt(m[1], 10) * 60 + parseFloat(m[2]), text })
+    const { text, words } = lrcWords(raw.replace(/\[[^\]]*\]/g, ''))
+    const first = parseInt(stamps[0][1], 10) * 60 + parseFloat(stamps[0][2])
+    for (const m of stamps) {
+      const t = parseInt(m[1], 10) * 60 + parseFloat(m[2])
+      if (!text) { entries.push({ t, gap: true }); continue }
+      const line = { t, text }
+      const shift = t - first
+      if (words) line.words = words.map((w) => ({ t: w.t + shift, end: w.end === null ? null : w.end + shift, text: w.text }))
+      entries.push(line)
+    }
   }
-  return lines.sort((a, b) => a.t - b.t)
+  entries.sort((a, b) => a.t - b.t)
+  const lines = []
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]
+    if (e.gap) continue
+    let next = null
+    for (let j = i + 1; j < entries.length && !next; j++) if (entries[j].t > e.t) next = entries[j]
+    if (e.words) {
+      const last = e.words[e.words.length - 1]
+      if (last.end === null) last.end = Math.min(last.t + 1, next ? next.t : Infinity)
+      for (let k = 0; k < e.words.length - 1; k++) if (e.words[k].end === null) e.words[k].end = e.words[k + 1].t
+      e.end = last.end
+    }
+    else if (next && next.gap) e.end = next.t
+    lines.push(e.words ? { t: e.t, end: e.end, text: e.text, words: e.words } : e)
+  }
+  return lines
 }
 
 // One LRCLIB record -> lines. Unsynced lyrics get t: null.
@@ -134,4 +290,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { parseTtml, parseTtmlClock, parseLrc, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { parseTtml, parseTtmlClock, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }

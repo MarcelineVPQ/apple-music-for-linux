@@ -34,7 +34,8 @@ Discord update. None of these objects is stored.
 | main.js `startUpdateChecks` | update check | 20 s once, then 2 h | AppImage builds | app exit | 1 small GET/2 h; `updateCheckBusy` prevents overlap |
 | main.js `persistBounds`, `rememberBounds` | bounds save debounce | 500 ms one-shot | after a move/resize | fires | ~0; checks `isDestroyed()` |
 | main.js mini/lyrics keep-above | KWin keep-above | 300 ms one-shot | once per window open | fires | one qdbus call, KDE Wayland only |
-| miniplayer / lyrics / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
+| lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight + interlude dots | display rate | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | per frame a few comparisons; DOM class writes only when a word/line changes, 3 dot styles during a countdown. Measured below |
+| miniplayer / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
 
 **Duplicate pollers:** with mini player + lyrics + visualizer all open, three polls
 read the same `nowPlayingScript` 6.5 times/s for 0.13–0.20 % main-process CPU.
@@ -64,7 +65,7 @@ returns `{ ok: false }` and doesn't throw. No backoff is needed.
 | discord.js `onData` | frame buffer | only holds an incomplete frame |
 | lyrics-sources.js `createLyricsResolver` | lyrics cache | bounded at 50 entries; empty results are dropped; in-flight lookups are shared between lyrics and the visualizer (LRCLIB behaviour untouched) |
 | visualizer.js `emit` | two 16 KB `Float64Array`s per frame | short-lived young-generation garbage while the visualizer is open. Cosmetic, left as is |
-| renderer pages | `ipcRenderer.on` listeners | added once at load. lyrics.html replaces its line elements per track. miniplayer.html swaps the artwork `src` only on a track change |
+| renderer pages | `ipcRenderer.on` listeners | added once at load (lyrics.html also one `visibilitychange` listener). lyrics.html replaces its line, word and dot elements per track and cancels its rAF on every new track. miniplayer.html swaps the artwork `src` only on a track change |
 
 ## Measurements
 
@@ -103,6 +104,36 @@ still settling, then 0.07 %.
 | | before fix | after fix |
 |---|---|---|
 | injected stylesheets in the page | 2 → **202** | 1 → **1** |
+
+## Lyrics window animation (0.15.10)
+
+The lyrics window gets the playback time from main every 500 ms, as before (main now also
+sends `isPlaying`). Between pushes it counts on locally with `performance.now()`
+(`lyrics-timing.js` `syncClock`) and wakes one requestAnimationFrame at the next word or line
+change (`nextChange`), so it draws only when something changes; during a countdown it draws
+every frame. The loop only runs while the
+window is visible, the song is playing and the lyrics have word timing, or while a countdown
+is showing. Line-only lyrics outside a countdown, a paused song or a hidden window cost
+nothing extra.
+
+Isolated run (same setup as above, lyrics.html alone in the repo's Electron, fake 36 s TTML
+duet looped, pushes every 500 ms, 30 s sample after 3 s warm-up, % of one core, software
+GL under Xvfb):
+
+| Lyrics | renderer | GPU process | rAF |
+|---|---|---|---|
+| line-only TTML (same song) | 1.30–1.47 % | 5.9–6.2 % | off |
+| word timing + duet + background vocals, first version (rAF every frame, colour/glow transitions) | 5.4–5.5 % | 12.7–13.0 % | on |
+| word timing, rAF only at changes | 4.9 % | 12.1 % | on |
+| word timing, rAF only at changes + only transform/opacity transitions (shipped) | 2.5–2.9 % | 11.3–11.9 % | on |
+| word timing, window hidden | — | — | off (checked) |
+
+Most of the first version's cost was the animated colour and glow (a repaint for every word
+change), not the loop, so only `transform` and `opacity` animate now; colour and glow switch
+instantly. The test song sings a word every 0.4–0.5 s without pauses, a dense case. The GPU
+column is software GL under Xvfb and is much higher than on a real GPU; the difference
+between the rows is what counts. The header album thumbnail is a plain `<img>` with the
+mini player's artwork URL (Chromium's HTTP cache), sent only when the art changes.
 
 ## Not measurable headless
 

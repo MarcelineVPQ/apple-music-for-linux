@@ -26,6 +26,7 @@ let miniPoll = null
 let lyricsWindow = null
 let lyricsPoll = null
 let lyricsKey = ''
+let lyricsArt = ''
 let shuttingDown = false
 let lastfm = null
 let scrobbleState = null
@@ -351,6 +352,7 @@ function createLyricsWindow() {
 
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
+    lyricsArt = null // and an artwork send
     // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window exists (also when minimized or paused) · stops on lyrics 'closed' (and main 'close') · cost 2 executeJavaScript/s + 1 IPC send/tick; one lyrics lookup per track change (cached, see lyrics-sources.js). Left as is: only runs while lyrics are open; with mini + lyrics + visualizer all open the three polls make 6.5 reads/s for 0.19 % main-process CPU (docs/PERFORMANCE.md), so a shared poller isn't worth the change.
     // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
     lyricsPoll = setInterval(async () => {
@@ -369,7 +371,14 @@ function createLyricsWindow() {
           lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, lines: got.lines, source: got.source })
         }
       }
-      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime)
+      // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
+      const art = state.artwork || state.artworkLarge || ''
+      if (art !== lyricsArt && lyricsWindow && !lyricsWindow.isDestroyed()) {
+        lyricsArt = art
+        lyricsWindow.webContents.send('lyrics-art', art)
+      }
+      // isPlaying lets the window stop its word-highlight clock right away on pause
+      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime, state.isPlaying)
       refreshPalette(state)
     }, 500)
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
@@ -449,8 +458,11 @@ function createVizWindow() {
         })
         // fetch synced lyrics for the new track (same TTML pipeline as the lyrics window)
         const got = state.title ? await getLyrics(state) : { lines: [] }
-        // the visualizer shows timed lines only
-        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', got.lines.filter((l) => l.t !== null))
+        // the visualizer shows timed lines only, as { t, text } (background vocals appended, as before)
+        const vizLines = got.lines.filter((l) => l.t !== null).map((l) => ({
+          t: l.t, text: [l.text, ...(l.bg || []).map((w) => w.text)].filter(Boolean).join(' ')
+        }))
+        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', vizLines)
       }
       if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-time', state.playbackTime)
     }, 300)
