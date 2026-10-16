@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="lyrics-view.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; cursor: none; }
   html, body { height: 100%; overflow: hidden; background: #000; }
@@ -27,9 +28,41 @@
   #art { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; box-shadow: 0 10px 40px rgba(0,0,0,0.6); flex-shrink: 0; }
   #title { font-size: 24px; font-weight: 700; }
   #artist { font-size: 16px; opacity: 0.72; margin-top: 3px; }
-  #lyrics { position: fixed; left: 6%; right: 6%; top: 50%; transform: translateY(-50%); text-align: center; pointer-events: none; }
-  #lyric-current { font-size: 44px; font-weight: 800; line-height: 1.25; text-shadow: 0 4px 40px rgba(0,0,0,0.7); transition: opacity 0.35s ease; min-height: 1.2em; }
-  #lyric-next { font-size: 26px; font-weight: 600; opacity: 0.4; margin-top: 16px; transition: opacity 0.35s ease; }
+  :root { --active: #ffffff; }
+  /* lyrics overlay: the lyrics window's engine (lyrics-view.js, 'stage' layout). Only the line(s) being
+     sung (.active, big), the countdown dots and the next line (.next, smaller) are shown, centred. */
+  #lyrics { position: fixed; left: 7%; right: 7%; top: 50%; transform: translateY(-50%); text-align: center; pointer-events: none; }
+  /* a soft dark scrim behind the words, so they read over busy scenes (the toasters) */
+  #lyrics::before {
+    content: ''; position: absolute; left: -4%; right: -4%; top: -60%; bottom: -60%; z-index: -1;
+    background: radial-gradient(closest-side, rgba(0, 0, 0, 0.5), transparent);
+  }
+  #lyrics:empty::before, #lyrics:not(:has(.line.active, .line.next, .dots.on))::before { display: none; }
+  #lyrics .line {
+    display: none;
+    font-size: clamp(30px, 3.4vw, 132px);
+    font-weight: 800;
+    line-height: 1.22;
+    color: #fff;
+    text-shadow: 0 0.05em 0.45em rgba(0, 0, 0, 0.8), 0 0 0.12em rgba(0, 0, 0, 0.6);
+  }
+  #lyrics .line.active { display: block; animation: lv-in 0.35s ease-out; }
+  #lyrics .line.active + .line.active { margin-top: 0.25em; }
+  #lyrics .line.next {
+    display: block;
+    font-size: clamp(18px, 1.9vw, 76px);
+    font-weight: 600;
+    opacity: 0.5;
+    margin-top: 0.6em;
+    animation: lv-next 0.35s ease-out;
+  }
+  #lyrics .line.active .w.now {
+    text-shadow: 0 0 0.5em var(--active), 0 0 0.15em var(--active), 0 0.05em 0.45em rgba(0, 0, 0, 0.6);
+  }
+  #lyrics .dots { --dot: clamp(12px, 1.05vw, 42px); --dot-gap: calc(var(--dot) * 0.8); --dots-h: calc(var(--dot) * 3.6); }
+  #lyrics .dots i { box-shadow: 0 0 0.6em rgba(0, 0, 0, 0.6); }
+  @keyframes lv-in { from { opacity: 0; transform: translateY(0.25em); } }
+  @keyframes lv-next { from { opacity: 0; } }
   #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
   #mode-label {
     position: fixed; bottom: 20px; left: 24px; font-size: 13px; font-weight: 600;
@@ -46,7 +79,7 @@
     <img id="art" alt="">
     <div><div id="title">Not playing</div><div id="artist"></div></div>
   </div>
-  <div id="lyrics"><div id="lyric-current"></div><div id="lyric-next"></div></div>
+  <div id="lyrics"></div>
   <div id="mode-label"></div>
   <div id="hint">Click to change scene · Esc to exit</div>
 <script>
@@ -104,20 +137,16 @@
     if (s.artwork) { art.src = s.artwork; document.getElementById('bg').style.backgroundImage = `url("${s.artwork}")` }
     art.style.display = s.artwork ? '' : 'none'
   })
-  let lyrics = [], activeIdx = -1
-  ipcRenderer.on('viz-lyrics', (e, lines) => {
-    lyrics = Array.isArray(lines) ? lines : []; activeIdx = -1
-    document.getElementById('lyric-current').textContent = ''
-    document.getElementById('lyric-next').textContent = ''
-  })
-  ipcRenderer.on('viz-time', (e, t) => {
-    if (!lyrics.length) return
-    let idx = -1
-    for (let i = 0; i < lyrics.length; i++) { if (lyrics[i].t <= t + 0.15) idx = i; else break }
-    if (idx === activeIdx) return
-    activeIdx = idx
-    document.getElementById('lyric-current').textContent = idx >= 0 ? lyrics[idx].text : ''
-    document.getElementById('lyric-next').textContent = (idx + 1 < lyrics.length) ? lyrics[idx + 1].text : ''
+  // the lyrics: the same engine and data as the lyrics window (lyrics-view.js), laid out as a stage
+  // loop: its word/dot animation loop lives in lyrics-view.js (woken per word change, not per frame)
+  const lyricsView = require('./lyrics-view').createLyricsView({ container: document.getElementById('lyrics'), layout: 'stage' })
+  ipcRenderer.on('lyrics-data', (e, data) => lyricsView.setData(data))
+  ipcRenderer.on('lyrics-time', (e, t, playing) => lyricsView.setTime(t, playing))
+  ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
+  // album accent for the sung word's glow (adaptive colour; null resets to white)
+  ipcRenderer.on('palette', (e, p) => {
+    if (p && p.accent) document.documentElement.style.setProperty('--active', p.accent)
+    else document.documentElement.style.removeProperty('--active')
   })
 
   // --- mode system ---
@@ -137,7 +166,7 @@
     modeIdx = (i + MODES.length) % MODES.length
     try { localStorage.setItem('viz-mode', MODES[modeIdx]) } catch (e) {}
     ctx.clearRect(0, 0, W, H)
-    aurora.streamers = null; nebula.parts = null; toast.items = null   // re-seed on entry
+    aurora.streamers = null; nebula.parts = null; toast.f = null   // re-seed on entry
     showLabel()
   }
   window.__mode = () => MODES[modeIdx]   // for testing
@@ -145,7 +174,7 @@
     if (e.key === 'Escape') ipcRenderer.send('viz-close')
     else if (e.key === 'ArrowRight') setMode(modeIdx + 1)
     else if (e.key === 'ArrowLeft') setMode(modeIdx - 1)
-    else if (e.key >= '1' && e.key <= '3') setMode(+e.key - 1)
+    else if (e.key >= '1' && e.key <= String(MODES.length)) setMode(+e.key - 1)
   }
   document.onclick = () => setMode(modeIdx + 1)   // click cycles scenes; Esc exits
   showLabel()
@@ -247,66 +276,64 @@
     ctx.globalCompositeOperation = 'source-over'
   }
 
-  // --- MODE 4: toast (After Dark homage — original pixel sprites, BPM-flapped wings) ---
-  // '.' transparent; letters map to a palette. All original art.
-  const TOASTER = [
-    '.kk..kk...',
-    'caaaaaaac.',
-    'baAaaaAaab',
-    'baaaaaaaab',
-    'baaaaaaaab',
-    'baaaaaaaab',
-    'cbbbbbbbbc',
-    '.cccccccc.'
-  ]
-  const TPAL = { k: '#15151c', a: '#e6ecf5', A: '#ffffff', b: '#a9b4c3', c: '#7a8492' }
-  const WING_DOWN = ['w..', 'ww.', 'www', '.ww']
-  const WING_UP   = ['.ww', 'www', 'ww.', 'w..']
-  const WPAL = { w: '#f6f8fc' }
-  const TOAST_MAP = ['.gggg.', 'gHHHHg', 'gHHHHg', 'gHHHHg', 'gHHHHg', '.gggg.']
-  const GPAL = { g: '#b9752e', H: '#e6a24e' }
-
-  function drawSprite(map, pal, x, y, s) {
-    for (let r = 0; r < map.length; r++) {
-      const row = map[r]
-      for (let c = 0; c < row.length; c++) {
-        const ch = row[c]
-        if (ch === '.') continue
-        ctx.fillStyle = pal[ch]
-        ctx.fillRect(Math.round(x + c * s), Math.round(y + r * s), Math.ceil(s), Math.ceil(s))
+  // --- MODE 4: toast (After Dark homage, all original pixel art: toasters.js) ---
+  // A full-screen staggered formation flies diagonally (upper right -> lower left) at a steady speed
+  // and wraps around, so the screen never empties; the music sets the wing flap rate (tempo, energy)
+  // and nudges the speed. Each sprite frame is drawn once into an offscreen canvas at an integer scale;
+  // a frame is then one drawImage per visible sprite.
+  const TOASTERS = require('./toasters')
+  const toast = { f: null, w: 0, h: 0, s: 0, frames: null, slice: null, sliceOff: 0, dist: 0, flap: 0, speed: 1, last: 0, list: [] }
+  function spriteCanvas(g, s) {
+    const c = document.createElement('canvas')
+    c.width = g.w * s; c.height = g.h * s
+    const x = c.getContext('2d')
+    for (let y = 0; y < g.h; y++) {
+      for (let col = 0; col < g.w; col++) {
+        const i = g.px[y * g.w + col]
+        if (!i) continue
+        x.fillStyle = TOASTERS.PALETTE[i]
+        x.fillRect(col * s, y * s, s, s)
       }
     }
+    return c
   }
-
-  const toast = { items: null }
-  function renderToast(a) {
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = 'rgba(6,5,12,0.6)'; ctx.fillRect(0, 0, W, H)   // classic dark sky, faint trails
-    if (!toast.items) toast.items = []
-    const now = performance.now()
-    // spawn on the beat, more toasters when the track is busier
-    if (beat.hit && toast.items.length < 26) {
-      const n = 1 + (a.energy > 0.35 ? 1 : 0)
-      for (let k = 0; k < n; k++) {
-        const isToast = Math.random() < 0.22
-        const s = (isToast ? 4 : 5) * dpr * (0.85 + Math.random() * 0.7)
-        toast.items.push({
-          x: W + Math.random() * W * 0.25, y: Math.random() * H * 0.55,
-          vx: -(1.6 + a.energy * 3 + beat.bpm / 130) * dpr * (0.85 + Math.random() * 0.5),
-          vy: (0.9 + a.energy * 2) * dpr * (0.7 + Math.random() * 0.6),
-          s, isToast, ph: Math.random() * 6.28
-        })
-      }
+  // lifetime: the cached frames (5 poses + the slice) are rebuilt only when the canvas size changes
+  function setupToast() {
+    const s = TOASTERS.spriteScale(H)
+    if (s !== toast.s || !toast.frames) {
+      toast.frames = TOASTERS.WING_POSES.map((_, i) => spriteCanvas(TOASTERS.buildToaster(i), s))
+      const slice = TOASTERS.buildToast()
+      const ss = Math.max(s, Math.round(s * 1.5))
+      toast.slice = spriteCanvas(slice, ss)
+      toast.sliceOff = { x: Math.round((TOASTERS.TW * s - slice.w * ss) / 2), y: Math.round((TOASTERS.TH * s - slice.h * ss) / 2) }
+      toast.s = s
     }
-    const flapHz = Math.max(1.2, beat.bpm / 60)   // wings flap at the tempo
-    for (let i = toast.items.length - 1; i >= 0; i--) {
-      const t = toast.items[i]
-      t.x += t.vx; t.y += t.vy
-      if (t.x < -80 * dpr || t.y > H + 80 * dpr) { toast.items.splice(i, 1); continue }
-      if (t.isToast) { drawSprite(TOAST_MAP, GPAL, t.x, t.y, t.s); continue }
-      drawSprite(TOASTER, TPAL, t.x, t.y, t.s)
-      const up = Math.sin(now / 1000 * flapHz * 2 * Math.PI + t.ph) > 0
-      drawSprite(up ? WING_UP : WING_DOWN, WPAL, t.x - 3 * t.s, t.y + 1.5 * t.s, t.s)
+    toast.f = TOASTERS.formation(W, H, TOASTERS.TW * s, TOASTERS.TH * s)
+    toast.w = W; toast.h = H
+    toast.list = toast.f.items.map((it) => ({ it, x: 0, y: 0 }))
+  }
+  function renderToast(a) {
+    if (!toast.f || toast.w !== W || toast.h !== H) setupToast()
+    const now = performance.now()
+    const dt = toast.last ? Math.min(0.05, (now - toast.last) / 1000) : 0
+    toast.last = now
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = 'rgba(6,5,12,0.84)'; ctx.fillRect(0, 0, W, H)    // night sky, the album glow faint behind
+    const s = toast.s, sw = TOASTERS.TW * s, sh = TOASTERS.TH * s
+    // steady flight; the music nudges it (±15 %), smoothed so it never jerks
+    toast.speed += ((0.9 + 0.35 * Math.min(1, a.energy * 1.6)) - toast.speed) * Math.min(1, dt * 1.5)
+    toast.dist += s * 24 * toast.speed * dt
+    // wings flap at the tempo, quicker when the track is busy
+    toast.flap += dt * Math.min(3.2, Math.max(1, beat.bpm / 60)) * (0.75 + 0.5 * Math.min(1, a.energy * 1.6))
+    const ox = TOASTERS.DIR.x * toast.dist, oy = TOASTERS.DIR.y * toast.dist
+    const list = toast.list
+    for (const e of list) { const p = TOASTERS.itemPos(toast.f, e.it, ox, oy, sw, sh); e.x = p.x; e.y = p.y }
+    list.sort((p, q) => p.y - q.y)           // lower ones in front
+    for (const e of list) {
+      if (e.x >= W || e.y >= H || e.x + sw <= 0 || e.y + sh <= 0) continue
+      if (e.it.toast) ctx.drawImage(toast.slice, e.x + toast.sliceOff.x, e.y + toast.sliceOff.y)
+      else ctx.drawImage(toast.frames[TOASTERS.flapPose(toast.flap + e.it.phase)], e.x, e.y)
     }
   }
 

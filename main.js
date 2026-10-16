@@ -6,7 +6,8 @@ const { exec, spawn, execFileSync } = require('child_process');
 const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
-const { Visualizer } = require('./visualizer');
+const { Visualizer, RATE: VIZ_RATE } = require('./visualizer');
+const { createListener: createAudioListener } = require('./audio-listen')
 const lyricsTiming = require('./lyrics-timing')
 const { createListenSession } = require('./listen-session')
 const { createCssReplacer } = require('./css-replacer');
@@ -40,9 +41,9 @@ let discordReconnectTicks = 0
 let lastPresenceKey = ''
 let miniTrackKey = ''
 let vizWindow = null
-let vizPoll = null
 let visualizer = null
-let vizTrackKey = ''
+let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
+let vizArt = ''
 let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, updateChannel: 'stable' }
 let lastPalette = null
 let lastPaletteKey = null
@@ -406,9 +407,9 @@ async function prefetchNextLyrics(currentKey) {
 }
 
 // "Refine timing by listening" (Settings, off by default): listens to Sonata's own stream while
-// the lyrics window is open, the song plays and its word timing is estimated (see listen-session.js).
+// a lyric view (lyrics window or visualizer) is open, the song plays and its word timing is estimated (see listen-session.js).
 // lifetime: one session for the app's life; its listener (one parec) runs only in that state and
-// is stopped on pause, track change, setting off, lyrics close and quit.
+// is stopped on pause, track change, setting off, when the last lyric view closes and on quit.
 // error: vocal-detect.js / timing-refine.js missing or failing to load -> listening stays off, logged once
 let listenSession = null
 let listenLoadFailed = false
@@ -417,11 +418,10 @@ function getListenSession() {
   try {
     const { createVocalDetector } = require('./vocal-detect')
     const { refineWords, mergeLearned, noiseRate } = require('./timing-refine')
-    const { createListener } = require('./audio-listen')
     listenSession = createListenSession({
-      createListener, createVocalDetector, refineWords, mergeLearned, noiseRate,
+      createListener: createAudioListener, createVocalDetector, refineWords, mergeLearned, noiseRate,
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
-      send: (channel, payload) => { if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send(channel, payload) },
+      send: sendLyrics,
       now: () => performance.now(),
       log: (m) => console.log('listen:', m)
     })
@@ -430,6 +430,87 @@ function getListenSession() {
     console.error('listen: refine by listening unavailable:', e.message)
   }
   return listenSession
+}
+
+// --- lyrics feed: one now-playing poll for every lyric view (lyrics window, visualizer overlay) ---
+// Both views run the same engine (lyrics-view.js), so they get the same data: 'lyrics-data' (full
+// line/word objects with estimated + learned timing), 'lyrics-time' pushes, 'lyrics-refined' and
+// 'lyrics-art'. The visualizer also gets 'viz-nowplaying' (large art), and its audio is run from here.
+function lyricViews() {
+  return [lyricsWindow, vizWindow].filter((w) => w && !w.isDestroyed())
+}
+function sendLyrics(channel, ...args) {
+  for (const w of lyricViews()) w.webContents.send(channel, ...args)
+}
+// a view joined (its page just loaded): resend the song and the art on the next tick
+function startLyricsFeed() {
+  lyricsKey = null
+  lyricsArt = null
+  vizArt = null
+  // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
+  if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
+}
+function stopLyricsFeedIfIdle() {
+  if (lyricViews().length) return
+  clearInterval(lyricsPoll)
+  lyricsPoll = null
+  lyricsRetry = null
+  if (listenSession) listenSession.stop()
+}
+
+// error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
+async function lyricsTick() {
+  if (!mainAlive() || !lyricViews().length) return
+  let state
+  try {
+    state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+  } catch (e) { return }
+  if (!state || !state.ok || !lyricViews().length) return
+
+  const key = state.title + '|' + state.artist
+  // loop: lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
+  // 30 s, 60 s, then every 120 s · only while a lyric view is open and the song unchanged ·
+  // stops on success, track change or when the last view closes · cost one lookup per retry
+  // error: backoff capped at 120 s, so a down service is never hammered
+  const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
+  if (key !== lyricsKey || retryDue) {
+    lyricsKey = key
+    const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
+    if (got.error) {
+      const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
+      lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
+    } else {
+      lyricsRetry = null
+      prefetchNextLyrics(key)
+    }
+    // estimated word timing is computed here (same lyrics-timing call the views would make), so
+    // main knows the lines are estimated and can apply learned timing before they render
+    let lines = got.lines
+    let refined = false
+    if (settings.estimatedWordTiming) {
+      lines = lyricsTiming.estimateWords(lines || [])
+      const session = settings.lyricsListenRefine ? getListenSession() : listenSession
+      if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
+    } else if (listenSession) listenSession.stop()
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined })
+  }
+  // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
+  const art = state.artwork || state.artworkLarge || ''
+  if (art !== lyricsArt) {
+    lyricsArt = art
+    sendLyrics('lyrics-art', art)
+  }
+  // the visualizer's title, artist and large art (its blurred background), sent on change only
+  const big = state.artworkLarge || state.artwork || ''
+  if (vizWindow && !vizWindow.isDestroyed() && key + '|' + big !== vizArt) {
+    vizArt = key + '|' + big
+    vizWindow.webContents.send('viz-nowplaying', { title: state.title, artist: state.artist, artwork: big })
+  }
+  // isPlaying lets the views stop their word-highlight clock right away on pause
+  sendLyrics('lyrics-time', state.playbackTime, state.isPlaying)
+  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
+  vizAudioTick(state.isPlaying)
+  refreshPalette(state)
 }
 
 function createLyricsWindow() {
@@ -453,71 +534,17 @@ function createLyricsWindow() {
   lockDownLocalWindow(lyricsWindow)
 
   lyricsWindow.webContents.once('did-finish-load', () => {
-    lyricsKey = null // force a lyrics fetch on first tick
-    lyricsArt = null // and an artwork send
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
-    // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window exists (also when minimized or paused) · stops on lyrics 'closed' (and main 'close') · cost 2 executeJavaScript/s + 1 IPC send/tick; one lyrics lookup per track change (cached, see lyrics-sources.js). Left as is: only runs while lyrics are open; with mini + lyrics + visualizer all open the three polls make 6.5 reads/s for 0.19 % main-process CPU (docs/PERFORMANCE.md), so a shared poller isn't worth the change.
-    // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
-    lyricsPoll = setInterval(async () => {
-      if (!mainAlive() || !lyricsWindow || lyricsWindow.isDestroyed()) return
-      let state
-      try {
-        state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
-      } catch (e) { return }
-      if (!state || !state.ok || !lyricsWindow || lyricsWindow.isDestroyed()) return
-
-      const key = state.title + '|' + state.artist
-      // loop: lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
-      // 30 s, 60 s, then every 120 s · only while the lyrics window is open and the song unchanged ·
-      // stops on success, track change or window close · cost one lookup per retry
-      // error: backoff capped at 120 s, so a down service is never hammered
-      const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
-      if (key !== lyricsKey || retryDue) {
-        lyricsKey = key
-        const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
-        if (got.error) {
-          const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
-          lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
-        } else {
-          lyricsRetry = null
-          prefetchNextLyrics(key)
-        }
-        // estimated word timing is computed here (same lyrics-timing call the window would make), so
-        // main knows the lines are estimated and can apply learned timing before they render
-        let lines = got.lines
-        let refined = false
-        if (settings.estimatedWordTiming) {
-          lines = lyricsTiming.estimateWords(lines || [])
-          const session = settings.lyricsListenRefine ? getListenSession() : listenSession
-          if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
-        } else if (listenSession) listenSession.stop()
-        if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined })
-        }
-      }
-      // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
-      const art = state.artwork || state.artworkLarge || ''
-      if (art !== lyricsArt && lyricsWindow && !lyricsWindow.isDestroyed()) {
-        lyricsArt = art
-        lyricsWindow.webContents.send('lyrics-art', art)
-      }
-      // isPlaying lets the window stop its word-highlight clock right away on pause
-      if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime, state.isPlaying)
-      if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
-      refreshPalette(state)
-    }, 500)
+    startLyricsFeed()
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
     // loop: lyrics keep-above · 300 ms one-shot · once per lyrics open · stops after firing · cost one qdbus exec (KDE Wayland only)
     if (settings.lyricsAlwaysOnTop) setTimeout(() => applyLyricsKeepAbove(true), 300)
   })
 
-  // lifetime: 'closed' nulls lyricsWindow and clears lyricsPoll
+  // lifetime: 'closed' nulls lyricsWindow; the feed stops when no lyric view is left
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
-    lyricsRetry = null
-    if (listenSession) listenSession.stop()
-    clearInterval(lyricsPoll)
-    lyricsPoll = null
+    stopLyricsFeedIfIdle()
   })
 }
 
@@ -566,50 +593,45 @@ function createVizWindow() {
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
 
-  // loop: visualizer spectrum stream · ~43 frames/s from parec · runs while the visualizer window exists · stops on viz 'closed' (visualizer.stop() kills parec) · cost one FFT + one IPC send per frame
-  // lifetime: one Visualizer (and one parec child) per visualizer window; stopped and dropped on 'closed'
+  // lifetime: one Visualizer (FFT) and one own-stream listener (one parec while playing) per
+  // visualizer window; both stopped and dropped on 'closed'
   visualizer = new Visualizer((bands) => {
     if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
   })
+  vizListener = createAudioListener({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
 
+  // the lyrics feed drives the overlay's lyrics, its now-playing and its audio (vizAudioTick)
   vizWindow.webContents.once('did-finish-load', () => {
-    visualizer.start()
-    vizTrackKey = null
-    // 300ms cadence: frequent enough for smooth synced-lyric highlighting
-    // loop: visualizer now-playing poll · 300 ms · runs while the visualizer window exists · stops on viz 'closed' · cost ~3.3 executeJavaScript/s + 1 IPC send. Left as is: the visualizer is a fullscreen, foreground-only mode.
-    // error: failing executeJavaScript returns early until the next tick; can't hammer beyond 3/s
-    vizPoll = setInterval(async () => {
-      if (!mainAlive() || !vizWindow || vizWindow.isDestroyed()) return
-      let state
-      try {
-        state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
-      } catch (e) { return }
-      if (!state || !state.ok || vizWindow.isDestroyed()) return
-
-      const key = state.title + '|' + state.artist
-      if (key !== vizTrackKey) {
-        vizTrackKey = key
-        vizWindow.webContents.send('viz-nowplaying', {
-          title: state.title, artist: state.artist, artwork: state.artworkLarge || state.artwork
-        })
-        // fetch synced lyrics for the new track (same TTML pipeline as the lyrics window)
-        const got = state.title ? await getLyrics(state) : { lines: [] }
-        // the visualizer shows timed lines only, as { t, text } (background vocals appended, as before)
-        const vizLines = got.lines.filter((l) => l.t !== null).map((l) => ({
-          t: l.t, text: [l.text, ...(l.bg || []).map((w) => w.text)].filter(Boolean).join(' ')
-        }))
-        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', vizLines)
-      }
-      if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-time', state.playbackTime)
-    }, 300)
+    startLyricsFeed()
+    if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
   })
 
-  // lifetime: 'closed' stops the Visualizer (kills parec), clears vizPoll and nulls vizWindow
+  // lifetime: 'closed' stops the listener and the Visualizer (kills parec) and nulls vizWindow; the
+  // lyrics feed stops when no lyric view is left
   vizWindow.on('closed', () => {
+    if (vizListener) { vizListener.stop(); vizListener = null }
     if (visualizer) { visualizer.stop(); visualizer = null }
-    clearInterval(vizPoll); vizPoll = null
     vizWindow = null
+    stopLyricsFeedIfIdle()
   })
+}
+
+// Visualizer audio, per lyrics-feed tick (2/s): listen to Sonata's own stream while the song plays
+// (the stream may be gone while paused) and show silence on pause. When our stream can't be found
+// (audio-listen gives up: 'unavailable'), fall back to the whole-system monitor, logged once.
+// loop: spectrum stream · ~43 frames/s from parec · runs while the visualizer exists and the song
+// plays (fallback: while the visualizer exists) · stops on pause (listener) and on viz 'closed' ·
+// cost one 1024-point FFT + one IPC send per frame
+function vizAudioTick(isPlaying) {
+  if (!vizListener || !visualizer || visualizer.proc) return   // proc: on the system-monitor fallback
+  if (vizListener.state === 'unavailable') {
+    console.log('visualizer: own audio stream not found, showing the whole system mix')
+    vizListener.stop()
+    visualizer.startMonitor()
+    return
+  }
+  if (isPlaying) vizListener.start()
+  else if (vizListener.state !== 'idle') { vizListener.stop(); visualizer.silence() }
 }
 
 function toggleVisualizer() {

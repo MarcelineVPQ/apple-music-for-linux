@@ -1,0 +1,69 @@
+/* Shared lyric styles for lyrics-view.js (lyrics window + visualizer overlay). Sizes are in em of the
+   line's font size, so each page only sets its own line sizes. Pages define --active. Dot size knobs:
+   --dot (diameter), --dot-gap, --dots-h (height of the dots row when shown). */
+
+/* duets: singer 1 left, singer 2 right, together centered (one singer: page default) */
+.line.left { text-align: left; padding-right: 16%; }
+.line.right { text-align: right; padding-left: 16%; }
+.line.center { text-align: center; }
+
+/* karaoke words: each word reserves its bold width (hidden ::after copy), so the pop
+   (GPU transform + weight) never moves the line. Word colours apply on the active line only. */
+.w {
+  display: inline-flex;
+  margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space */
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 50% 65%;
+  transition: transform 0.18s ease-out, opacity 0.25s ease;
+}
+.w::after {
+  content: attr(data-text);
+  font-weight: 800;
+  -webkit-text-stroke: 0.024em currentColor;
+  height: 0;
+  visibility: hidden;
+  overflow: hidden;
+}
+.line.active .w { opacity: 0.4; }
+.line.active .w.sung { opacity: 1; }
+.line.active .w.now {
+  opacity: 1;
+  color: var(--active);
+  font-weight: 800;
+  -webkit-text-stroke: 0.024em currentColor;
+  transform: scale(1.1);
+  text-shadow: 0 0 0.67em var(--active), 0 0 0.19em var(--active);
+}
+/* background vocals: smaller and dimmer, under their line, with their own highlight */
+.bgv { font-size: 0.715em; font-weight: 600; line-height: 1.35; margin-top: 0.13em; opacity: 0.7; }
+.bgv .w::after { font-weight: 700; }
+.line.active .bgv .w.now { font-weight: 700; transform: scale(1.08); }
+
+/* interlude countdown: three dots in place of the next line */
+.dots {
+  --dot: 11px;
+  --dot-gap: 9px;
+  --dots-h: 44px;
+  display: flex;
+  gap: var(--dot-gap);
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: height 0.3s ease, opacity 0.3s ease;
+}
+.dots.on { height: var(--dots-h); opacity: 1; overflow: visible; }
+.dots.left, .dots.plainside { justify-content: flex-start; }
+.dots.right { justify-content: flex-end; }
+.dots.center { justify-content: center; }
+.dots .row { display: flex; gap: var(--dot-gap); align-items: center; transform-origin: calc(var(--dot) * 1.8) 50%; }
+.dots.right .row { transform-origin: calc(100% - var(--dot) * 1.8) 50%; }
+.dots.center .row { transform-origin: 50% 50%; }
+.dots i {
+  display: block;
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--active);
+  opacity: 0.25;
+}

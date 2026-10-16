@@ -1,13 +1,20 @@
-// Audio-reactive spectrum source. Captures the default sink's monitor via
-// PulseAudio/PipeWire (parec), runs an FFT, and emits log-spaced band levels.
-// This reads the decoded OUTPUT, so it works with DRM audio that the in-page
+// Audio-reactive spectrum for the visualizer: an FFT over the decoded output, emitted as log-spaced
+// band levels (0..1). It reads the output, not the page, so it works with DRM audio that the in-page
 // Web Audio API is forbidden from analyzing.
+//
+// Audio source (main.js): Sonata's OWN stream, the same capture as "Refine timing by listening"
+// (audio-listen.js, `parec --monitor-stream`), fed in with push(). Only when our stream can't be
+// found (e.g. a pactl without JSON output) does startMonitor() fall back to the default sink's
+// monitor, i.e. the whole system mix, as before 0.15.22.
 const { spawn, execFileSync } = require('child_process')
 
-const RATE = 44100
-const N = 2048          // FFT window
+const RATE = 22050      // audio-listen.js's rate, so one capture can feed both
+const N = 1024          // FFT window: 46 ms at 22.05 kHz (as 2048 at 44.1 kHz before)
 const HOP = N / 2       // 50% overlap -> ~43 frames/sec
 const BANDS = 48
+const LOW = 35
+const HIGH = 10500       // just under Nyquist (11025 Hz)
+const GAIN = 2048 / N    // keeps band levels where they were with the old 2048-point window
 
 // iterative radix-2 FFT (in place), no dependencies
 function fft(re, im) {
@@ -38,7 +45,7 @@ function fft(re, im) {
 
 const edges = []
 for (let b = 0; b <= BANDS; b++) {
-  const f = 35 * Math.pow(17000 / 35, b / BANDS)
+  const f = LOW * Math.pow(HIGH / LOW, b / BANDS)
   edges.push(Math.min(N / 2 - 1, Math.max(1, Math.round(f * N / RATE))))
 }
 const hann = new Float64Array(N)
@@ -58,11 +65,33 @@ class Visualizer {
     this.proc = null
     this.buf = Buffer.alloc(0)
     this.ring = new Float64Array(N)
+    this.head = 0             // next write position in the circular ring
+    this.pending = 0          // new samples since the last frame
     this.filled = 0
     this.smooth = new Float64Array(BANDS)
+    // lifetime: reused every frame (no per-frame garbage)
+    this.re = new Float64Array(N)
+    this.im = new Float64Array(N)
   }
 
-  start() {
+  /** Mono samples (-1..1, RATE Hz), e.g. audio-listen.js's mid channel. */
+  push(samples) {
+    // loop: one pass over the chunk (~440 samples per 20 ms) · emits a frame per HOP samples
+    for (let i = 0; i < samples.length; i++) this.addSample(samples[i])
+  }
+
+  addSample(v) {
+    this.ring[this.head] = v                 // circular: head is the oldest sample after the write
+    this.head = (this.head + 1) % N
+    if (this.filled < N) this.filled++
+    if (++this.pending >= HOP) {
+      this.pending = 0
+      if (this.filled >= N) this.emit()
+    }
+  }
+
+  /** Fallback: capture the default sink's monitor (whole system) with our own parec. */
+  startMonitor() {
     if (this.proc) return
     const monitor = defaultMonitor()
     try {
@@ -74,34 +103,28 @@ class Visualizer {
       console.error('visualizer: parec not available:', e.message)
       return
     }
+    // error: a missing parec (ENOENT) lands here; the visualizer just shows no spectrum
     this.proc.on('error', (e) => console.error('visualizer capture error:', e.message))
     this.proc.stdout.on('data', (chunk) => this.onData(chunk))
   }
 
   onData(chunk) {
-    this.buf = chunk.length ? Buffer.concat([this.buf, chunk]) : this.buf
-    // slide the ring buffer forward by HOP samples each frame
-    while (this.buf.length >= HOP * 2) {
-      // shift existing samples left by HOP, append HOP new ones
-      this.ring.copyWithin(0, HOP)
-      for (let i = 0; i < HOP; i++) this.ring[N - HOP + i] = this.buf.readInt16LE(i * 2) / 32768
-      this.buf = this.buf.subarray(HOP * 2)
-      if (this.filled < N) { this.filled += HOP; if (this.filled < N) continue }
-      this.emit()
-    }
+    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
+    const whole = this.buf.length - (this.buf.length % 2)
+    // loop: one pass over the chunk's samples · ends with the chunk
+    for (let i = 0; i < whole; i += 2) this.addSample(this.buf.readInt16LE(i) / 32768)
+    this.buf = whole < this.buf.length ? Buffer.from(this.buf.subarray(whole)) : Buffer.alloc(0)
   }
 
-  // lifetime: allocates two 16 KB Float64Arrays + a 48-entry array per frame (~43/s) while the visualizer is
-  // open; short-lived, collected by the young-generation GC. Cosmetic, left as is.
   emit() {
-    const re = new Float64Array(N), im = new Float64Array(N)
-    for (let i = 0; i < N; i++) re[i] = this.ring[i] * hann[i]
+    const re = this.re, im = this.im
+    for (let i = 0; i < N; i++) { re[i] = this.ring[(this.head + i) % N] * hann[i]; im[i] = 0 }
     fft(re, im)
     const bars = new Array(BANDS)
     for (let b = 0; b < BANDS; b++) {
       let sum = 0, cnt = 0
-      for (let k = edges[b]; k < edges[b + 1]; k++) { sum += Math.hypot(re[k], im[k]); cnt++ }
-      let v = cnt ? sum / cnt : 0
+      for (let k = edges[b]; k < Math.max(edges[b] + 1, edges[b + 1]); k++) { sum += Math.hypot(re[k], im[k]); cnt++ }
+      let v = cnt ? GAIN * sum / cnt : 0
       v = Math.log10(1 + v * 4) / 2.2               // perceptual compression
       this.smooth[b] = Math.max(v, this.smooth[b] * 0.82)  // attack fast, decay slow
       bars[b] = Math.max(0, Math.min(1, this.smooth[b]))
@@ -109,13 +132,22 @@ class Visualizer {
     this.onBands(bars)
   }
 
-  // lifetime: stop() kills parec and resets buffers; main.js calls it on visualizer 'closed'
+  /** No audio (paused): forget the window and show silence once. */
+  silence() {
+    this.ring.fill(0)
+    this.filled = this.pending = this.head = 0
+    this.smooth.fill(0)
+    this.onBands(new Array(BANDS).fill(0))
+  }
+
+  // lifetime: stop() kills the fallback parec (if any) and resets buffers; main.js calls it on
+  // visualizer 'closed'
   stop() {
     if (this.proc) { this.proc.kill(); this.proc = null }
     this.buf = Buffer.alloc(0)
-    this.filled = 0
+    this.filled = this.pending = 0
     this.smooth.fill(0)
   }
 }
 
-module.exports = { Visualizer, BANDS }
+module.exports = { Visualizer, BANDS, RATE }
