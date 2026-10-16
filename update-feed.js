@@ -20,16 +20,14 @@ const FEED_URLS = {
 const LEGACY_FEED_URL = `https://github.com/${REPO}/releases/latest/download/latest-linux.yml`
 const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`
 
-// PLACEHOLDER: not a real key. Nobody holds its private half. Replace it with
-// the base64 SPKI DER that tools/feed-keygen.mjs prints (docs/RELEASING.md).
-// While only the placeholder is listed, signingReady() is false and the updater
-// falls back to the CURRENT unsigned latest-linux.yml path, so existing installs
-// keep updating until the real key ships.
+// PLACEHOLDER_KEY is kept for the tests and the fallback logic: while only the
+// placeholder is listed, signingReady() is false and the updater falls back to the
+// unsigned latest-linux.yml path. The real key is in TRUSTED_KEYS below.
 const PLACEHOLDER_KEY = 'PLACEHOLDER-SONATA-FEED-PUBLIC-KEY'
 // base64 SPKI DER (`openssl pkey -pubout -outform DER | base64`). A list so the
 // key can be rotated: ship the new key in one release, start signing with it in the next.
 const TRUSTED_KEYS = [
-  PLACEHOLDER_KEY
+  'MCowBQYDK2VwAyEAVxFXyg3ED8cezVoKuB4w1n4lpaOx8au7hepDDg6R0WE=', // 2026-10, ~/.config/sonata-release on the developer's PC
 ]
 
 const signingReady = (keys = TRUSTED_KEYS) => keys.some((k) => k !== PLACEHOLDER_KEY)

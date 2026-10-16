@@ -43,19 +43,19 @@
     -webkit-app-region: no-drag;
     flex-shrink: 0;
     position: relative;
-    width: 34px;
-    height: 34px;
+    width: 51px;
+    height: 51px;
     display: none;
     cursor: pointer;
     perspective: 200px;
   }
   #art.shown { display: block; }
-  #ring { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
+  #ring { position: absolute; inset: 0; width: 51px; height: 51px; transform: rotate(-90deg); }
   #ring circle { fill: none; stroke-width: 2; }
   #ring .track { stroke: var(--border); }
   #ring .fill { stroke: var(--active); stroke-linecap: round; }
-  #spin { position: absolute; inset: 3px; border-radius: 50%; }
-  body.spin #spin { animation: spin 9s linear infinite; }
+  #spin { position: absolute; inset: 4.5px; border-radius: 50%; }
+  body.spin #spin { animation: spin var(--turn, 1.8s) linear infinite; }
   body.spin.still #spin { animation-play-state: paused; }
   @keyframes spin { to { transform: rotate(360deg); } }
   #thumb {
@@ -275,7 +275,8 @@
     ringFill.style.strokeDashoffset = String(offset)
   }
 
-  // loop: album art spin · CSS animation (rotate, 9 s per turn, compositor only) · runs only with
+  // loop: album art spin · CSS animation (rotate at record speed: 33⅓ rpm = 1.8 s per turn for
+  // albums, 45 rpm = 1.333 s for singles/EPs; compositor only) · runs only with
   // Settings → "Spin album art like a record" on (off by default), art shown, window visible and
   // music playing · paused via animation-play-state when hidden or paused · cost in docs/PERFORMANCE.md
   let spin = false
@@ -318,6 +319,8 @@
   }
 
   ipcRenderer.on('lyrics-data', (event, data) => {
+    // record speed for the spin: singles and EPs were 7" 45s, albums 33⅓ LPs
+    document.body.style.setProperty('--turn', / - (Single|EP)$/i.test(data.album || '') ? '1.333s' : '1.8s')
     lines = data.estimate ? T.estimateWords(data.lines || []) : (data.lines || [])
     duration = Number(data.duration) || 0
     updateRing(0, true)

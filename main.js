@@ -403,7 +403,7 @@ function createLyricsWindow() {
         lyricsKey = key
         const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, duration: state.duration, lines: got.lines, source: got.source, estimate: !!settings.estimatedWordTiming })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines: got.lines, source: got.source, estimate: !!settings.estimatedWordTiming })
         }
       }
       // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
