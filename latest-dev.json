@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.15",
-  "file": "sonata-0.15.15-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.15/sonata-0.15.15-x86_64.AppImage",
-  "sha512": "1266181a1ffb80a89a3e3265fe637238c15300b0981d8e2b0b0d4ed459ace1ff48adef2f2d2467fefa33c032635641e5cadee4c6095b6b5f9e70b5fc032448d2",
-  "size": 125818452,
-  "date": "2026-10-16T05:39:54Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.15",
-  "notes": "### Added\n\n- **Update channel** (Settings → Updates): **Stable** (the default) gets tested releases; **Development** also gets newer development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds.\n- **Estimated word timing:** songs that only have line timing now follow the words too, with each line spread across its words. Marked \"Word timing estimated\"; Settings → *Estimated word timing* turns it off.\n\n### Changed\n\n- **Signed updates.** Sonata now only installs an update whose feed is signed with the project's Ed25519 key and whose download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.\n- **The album art is now a little vinyl record** in the lyrics window: bigger, your cover fills the middle with a grooved vinyl rim and a spindle hole, inside the progress ring.\n- **Record speed** for *Spin album art like a record*: **Relaxed** (default, a calm turn) or **True** (33⅓ rpm for albums, 45 for singles and EPs, like the vinyl).\n- Releases are published by the release workflow (development builds as prereleases), and the update feeds are generated and signed in CI, never by hand."
+  "version": "0.15.17",
+  "file": "sonata-0.15.17-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.17/sonata-0.15.17-x86_64.AppImage",
+  "sha512": "4676c09df57d832023463a9d596ef50df9a268a67187eec6a10f598526821a47102dc1af04395ec4169eeedfc831294eda4c3856175187c00b7e9665a55b1f74",
+  "size": 125818489,
+  "date": "2026-10-16T06:00:45Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.17",
+  "notes": "### Changed\n\n- When the lyrics service is busy or offline, the lyrics window says so (\"Lyrics service busy, trying again…\") instead of \"No lyrics available\", and retries on its own while open: after 30 s, 1 min, then every 2 min.\n- The lyrics window header shows the song title larger and bolder, with the artist underneath, sized to sit next to the record."
 }
