@@ -52,10 +52,10 @@
   button:hover { background: var(--s-hover); }
   button:focus { outline: none; }
   button:focus-visible, #seek:focus-visible, #volume:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
-  button svg { width: 17px; height: 17px; fill: currentColor; }
-  #playpause svg { width: 20px; height: 20px; }
+  button svg { width: 20px; height: 20px; fill: currentColor; }
+  #playpause svg { width: 23px; height: 23px; }
   button.small { color: var(--s-soft); }
-  button.small svg { width: 15px; height: 15px; }
+  button.small svg { width: 17px; height: 17px; }
   button.small:hover { color: var(--s-text); }
   button.active, button.small.active { color: var(--s-ring); }
   #controls, #right { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
@@ -106,11 +106,11 @@
   #line i, #seek-fill { display: block; height: 100%; width: 100%; background: var(--s-text); transform-origin: left center; transform: scaleX(0); }
   /* the scrubber: bigger, brighter times over a longer, thicker bar */
   #times { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--s-text); padding: 0 1px; }
-  #seek { position: relative; height: 20px; cursor: pointer; border-radius: 4px; }
-  #seek-track { position: absolute; left: 0; right: 0; top: 7px; height: 6px; border-radius: 3px; background: var(--s-track); overflow: hidden; }
+  #seek { position: relative; height: 24px; cursor: pointer; border-radius: 4px; }
+  #seek-track { position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: 3px; background: var(--s-track); overflow: hidden; }
   #seek-knob {
     position: absolute;
-    top: 3px;
+    top: 5px;
     left: 0;
     width: 14px;
     height: 14px;

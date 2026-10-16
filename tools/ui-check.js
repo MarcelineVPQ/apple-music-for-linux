@@ -444,7 +444,7 @@ async function lyrics() {
   for (const dark of [false, true]) {
     await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(800)
     await send('lyrics-data', data); await send('lyrics-time', 13, false); await sleep(800)
-    const tag = 'lyrics-' + (dark ? 'dark' : 'light') + '-' + path.basename(process.env.SONATA_TEST_ARTWORK || 'no-art', '.png')
+    const tag = 'lyrics-' + (dark ? 'dark' : 'light') + '-' + LABEL
     const b = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return w.getBounds() })()`)
     await sleep(400)
     xshot(path.join(OUT, tag + '.png'), b.width, b.height)

@@ -53,7 +53,7 @@ const MAIN_COUNTS = `(() => {
   const { ipcMain, BaseWindow, webContents } = process.mainModule.require('electron')
   const win = BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length === 2)
   const [a, r] = win.contentView.children
-  const ch = ['rail:command', 'rail:focus-in', 'lyrics-command', 'mini-command', 'settings:set', 'settings:action', 'viz-close']
+  const ch = ['rail:command', 'rail:focus-in', 'panel:command', 'apple:volume', 'lyrics-command', 'mini-command', 'viz-close']
   return {
     ipc: Object.fromEntries(ch.map((n) => [n, ipcMain.listenerCount(n)])),
     apple: Object.fromEntries(['dom-ready', 'did-navigate', 'before-input-event', 'page-title-updated', 'will-navigate', 'focus'].map((n) => [n, a.webContents.listenerCount(n)])),
@@ -277,10 +277,10 @@ async function keys() {
   // arrows, Home/End
   const order = []
   x('key', 'home'); await sleep(150); order.push((await v.rail.ev(RAIL_STATE)).focused)
-  for (let i = 0; i < 6; i++) { x('key', 'down'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused) }
+  for (let i = 0; i < 7; i++) { x('key', 'down'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused) }
   x('key', 'up'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused)
   x('key', 'end'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused)
-  check('arrow keys move focus (Home, Down x6 wraps, Up, End)', JSON.stringify(order) === JSON.stringify(['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'lyrics', 'lock', 'lock']), order)
+  check('arrow keys move focus (Home, Down x7 wraps, Up, End)', JSON.stringify(order) === JSON.stringify(['lyrics', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'lyrics', 'lock', 'lock']), order)
   x('key', 'esc'); await sleep(500)
   r = await v.rail.ev(RAIL_STATE)
   let L = await mp.ev(LAYOUT)
@@ -307,11 +307,13 @@ async function keys() {
   if (!(await onRail())) { x('key', 'F6'); await sleep(300) }
   await v.rail.ev('(() => { document.querySelector("[data-rail=settings]").focus({ focusVisible: true }); return true })()')
   x('key', 'space')
-  const setOpen = await waitFor(async () => (await winTitles(mp)).includes('Sonata — Settings'))
+  const panelShown = async () => (await mp.ev(settingsFile)).panelShown === true
+  const setOpen = await waitFor(panelShown)
   await sleep(400)
   r = await v.rail.ev(RAIL_STATE)
-  check('Space on Settings opens Settings; aria-current=true', setOpen && r.rows.find((x) => x.id === 'settings').aria.current === 'true')
-  await closeWin(mp, 'Sonata — Settings'); await sleep(500)
+  check('Space on Settings shows the side panel; aria-pressed=true', setOpen && r.rows.find((x) => x.id === 'settings').aria.pressed === 'true')
+  x('key', 'space'); await sleep(600)
+  check('Space again hides it (the current item toggles its panel)', !(await panelShown()))
   // Ctrl+B from Apple's view and from the rail's view
   x('move', 400, 300); x('click', 600, 40); await sleep(300)
   x('key', 'ctrl+b'); await sleep(800)
@@ -354,7 +356,7 @@ async function keys() {
   check('nav has an accessible name', r.navLabel === 'Sonata')
   const btns = r.rows.filter((x) => x.button)
   check('every button has aria-label + tooltip', btns.every((b) => b.aria.label && b.aria.title), btns.map((b) => b.aria.label))
-  check('toggles carry aria-pressed, Settings aria-current only when open', ['lyrics', 'visualizer', 'mini', 'pin', 'lock'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)) && btns.find((b) => b.id === 'settings').aria.pressed === null)
+  check('every item carries aria-pressed (windows open, the panel showing its page)', ['lyrics', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)))
   check('tooltips name the shortcuts', /Ctrl\+Shift\+L/.test(btns.find((b) => b.id === 'lyrics').aria.title) && /Ctrl\+Shift\+V/.test(btns.find((b) => b.id === 'visualizer').aria.title) && /Ctrl\+M/.test(btns.find((b) => b.id === 'mini').aria.title))
   check('aria-keyshortcuts set', btns.find((b) => b.id === 'lyrics').aria.keys === 'Control+Shift+L')
   const st = r.rows.filter((x) => !x.button)
@@ -367,8 +369,9 @@ async function keys() {
   r = await v.rail.ev(RAIL_STATE); L = await mp.ev(LAYOUT)
   // closed at once; the view then narrows to 52, which leaves the pointer over Apple's page (no reopen)
   check('a pointer pick closes the rail at once and the view narrows', !r.open && L.rail.width === 52, { view: r.view, railW: L.rail.width })
-  check('the pick ran its command (Settings opened)', await waitFor(async () => (await winTitles(mp)).includes('Sonata — Settings')))
-  await closeWin(mp, 'Sonata — Settings'); await sleep(500)
+  check('the pick ran its command (the Settings panel shows)', await waitFor(async () => (await mp.ev(settingsFile)).panelShown === true))
+  x('move', W - 20, 139); await sleep(700); x('click', W - 120, 139); await sleep(900)
+  check('the same item again hides the panel', !(await mp.ev(settingsFile)).panelShown)
   x('move', 300, 300); await sleep(600); x('move', W - 20, 101); await sleep(900)
   x('click', W - 120, 101)
   check('Mini Player from the rail opens the mini player', await waitFor(async () => (await winTitles(mp)).includes('Sonata — Mini Player')))

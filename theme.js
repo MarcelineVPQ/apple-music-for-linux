@@ -106,7 +106,7 @@
     // the album accent as words (the sung lyric line): pushed toward the text colour until 4.5:1 on
     // the card (plain or Glass) over anything
     let accentText = accent
-    const accentOk = (c) => Math.min(worstContrast(c, overLayers()), worstContrast(c, matLayers(), matBackdrops)) >= TARGET
+    const accentOk = (c) => Math.min(worstContrast(c, overLayers()), worstContrast(c, matLayers(), matBackdrops)) >= TARGET + 0.15
     // loop: NOT-WORTH — at most 25 steps
     for (let i = 0; i < 25 && !accentOk(accentText); i++) accentText = mix(accentText, text, 0.08)
     // dim words (lyric lines not being sung): the text, faded only as far as 3:1 allows
