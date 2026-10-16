@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.28] — Syllable bounce
+
+- The sung syllable no longer grows into its neighbours: it bounces up (a small overshoot), grows only slightly (1.12×) and glows, so letters never overlap.
+
 ## [0.15.27] — Bigger syllable pop
 
 - The syllable being sung now lifts, grows to 1.3× (1.25× in background vocals) and brightens, so the karaoke pop reads at a glance.
