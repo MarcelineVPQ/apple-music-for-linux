@@ -221,3 +221,26 @@ test('resolver: a busy result is not cached, so a retry asks again', async () =>
   assert.equal((await getLyrics(song)).error, 'busy')
   assert.deepEqual(await getLyrics(song), { lines: [{ t: 1, text: 'back' }], source: 'lrclib' })
 })
+
+function memStore() { const m = new Map(); return { m, get: (k) => m.get(k) || null, set: (k, v) => m.set(k, v) } }
+
+test('resolver + store: good results are stored, and served from the store next time without lookups', async () => {
+  const store = memStore()
+  let apple = 0
+  const mk = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">x</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
+  await mk()(song)
+  assert.equal(apple, 1)
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
+  assert.deepEqual(await mk()(song), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
+  assert.equal(apple, 1)
+})
+
+test('resolver + store: busy and empty results are not stored; stored LRCLIB lyrics are skipped when LRCLIB is off', async () => {
+  const store = memStore()
+  const busy = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => { throw new Error('503') }, lrclibEnabled: () => true, store })
+  await busy(song)
+  assert.equal(store.m.size, 0)
+  store.m.set('T|A', { lines: [{ t: 1, text: 'l' }], source: 'lrclib' })
+  const off = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => [], lrclibEnabled: () => false, store })
+  assert.deepEqual(await off(song), { lines: [], source: '' })
+})

@@ -298,10 +298,10 @@ function createMiniWindow() {
 
 // Fetch Apple's time-synced (TTML) lyrics for the current song through the
 // page's MusicKit API session
-const lyricsFetchScript = `(async () => {
+const lyricsFetchScriptFor = (offset) => `(async () => {
   try {
     const mk = MusicKit.getInstance();
-    const item = mk.nowPlayingItem;
+    const item = ${offset ? `mk.queue && mk.queue.items ? mk.queue.items[mk.queue.position + ${offset}] : null` : 'mk.nowPlayingItem'};
     if (!item) return { ok: false };
     const attrs = item.attributes || {};
     const pp = attrs.playParams || {};
@@ -322,6 +322,20 @@ const lyricsFetchScript = `(async () => {
   } catch (e) {
     return { ok: true, ttml: '' };
   }
+})()`
+const lyricsFetchScript = lyricsFetchScriptFor(0)
+
+// The next song in the play queue (for lyrics prefetch); same fields as nowPlayingScript uses.
+const nextItemScript = `(() => {
+  try {
+    const mk = MusicKit.getInstance();
+    const q = mk.queue;
+    const item = q && q.items ? q.items[q.position + 1] : null;
+    const a = item && item.attributes;
+    if (!a || !a.name) return { ok: false };
+    return { ok: true, title: a.name, artist: a.artistName || '', album: a.albumName || '',
+             duration: a.durationInMillis ? a.durationInMillis / 1000 : 0 };
+  } catch (e) { return { ok: false }; }
 })()`
 
 // Clicks a link to the playing song's album already in the page (now-playing bar, lists), found
@@ -352,11 +366,14 @@ const lyricsSources = require('./lyrics-sources')
 
 // Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
 // Chromium's network stack, like the rest of the app.
+// lyrics cache on disk (created in app 'ready', when userData is known)
+let lyricsStore = null
 const getLyrics = lyricsSources.createLyricsResolver({
-  fetchApple: async () => {
-    const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
+  fetchApple: async (state) => {
+    const res = await mainWindow.webContents.executeJavaScript(state.queueOffset ? lyricsFetchScriptFor(state.queueOffset) : lyricsFetchScript)
     return (res && res.ttml) || ''
   },
+  store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
   fetchLrclib: (state) => lyricsSources.fetchLrclib(state, {
     fetch: (url, opts) => net.fetch(url, opts),
     userAgent: 'Sonata/' + app.getVersion() + ' (https://github.com/MarcelineVPQ/apple-music-for-linux)'
@@ -364,6 +381,20 @@ const getLyrics = lyricsSources.createLyricsResolver({
   lrclibEnabled: () => !!settings.lrclibFallback,
   log: (msg) => console.error(msg)
 })
+
+// Prefetch: once the current song's lyrics are in, look up the next queued song's quietly, so a
+// busy lyrics service is usually over before it starts. One lookup per track (in-memory and disk
+// caches make repeats free); never retried here, the normal retry handles that song when it plays.
+// loop: none (one call per track change while the lyrics window is open)
+let prefetchedAfter = ''
+async function prefetchNextLyrics(currentKey) {
+  if (prefetchedAfter === currentKey || !mainAlive()) return
+  prefetchedAfter = currentKey
+  try {
+    const next = await mainWindow.webContents.executeJavaScript(nextItemScript)
+    if (next && next.ok && next.title) await getLyrics(Object.assign(next, { queueOffset: 1 }))
+  } catch (e) { /* prefetch is best effort */ }
+}
 
 function createLyricsWindow() {
   lyricsWindow = new BrowserWindow(applySavedBounds({
@@ -411,7 +442,10 @@ function createLyricsWindow() {
         if (got.error) {
           const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
           lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
-        } else lyricsRetry = null
+        } else {
+          lyricsRetry = null
+          prefetchNextLyrics(key)
+        }
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
           lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines: got.lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming })
         }
@@ -1528,6 +1562,8 @@ app.whenReady().then(async () => {
   discordConfigPath = path.join(app.getPath('userData'), 'discord.json')
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
+  lyricsStore = require('./lyrics-store').createLyricsStore({ file: path.join(app.getPath('userData'), 'lyrics-cache.json') })
+  app.on('before-quit', () => { if (lyricsStore) lyricsStore.flush() })
   loadSettings()
   applyAutostart()
   cleanupWindowPositionMemory()

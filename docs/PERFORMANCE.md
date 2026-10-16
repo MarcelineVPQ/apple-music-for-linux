@@ -155,3 +155,5 @@ paused while the window is hidden or the music is paused.
 - Many-hour growth: the cycle test covers 20 window lifetimes, not a full day.
 
 | lyrics retry (main.js lyrics poll) | 30 s, 60 s, then 120 s after a failed lyrics lookup | lyrics window open, same song | success, track change, window close | one lookup per retry; capped backoff |
+| lyrics prefetch (main.js prefetchNextLyrics) | once per track change | lyrics window open, current lyrics found | — | one lookup per track; cached in memory and on disk |
+| lyrics disk cache (lyrics-store.js) | debounced write 2 s after changes | after a good lookup | write done; flush on quit | ≤ 2,000 entries / 20 MB, LRU; atomic temp+rename |

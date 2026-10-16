@@ -256,7 +256,7 @@ async function fetchLrclib(state, deps) {
  * cached per title|artist (max 50) so several windows share one lookup;
  * empty results are not cached, so the next play retries.
  * deps: { fetchApple(state) -> ttml string, fetchLrclib(state) -> lines,
- *         lrclibEnabled() -> bool, log(msg) }
+ *         lrclibEnabled() -> bool, log(msg), store? ({ get(key), set(key, value) }, on disk) }
  */
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
@@ -267,15 +267,24 @@ function createLyricsResolver(deps) {
     const key = state.title + '|' + state.artist
     if (cache.has(key)) return cache.get(key)
     const job = (async () => {
+      // the on-disk store first (songs played before); LRCLIB results only while LRCLIB is enabled
+      const stored = deps.store ? deps.store.get(key) : null
+      if (stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())) {
+        return { lines: stored.lines, source: stored.source }
+      }
+      const remember = (result) => {
+        if (deps.store && result.lines.length) deps.store.set(key, { lines: result.lines, source: result.source })
+        return result
+      }
       try {
         const ttml = await deps.fetchApple(state)
         const lines = ttml ? parseTtml(ttml) : []
-        if (lines.length) return { lines, source: 'apple' }
+        if (lines.length) return remember({ lines, source: 'apple' })
       } catch (e) { /* no Apple lyrics */ }
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
-          if (lines.length) return { lines, source: 'lrclib' }
+          if (lines.length) return remember({ lines, source: 'lrclib' })
         } catch (e) {
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
           // the service failed (busy, rate limit, offline): not the same as "no lyrics"

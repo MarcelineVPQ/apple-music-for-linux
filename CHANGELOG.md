@@ -7,6 +7,13 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.18] — Lyrics load faster
+
+### Added
+
+- **Lyrics remembered on disk:** songs you've played before show their lyrics instantly, even offline (up to about 2,000 songs / 20 MB, oldest dropped first).
+- **Next song prefetched:** while a song plays with the lyrics window open, Sonata quietly looks up the next song's lyrics, so they're ready when it starts.
+
 ## [0.15.17] — Clearer lyrics header, lyrics retry
 
 ### Changed
