@@ -38,33 +38,60 @@
     color: var(--fg);
     overflow: hidden;
   }
-  /* album art: a round cover with a progress ring; click shows the album in the main window */
+  /* album art as a little vinyl record: grooved black disc, the cover as its centre label and a
+     spindle hole, inside a progress ring; click shows the album in the main window */
   #art {
     -webkit-app-region: no-drag;
     flex-shrink: 0;
     position: relative;
-    width: 51px;
-    height: 51px;
+    width: 62px;
+    height: 62px;
     display: none;
     cursor: pointer;
     perspective: 200px;
   }
   #art.shown { display: block; }
-  #ring { position: absolute; inset: 0; width: 51px; height: 51px; transform: rotate(-90deg); }
-  #ring circle { fill: none; stroke-width: 2; }
+  #ring { position: absolute; inset: 0; width: 62px; height: 62px; transform: rotate(-90deg); }
+  #ring circle { fill: none; stroke-width: 1.2; }
   #ring .track { stroke: var(--border); }
   #ring .fill { stroke: var(--active); stroke-linecap: round; }
-  #spin { position: absolute; inset: 4px; border-radius: 50%; overflow: hidden; }
+  #spin {
+    position: absolute;
+    inset: 4px;
+    border-radius: 50%;
+    overflow: hidden;
+    /* grooves: fine concentric rings; a faint sheen so the turn reads like real vinyl */
+    background:
+      conic-gradient(from 20deg, transparent 0 8%, rgba(255, 255, 255, 0.10) 12%, transparent 18% 58%,
+                     rgba(255, 255, 255, 0.07) 62%, transparent 68%),
+      repeating-radial-gradient(circle, #141414 0 0.7px, #1f1f1f 0.7px 1.4px);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
   body.spin #spin { animation: spin var(--turn, 1.8s) linear infinite; }
   body.spin.still #spin { animation-play-state: paused; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* the label: the album cover, about the size of a real label relative to an LP */
   #thumb {
+    position: absolute;
+    inset: 27%;
+    width: 46%;
+    height: 46%;
     display: block;
-    width: 100%;   /* fills the spinning disc inside the ring */
-    height: 100%;
     border-radius: 50%;
     object-fit: cover;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+  /* spindle hole */
+  #spin::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 3px;
+    height: 3px;
+    margin: -1.5px 0 0 -1.5px;
+    border-radius: 50%;
+    background: #0b0b0b;
+    box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.25);
   }
   #header {
     flex-shrink: 0;

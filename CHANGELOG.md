@@ -17,7 +17,7 @@ See docs/RELEASING.md.
 ### Changed
 
 - **Signed updates.** Sonata now only installs an update whose feed is signed with the project's Ed25519 key and whose download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.
-- **Bigger album art** in the lyrics window (+50 %), with the progress ring scaled to match.
+- **The album art is now a little vinyl record** in the lyrics window: bigger, a grooved disc with your cover as the centre label, inside the progress ring.
 - **Record speed** for *Spin album art like a record*: **Relaxed** (default, a calm turn) or **True** (33⅓ rpm for albums, 45 for singles and EPs, like the vinyl).
 - Releases are published by the release workflow (development builds as prereleases), and the update feeds are generated and signed in CI, never by hand.
 
