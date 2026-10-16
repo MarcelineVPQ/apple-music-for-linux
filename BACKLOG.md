@@ -16,3 +16,9 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | 0.15.10: scaled words stay inside the padding | **Done** | The sung word grows inward at a row's start (left lines) or end (right lines). |
 | After 0.15.10: romanization and translations | **Planned** | From Apple's lyrics data when present; a toggle in the lyrics window, shown only when the song has it. |
 | After 0.15.10: songwriter credits | **Planned** | "Written by …" at the end of the lyrics, from the same data. |
+| After 0.15.10: Electron update (own release) | **Planned** | castlabs 42.3.3 → 44.5.1+wvcus (stable 2026-10-03), then 45 once castlabs ships it stable. Must stay castlabs (Widevine). |
+| After 0.15.10: CI on GitHub | **Planned** | Tests on every push; CI checked after every push (first-class standard). |
+| After 0.15.10: gate tests | **Planned** | Every loop has a `// loop:` verdict; no duplicate code. |
+| After 0.15.10: CHANGELOG and release checklist | **Planned** | Same release discipline as the other projects. |
+| After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
+| Light mode active-line contrast | **Planned** | With album colours off, the active line is near-white on the light card (existing issue). |
