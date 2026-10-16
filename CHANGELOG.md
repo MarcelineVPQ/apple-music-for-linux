@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **The flying toasters fly like After Dark's.** The toast scene now starts with an empty sky. Toasters and slices of toast launch one by one from just off the top and right edges, swoop in fast and ease down to their own cruising speed, so they drift past each other and the gaps open and close. When one leaves at the bottom left it comes back a moment later with a new swoop and a new speed. Faster ones are nearer: they fly in front and look a little bigger. Wings beat faster during the swoop, then settle to the music's tempo. Once the sky is full it holds as many as before.
+
 ## [0.15.28] — Syllable bounce
 
 - The sung syllable no longer grows into its neighbours: it bounces up (a small overshoot), grows only slightly (1.12×) and glows, so letters never overlap.
