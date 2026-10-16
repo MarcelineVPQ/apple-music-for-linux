@@ -86,8 +86,9 @@ function parseLegacyFeed(text) {
 // latest.json / latest-dev.json, after its signature checked out. Every field is
 // validated: the download must be this repo's release file for this version,
 // and the Stable feed may never carry a development build.
-function parseSignedFeed(text, channel) {
+function parseSignedFeed(text, channel, prefix = DOWNLOAD_PREFIX) {
   let f
+  // error: PASSES-ON — thrown as the refusal the Updates section shows
   try { f = JSON.parse(text) } catch (e) { throw new Error('update refused: the signed feed is not valid JSON') }
   const bad = (what) => new Error('update refused: the signed feed ' + what)
   if (!f || typeof f !== 'object') throw bad('is empty')
@@ -95,29 +96,46 @@ function parseSignedFeed(text, channel) {
   if (!versionKey(f.version)) throw bad('has no valid version')
   if (channel === 'stable' && isDevVersion(f.version)) throw bad('offers a development build on Stable')
   if (f.file !== `sonata-${f.version}-x86_64.AppImage`) throw bad('names an unexpected file')
-  if (f.url !== `${DOWNLOAD_PREFIX}v${f.version}/${f.file}`) throw bad('points outside this repository\'s releases')
+  if (f.url !== `${prefix}v${f.version}/${f.file}`) throw bad('points outside this repository\'s releases')
   if (!/^[0-9a-f]{128}$/.test(f.sha512)) throw bad('has no SHA-512')
   if (!Number.isSafeInteger(f.size) || f.size <= 0) throw bad('has no size')
   return {
     version: f.version, file: f.file, url: f.url, size: f.size,
     hash: { algo: 'sha512', encoding: 'hex', value: f.sha512 },
-    notes: typeof f.notes === 'string' ? f.notes : '', date: f.date || '', signed: true
+    notes: typeof f.notes === 'string' ? f.notes : '', notesUrl: typeof f.notes_url === 'string' ? f.notes_url : '', date: f.date || '', signed: true
   }
+}
+
+// Test feed (0.15.32, as in the DS5 app): SONATA_UPDATE_FEED=http://127.0.0.1:8765/ points the updater
+// at a server on this machine, so a whole update (signature, hash, swap, Back to stable) can be
+// exercised before anything is published. Loopback http only, so nothing on the network can stand in
+// for GitHub; downloads must then come from the same server. SONATA_UPDATE_PUBKEY (base64 SPKI) adds
+// a test key, only together with such a feed, never for the real one. -> null, or the feed's settings
+function testFeed(env) {
+  const raw = env && env.SONATA_UPDATE_FEED
+  if (!raw) return null
+  let u
+  try { u = new URL(raw) } catch (e) { return null }   // error: NOT-WORTH — not a URL: no test feed
+  if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(u.hostname)) return null
+  const base = u.href.endsWith('/') ? u.href : u.href + '/'
+  const key = typeof env.SONATA_UPDATE_PUBKEY === 'string' && /^[A-Za-z0-9+/=]{40,200}$/.test(env.SONATA_UPDATE_PUBKEY) ? [env.SONATA_UPDATE_PUBKEY] : []
+  return { urls: { stable: base + 'latest.json', dev: base + 'latest-dev.json' }, prefix: base, keys: TRUSTED_KEYS.concat(key) }
 }
 
 // One check: what the feed for `channel` offers. fetchText(url) -> Promise<string>.
 // With only the placeholder key, the old unsigned latest-linux.yml path is used
 // for both channels (it only ever lists Stable releases).
-async function fetchUpdate({ channel, fetchText, keys = TRUSTED_KEYS, log = () => {} }) {
+async function fetchUpdate({ channel, fetchText, keys = TRUSTED_KEYS, log = () => {}, test = null }) {
   if (channel !== 'dev') channel = 'stable'
+  if (test) keys = test.keys
   if (!signingReady(keys)) {
     log('update feed: no signing key in this build yet; using the unsigned latest-linux.yml (Stable only)')
     return parseLegacyFeed(await fetchText(LEGACY_FEED_URL))
   }
-  const url = FEED_URLS[channel]
+  const url = (test ? test.urls : FEED_URLS)[channel]
   const [text, sig] = await Promise.all([fetchText(url), fetchText(url + '.sig')])
   if (!feedSignedBy(text, sig, keys)) throw new Error(`update refused: ${url.split('/').pop()} is not signed by a trusted key`)
-  return parseSignedFeed(text, channel)
+  return parseSignedFeed(text, channel, test ? test.prefix : DOWNLOAD_PREFIX)
 }
 
 // Throws unless the downloaded file matches the feed's size and hash.
@@ -137,5 +155,5 @@ async function verifyDownload(filePath, update) {
 module.exports = {
   REPO, FEED_URLS, LEGACY_FEED_URL, PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
   signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion,
-  parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload
+  parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload, testFeed
 }
