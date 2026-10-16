@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# models, venv and bench audio live in ~/.local/share/sonata-align, never here
+*.npy
+*.pt
+*.th
+*.pth
