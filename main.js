@@ -305,9 +305,19 @@ const lyricsFetchScript = `(async () => {
     const attrs = item.attributes || {};
     const pp = attrs.playParams || {};
     const id = pp.catalogId || pp.id || item.id;
-    const res = await mk.api.music('/v1/catalog/{{storefront}}/songs/' + id + '/lyrics');
-    const data = res && res.data && res.data.data && res.data.data[0];
-    return { ok: true, ttml: (data && data.attributes && data.attributes.ttml) || '' };
+    // Word timing lives in /syllable-lyrics (what Apple's web player uses);
+    // /lyrics has line timing only, so it's the fallback.
+    const get = async (kind) => {
+      try {
+        const res = await mk.api.music('/v1/catalog/{{storefront}}/songs/' + id + '/' + kind);
+        const data = res && res.data && res.data.data && res.data.data[0];
+        const a = (data && data.attributes) || {};
+        const t = a.ttml || a.ttmlLocalizations;
+        return typeof t === 'string' ? t : '';
+      } catch (e) { return ''; }
+    };
+    const ttml = (await get('syllable-lyrics')) || (await get('lyrics'));
+    return { ok: true, ttml };
   } catch (e) {
     return { ok: true, ttml: '' };
   }
