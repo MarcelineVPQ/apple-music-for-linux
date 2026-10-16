@@ -7,10 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
-## [0.15.16] — Clearer lyrics header
+## [0.15.17] — Clearer lyrics header, lyrics retry
 
 ### Changed
 
+- When the lyrics service is busy or offline, the lyrics window says so ("Lyrics service busy, trying again…") instead of "No lyrics available", and retries on its own while open: after 30 s, 1 min, then every 2 min.
 - The lyrics window header shows the song title larger and bolder, with the artist underneath, sized to sit next to the record.
 
 ## [0.15.15] — Signed updates, Development channel, bigger album art

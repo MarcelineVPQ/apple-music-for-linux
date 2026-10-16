@@ -278,6 +278,8 @@ function createLyricsResolver(deps) {
           if (lines.length) return { lines, source: 'lrclib' }
         } catch (e) {
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
+          // the service failed (busy, rate limit, offline): not the same as "no lyrics"
+          return { lines: [], source: '', error: 'busy' }
         }
       }
       return { lines: [], source: '' }

@@ -134,9 +134,9 @@ test('resolver: Apple throwing still falls back; empty results are retried next 
   assert.equal(lrclibCalls, 2)
 })
 
-test('resolver: LRCLIB errors are logged, not thrown', async () => {
+test('resolver: LRCLIB errors are logged, not thrown, and reported as busy (not "no lyrics")', async () => {
   const { getLyrics, calls } = resolver({ lrclibError: 'lrclib HTTP 429' })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'busy' })
   assert.match(calls.logs[0], /429/)
 })
 
@@ -209,4 +209,15 @@ test('parseLrc: repeated enhanced line shifts its word stamps', () => {
 
 test('lrclibLines: plain lyrics still t null, synced keep old shape', () => {
   assert.deepEqual(L.lrclibLines({ syncedLyrics: '[00:01.00] a\n[00:02.00] b' }), [{ t: 1, text: 'a' }, { t: 2, text: 'b' }])
+})
+
+test('resolver: a busy result is not cached, so a retry asks again', async () => {
+  let n = 0
+  const getLyrics = L.createLyricsResolver({
+    fetchApple: async () => '',
+    fetchLrclib: async () => { n++; if (n === 1) throw new Error('lrclib HTTP 503'); return [{ t: 1, text: 'back' }] },
+    lrclibEnabled: () => true
+  })
+  assert.equal((await getLyrics(song)).error, 'busy')
+  assert.deepEqual(await getLyrics(song), { lines: [{ t: 1, text: 'back' }], source: 'lrclib' })
 })

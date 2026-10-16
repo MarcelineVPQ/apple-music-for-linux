@@ -153,3 +153,5 @@ paused while the window is hidden or the music is paused.
   really hidden there, and the visualizer's GPU/renderer cost (~2–3 %) didn't drop.
   Under KWin, Chromium's occlusion tracking should pause its rAF loop; not verified.
 - Many-hour growth: the cycle test covers 20 window lifetimes, not a full day.
+
+| lyrics retry (main.js lyrics poll) | 30 s, 60 s, then 120 s after a failed lyrics lookup | lyrics window open, same song | success, track change, window close | one lookup per retry; capped backoff |

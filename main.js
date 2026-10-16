@@ -26,6 +26,7 @@ let miniPoll = null
 let lyricsWindow = null
 let lyricsPoll = null
 let lyricsKey = ''
+let lyricsRetry = null  // { key, attempt, at } after a failed lyrics lookup
 let lyricsArt = ''
 let shuttingDown = false
 let lastfm = null
@@ -399,11 +400,20 @@ function createLyricsWindow() {
       if (!state || !state.ok || !lyricsWindow || lyricsWindow.isDestroyed()) return
 
       const key = state.title + '|' + state.artist
-      if (key !== lyricsKey) {
+      // loop: lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
+      // 30 s, 60 s, then every 120 s · only while the lyrics window is open and the song unchanged ·
+      // stops on success, track change or window close · cost one lookup per retry
+      // error: backoff capped at 120 s, so a down service is never hammered
+      const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
+      if (key !== lyricsKey || retryDue) {
         lyricsKey = key
         const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
+        if (got.error) {
+          const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
+          lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
+        } else lyricsRetry = null
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines: got.lines, source: got.source, estimate: !!settings.estimatedWordTiming })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines: got.lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming })
         }
       }
       // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
@@ -424,6 +434,7 @@ function createLyricsWindow() {
   // lifetime: 'closed' nulls lyricsWindow and clears lyricsPoll
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
+    lyricsRetry = null
     clearInterval(lyricsPoll)
     lyricsPoll = null
   })

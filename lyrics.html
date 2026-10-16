@@ -377,7 +377,7 @@
     if (!lines.length) {
       wordTimed = false
       linesEl.innerHTML = '<div id="empty">' +
-        (data.title ? 'No lyrics available for this song' : 'Play a song to see its lyrics') + '</div>'
+        (!data.title ? 'Play a song to see its lyrics' : data.status === 'busy' ? 'Lyrics service busy, trying again…' : 'No lyrics available for this song') + '</div>'
       return
     }
     wordTimed = T.hasWordTiming(lines)
