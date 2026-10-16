@@ -23,4 +23,10 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
 | Light mode active-line contrast | **Planned** | With album colours off, the active line is near-white on the light card (existing issue). |
 | View the album cover | **Planned** | Open the cover large (click or menu), as most players do. A missing basic feature. |
-| Feature comparison vs other players | **Building** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
+| Feature comparison vs other players | **Done** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
+| MPRIS fixes | **Planned** | (S) Desktop media widgets show no track length/progress (mpris:length unset) and the player is named "apple-music-for-linux", not Sonata. See docs/FEATURE-COMPARISON.md. |
+| Global shortcuts | **Planned** | (S–M) X11 directly; Wayland via the GlobalShortcuts portal (KDE supports it). |
+| Keyboard and accessibility pass | **Planned** | (S) aria labels, visible focus, reduced motion, keys in the mini player and lyrics; a lyrics shortcut and tray item. |
+| Easier Discord / Last.fm setup | **Planned** | (S/M) Ship a Discord app id; a Last.fm key can't ship its secret in open source. |
+| Equalizer | **Idea** | (M–L) A one-hour test first: Web Audio on DRM playback may be silent; PipeWire EQ on Sonata's stream is the safe route. |
+| Output device choice | **Idea** | (S–M) setSinkId likely works; fallback is moving the PipeWire stream. |
