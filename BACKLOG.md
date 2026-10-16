@@ -22,3 +22,5 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | After 0.15.10: CHANGELOG and release checklist | **Planned** | Same release discipline as the other projects. |
 | After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
 | Light mode active-line contrast | **Planned** | With album colours off, the active line is near-white on the light card (existing issue). |
+| View the album cover | **Planned** | Open the cover large (click or menu), as most players do. A missing basic feature. |
+| Feature comparison vs other players | **Building** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
