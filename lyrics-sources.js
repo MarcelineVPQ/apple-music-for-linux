@@ -103,6 +103,9 @@ async function fetchLrclib(state, deps) {
  *         lrclibEnabled() -> bool, log(msg) }
  */
 function createLyricsResolver(deps) {
+  // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
+  // are shared, so lyrics + visualizer windows trigger one fetch per track. Only used while lyrics or
+  // the visualizer is open. loop: none.
   const cache = new Map()
   return async function getLyrics(state) {
     const key = state.title + '|' + state.artist

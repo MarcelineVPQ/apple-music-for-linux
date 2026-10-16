@@ -6,6 +6,8 @@ const API_ROOT = 'https://ws.audioscrobbler.com/2.0/'
 // Last.fm scrobbling client. Credentials live in a JSON config file:
 // { "apiKey": "...", "apiSecret": "...", "sessionKey": "...", "username": "..." }
 // apiKey/apiSecret come from the user's own https://www.last.fm/api/account/create
+// loop: none · lifetime: no timers or listeners; one fetch per now-playing update / scrobble (per track),
+// called from main.js's 5 s now-playing loop only when connected
 class LastFm {
   constructor(configPath) {
     this.configPath = configPath

@@ -117,6 +117,9 @@
   </div>
 <script>
   const { ipcRenderer } = require('electron')
+  // loop: none in this page — reacts to 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
+  // lifetime: the three ipcRenderer.on listeners are added once at load and die with the window;
+  // 'lyrics-data' replaces innerHTML, so old line elements and their onclick closures are dropped per track
 
   // adaptive album color: tint the card + highlight the active line (null resets)
   ipcRenderer.on('palette', (event, p) => {

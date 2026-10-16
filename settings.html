@@ -120,6 +120,7 @@
   document.getElementById('discord-btn').onclick = () => ipcRenderer.send('settings:action',
     document.getElementById('discord-status').classList.contains('connected') ? 'disconnectDiscord' : 'connectDiscord')
 
+  // loop: none · lifetime: toggle listeners and this IPC listener are added once at load, die with the window
   ipcRenderer.on('settings:refresh', refresh)
   refresh()
 </script>

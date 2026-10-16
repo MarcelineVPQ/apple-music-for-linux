@@ -8,6 +8,7 @@ const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
+const { createCssReplacer } = require('./css-replacer');
 
 const appName = 'Sonata'
 
@@ -66,6 +67,8 @@ function applySavedBounds(opts, key) {
   return opts
 }
 // Persist a window's size/position (debounced) whenever it moves or resizes.
+// loop: lyrics-window bounds save · 500 ms one-shot debounce · runs only after a move/resize · stops after firing · cost ~0
+// lifetime: resize/move listeners live on the window and die with it; the timer checks isDestroyed() first
 function persistBounds(win, key) {
   let timer = null
   const save = () => {
@@ -127,6 +130,7 @@ function openExternalSafe(url) {
 
 // Block navigation and popups for windows that load our trusted local HTML
 // with Node integration — defense in depth so they can never reach remote code.
+// lifetime: one setWindowOpenHandler + one will-navigate listener per local window; both die with the window
 function lockDownLocalWindow(win) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -242,11 +246,14 @@ function createMiniWindow() {
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
   // give KWin a moment to map the window before asking it to keep it above
+  // loop: mini keep-above · 300 ms one-shot · runs once per mini open · stops after firing · cost one qdbus exec (KDE Wayland only)
   if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
 
   miniWindow.webContents.once('did-finish-load', () => {
     miniTrackKey = ''
     if (lastPalette) miniWindow.webContents.send('palette', lastPalette)
+    // loop: mini player now-playing poll · 1000 ms · runs while the mini window exists (also when minimized or paused) · stops on mini 'closed' (and main 'close') · cost 1 executeJavaScript/s into the page + 1 IPC send; measured 0.04-0.05 % of one core in the main process (docs/PERFORMANCE.md). Left as is: only runs while the mini player is open; polling on while minimized costs the same, not worth a code change.
+    // error: a failing executeJavaScript (page mid-navigation) is skipped until the next tick; at 1/s that can't hammer, and a reload ends it
     miniPoll = setInterval(async () => {
       if (!mainAlive() || !miniWindow) return
       try {
@@ -266,6 +273,7 @@ function createMiniWindow() {
     }, 1000)
   })
 
+  // lifetime: the 'closed' handler nulls miniWindow and clears miniPoll, so no closure keeps the destroyed window alive
   miniWindow.on('closed', () => {
     miniWindow = null
     clearInterval(miniPoll)
@@ -343,6 +351,8 @@ function createLyricsWindow() {
 
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
+    // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window exists (also when minimized or paused) · stops on lyrics 'closed' (and main 'close') · cost 2 executeJavaScript/s + 1 IPC send/tick; one lyrics lookup per track change (cached, see lyrics-sources.js). Left as is: only runs while lyrics are open; with mini + lyrics + visualizer all open the three polls make 6.5 reads/s for 0.19 % main-process CPU (docs/PERFORMANCE.md), so a shared poller isn't worth the change.
+    // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
     lyricsPoll = setInterval(async () => {
       if (!mainAlive() || !lyricsWindow || lyricsWindow.isDestroyed()) return
       let state
@@ -363,9 +373,11 @@ function createLyricsWindow() {
       refreshPalette(state)
     }, 500)
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
+    // loop: lyrics keep-above · 300 ms one-shot · once per lyrics open · stops after firing · cost one qdbus exec (KDE Wayland only)
     if (settings.lyricsAlwaysOnTop) setTimeout(() => applyLyricsKeepAbove(true), 300)
   })
 
+  // lifetime: 'closed' nulls lyricsWindow and clears lyricsPoll
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
     clearInterval(lyricsPoll)
@@ -382,6 +394,7 @@ function toggleLyricsWindow() {
   }
 }
 
+// lifetime: every ipcMain.on / ipcMain.handle in this file is registered once at module load, never per window open (measured: counts stay at 1 after 20 open/close cycles of each window)
 ipcMain.on('lyrics-command', (event, command, value) => {
   if (command === 'close') {
     if (lyricsWindow) lyricsWindow.close()
@@ -408,6 +421,8 @@ function createVizWindow() {
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
 
+  // loop: visualizer spectrum stream · ~43 frames/s from parec · runs while the visualizer window exists · stops on viz 'closed' (visualizer.stop() kills parec) · cost one FFT + one IPC send per frame
+  // lifetime: one Visualizer (and one parec child) per visualizer window; stopped and dropped on 'closed'
   visualizer = new Visualizer((bands) => {
     if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
   })
@@ -416,6 +431,8 @@ function createVizWindow() {
     visualizer.start()
     vizTrackKey = null
     // 300ms cadence: frequent enough for smooth synced-lyric highlighting
+    // loop: visualizer now-playing poll · 300 ms · runs while the visualizer window exists · stops on viz 'closed' · cost ~3.3 executeJavaScript/s + 1 IPC send. Left as is: the visualizer is a fullscreen, foreground-only mode.
+    // error: failing executeJavaScript returns early until the next tick; can't hammer beyond 3/s
     vizPoll = setInterval(async () => {
       if (!mainAlive() || !vizWindow || vizWindow.isDestroyed()) return
       let state
@@ -439,6 +456,7 @@ function createVizWindow() {
     }, 300)
   })
 
+  // lifetime: 'closed' stops the Visualizer (kills parec), clears vizPoll and nulls vizWindow
   vizWindow.on('closed', () => {
     if (visualizer) { visualizer.stop(); visualizer = null }
     clearInterval(vizPoll); vizPoll = null
@@ -554,6 +572,7 @@ async function showMoreMenu() {
     await mk.api.music('/v1/me/library', { 'ids[songs]': '${info.id}' }, { fetchOptions: { method: 'POST' } });
   })()`
 
+  // lifetime: a fresh Menu per "More" click; nothing keeps it after the popup closes, so it is garbage-collected
   const menu = Menu.buildFromTemplate([
     { label: info.title || 'Not playing', enabled: false },
     { type: 'separator' },
@@ -589,6 +608,7 @@ async function showMoreMenu() {
 // On Wayland a window can't raise itself, so setAlwaysOnTop is a no-op
 // there. KWin (KDE) exposes keep-above through its D-Bus scripting API;
 // drive that as a fallback. Other Wayland compositors offer no client path.
+// lifetime: one short-lived qdbus child per call (window open / setting change), never on a timer
 function applyKeepAbove(caption, scriptId, on) {
   if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
   if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
@@ -651,6 +671,9 @@ function broadcastPalette(p) {
     if (w && !w.isDestroyed()) w.webContents.send('palette', p)
   }
 }
+// lifetime: only called from the mini/lyrics polls, never in tray-only state. One artwork fetch +
+// nativeImage per track change (keyed by title|artist); the buffer and image are locals, only the
+// small { accent, bg, bg2, hue } object survives in lastPalette. Nothing accumulates per track.
 async function refreshPalette(state) {
   if (!settings.adaptiveColor) {
     if (lastPalette !== null) { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
@@ -725,6 +748,8 @@ ipcMain.on('mini-command', (event, command, value) => {
 
 // --- now-playing consumers: Last.fm scrobbling and Discord presence ---
 
+// lifetime: one artwork fetch + nativeImage + Notification per track change while playing; none are
+// stored, so they're collected after display. No listeners are attached to the Notification.
 async function notifyTrack(state) {
   if (!settings.notifications || !Notification.isSupported()) return
   let icon
@@ -739,6 +764,12 @@ async function notifyTrack(state) {
 }
 
 function startNowPlayingLoop() {
+  // loop: tray / notifications / Last.fm / Discord now-playing poll · 5000 ms · runs always (the tray
+  // always exists, so the guard below never short-circuits) — this is the ONLY recurring work in the
+  // tray-only state · stops on app exit · cost 1 executeJavaScript every 5 s; measured 0.03-0.06 % of one
+  // core in the main process (docs/PERFORMANCE.md). Left as is: tray tooltip, track-change notifications,
+  // scrobble timing (playedSeconds += 5 per tick) and Discord presence all need it.
+  // error: a failing executeJavaScript skips to the next tick; at 1 per 5 s it can't hammer
   setInterval(async () => {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
@@ -788,6 +819,11 @@ function feedScrobbler(state) {
   }
 }
 
+// lifetime: while Discord is unreachable this makes one DiscordPresence every 6th tick (30 s); a
+// failed connect leaves no socket open (each probe socket errors and is destroyed), so nothing stacks.
+// Theoretical case, left as is: if Discord accepts the socket but never answers the handshake,
+// connect() never settles and the next attempt 30 s later opens another socket without closing it.
+// Not seen in practice; the old object would need an explicit close() to make it impossible.
 async function feedDiscord(state) {
   // reconnect roughly every 30s while Discord is unreachable
   if (!discord || !discord.ready) {
@@ -862,6 +898,7 @@ async function connectDiscord() {
     if (response === 1) shell.openExternal('https://discord.com/developers/applications')
     return
   }
+  // lifetime: user-initiated only (Settings / tray); see feedDiscord for the reconnect path
   discord = new DiscordPresence(discordConfig.applicationId)
   try {
     await discord.connect()
@@ -997,6 +1034,8 @@ function updateTrayTooltip(state) {
   tray.setToolTip(text)
 }
 
+// lifetime: builds a new Menu on user actions only (connect/disconnect); setContextMenu drops the
+// previous Menu, which is then collected. The Tray itself is created once.
 function refreshTrayMenu() {
   const lastfmItem = lastfm && lastfm.connected
     ? { label: `Disconnect Last.fm (${lastfm.username})`, click: () => { lastfm.disconnect(); refreshTrayMenu() } }
@@ -1061,9 +1100,12 @@ function createWindow() {
       if (mainAlive() && mainWindow.isVisible()) { settings.windowBounds = mainWindow.getBounds(); saveSettings() }
     }, 500)
   }
+  // loop: main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
   mainWindow.on('resize', rememberBounds)
   mainWindow.on('move', rememberBounds)
 
+  // lifetime: createWindow runs once (plus macOS 'activate' with no windows), so the main window's
+  // webContents/window listeners below are registered once and die with the window
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'r') {
       mainWindow.reload();
@@ -1111,12 +1153,15 @@ function createWindow() {
     return { action: 'deny' }
   });
 
+  // lifetime: FIXED — this used to call insertCSS directly, which adds a new stylesheet every time;
+  // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
+  const applyCustomCss = createCssReplacer(mainWindow.webContents, customCss)
   mainWindow.webContents.on('did-navigate', () => {
-    mainWindow.webContents.insertCSS(customCss)
+    applyCustomCss()
   });
 
   mainWindow.webContents.on('page-title-updated', () => {
-    mainWindow.webContents.insertCSS(customCss)
+    applyCustomCss()
     mainWindow.setTitle(appName);
   });
 
@@ -1363,6 +1408,9 @@ function pruneOldAppImages() {
 function startUpdateChecks() {
   if (!appImagePath) return
   pruneOldAppImages()
+  // loop: update check · 20 s one-shot, then every 2 h · AppImage builds only · stops on app exit ·
+  // cost one small HTTPS GET per 2 h (download only when a new version exists); updateCheckBusy stops overlaps
+  // error: a failed check logs and waits the full 2 h, so it can't hammer
   setTimeout(() => checkForUpdates(false), 20 * 1000)
   setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
 }

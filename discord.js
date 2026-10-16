@@ -48,6 +48,9 @@ class DiscordPresence {
           reject(new Error('Discord IPC socket not found — is Discord running?'))
           return
         }
+        // lifetime: one probe socket per candidate path; a failed probe errors and is destroyed by net.
+        // The probe's 'error' listener stays on the connected socket (theoretical: a later socket error
+        // would walk the remaining candidates). Left as is; never observed.
         const socket = net.createConnection(candidates[i])
         socket.on('connect', () => {
           this.socket = socket
@@ -63,6 +66,7 @@ class DiscordPresence {
     })
   }
 
+  // lifetime: this.buffer only holds an incomplete frame; complete frames are sliced off, so it stays tiny
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk])
     while (this.buffer.length >= 8) {

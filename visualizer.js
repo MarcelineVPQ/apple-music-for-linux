@@ -91,6 +91,8 @@ class Visualizer {
     }
   }
 
+  // lifetime: allocates two 16 KB Float64Arrays + a 48-entry array per frame (~43/s) while the visualizer is
+  // open; short-lived, collected by the young-generation GC. Cosmetic, left as is.
   emit() {
     const re = new Float64Array(N), im = new Float64Array(N)
     for (let i = 0; i < N; i++) re[i] = this.ring[i] * hann[i]
@@ -107,6 +109,7 @@ class Visualizer {
     this.onBands(bars)
   }
 
+  // lifetime: stop() kills parec and resets buffers; main.js calls it on visualizer 'closed'
   stop() {
     if (this.proc) { this.proc.kill(); this.proc = null }
     this.buf = Buffer.alloc(0)
