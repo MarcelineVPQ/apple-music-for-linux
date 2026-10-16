@@ -8,8 +8,12 @@
 //   'lyrics-time'    -> setTime(t, playing)  2 pushes/s; the smooth clock (lyrics-timing syncClock)
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
-// The pure helpers (prepare, refinedLine, alignedLines, timingNote, stageNext) are tested in
-// test/lyrics-view.test.js.
+// The pure helpers (prepare, refinedLine, alignedLines, timingNote, wordState, stageNext) are tested
+// in test/lyrics-view.test.js.
+//
+// Karaoke: the word being sung is lit as a whole (.w.now). Apple words timed in several spans carry
+// their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word and only
+// the syllable being sung pops (.s.now); other words pop as a whole, as before.
 const T = require('./lyrics-timing')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
@@ -66,6 +70,17 @@ function timingNote(lines, aligned, refined) {
 }
 
 /**
+ * Karaoke position of a line's words at `time`: k words have started, `now` is the word being sung
+ * (-1 for none), `syl` the syllable of that word being sung (-1 when the word has no syllables or
+ * sits between two of them).
+ */
+function wordState(words, time) {
+  const pos = T.wordPos(words, time)
+  const w = pos.now >= 0 ? words[pos.now] : null
+  return { k: pos.k, now: pos.now, syl: w && w.syl ? T.wordPos(w.syl, time).now : -1 }
+}
+
+/**
  * Stage layout: the line shown under the current one (-1 for none). During an interlude it's the
  * line the countdown dots lead into; otherwise the line after the one that lit up last (the first
  * line before the song's singing starts).
@@ -84,7 +99,8 @@ function createLyricsView(opts) {
   const doc = container.ownerDocument
   const stage = opts.layout === 'stage'
   let lines = []
-  let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }
+  let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }; a word span
+                            // with syllables has span.syl = [syllable span]
   let interludes = []       // [{ index, start, end, el, dots: [i], row }]
   let wordTimed = false
   let live = new Set()      // lines currently .active
@@ -107,7 +123,21 @@ function createLyricsView(opts) {
       const span = doc.createElement('span')
       span.className = 'w'
       span.dataset.text = w.text
-      span.textContent = w.text
+      if (w.syl) {
+        // syllables side by side (no spaces) in one row, above the word's reserved bold width
+        span.classList.add('hs')
+        const row = doc.createElement('span')
+        row.className = 'sr'
+        span.syl = w.syl.map((y) => {
+          const s = doc.createElement('span')
+          s.className = 's'
+          s.textContent = y.text
+          row.appendChild(s)
+          return s
+        })
+        span.appendChild(row)
+      }
+      else span.textContent = w.text
       parent.appendChild(span)
       spans.push(span)
     })
@@ -236,11 +266,36 @@ function createLyricsView(opts) {
     return i === 0 || spans[i - 1].offsetTop !== top ? '0% 65%' : ''
   }
 
-  // word classes for one line's words; only touches the DOM when the position changed
+  // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
+  // edge, last at the right edge)
+  function sylOrigin(span, j, origin) {
+    if (origin === '0% 65%') return j === 0 ? origin : ''
+    if (origin === '100% 65%') return j === span.syl.length - 1 ? origin : ''
+    return ''
+  }
+
+  // word and syllable classes for one line's words; only touches the DOM when the position changed
   function paintWords(spans, words, time, last, side) {
-    const pos = T.wordPos(words, time)
-    if (last && last.k === pos.k && last.now === pos.now) return last
-    if (pos.now >= 0 && !stage) spans[pos.now].style.transformOrigin = edgeOrigin(spans, pos.now, side)
+    const pos = wordState(words, time)
+    if (last && last.k === pos.k && last.now === pos.now && last.syl === pos.syl) return last
+    // loop: syllables to reset · the previous word's (a handful) per word/syllable change; the whole
+    // line's only when it (re)lights (last null: a seek may have left one marked)
+    if (!last) {
+      for (const sp of spans) if (sp.syl) for (const s of sp.syl) s.classList.remove('now')
+    } else if (last.now >= 0 && spans[last.now].syl && (last.now !== pos.now || last.syl !== pos.syl)) {
+      for (const s of spans[last.now].syl) s.classList.remove('now')
+    }
+    if (pos.now >= 0) {
+      const span = spans[pos.now]
+      const origin = stage ? '' : edgeOrigin(spans, pos.now, side)
+      if (span.syl) {
+        if (pos.syl >= 0) {
+          span.syl[pos.syl].classList.add('now')
+          if (!stage) span.syl[pos.syl].style.transformOrigin = sylOrigin(span, pos.syl, origin)
+        }
+      }
+      else if (!stage) span.style.transformOrigin = origin
+    }
     for (let i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('sung', i < pos.k && i !== pos.now)
       spans[i].classList.toggle('now', i === pos.now)
@@ -353,4 +408,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { WORD_LEAD, prepare, refinedLine, alignedLines, timingNote, stageNext, createLyricsView }
+module.exports = { WORD_LEAD, prepare, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }

@@ -156,7 +156,10 @@ test('parseTtml: words merge syllables, keep end, agent and background vocals', 
   assert.equal(lines.length, 4)
   assert.deepEqual(lines[0], {
     t: 1, end: 3, text: 'Beautiful day', agent: 'v1',
-    words: [{ t: 1, end: 2.2, text: 'Beautiful' }, { t: 2.2, end: 3, text: 'day' }],
+    words: [
+      { t: 1, end: 2.2, text: 'Beautiful', syl: [{ t: 1, end: 1.4, text: 'Beau' }, { t: 1.4, end: 1.9, text: 'ti' }, { t: 1.9, end: 2.2, text: 'ful' }] },
+      { t: 2.2, end: 3, text: 'day' }
+    ],
     bg: [{ t: 2.5, end: 2.9, text: '(oh' }, { t: 2.9, end: 3.4, text: 'yeah)' }]
   })
   assert.equal(lines[1].text, 'Rock & roll')
@@ -179,6 +182,19 @@ test('parseTtml: a document with no whitespace between spans treats each span as
   const ttml = '<p begin="1" end="2"><span begin="1" end="1.5">one</span><span begin="1.5" end="2">two</span></p>'
   assert.deepEqual(L.parseTtml(ttml)[0].words.map((w) => w.text), ['one', 'two'])
   assert.equal(L.parseTtml(ttml)[0].text, 'one two')
+  assert.ok(L.parseTtml(ttml)[0].words.every((w) => !('syl' in w)))   // one span per word: no syllables
+})
+
+test('parseTtml: syllables keep their own times (bg too; a missing end runs to the next syllable)', () => {
+  const ttml = '<p begin="1" end="4"><span begin="1" end="1.3">Ka</span><span begin="1.3">ra</span><span begin="1.6" end="2">o</span><span begin="2" end="2.4">ke </span>' +
+    '<span begin="2.5" end="3">night</span><span ttm:role="x-bg"><span begin="3" end="3.2">(to</span><span begin="3.2" end="3.6">night)</span></span></p>'
+  const [line] = L.parseTtml(ttml)
+  assert.deepEqual(line.words, [
+    { t: 1, end: 2.4, text: 'Karaoke', syl: [{ t: 1, end: 1.3, text: 'Ka' }, { t: 1.3, end: 1.6, text: 'ra' }, { t: 1.6, end: 2, text: 'o' }, { t: 2, end: 2.4, text: 'ke' }] },
+    { t: 2.5, end: 3, text: 'night' }
+  ])
+  assert.deepEqual(line.bg, [{ t: 3, end: 3.6, text: '(tonight)', syl: [{ t: 3, end: 3.2, text: '(to' }, { t: 3.2, end: 3.6, text: 'night)' }] }])
+  assert.equal(line.text, 'Karaoke night')
 })
 
 test('parseTtml: whitespace inside a span also separates words; missing word end uses the next word', () => {
@@ -230,7 +246,7 @@ test('resolver + store: good results are stored, and served from the store next 
   const mk = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">x</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   await mk()(song)
   assert.equal(apple, 1)
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple', parse: 2 })
   assert.deepEqual(await mk()(song), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
   assert.equal(apple, 1)
 })
@@ -243,4 +259,18 @@ test('resolver + store: busy and empty results are not stored; stored LRCLIB lyr
   store.m.set('T|A', { lines: [{ t: 1, text: 'l' }], source: 'lrclib' })
   const off = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => [], lrclibEnabled: () => false, store })
   assert.deepEqual(await off(song), { lines: [], source: '' })
+})
+
+test('resolver + store: an Apple entry from the older parser is fetched again once; kept when Apple fails', async () => {
+  const store = memStore()
+  store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple' })
+  let apple = 0
+  const fresh = L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">new</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
+  assert.deepEqual(await fresh(song), { lines: [{ t: 1, text: 'new' }], source: 'apple' })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'new' }], source: 'apple', parse: 2 })
+  await L.createLyricsResolver({ fetchApple: async () => { apple++; return '' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
+  assert.equal(apple, 1)                                    // current parse: served from the store
+  store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple' })
+  const down = L.createLyricsResolver({ fetchApple: async () => { throw new Error('offline') }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
+  assert.deepEqual(await down(song), { lines: [{ t: 1, text: 'old' }], source: 'apple' })
 })

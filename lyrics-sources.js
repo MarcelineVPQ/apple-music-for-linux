@@ -72,22 +72,30 @@ function ttmlSyllables(inner) {
   return out
 }
 
-// Syllables -> words [{ t, end, text }]. everySpan: treat each span as a word (documents that
-// never put whitespace between spans).
+// Syllables -> words [{ t, end, text, syl? }]. everySpan: treat each span as a word (documents that
+// never put whitespace between spans). A word built from several spans keeps them as
+// syl [{ t, end, text }] (the karaoke syllable pop); their texts join to the word's text.
 function mergeSyllables(syllables, everySpan) {
   const words = []
+  const parts = []                        // per word: its syllable spans
   for (const s of syllables) {
     if (!s.text.trim()) continue
     const last = words[words.length - 1]
     if (last && !s.newWord && !/^\s/.test(s.text) && !everySpan) {
       last.text += s.text
       if (s.end !== null) last.end = Math.max(last.end === null ? s.end : last.end, s.end)
+      parts[parts.length - 1].push(s)
     }
-    else words.push({ t: s.t, end: s.end, text: s.text })
+    else { words.push({ t: s.t, end: s.end, text: s.text }); parts.push([s]) }
   }
   for (const w of words) w.text = w.text.replace(/\s+/g, ' ').trim()
   for (let i = 0; i < words.length; i++) {
     if (words[i].end === null) words[i].end = i + 1 < words.length ? words[i + 1].t : words[i].t + 1
+    const p = parts[i]
+    if (p.length < 2) continue
+    const syl = p.map((s, j) => ({ t: s.t, end: s.end !== null ? s.end : j + 1 < p.length ? p[j + 1].t : words[i].end, text: s.text.trim() }))
+    // only when the syllables spell the word exactly (no inner spaces), so the view can't drift
+    if (syl.map((x) => x.text).join('') === words[i].text) words[i].syl = syl
   }
   return words
 }
@@ -95,7 +103,8 @@ function mergeSyllables(syllables, everySpan) {
 /**
  * Apple TTML -> lines [{ t, end?, text, agent?, words?, bg? }]. end comes from the <p>;
  * agent is the singer id ('v1', 'v2'…) or 'group' (v1000 or a type="group" agent);
- * words / bg are [{ t, end, text }] and only present for word-timed ("syllable") lyrics.
+ * words / bg are [{ t, end, text, syl? }] and only present for word-timed ("syllable") lyrics;
+ * syl: the word's syllables [{ t, end, text }] when Apple timed it in more than one span.
  * Line-only TTML gives { t, end, text } as before.
  */
 function parseTtml(ttml) {
@@ -258,6 +267,10 @@ async function fetchLrclib(state, deps) {
  * deps: { fetchApple(state) -> ttml string, fetchLrclib(state) -> lines,
  *         lrclibEnabled() -> bool, log(msg), store? ({ get(key), set(key, value) }, on disk) }
  */
+// Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25).
+// A stored Apple entry from an older parser is fetched again once (served as is when that fails).
+const TTML_PARSE = 2
+
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
   // are shared, so lyrics + visualizer windows trigger one fetch per track. Only used while lyrics or
@@ -269,11 +282,11 @@ function createLyricsResolver(deps) {
     const job = (async () => {
       // the on-disk store first (songs played before); LRCLIB results only while LRCLIB is enabled
       const stored = deps.store ? deps.store.get(key) : null
-      if (stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())) {
-        return { lines: stored.lines, source: stored.source }
-      }
+      const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
+      const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
+      if (usable && !stale) return { lines: stored.lines, source: stored.source }
       const remember = (result) => {
-        if (deps.store && result.lines.length) deps.store.set(key, { lines: result.lines, source: result.source })
+        if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? { lines: result.lines, source: 'apple', parse: TTML_PARSE } : { lines: result.lines, source: result.source })
         return result
       }
       try {
@@ -281,6 +294,7 @@ function createLyricsResolver(deps) {
         const lines = ttml ? parseTtml(ttml) : []
         if (lines.length) return remember({ lines, source: 'apple' })
       } catch (e) { /* no Apple lyrics */ }
+      if (stale) return { lines: stored.lines, source: 'apple' }   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)

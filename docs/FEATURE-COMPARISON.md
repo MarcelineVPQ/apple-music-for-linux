@@ -54,7 +54,7 @@ play them (Cider-2 README; Apple developer forums).
 | Feature | Sonata | Apple Music (official) | Spotify | Cider | Strawberry |
 |---|---|---|---|---|---|
 | Time-synced (line) lyrics | ✓ Apple TTML | macOS ✓; Windows: static at the 2023 launch, newer state unconfirmed **(?)** | ✓ | ✓ | partial: unsynced, many sources **(?)** |
-| Word-by-word (karaoke) highlight | ✓ from Apple's syllable timing; sung word scales/glows | ✓ iOS "Sing"; macOS **(?)** | ✗ **(?)** | **(?)** | ✗ |
+| Word-by-word (karaoke) highlight | ✓ from Apple's syllable timing; the sung word glows and, where Apple times syllables, only the sung syllable pops (0.15.25) | ✓ iOS "Sing"; macOS **(?)** | ✗ **(?)** | **(?)** | ✗ |
 | Duet sides + background vocals | ✓ singer 1 left, 2 right, together centred; background vocals smaller with own timing | ✓ (Apple Music Sing) | ✗ **(?)** | **(?)** | ✗ |
 | Instrumental / interlude countdown | ✓ three dots fill for gaps ≥ ~4 s | ✓ (Apple's dots) | ✗ **(?)** | **(?)** | ✗ |
 | Click a line to seek | ✓ | ✓ | ✓ **(?)** | ✓ **(?)** | ✗ |

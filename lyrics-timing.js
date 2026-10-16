@@ -106,7 +106,11 @@ function nextChange(lines, time, lead = 0) {
     consider(lineEnd(line, lines[i + 1]))
     for (const list of [line.words, line.bg]) {
       if (!list) continue
-      for (const w of list) { consider(w.t - lead); consider(w.end - lead) }
+      for (const w of list) {
+        consider(w.t - lead); consider(w.end - lead)
+        // loop: a word's syllables (a handful) · only Apple words timed in several spans
+        if (w.syl) for (const y of w.syl) { consider(y.t - lead); consider(y.end - lead) }
+      }
     }
   }
   return best

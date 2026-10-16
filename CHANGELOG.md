@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.25] — Karaoke syllables
+
+### Changed
+
+- **Real karaoke highlighting.** For Apple lyrics timed by syllable, the whole word lights up while it's sung, and only the syllable being sung right now grows, then settles back (still lit) as the next one takes over. Works in the lyrics window and the visualizer, background vocals and duets included. Lyrics without syllable timing (LRCLIB, estimated, refined or aligned timing) pop the whole word as before. Songs whose Apple lyrics were saved by an older version are fetched from Apple once more to pick up their syllables.
+
 ## [0.15.24] — Precise word timing meets the visualizer
 
 ### Added

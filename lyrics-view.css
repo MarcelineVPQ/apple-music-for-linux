@@ -40,6 +40,20 @@
 .bgv .w::after { font-weight: 700; }
 .line.active .bgv .w.now { font-weight: 700; transform: scale(1.08); }
 
+/* syllables (Apple words timed in several spans): the whole word lights up as above, but only the
+   syllable being sung pops (GPU transform, so the line never reflows). No kerning or ligatures, so the
+   syllable row and the reserved bold copy (::after) are exactly the same width. */
+.w.hs { font-kerning: none; font-variant-ligatures: none; }
+.w .sr { white-space: nowrap; }
+.w .s {
+  display: inline-block;
+  transform-origin: 50% 65%;
+  transition: transform 0.14s ease-in-out;
+}
+.line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
+.line.active .w.now .s.now { transform: scale(1.15); }
+.line.active .bgv .w.now .s.now { transform: scale(1.12); }
+
 /* interlude countdown: three dots in place of the next line */
 .dots {
   --dot: 11px;
