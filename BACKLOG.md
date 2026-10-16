@@ -30,5 +30,5 @@ One list for planned work. Status words: **Planned**, **Building**, **Done**.
 | Easier Discord / Last.fm setup | **Planned** | (S/M) Ship a Discord app id; a Last.fm key can't ship its secret in open source. |
 | Equalizer | **Idea** | (M–L) A one-hour test first: Web Audio on DRM playback may be silent; PipeWire EQ on Sonata's stream is the safe route. |
 | Output device choice | **Idea** | (S–M) setSinkId likely works; fallback is moving the PipeWire stream. |
-| Estimated word timing for line-only lyrics | **Planned** | Spread each line's time across its words (weighted by length). An option, clearly marked "estimated"; no resources. |
+| Estimated word timing for line-only lyrics | **Done** | Spread each line's time across its words (weighted by length). An option, clearly marked "estimated"; no resources. |
 | Real word timing by forced alignment (flagship) | **Idea** | The differentiator: what Apple does with paid human syncing, done locally for a free app. Isolate the vocals from Sonata's captured output (the same capture as the visualizer), align the known lyrics, cache per song. GPU (CUDA) when available; opt-in; local only (DRM grey area for shipping to everyone). Experiment on Marcy's machine first: models, latency, accuracy vs Apple's own syllable data. Showcase for the 42 Pixel Studios front page. |

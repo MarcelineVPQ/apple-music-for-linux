@@ -154,3 +154,27 @@ test('nextChange: next word start/end or line start, with leads', () => {
   assert.ok(Math.abs(T.nextChange(lines, 1.2, 0.05) - 0.25) < 1e-9)
   assert.equal(T.nextChange(lines, 7), Infinity)
 })
+
+test('estimateWords: spreads a line across its words by length, marks estimated', () => {
+  const lines = [{ t: 10, end: 13, text: 'Hold on forever' }, { t: 20, text: 'Go' }]
+  const out = T.estimateWords(lines)
+  const w = out[0].words
+  assert.equal(out[0].estimated, true)
+  assert.deepEqual(w.map((x) => x.text), ['Hold', 'on', 'forever'])
+  assert.equal(w[0].t, 10)
+  assert.ok(Math.abs(w[2].end - (10 + 3 * 0.9)) < 1e-9)
+  for (let i = 1; i < w.length; i++) assert.equal(w[i].t, w[i - 1].end)
+  assert.ok(w[2].end - w[2].t > w[1].end - w[1].t) // longer word, longer time
+})
+
+test('estimateWords: no end -> next start, capped so long gaps are not singing', () => {
+  const out = T.estimateWords([{ t: 0, text: 'a b' }, { t: 60, text: 'c' }])
+  assert.ok(out[0].words[1].end <= 0.6 * 2 + 2)
+})
+
+test('estimateWords: leaves word-timed and unsynced lyrics alone', () => {
+  const timed = [{ t: 1, text: 'x', words: [{ t: 1, end: 2, text: 'x' }] }, { t: 3, text: 'y z' }]
+  assert.equal(T.estimateWords(timed), timed)
+  const plain = [{ t: null, text: 'a b' }]
+  assert.equal(T.estimateWords(plain), plain)
+})

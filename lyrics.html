@@ -318,7 +318,7 @@
   }
 
   ipcRenderer.on('lyrics-data', (event, data) => {
-    lines = data.lines || []
+    lines = data.estimate ? T.estimateWords(data.lines || []) : (data.lines || [])
     duration = Number(data.duration) || 0
     updateRing(0, true)
     lineEls = []
@@ -378,10 +378,13 @@
       linesEl.appendChild(el)
       lineEls.push(entry)
     })
-    if (data.source === 'lrclib') {
+    const notes = []
+    if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : ''))
+    if (lines.length && lines[0].estimated) notes.push('Word timing estimated')
+    if (notes.length) {
       const src = document.createElement('div')
       src.id = 'source'
-      src.textContent = 'Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '')
+      src.textContent = notes.join(' · ')
       linesEl.appendChild(src)
     }
   })

@@ -135,6 +135,35 @@ function hasWordTiming(lines) {
   return !!lines && lines.some((l) => (l.words && l.words.length) || (l.bg && l.bg.length))
 }
 
+const EST_FILL = 0.9        // estimated words fill this share of a line's time (the rest is the tail)
+
+/**
+ * Estimated word timing for line-only lyrics: each synced line's singing time (its end, else
+ * the next line's start, at most LRC-style guess per word) is spread across its words, weighted
+ * by letter count. Lines that already have word timing, and unsynced lyrics, are left as is.
+ * Returns new line objects with `words` and `estimated: true`.
+ */
+function estimateWords(lines) {
+  if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
+  return lines.map((line, i) => {
+    const next = lines[i + 1]
+    const parts = String(line.text || '').split(/\s+/).filter(Boolean)
+    if (!parts.length) return line
+    let end = line.end != null ? line.end : (next && next.t != null ? next.t : line.t + 0.45 * parts.length + 1)
+    end = Math.min(end, line.t + 0.6 * parts.length + 2)   // a long gap after the line isn't singing
+    const span = Math.max(0.2, (end - line.t) * EST_FILL)
+    const weights = parts.map((w) => w.replace(/[^\p{L}\p{N}]/gu, '').length + 2)
+    const total = weights.reduce((a, b) => a + b, 0)
+    let acc = 0
+    const words = parts.map((text, k) => {
+      const t = line.t + (acc / total) * span
+      acc += weights[k]
+      return { t, end: line.t + (acc / total) * span, text }
+    })
+    return Object.assign({}, line, { words, estimated: true })
+  })
+}
+
 /**
  * Local playback clock. Main pushes the playback time every 500 ms; between pushes the
  * window counts on with performance.now(). Every push is checked against the clock:
@@ -174,5 +203,5 @@ function clockTime(clock, nowMs) {
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, syncClock, seekClock, clockTime
+  lineSides, hasWordTiming, estimateWords, syncClock, seekClock, clockTime
 }

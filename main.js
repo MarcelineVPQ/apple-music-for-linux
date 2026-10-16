@@ -40,7 +40,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, estimatedWordTiming: true }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -403,7 +403,7 @@ function createLyricsWindow() {
         lyricsKey = key
         const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, duration: state.duration, lines: got.lines, source: got.source })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, duration: state.duration, lines: got.lines, source: got.source, estimate: !!settings.estimatedWordTiming })
         }
       }
       // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
@@ -1064,6 +1064,9 @@ ipcMain.on('settings:set', (event, key, value) => {
   }
   else if (key === 'lyricsArtSpin') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!value })
+  }
+  else if (key === 'estimatedWordTiming') {
+    lyricsKey = null  // re-send the current song's lyrics with the new setting
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
