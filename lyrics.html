@@ -38,16 +38,34 @@
     color: var(--fg);
     overflow: hidden;
   }
-  #thumb {
+  /* album art: a round cover with a progress ring; click shows the album in the main window */
+  #art {
+    -webkit-app-region: no-drag;
     flex-shrink: 0;
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
-    object-fit: cover;
+    position: relative;
+    width: 34px;
+    height: 34px;
     display: none;
+    cursor: pointer;
+    perspective: 200px;
+  }
+  #art.shown { display: block; }
+  #ring { position: absolute; inset: 0; width: 34px; height: 34px; transform: rotate(-90deg); }
+  #ring circle { fill: none; stroke-width: 2; }
+  #ring .track { stroke: var(--border); }
+  #ring .fill { stroke: var(--active); stroke-linecap: round; }
+  #spin { position: absolute; inset: 3px; border-radius: 50%; }
+  body.spin #spin { animation: spin 9s linear infinite; }
+  body.spin.still #spin { animation-play-state: paused; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #thumb {
+    display: block;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
   }
-  #thumb.shown { display: block; }
   #header {
     flex-shrink: 0;
     display: flex;
@@ -177,7 +195,10 @@
 <body>
   <div id="card">
     <div id="header">
-      <img id="thumb" alt="">
+      <div id="art" title="Show album">
+        <svg id="ring" viewBox="0 0 34 34"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" cx="17" cy="17" r="16"/></svg>
+        <div id="spin"><img id="thumb" alt=""></div>
+      </div>
       <div id="song">Lyrics</div>
       <button id="close" title="Close">
         <svg viewBox="0 0 16 16"><path d="M3.28 2.22a.75.75 0 0 0-1.06 1.06L6.94 8l-4.72 4.72a.75.75 0 1 0 1.06 1.06L8 9.06l4.72 4.72a.75.75 0 1 0 1.06-1.06L9.06 8l4.72-4.72a.75.75 0 0 0-1.06-1.06L8 6.94 3.28 2.22z"/></svg>
@@ -189,7 +210,7 @@
   const { ipcRenderer } = require('electron')
   // loop: one rAF loop (word highlight / countdown dots), see wantFrames below; otherwise reacts to
   // 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
-  // lifetime: the four ipcRenderer.on listeners and the visibilitychange listener are added once at
+  // lifetime: the five ipcRenderer.on listeners and the visibilitychange listener are added once at
   // load and die with the window; 'lyrics-data' replaces innerHTML, so old line, word and dot elements
   // and their onclick closures are dropped per track
 
@@ -203,13 +224,69 @@
     r.setProperty('--border', p.accent + '33')
   })
 
-  // album art thumbnail in the header: the URL the mini player shows, so it usually comes from
-  // Chromium's cache. lifetime: the <img> src is only replaced when the art changes (one image held)
+  // album art in the header: the URL the mini player shows, so it usually comes from Chromium's
+  // cache. A new cover flips in (rotateY, transform only) once it has loaded.
+  // lifetime: one Image per art change, dropped after load; one flip animation at a time
+  const artEl = document.getElementById('art')
   const thumb = document.getElementById('thumb')
+  const ringFill = artEl.querySelector('.fill')
+  const RING = 2 * Math.PI * 16
+  ringFill.style.strokeDasharray = String(RING)
+  ringFill.style.strokeDashoffset = String(RING)
+  let artUrl = ''
   ipcRenderer.on('lyrics-art', (event, url) => {
-    if (url) { thumb.src = url; thumb.classList.add('shown') }
-    else { thumb.classList.remove('shown'); thumb.removeAttribute('src') }
+    artUrl = url || ''
+    if (!artUrl) {
+      artEl.classList.remove('shown')
+      thumb.removeAttribute('src')
+      return
+    }
+    const img = new Image()
+    img.onload = async () => {
+      if (img.src !== artUrl) return                   // a newer track won
+      const wasShown = artEl.classList.contains('shown') && thumb.getAttribute('src')
+      if (!wasShown || document.visibilityState !== 'visible') {
+        thumb.src = artUrl
+        artEl.classList.add('shown')
+        return
+      }
+      try {
+        await thumb.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(90deg)' }], { duration: 250, easing: 'ease-in' }).finished
+      } catch (e) { /* cancelled */ }
+      thumb.src = artUrl
+      thumb.animate([{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0deg)' }], { duration: 250, easing: 'ease-out' })
+    }
+    img.src = artUrl
   })
+  artEl.onclick = () => ipcRenderer.send('lyrics-command', 'show-album')
+
+  // progress ring: song position / duration, written at most 4×/s and only when it moved
+  let duration = 0
+  let ringAt = 0
+  let ringShown = -1
+  function updateRing(time, force) {
+    const now = performance.now()
+    if (!force && now - ringAt < 250) return
+    ringAt = now
+    const p = duration > 0 ? Math.min(1, Math.max(0, time / duration)) : 0
+    const offset = Math.round(RING * (1 - p) * 10) / 10
+    if (offset === ringShown) return
+    ringShown = offset
+    ringFill.style.strokeDashoffset = String(offset)
+  }
+
+  // loop: album art spin · CSS animation (rotate, 9 s per turn, compositor only) · runs only with
+  // Settings → "Spin album art like a record" on (off by default), art shown, window visible and
+  // music playing · paused via animation-play-state when hidden or paused · cost in docs/PERFORMANCE.md
+  let spin = false
+  ipcRenderer.on('lyrics-settings', (event, s) => {
+    spin = !!(s && s.spin)
+    document.body.classList.toggle('spin', spin)
+    updateStill()
+  })
+  function updateStill() {
+    document.body.classList.toggle('still', document.visibilityState !== 'visible' || !clock || !clock.playing)
+  }
 
   document.getElementById('close').onclick = () => ipcRenderer.send('lyrics-command', 'close')
 
@@ -242,6 +319,8 @@
 
   ipcRenderer.on('lyrics-data', (event, data) => {
     lines = data.lines || []
+    duration = Number(data.duration) || 0
+    updateRing(0, true)
     lineEls = []
     interludes = []
     live = new Set()
@@ -275,7 +354,7 @@
       }
       const el = document.createElement('div')
       el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
-      const entry = { el, words: [], bg: [], pos: null, bgPos: null }
+      const entry = { el, side: sides[i], words: [], bg: [], pos: null, bgPos: null }
       if (line.words && line.words.length) {
         const main = document.createElement('div')
         entry.words = wordSpans(main, line.words)
@@ -308,9 +387,18 @@
   })
 
   // word classes for one line's words; only touches the DOM when the position changed
-  function paintWords(spans, words, time, last) {
+  // scaled words at a row's edge grow inward, so they stay inside the window padding
+  function edgeOrigin(spans, i, side) {
+    const top = spans[i].offsetTop
+    if (side === 'right') return i === spans.length - 1 || spans[i + 1].offsetTop !== top ? '100% 65%' : ''
+    if (side === 'center') return ''
+    return i === 0 || spans[i - 1].offsetTop !== top ? '0% 65%' : ''
+  }
+
+  function paintWords(spans, words, time, last, side) {
     const pos = T.wordPos(words, time)
     if (last && last.k === pos.k && last.now === pos.now) return last
+    if (pos.now >= 0) spans[pos.now].style.transformOrigin = edgeOrigin(spans, pos.now, side)
     for (let i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('sung', i < pos.k && i !== pos.now)
       spans[i].classList.toggle('now', i === pos.now)
@@ -328,8 +416,8 @@
     for (const i of next) {
       const e = lineEls[i]
       if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null }
-      if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos)
-      if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos)
+      if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos, e.side)
+      if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
     live = next
     if (gi !== shownInterlude) {
@@ -377,6 +465,7 @@
     raf = 0
     const time = T.clockTime(clock, performance.now())
     render(time)
+    updateRing(time)
     if (wantFrames()) schedule(time)
   }
   function stopFrames() {
@@ -392,13 +481,16 @@
   // isPlaying is sent along since 0.15.10; older pushes (undefined) fall back to "time stopped moving"
   ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying) => {
     clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
+    updateStill()
     if (document.visibilityState !== 'visible') { stopFrames(); return }
     render(T.clockTime(clock, performance.now()))
+    updateRing(T.clockTime(clock, performance.now()))
     updateFrames()   // re-plans the next wake-up from the resynced clock
   })
 
   // lifetime: one listener for the window's life
   document.addEventListener('visibilitychange', () => {
+    updateStill()
     if (document.visibilityState === 'visible' && clock) render(T.clockTime(clock, performance.now()))
     updateFrames()
   })

@@ -76,6 +76,10 @@
       <label class="switch"><input type="checkbox" id="lyricsAlwaysOnTop"><span class="slider"></span></label>
     </div>
     <div class="row">
+      <div class="grow"><div class="label">Spin album art like a record</div><div class="desc">Slowly turn the round cover in the lyrics window while music plays</div></div>
+      <label class="switch"><input type="checkbox" id="lyricsArtSpin"><span class="slider"></span></label>
+    </div>
+    <div class="row">
       <div class="grow"><div class="label">LRCLIB lyrics</div><div class="desc">When Apple has no lyrics, look the song up on lrclib.net (sends title, artist, album and length)</div></div>
       <label class="switch"><input type="checkbox" id="lrclibFallback"><span class="slider"></span></label>
     </div>
@@ -95,7 +99,7 @@
 
 <script>
   const { ipcRenderer } = require('electron')
-  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lrclibFallback']
+  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback']
 
   async function refresh() {
     const s = await ipcRenderer.invoke('settings:get')

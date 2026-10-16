@@ -35,6 +35,7 @@ Discord update. None of these objects is stored.
 | main.js `persistBounds`, `rememberBounds` | bounds save debounce | 500 ms one-shot | after a move/resize | fires | ~0; checks `isDestroyed()` |
 | main.js mini/lyrics keep-above | KWin keep-above | 300 ms one-shot | once per window open | fires | one qdbus call, KDE Wayland only |
 | lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight + interlude dots | display rate | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | per frame a few comparisons; DOM class writes only when a word/line changes, 3 dot styles during a countdown. Measured below |
+| lyrics.html `#spin` (0.15.10) | CSS rotation of the round cover | 9 s per turn | Settings → Spin album art on (off by default), visible and playing | `animation-play-state: paused` when hidden or paused | compositor only; +3.5 % software-GL GPU under Xvfb, renderer unchanged |
 | miniplayer / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
 
 **Duplicate pollers:** with mini player + lyrics + visualizer all open, three polls
@@ -126,14 +127,19 @@ GL under Xvfb):
 | word timing + duet + background vocals, first version (rAF every frame, colour/glow transitions) | 5.4–5.5 % | 12.7–13.0 % | on |
 | word timing, rAF only at changes | 4.9 % | 12.1 % | on |
 | word timing, rAF only at changes + only transform/opacity transitions (shipped) | 2.5–2.9 % | 11.3–11.9 % | on |
+| shipped + round cover with progress ring | 3.0 % | 12.0–12.3 % | on |
+| shipped + cover + "Spin album art like a record" on | 3.0–3.2 % | 15.7–15.9 % | on |
 | word timing, window hidden | — | — | off (checked) |
 
 Most of the first version's cost was the animated colour and glow (a repaint for every word
 change), not the loop, so only `transform` and `opacity` animate now; colour and glow switch
 instantly. The test song sings a word every 0.4–0.5 s without pauses, a dense case. The GPU
 column is software GL under Xvfb and is much higher than on a real GPU; the difference
-between the rows is what counts. The header album thumbnail is a plain `<img>` with the
-mini player's artwork URL (Chromium's HTTP cache), sent only when the art changes.
+between the rows is what counts. The header cover is a plain `<img>` with the mini player's
+artwork URL (Chromium's HTTP cache), sent only when the art changes. The progress ring is
+written at most 4×/s and only when it moved. The spin (off by default) is a compositor-only
+CSS rotation: about +3.5 % in the software-GL GPU process, nothing in the renderer; it is
+paused while the window is hidden or the music is paused.
 
 ## Not measurable headless
 

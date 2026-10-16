@@ -40,7 +40,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -313,6 +313,30 @@ const lyricsFetchScript = `(async () => {
   }
 })()`
 
+// Clicks a link to the playing song's album already in the page (now-playing bar, lists), found
+// through shadow roots. Album id from the song's catalog URL (…/album/name/123?i=456) or its container.
+const showAlbumScript = `(() => {
+  try {
+    const item = MusicKit.getInstance().nowPlayingItem;
+    if (!item) return false;
+    const m = String((item.attributes && item.attributes.url) || '').match(/\\/album\\/[^/]*\\/?(\\d+)/);
+    const id = m ? m[1] : (item.container && item.container.type === 'albums' ? String(item.container.id) : '');
+    if (!id) return false;
+    const re = new RegExp('/album/(?:[^/?#]*/)?' + id + '(?:[?#]|$)');
+    const walk = (root, depth) => {
+      if (depth > 25) return null;
+      for (const a of root.querySelectorAll('a[href*="/album/"]')) if (re.test(a.getAttribute('href'))) return a;
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) { const hit = walk(el.shadowRoot, depth + 1); if (hit) return hit; }
+      }
+      return null;
+    };
+    const link = walk(document, 0);
+    if (link) link.click();
+    return !!link;
+  } catch (e) { return false; }
+})()`
+
 const lyricsSources = require('./lyrics-sources')
 
 // Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
@@ -353,6 +377,7 @@ function createLyricsWindow() {
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
     lyricsArt = null // and an artwork send
+    lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin })
     // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window exists (also when minimized or paused) · stops on lyrics 'closed' (and main 'close') · cost 2 executeJavaScript/s + 1 IPC send/tick; one lyrics lookup per track change (cached, see lyrics-sources.js). Left as is: only runs while lyrics are open; with mini + lyrics + visualizer all open the three polls make 6.5 reads/s for 0.19 % main-process CPU (docs/PERFORMANCE.md), so a shared poller isn't worth the change.
     // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
     lyricsPoll = setInterval(async () => {
@@ -368,7 +393,7 @@ function createLyricsWindow() {
         lyricsKey = key
         const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, lines: got.lines, source: got.source })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, duration: state.duration, lines: got.lines, source: got.source })
         }
       }
       // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
@@ -407,6 +432,15 @@ function toggleLyricsWindow() {
 ipcMain.on('lyrics-command', (event, command, value) => {
   if (command === 'close') {
     if (lyricsWindow) lyricsWindow.close()
+  }
+  else if (command === 'show-album') {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.show()
+    mainWindow.focus()
+    // open the playing album through the page's own album link (client-side routing, so playback
+    // goes on); without such a link on screen the window is only shown
+    mainWindow.webContents.executeJavaScript(showAlbumScript)
+      .catch((e) => console.error('show album failed:', e.message))
   }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
@@ -1017,6 +1051,9 @@ ipcMain.on('settings:set', (event, key, value) => {
   else if (key === 'adaptiveColor') {
     if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette) }  // re-extract next poll
     else { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
+  }
+  else if (key === 'lyricsArtSpin') {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!value })
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
