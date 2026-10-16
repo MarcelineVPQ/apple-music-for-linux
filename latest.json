@@ -1,11 +1,11 @@
 {
   "channel": "stable",
-  "version": "0.15.17",
-  "file": "sonata-0.15.17-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.17/sonata-0.15.17-x86_64.AppImage",
-  "sha512": "4676c09df57d832023463a9d596ef50df9a268a67187eec6a10f598526821a47102dc1af04395ec4169eeedfc831294eda4c3856175187c00b7e9665a55b1f74",
-  "size": 125818489,
-  "date": "2026-10-16T06:00:45Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.17",
-  "notes": "### Changed\n\n- When the lyrics service is busy or offline, the lyrics window says so (\"Lyrics service busy, trying again…\") instead of \"No lyrics available\", and retries on its own while open: after 30 s, 1 min, then every 2 min.\n- The lyrics window header shows the song title larger and bolder, with the artist underneath, sized to sit next to the record."
+  "version": "0.15.18",
+  "file": "sonata-0.15.18-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.18/sonata-0.15.18-x86_64.AppImage",
+  "sha512": "d525b79bb6ac2c6bec89a9f38d06bfa58f969efce34c7f6c1513e4a97d7ec9aac3bf74c5c7e7c3dbb4646ed7c34c4ecf8f91bee18b5f3039c4d2e08e84f56ef0",
+  "size": 125818424,
+  "date": "2026-10-16T06:14:12Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.18",
+  "notes": "### Added\n\n- **Lyrics remembered on disk:** songs you've played before show their lyrics instantly, even offline (up to about 2,000 songs / 20 MB, oldest dropped first).\n- **Next song prefetched:** while a song plays with the lyrics window open, Sonata quietly looks up the next song's lyrics, so they're ready when it starts."
 }
