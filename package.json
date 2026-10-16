@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.26",
+  "version": "0.15.27",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -66,7 +66,9 @@
       "align/**"
     ],
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "icon": "sonata.png",
       "category": "AudioVideo;Audio",
       "artifactName": "sonata-${version}-${arch}.${ext}",
@@ -90,7 +92,11 @@
         "x11"
       ],
       "slots": [
-        { "mpris": { "name": "chromium" } }
+        {
+          "mpris": {
+            "name": "chromium"
+          }
+        }
       ]
     }
   },

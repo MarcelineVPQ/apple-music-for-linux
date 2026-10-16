@@ -47,12 +47,12 @@
 .w .sr { white-space: nowrap; }
 .w .s {
   display: inline-block;
-  transform-origin: 50% 65%;
-  transition: transform 0.14s ease-in-out;
+  transform-origin: 50% 80%;
+  transition: transform 0.12s ease-out, filter 0.12s ease-out;
 }
 .line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
-.line.active .w.now .s.now { transform: scale(1.15); }
-.line.active .bgv .w.now .s.now { transform: scale(1.12); }
+.line.active .w.now .s.now { transform: translateY(-0.12em) scale(1.3); filter: brightness(1.35); }
+.line.active .bgv .w.now .s.now { transform: translateY(-0.08em) scale(1.25); filter: brightness(1.25); }
 
 /* interlude countdown: three dots in place of the next line */
 .dots {

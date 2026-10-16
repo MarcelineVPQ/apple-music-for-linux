@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.27] — Bigger syllable pop
+
+- The syllable being sung now lifts, grows to 1.3× (1.25× in background vocals) and brightens, so the karaoke pop reads at a glance.
+
 ## [0.15.26] — Karaoke syllables for every song
 
 ### Changed
