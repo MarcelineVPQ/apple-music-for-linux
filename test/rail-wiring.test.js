@@ -44,7 +44,7 @@ test('rail view preload: send / onState / onFocus only, through contextBridge, s
   assert.equal(focused, 1)
 })
 
-test('Apple preload: only a "focus the rail" bridge, in its isolated world (no contextBridge, no Node)', () => {
+test('Apple preload: only "focus the rail" and "wheel notches over the volume", in its isolated world (no contextBridge, no Node)', () => {
   const sent = []
   const fake = { ipcRenderer: { send: (...a) => sent.push(a), on: () => { throw new Error('no listeners expected') } } }
   const before = globalThis.sonataFocusBridge
@@ -52,37 +52,45 @@ test('Apple preload: only a "focus the rail" bridge, in its isolated world (no c
     withFakeElectron(fake, () => { delete require.cache[require.resolve('../preload-apple')]; require('../preload-apple') })
     const b = globalThis.sonataFocusBridge
     assert.ok(Object.isFrozen(b))
-    assert.deepEqual(Object.keys(b), ['toRail'])
+    assert.deepEqual(Object.keys(b), ['toRail', 'volume'])
     b.toRail('last'); b.toRail('anything')
-    assert.deepEqual(sent, [['rail:focus-in', 'last'], ['rail:focus-in', 'first']])
+    b.volume(3); b.volume(999); b.volume('x'); b.volume(-2.7)
+    assert.deepEqual(sent, [['rail:focus-in', 'last'], ['rail:focus-in', 'first'], ['apple:volume', 3], ['apple:volume', 20], ['apple:volume', 0], ['apple:volume', -2]])
   } finally { if (before === undefined) delete globalThis.sonataFocusBridge }
   const src = code(read('preload-apple.js'))
   assert.doesNotMatch(src, /contextBridge|exposeInMainWorld|webFrame|executeJavaScript/)
   assert.doesNotMatch(src, /require\('(fs|child_process|path|os)'\)/)
 })
 
-test('main: one window, two views, both sandboxed + isolated, no Node anywhere; the rail on top', () => {
+test('main: one window, Apple\'s view + Sonata\'s views, all sandboxed + isolated, no Node anywhere; the rail on top', () => {
   const src = read('main.js')
   const win = src.slice(src.indexOf('function createWindow()'), src.indexOf("appleWC().loadURL("))
   assert.match(win, /mainWindow = new BaseWindow\(opts\)/)
   assert.match(win, /appleView = new WebContentsView\(\{\s*webPreferences: \{ preload: path\.join\(__dirname, 'preload-apple\.js'\), contextIsolation: true, sandbox: true, nodeIntegration: false \}/)
-  assert.match(win, /railView = new WebContentsView\(\{\s*webPreferences: \{ preload: path\.join\(__dirname, 'preload-rail-view\.js'\), contextIsolation: true, sandbox: true, nodeIntegration: false \}/)
-  assert.ok(win.indexOf('addChildView(appleView)') < win.indexOf('addChildView(railView)'), 'rail added last (on top)')
+  assert.match(src, /const SONATA_VIEW_PREFS = \(preload\) => \(\{ preload: path\.join\(__dirname, preload\), contextIsolation: true, sandbox: true, nodeIntegration: false \}\)/)
+  assert.match(win, /railView = new WebContentsView\(\{ webPreferences: SONATA_VIEW_PREFS\('preload-rail-view\.js'\) \}\)/)
+  assert.match(src, /panelView = new WebContentsView\(\{ webPreferences: SONATA_VIEW_PREFS\('preload-panel\.js'\) \}\)/)
+  assert.match(src, /toastView = new WebContentsView\(\{ webPreferences: SONATA_VIEW_PREFS\('preload-panel\.js'\) \}\)/)
+  assert.ok(win.indexOf('addChildView(appleView)') < win.indexOf('addChildView(railView)'), 'rail added after Apple\'s view (on top)')
+  // the panel goes in under the rail (the open rail slides over it)
+  assert.match(src, /addChildView\(panelView, mainWindow\.contentView\.children\.indexOf\(railView\)\)/)
   assert.match(src, /railView\.webContents\.loadFile\('rail\.html'\)/)
-  assert.match(src, /lockDownLocalWindow\(railView\)/)
+  for (const v of ['railView', 'panelView', 'toastView']) assert.match(src, new RegExp('lockDownLocalWindow\\(' + v + '\\)'), v)
   // the views' web contents are closed with the window
-  assert.match(src, /mainWindow\.on\('closed', \(\) => \{\s*for \(const v of \[appleView, railView\]\) if \(v && !v\.webContents\.isDestroyed\(\)\) v\.webContents\.close\(\)/)
-  // Apple's page no longer gets the rail injected, nor any room CSS
+  assert.match(src, /mainWindow\.on\('closed', \(\) => \{\s*for \(const v of \[appleView, railView, panelView, toastView\]\) if \(v && !v\.webContents\.isDestroyed\(\)\) v\.webContents\.close\(\)/)
+  // Apple's page gets no Sonata scripts, room CSS or panels
   assert.doesNotMatch(src, /railScripts|roomCss|SONATA_RAIL_CSS/)
   assert.doesNotMatch(src, /mainWindow\.webContents/)
+  assert.doesNotMatch(src, /appleWC\(\)\.loadFile|appleWC\(\)\.executeJavaScript\([^)]*panel/)
 })
 
-test('main: the views are sized by rail-model viewBounds on resize, fullscreen and rail changes', () => {
+test('main: the views are sized by panel-model windowLayout on resize, fullscreen, rail and panel changes', () => {
   const src = read('main.js')
-  assert.match(src, /railModel\.viewBounds\(w, h, !!settings\.railPinned, railWide && !settings\.railLocked\)/)
+  assert.match(src, /panelModel\.windowLayout\(w, h, \{ pinned: !!settings\.railPinned, wide: railWide && !settings\.railLocked, panelShown: !!settings\.panelShown && panelAlive\(\) \}\)/)
   for (const ev of ['resize', 'enter-full-screen', 'leave-full-screen']) assert.ok(src.includes(`mainWindow.on('${ev}', pushRail)`), ev)
   assert.match(src, /appleView\.setBounds\(b\.apple\)/)
   assert.match(src, /railView\.setBounds\(b\.rail\)/)
+  assert.match(src, /panelView\.setVisible\(!!b\.panel\)/)
 })
 
 test('main: rail commands are checked (rail view, top frame, known names) and run existing toggles', () => {
@@ -92,7 +100,7 @@ test('main: rail commands are checked (rail view, top frame, known names) and ru
   assert.match(h, /event\.sender !== railView\.webContents/)
   assert.match(h, /event\.senderFrame\.parent/)
   assert.match(h, /railModel\.COMMANDS\.includes\(command\)/)
-  for (const fn of ['toggleLyricsWindow()', 'toggleVisualizer()', 'toggleMiniPlayer()', 'createSettingsWindow()', 'toggleRailPin()', "toggleRailFlag('lock')", "focusApple('next')", "focusApple('prev')"]) assert.ok(h.includes(fn), fn)
+  for (const fn of ['toggleLyricsWindow()', 'toggleVisualizer()', 'toggleMiniPlayer()', "togglePanelPage('settings')", "togglePanelPage('about')", 'toggleRailPin()', "toggleRailFlag('lock')", "focusView('rail', false)", "focusView('rail', true)"]) assert.ok(h.includes(fn), fn)
   assert.match(h, /command === 'expand'\) \{ if \(!settings\.railLocked && !settings\.railPinned\)/)
   assert.equal((src.match(/ipcMain\.on\('rail:command'/g) || []).length, 1)
   const f = src.slice(src.indexOf("ipcMain.on('rail:focus-in'"), src.indexOf("ipcMain.on('rail:focus-in'") + 300)
@@ -104,7 +112,7 @@ test('main: rail commands are checked (rail view, top frame, known names) and ru
 
 test('main: nothing removed: tray items, menus and shortcuts are all still there, in both views', () => {
   const src = read('main.js')
-  for (const label of ["'Show / Hide'", "'Mini Player'", "'Lyrics', accelerator: LYRICS_KEY", "'Visualizer', accelerator: VISUALIZER_KEY", "'Toggle Dark Mode'", "'Check for Updates…'", "'Settings…'", "'Quit'"]) assert.ok(src.includes(label), label)
+  for (const label of ["'Show / Hide'", "'Mini Player'", "'Lyrics', accelerator: LYRICS_KEY", "'Visualizer', accelerator: VISUALIZER_KEY", "'Toggle Dark Mode'", "'Check for Updates…'", "'Settings…'", "'About Sonata'", "'Quit'"]) assert.ok(src.includes(label), label)
   for (const key of ["=== 'r'", "=== 'd'", "=== 'm'", "=== 'b'"]) assert.ok(src.includes("input.key.toLowerCase() " + key), key)
   assert.ok(src.includes("const LYRICS_KEY = 'Ctrl+Shift+L'"))
   assert.ok(src.includes("const VISUALIZER_KEY = 'Ctrl+Shift+V'"))
@@ -115,7 +123,9 @@ test('main: nothing removed: tray items, menus and shortcuts are all still there
 
 test('main: the pin and the lock are remembered settings, off by default, toggled through toggleFlags', () => {
   const src = read('main.js')
-  assert.match(src, /railPinned: false, railLocked: false \}/)
+  const S = require('../settings-store').defaults()
+  assert.equal(S.railPinned, false)
+  assert.equal(S.railLocked, false)
   assert.match(src, /railModel\.toggleFlags\(/)
   assert.match(src, /locked: !!settings\.railLocked/)
 })
@@ -127,13 +137,21 @@ test('rail-ui: no timers, no animation frames, no observers; untrusted clicks ig
   assert.match(src, /if \(!e\.isTrusted\) return/)
 })
 
-test('apple-focus: one MutationObserver (body childList only), no timers, untrusted focus ignored', () => {
+test('apple-focus: one MutationObserver (body childList only), no timers, untrusted events ignored, wheel only on the volume control', () => {
   const src = code(read('apple-focus.js'))
   assert.equal((src.match(/new MutationObserver/g) || []).length, 1)
   assert.match(src, /observer\.observe\(doc\.body, \{ childList: true \}\)/)
   assert.doesNotMatch(src, /subtree|attributes:\s*true|characterData/)
   assert.doesNotMatch(src, /setTimeout|setInterval|requestAnimationFrame|requestIdleCallback|innerHTML/)
   assert.match(src, /if \(ev\.isTrusted\) bridge\.toRail\(where\)/)
+  // no non-passive wheel listener on the document (it would slow every scroll of Apple's page)
+  assert.doesNotMatch(src, /doc\.addEventListener\('wheel'/)
+  assert.match(src, /el\.addEventListener\('wheel', onVolumeWheel, \{ passive: false \}\)/)
+  assert.match(src, /\{ capture: true, passive: true \}/)
+  const main = read('main.js')
+  const h = main.slice(main.indexOf("ipcMain.on('apple:volume'"), main.indexOf("ipcMain.on('apple:volume'") + 400)
+  assert.match(h, /event\.sender !== appleWC\(\) \|\| !event\.senderFrame \|\| event\.senderFrame\.parent/)
+  assert.match(h, /!Number\.isInteger\(steps\) \|\| steps === 0 \|\| Math\.abs\(steps\) > 20/)
 })
 
 test('every listener and observer in rail-ui.js and apple-focus.js carries a lifetime/loop verdict', () => {
@@ -170,6 +188,12 @@ test('packaging: every rail file ships in the AppImage', () => {
   const files = require('../package.json').build.files
   for (const f of ['preload-apple.js', 'preload-rail-view.js', 'apple-focus.js', 'rail.html', 'rail-model.js', 'rail-ui.js', 'rail.css']) assert.ok(files.includes(f), f)
   assert.ok(!files.includes('preload-rail.js'))
+  // every local file a Sonata page loads ships too (scripts, styles)
+  for (const page of ['rail.html', 'panel.html', 'toast.html', 'lyrics.html', 'miniplayer.html', 'visualizer.html']) {
+    for (const m of read(page).matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)) assert.ok(files.includes(m[1]), page + ' loads ' + m[1])
+  }
+  for (const f of ['CHANGELOG.md', 'BACKLOG.md', 'preload-panel.js', 'theme-apply.js', 'settings-store.js', 'json-salvage.js', 'updater.js', 'about-data.js', 'notices-model.js']) assert.ok(files.includes(f), f)
+  assert.ok(!files.includes('settings.html'), 'the floating Settings window is retired')
 })
 
 test('css replacer: a function source is read at every apply', async () => {

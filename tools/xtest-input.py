@@ -1,6 +1,7 @@
 # Real X input for tools/rail-check.js, through XTest (ctypes, no Python packages needed).
 # Only for a throwaway Xvfb display; never point it at a real desktop.
 #   xtest-input.py :87 key ctrl+b [tab ...]   xtest-input.py :87 move X Y   xtest-input.py :87 click X Y
+#   xtest-input.py :87 wheel X Y N   (N notches: positive = up, negative = down)
 import ctypes, sys, time
 
 x11 = ctypes.cdll.LoadLibrary('libX11.so.6')
@@ -41,6 +42,16 @@ if cmd == 'key':
             xt.XTestFakeKeyEvent(d, k, 0, 0)
         x11.XFlush(d)
         time.sleep(0.08)
+elif cmd == 'wheel':
+    xt.XTestFakeMotionEvent(d, -1, int(sys.argv[3]), int(sys.argv[4]), 0)
+    x11.XFlush(d)
+    n = int(sys.argv[5])
+    button = 4 if n > 0 else 5
+    for _ in range(abs(n)):
+        time.sleep(0.05)
+        xt.XTestFakeButtonEvent(d, button, 1, 0)
+        xt.XTestFakeButtonEvent(d, button, 0, 0)
+        x11.XFlush(d)
 elif cmd in ('move', 'click'):
     xt.XTestFakeMotionEvent(d, -1, int(sys.argv[3]), int(sys.argv[4]), 0)
     x11.XFlush(d)

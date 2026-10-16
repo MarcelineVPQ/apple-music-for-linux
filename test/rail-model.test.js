@@ -88,18 +88,27 @@ test('keyboard: arrows wrap, Home/End jump, Esc closes, modified keys and others
   assert.equal(M.railKey('ArrowDown', 0, 0), null)
 })
 
-test('items: order, shortcuts in tooltips, active state from open windows', () => {
-  const s = { open: { lyrics: true, settings: true }, keys: { lyrics: 'Ctrl+Shift+L', visualizer: 'Ctrl+Shift+V', mini: 'Ctrl+M', settings: '' } }
+test('items: order, shortcuts in tooltips, active state from open windows and the panel', () => {
+  const s = { open: { lyrics: true }, panel: { shown: true, page: 'settings' }, keys: { lyrics: 'Ctrl+Shift+L', visualizer: 'Ctrl+Shift+V', mini: 'Ctrl+M', settings: '', about: '' } }
   const items = M.railItems(s)
-  assert.deepEqual(items.map((i) => i.id), ['lyrics', 'visualizer', 'mini', 'settings'])
-  assert.deepEqual(items.map((i) => i.active), [true, false, false, true])
+  assert.deepEqual(items.map((i) => i.id), ['lyrics', 'visualizer', 'mini', 'settings', 'about'])
+  assert.deepEqual(items.map((i) => i.active), [true, false, false, true, false])
   assert.match(items[0].tip, /^Lyrics \(Ctrl\+Shift\+L\)\nOpen · click to close$/)
   assert.match(items[1].tip, /^Visualizer \(Ctrl\+Shift\+V\)\nClick to open$/)
   assert.equal(items[2].ariaKeys, 'Control+M')
-  assert.equal(items[3].kind, 'window')
-  assert.match(items[3].tip, /^Settings\nOpen · click to bring it forward$/)   // no invented shortcut
+  assert.equal(items[3].kind, 'panel')
+  assert.match(items[3].tip, /^Settings\nShown beside the page · click to hide it$/)   // no invented shortcut
+  assert.match(items[4].tip, /^About\nClick to show it beside the page$/)
   assert.equal(items[3].ariaKeys, '')
   assert.ok(M.railItems(null).every((i) => !i.active))
+  // the panel hidden: nothing active; a task on a page shows as its dot, said in words
+  const hidden = M.railItems({ panel: { shown: false, page: 'settings' }, reminders: { settings: 'Sonata 0.16.0 is available.' } })
+  assert.equal(hidden[3].active, false)
+  assert.equal(hidden[3].task, 'Sonata 0.16.0 is available.')
+  assert.match(hidden[3].tip, /Waiting: Sonata 0\.16\.0 is available\./)
+  // shown with that page: the dot goes (the page itself shows the task)
+  assert.equal(M.railItems({ panel: { shown: true, page: 'settings' }, reminders: { settings: 'x' } })[3].task, '')
+  assert.ok(M.COMMANDS.includes('about') && M.COMMANDS.includes('settings'))
 })
 
 test('pin: one name, pressed state, Ctrl+B in the tooltip, the floating case explained', () => {
@@ -143,42 +152,6 @@ test('development badge only on the dev channel', () => {
   assert.equal(b.text, 'Development')
   assert.equal(b.version, '0.15.27-dev.1')
   assert.match(b.tip, /Development channel · v0\.15\.27-dev\.1/)
-})
-
-test('contrast maths: known pairs', () => {
-  assert.equal(Math.round(M.contrast([0, 0, 0], [255, 255, 255])), 21)
-  assert.equal(M.contrast([10, 20, 30], [10, 20, 30]), 1)
-  assert.deepEqual(M.hexRgb('#ff8000'), [255, 128, 0])
-  assert.equal(M.hexRgb('nope'), null)
-})
-
-test('glass: labels >= 4.5:1 (and the ring >= 3:1) over ANY backdrop, every album hue, both themes', () => {
-  const { hslToRgb } = require('../palette')
-  const hex = (rgb) => '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
-  const palettes = [null, { accent: 'garbage' }]
-  for (let h = 0; h < 360; h += 10) for (const l of [0.52, 0.6, 0.68]) for (const s of [0.58, 0.95]) palettes.push({ accent: hex(hslToRgb(h, s, l)) })
-  let worst = 99
-  for (const dark of [false, true]) {
-    for (const p of palettes) {
-      const t = M.glassTheme(p, dark)
-      assert.ok(t.contrast.label >= 4.5, 'label ' + JSON.stringify(p) + dark)
-      assert.ok(t.contrast.soft >= 4.5, 'soft ' + JSON.stringify(p) + dark)
-      assert.ok(t.contrast.active >= 4.5, 'active ' + JSON.stringify(p) + dark)
-      assert.ok(t.contrast.hover >= 4.5, 'hover ' + JSON.stringify(p) + dark)
-      assert.ok(t.contrast.ring >= 3, 'ring ' + JSON.stringify(p) + dark)
-      assert.ok(t.alpha < 0.98, 'still glass')
-      worst = Math.min(worst, t.contrast.label, t.contrast.soft, t.contrast.active)
-      for (const k of ['--rail-glass', '--rail-text', '--rail-soft', '--rail-active', '--rail-hover', '--rail-ring', '--rail-solid']) assert.match(t.vars[k], /^rgba\(/)
-    }
-  }
-  assert.ok(worst >= 4.5)
-})
-
-test('glass: dark is dark, light is light; the album accent tints it', () => {
-  const lumOf = (v) => { const [r, g, b] = v.match(/[\d.]+/g).map(Number); return r + g + b }
-  assert.ok(lumOf(M.glassTheme(null, true).vars['--rail-glass']) < 300)
-  assert.ok(lumOf(M.glassTheme(null, false).vars['--rail-glass']) > 600)
-  assert.notEqual(M.glassTheme({ accent: '#2050ff' }, true).vars['--rail-glass'], M.glassTheme({ accent: '#ff5020' }, true).vars['--rail-glass'])
 })
 
 test('one file, two worlds: without CommonJS it becomes a frozen SonataRailModel global', () => {

@@ -17,6 +17,7 @@
     e.setAttribute('aria-label', 'Sonata navigation rail')
     const css = { all: 'initial', position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', overflow: 'hidden',
       clip: 'rect(0 0 0 0)', 'clip-path': 'inset(50%)', opacity: '0', 'pointer-events': 'none', 'z-index': '-1' }
+    // loop: NOT-WORTH — 12 style properties, twice per page load
     for (const k in css) e.style.setProperty(k, css[k], 'important')
     // lifetime: one focus listener per stop, for the document's life
     // error: a focus not caused by the user (isTrusted false: a page script) is ignored
@@ -40,6 +41,7 @@
     const out = []
     const walk = (root, depth) => {
       if (depth > 25) return
+      // loop: HOT-PATH-OK — Apple's whole DOM (~15 k nodes), only on a Tab/F6 handoff out of the rail (a key press)
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) walk(el.shadowRoot, depth + 1)
         if (el.tagName === 'SONATA-FOCUS' || !el.matches(SEL) || el.tabIndex < 0 || el.disabled || el.inert) continue
@@ -64,6 +66,39 @@
   }
   if (doc.body) { place(); observer.observe(doc.body, { childList: true }) }
 
+  // Mouse wheel over Apple's own volume control (the player bar's speaker and its slider): 5 % per
+  // notch, as in the mini player (wheel-volume.js, injected before this file). The page doesn't scroll.
+  // The wheel listener goes on that control only (found when the pointer enters it), never on the
+  // whole document: a non-passive document wheel listener would make every scroll of Apple's page wait.
+  // If Apple renames the control (class "chrome-volume"), the wheel there simply scrolls again.
+  const W = globalThis.SonataWheelVolume
+  const hooked = new WeakSet()
+  const steps = W ? W.createWheelSteps() : null
+  function onVolumeWheel(e) {
+    if (!e.isTrusted || !steps || !bridge.volume) return
+    e.preventDefault()
+    const n = steps.feed(e.deltaY, e.deltaMode, e.timeStamp)
+    if (n) bridge.volume(n)
+  }
+  // lifetime: one capturing, passive pointerover listener on Apple's document · per element boundary
+  // crossed, a walk up the event path (≤ ~25 elements) · adds one wheel listener per volume control
+  // element, once (WeakSet), which lives and dies with that element
+  if (W) doc.addEventListener('pointerover', (e) => {
+    if (!e.isTrusted) return
+    // loop: NOT-WORTH — the event's path, ≤ ~25 elements, per element boundary crossed
+    for (const el of e.composedPath()) {
+      if (el === doc.body || el === doc) break
+      if (el.classList && el.classList.contains('chrome-volume')) {
+        if (!hooked.has(el)) {
+          hooked.add(el)
+          // lifetime: one wheel listener per volume control element (not passive: it stops the scroll)
+          el.addEventListener('wheel', onVolumeWheel, { passive: false })
+        }
+        break
+      }
+    }
+  }, { capture: true, passive: true })
+
   globalThis.__sonataFocus = Object.freeze({
     // where: 'next' (Apple's first control), 'prev' (its last), 'restore' (where focus was before)
     focusApple(where) {
@@ -76,6 +111,6 @@
       if (target) target.focus({ focusVisible: true })
       return !!target
     },
-    counts: () => ({ stops: doc.querySelectorAll('sonata-focus').length, observers: 1, listeners: 3 })
+    counts: () => ({ stops: doc.querySelectorAll('sonata-focus').length, observers: 1, listeners: 4 })
   })
 })()

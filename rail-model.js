@@ -1,5 +1,5 @@
 // The navigation rail's pure logic (no DOM, no Electron): layout math, the open/closed state,
-// the keyboard map, the items and status lines, and the glass colours with their contrast.
+// the keyboard map, the items and status lines. Its colours come from theme.js (one theme system).
 // Used by main.js (the two views' bounds, the state it sends) and by rail-ui.js in rail.html, the
 // rail's own view (loaded there as a plain script: SonataRailModel).
 // Modeled on the DS5 app's AppRail: right edge, icons only, expands over the page on hover or
@@ -87,17 +87,21 @@
   }
 
   // --- items ---
-  // toggle: a press opens or closes that window (aria-pressed); window: opens it or brings it
-  // forward (Settings has no shortcut and is never closed from here; aria-current when open).
+  // toggle: a press opens or closes that window (aria-pressed). panel (0.15.32): Settings and About
+  // show in the side panel beside Apple's page; pressing the item of the page the panel shows hides
+  // the panel, any other shows it with that page (aria-pressed: shown with this page). An open task
+  // there (an update, a repaired file, what's new) puts a dot on the item while it isn't shown.
   const ITEMS = [
     { id: 'lyrics', label: 'Lyrics', keyName: 'lyrics', kind: 'toggle' },
     { id: 'visualizer', label: 'Visualizer', keyName: 'visualizer', kind: 'toggle' },
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
-    { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'window' }
+    { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'panel' },
+    { id: 'about', label: 'About', keyName: 'about', kind: 'panel' }
   ]
   // what the rail view may send: its items, the pin and lock, 'mounted', 'expand'/'collapse' (widen
-  // the view over Apple's page while open), 'focus-apple-next'/'focus-apple-prev' (Tab out)
-  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
+  // the view over Apple's page while open), 'focus-apple-next'/'focus-apple-prev' (Tab out: to Apple's
+  // page, or Shift+Tab to the panel when it shows)
+  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
 
   // Pin and lock exclude each other, as in the DS5 app: keeping it open unlocks it, locking it
   // unpins it. -> the new { pinned, locked } after toggling `which` ('pin' | 'lock')
@@ -114,14 +118,18 @@
   function railItems(s) {
     const open = (s && s.open) || {}
     const keys = (s && s.keys) || {}
+    const panel = (s && s.panel) || {}
+    const reminders = (s && s.reminders) || {}
     return ITEMS.map((it) => {
       const key = keys[it.keyName] || ''
-      const active = !!open[it.id]
+      const active = it.kind === 'panel' ? !!panel.shown && panel.page === it.id : !!open[it.id]
       const head = it.label + (key ? ' (' + key + ')' : '')
       const what = it.kind === 'toggle'
         ? (active ? 'Open · click to close' : 'Click to open')
-        : (active ? 'Open · click to bring it forward' : 'Click to open')
-      return { id: it.id, label: it.label, kind: it.kind, key, ariaKeys: ariaKeys(key), active, tip: head + '\n' + what }
+        : (active ? 'Shown beside the page · click to hide it' : 'Click to show it beside the page')
+      // a task waiting there: the dot, said in the tooltip and to screen readers (not colour alone)
+      const task = it.kind === 'panel' && !active && reminders[it.id] ? String(reminders[it.id]) : ''
+      return { id: it.id, label: it.label, kind: it.kind, key, ariaKeys: ariaKeys(key), active, task, tip: head + '\n' + what + (task ? '\nWaiting: ' + task : '') }
     })
   }
 
@@ -178,86 +186,9 @@
     return { text: 'Development', version: s.version || '', tip: 'Development channel' + (s.version ? ' · v' + s.version : '') + ' (Settings → Updates)' }
   }
 
-  // --- colours: glass tinted by the album accent, light/dark aware, contrast checked ---
-  const hexRgb = (h) => {
-    const m = /^#?([0-9a-f]{6})$/i.exec(String(h || ''))
-    if (!m) return null
-    const n = parseInt(m[1], 16)
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-  }
-  const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
-  const lum = (rgb) => {
-    const c = rgb.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) })
-    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-  }
-  function contrast(a, b) {
-    const la = lum(a); const lb = lum(b)
-    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
-  }
-  // translucent layers ([rgb, alpha], bottom first) over a backdrop
-  const stack = (backdrop, layers) => layers.reduce((acc, l) => acc.map((v, i) => l[0][i] * l[1] + v * (1 - l[1])), backdrop)
-  const WHITE = [255, 255, 255]
-  const BLACK = [0, 0, 0]
-  // the lowest contrast `text` reaches on these layers over anything (the extremes are white and black)
-  function worstContrast(text, layers) {
-    return Math.min(contrast(text, stack(WHITE, layers)), contrast(text, stack(BLACK, layers)))
-  }
-  const css = (rgb, a) => 'rgba(' + rgb.map((v) => Math.round(v)).join(',') + ',' + (a === undefined ? 1 : +a.toFixed(3)) + ')'
-
-  // alpha 0.9: the rail is its own view, and a blur can't reach Apple's view under it, so the tint
-  // over Apple's page is nearly opaque to keep busy art from showing through the words (measured:
-  // the window shows exactly the CSS alpha, so the contrast maths below holds on screen)
-  const BASE = {
-    dark: { glass: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, alpha: 0.9 },
-    light: { glass: [248, 248, 250], text: [29, 29, 31], soft: 0.20, tint: 0.10, alpha: 0.9 }
-  }
-  const DEFAULT_ACCENT = [250, 45, 72]   // Apple Music's red, when there's no album colour
-
-  // -> CSS custom properties for the rail, plus the measured worst-case contrasts.
-  // The glass alpha is raised (never lowered) until labels reach 4.5:1 over any backdrop; the
-  // active and hover rows are layers over the glass (as the CSS paints them), checked the same way.
-  function glassTheme(palette, dark) {
-    const b = dark ? BASE.dark : BASE.light
-    const accent = (palette && hexRgb(palette.accent)) || DEFAULT_ACCENT
-    const glass = mix(b.glass, accent, b.tint)
-    const soft = mix(b.text, glass, b.soft)   // the status words: text mixed toward the glass
-    let alpha = b.alpha
-    const panel = () => [[glass, alpha]]
-    while (alpha < 0.98 && (worstContrast(b.text, panel()) < 4.5 || worstContrast(soft, panel()) < 4.5)) alpha += 0.02
-    // active row: an accent layer over the glass, as strong as the labels on it allow (4.5:1)
-    let activeA = dark ? 0.34 : 0.22
-    while (activeA > 0.04 && worstContrast(b.text, panel().concat([[accent, activeA]])) < 4.5) activeA -= 0.02
-    // hovered row: a faint text-coloured layer
-    const hoverA = dark ? 0.10 : 0.07
-    // the active bar and the focus ring: the accent, pushed toward the text colour until 3:1 (non-text)
-    let ring = accent
-    for (let i = 0; i < 20 && worstContrast(ring, panel()) < 3; i++) ring = mix(ring, b.text, 0.12)
-    return {
-      vars: {
-        '--rail-glass': css(glass, alpha),
-        '--rail-solid': css(glass),
-        '--rail-text': css(b.text),
-        '--rail-soft': css(soft),
-        '--rail-active': css(accent, activeA),
-        '--rail-hover': css(b.text, hoverA),
-        '--rail-ring': css(ring),
-        '--rail-edge': dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)',
-        '--rail-shadow': dark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.18)'
-      },
-      contrast: {
-        label: worstContrast(b.text, panel()),
-        soft: worstContrast(soft, panel()),
-        active: worstContrast(b.text, panel().concat([[accent, activeA]])),
-        hover: worstContrast(b.text, panel().concat([[b.text, hoverA]])),
-        ring: worstContrast(ring, panel())
-      },
-      alpha
-    }
-  }
-
   const api = {
     RAIL, ITEMS, COMMANDS, railLayout, viewBounds, initialView, viewReduce, isOpen, railKey,
-    railItems, pinItem, lockItem, toggleFlags, railStatus, devBadge, glassTheme, contrast, worstContrast, hexRgb
+    railItems, pinItem, lockItem, toggleFlags, railStatus, devBadge
   }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataRailModel = Object.freeze(api)

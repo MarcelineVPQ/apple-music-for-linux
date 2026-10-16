@@ -1,0 +1,129 @@
+// What About shows, from Sonata's own files (pure: text in, data out). main.js reads CHANGELOG.md and
+// BACKLOG.md (both ship in the app) only when About opens, and sends this to the side panel.
+//   What's new    the CHANGELOG section of the running version (or the newest one before it), older ones folded
+//   Coming soon   BACKLOG rows whose Notes start with "Soon:" (the user-facing sentence after it)
+//   Credits       CREDITS below: what Sonata is built on and every third-party licence it ships or uses
+
+// "## [0.15.31] — The rail never covers Apple's page" -> sections
+function changelogSections(md) {
+  const out = []
+  let cur = null
+  // loop: NOT-WORTH — one pass over CHANGELOG.md's lines (~300), when About opens
+  for (const line of String(md || '').split('\n')) {
+    const m = /^##\s+\[([^\]]+)\]\s*(?:[—–-]\s*(.*))?$/.exec(line)
+    if (m) {
+      if (cur) out.push(cur)
+      cur = { version: m[1].trim(), title: (m[2] || '').trim(), body: [] }
+      continue
+    }
+    if (/^#\s/.test(line)) { if (cur) out.push(cur); cur = null; continue }
+    if (cur) cur.body.push(line)
+  }
+  if (cur) out.push(cur)
+  // loop: NOT-WORTH — ≤ ~40 sections
+  return out.map((s) => ({ version: s.version, title: s.title, body: s.body.join('\n').trim() }))
+    .filter((s) => !(/^unreleased$/i.test(s.version) && !s.body))
+}
+
+// -> { current: section | null, older: [sections] } for the running version
+function whatsNew(md, version) {
+  const all = changelogSections(md).filter((s) => !/^unreleased$/i.test(s.version))
+  const at = all.findIndex((s) => s.version === version)
+  if (at >= 0) return { current: all[at], older: all.slice(at + 1) }
+  return { current: all[0] || null, older: all.slice(1) }
+}
+
+// BACKLOG.md rows "| Item | Status | Soon: one sentence for users. dev notes… |"
+function comingSoon(md) {
+  const out = []
+  // loop: NOT-WORTH — one pass over BACKLOG.md's rows (~60), when About opens
+  for (const line of String(md || '').split('\n')) {
+    if (!/^\|/.test(line)) continue
+    const cells = line.split('|').slice(1, -1).map((c) => c.trim())
+    if (cells.length < 3) continue
+    const m = /^Soon:\s*(.+?[.!?])(?:\s|$)/.exec(cells[2])
+    if (!m) continue
+    const status = cells[1].replace(/\*/g, '').trim()
+    if (/^done$/i.test(status)) continue
+    out.push({ title: cells[0].replace(/\*/g, '').replace(/^After 0\.15\.10:\s*/i, ''), text: m[1], status })
+  }
+  return out
+}
+
+const LRCLIB = 'https://lrclib.net'
+// hyphenation patterns Sonata ships (package.json build.files; lyrics-syllables.js), with the licence
+// each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16.
+const PATTERNS = [
+  ['en-us', 'English (US)', 'Gerard D. C. Kuiken', 'Permissive (copy and use with the copyright notice kept)'],
+  ['en-gb', 'English (UK)', 'Dominik Wujastyk, Graham Toal', 'MIT'],
+  ['de-1996', 'German', 'Stephan Hennig, Werner Lemberg, Günter Milde and others', 'MIT'],
+  ['fr', 'French', 'Daniel Flipo, Bernard Gaulle, Arthur Reutenauer', 'MIT'],
+  ['es', 'Spanish', 'Javier Bezos, CervanTeX', 'MIT'],
+  ['it', 'Italian', 'Claudio Beccari', 'LPPL or MIT'],
+  ['pt', 'Portuguese', 'Pedro J. de Rezende, J. Joao Dias Almeida, Leonardo Araujo, Aline Benevides', 'BSD 3-clause'],
+  ['nl', 'Dutch', 'Piet Tutelaers', 'MIT'],
+  ['sv', 'Swedish', 'Jan Michael Rynning', 'LPPL'],
+  ['da', 'Danish', 'Frank Jensen', 'LPPL or MIT'],
+  ['nb', 'Norwegian Bokmål', 'Rune Kleveland, Ole Michael Selberg, Karl Ove Hufthammer', 'Permissive (copy and use with the copyright notice kept)'],
+  ['fi', 'Finnish', 'Kauko Saarinen', '"Patterns may be freely distributed"'],
+  ['pl', 'Polish', 'Hanna Kołodziejska, Bogusław Jackowski, Marek Ryćko', 'MIT (or others)'],
+  ['cs', 'Czech', 'Pavel Ševeček', 'GPL'],
+  ['sk', 'Slovak', 'Jana Chlebíková', 'MIT'],
+  ['hu', 'Hungarian', 'Bence Nagy', 'MPL 1.1 or GPL 2.0 (or LGPL)'],
+  ['ro', 'Romanian', 'Adrian Rezus', 'none stated in the file'],
+  ['tr', 'Turkish', 'Pierre A. MacKay, TUG', 'LPPL'],
+  ['id', 'Indonesian', 'Jörg Knappen, Terry Mart', 'GPL 2.0'],
+  ['ca', 'Catalan', 'Gonçal Badenes', 'LPPL'],
+  ['hr', 'Croatian', 'Igor Marinović', 'LPPL or MIT'],
+  ['sl', 'Slovenian', 'Matjaž Vrečko', 'LPPL or MIT']
+]
+
+// [title, rows: [what, by / licence, url?]]
+const CREDITS = [
+  ['Built on', [
+    ['Sonata', 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', 'https://github.com/MarcelineVPQ/apple-music-for-linux'],
+    ['Apple Music for Linux', 'The app Sonata started from, by Marcus Tomlinson (GPL-3.0).', 'https://github.com/cross-platform/apple-music-for-linux'],
+    ['Electron for Content Security', 'castlabs\' Electron (MIT), with Chromium (BSD and others). Lets Apple Music\'s DRM play.', 'https://github.com/castlabs/electron-releases'],
+    ['Widevine', 'Google\'s DRM module, downloaded by Electron at runtime under Google\'s terms; not part of Sonata.', '']
+  ]],
+  ['Lyrics', [
+    ['LRCLIB', 'Lyrics for songs Apple has none for, from lrclib.net, a free lyrics database run by its community.', LRCLIB],
+    ['hyphen', 'Syllables for the karaoke pop, by Yevhen Tiurin (ISC).', 'https://github.com/ytiurin/hyphen'],
+    ['Hyphenation patterns', 'TeX hyphenation patterns from hyph-utf8, one file per language, each under its own licence (below).', 'https://github.com/hyphenation/tex-hyphen']
+  ]],
+  ['Precise word timing (sonata-align, installed separately)', [
+    ['Demucs v4 (htdemucs)', 'Separates the vocals. Meta, MIT.', 'https://github.com/facebookresearch/demucs'],
+    ['wav2vec2 (English)', 'Lines the words up. torchaudio\'s wav2vec2 large-lv60k 960h, MIT.', 'https://pytorch.org/audio'],
+    ['XLSR-53 fine-tunes (German, French, Spanish)', 'By Jonatas Grosman, Apache-2.0 (Common Voice data, CC0).', 'https://huggingface.co/jonatasgrosman'],
+    ['MMS forced aligner', 'Other languages, only when you opt in: Meta, CC-BY-NC 4.0 (non-commercial).', ''],
+    ['Whisper large-v3-turbo / faster-whisper', 'Transcription, in the helper only. OpenAI, MIT; SYSTRAN, MIT.', 'https://github.com/SYSTRAN/faster-whisper'],
+    ['PyTorch', 'BSD-3-Clause.', 'https://pytorch.org']
+  ]],
+  ['Art', [
+    ['Flying toasters', 'Sonata\'s own 3D model, lit with the "White Home Studio" HDRI from Poly Haven (CC0). A wink to Berkeley Systems\' After Dark.', 'https://polyhaven.com'],
+    ['Icons', 'Lucide, ISC.', 'https://lucide.dev']
+  ]]
+]
+
+const NOT_AFFILIATED = 'Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" and "Apple" are trademarks of Apple Inc. You need your own Apple Music subscription.'
+
+const LINKS = [
+  { id: 'github', label: 'Source code on GitHub', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux' },
+  { id: 'bug', label: 'Report a bug', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux/issues/new' },
+  { id: 'releases', label: 'All releases', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases' },
+  { id: 'studio', label: '42 Pixel Studios', url: 'https://42pixelstudios.com/' }
+]
+
+function aboutData(changelogMd, backlogMd, version, alignInstalled) {
+  return {
+    whatsNew: whatsNew(changelogMd, version),
+    soon: comingSoon(backlogMd),
+    credits: CREDITS.map(([title, rows]) => ({ title, rows: rows.map(([what, text, url]) => ({ what, text, url })) })),
+    patterns: PATTERNS.map(([code, lang, by, licence]) => ({ code, lang, by, licence })),
+    alignInstalled: !!alignInstalled,
+    notAffiliated: NOT_AFFILIATED,
+    links: LINKS
+  }
+}
+
+module.exports = { changelogSections, whatsNew, comingSoon, aboutData, CREDITS, PATTERNS, LINKS, NOT_AFFILIATED }

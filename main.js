@@ -1,8 +1,8 @@
-const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components, net } = require('electron')
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, clipboard, Notification, components, net, screen } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec, spawn, execFileSync } = require('child_process');
+const { exec, execFile, spawn, execFileSync } = require('child_process');
 const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
@@ -13,6 +13,13 @@ const alignHelperLib = require('./align-helper')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const railModel = require('./rail-model');
+const panelModel = require('./panel-model');
+const settingsStore = require('./settings-store');
+const noticesModel = require('./notices-model');
+const updaterLib = require('./updater');
+const aboutDataLib = require('./about-data');
+const themeLib = require('./theme');
+const miniModel = require('./mini-model');
 
 const appName = 'Sonata'
 
@@ -45,22 +52,29 @@ let vizWindow = null
 let visualizer = null
 let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
 let vizArt = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable', railPinned: false, railLocked: false }
+// the settings and what each may hold: settings-store.js (defaults, recovery from a damaged file, atomic saves)
+let settings = settingsStore.defaults()
+let settingsExisted = false   // a settings file was there at start (an install from before 0.15.32 has no lastRunVersion)
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
-let settingsWindow = null
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
 let trayTooltip = ''
 let saveBoundsTimer = null
 
+// error: SHOWN — a damaged settings.json: repaired (what reads is kept), copied aside, one notice (showRecovered)
 function loadSettings() {
-  try {
-    settings = { ...settings, ...JSON.parse(fs.readFileSync(settingsPath, 'utf8')) }
-  } catch (e) { /* defaults */ }
+  settingsExisted = fs.existsSync(settingsPath)
+  const r = settingsStore.loadSettings(settingsPath)
+  settings = r.settings
+  if (r.recovery) {
+    console.error('settings: damaged file repaired: ' + JSON.stringify(r.recovery))
+    showRecovered('settings', settingsStore.recoveryText(r.recovery), r.recovery.aside)
+  }
 }
+// error: NOT-WORTH — a failed save (disk full, read-only) is logged; the setting holds for this run and the next change saves again
 function saveSettings() {
-  try { fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n') } catch (e) {}
+  try { settingsStore.saveSettings(settingsPath, settings) } catch (e) { console.error('settings: save failed:', e.message) }
 }
 
 // Restore a saved window size/position into BrowserWindow options.
@@ -108,14 +122,74 @@ function initLocaleAndTheme() {
     fs.writeFileSync(themeFile, 'system');
   }
   const savedTheme = fs.readFileSync(themeFile).toString().trim().toLowerCase();
-  nativeTheme.themeSource = ['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'system';
+  themePref = ['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'system'
+  nativeTheme.themeSource = 'system'
+  chromiumDark = nativeTheme.shouldUseDarkColors   // what Chromium itself says (the GTK theme)
+  applyThemePref()
+  watchDesktopScheme()
+}
+
+// --- light or dark: Sonata's choice (Ctrl+D, Settings → Appearance → Theme), else the DESKTOP's
+// (the XDG portal, then KDE's kdeglobals: desktop-scheme.js), else Chromium's. Chromium alone follows
+// the GTK theme, which on KDE can be light while the desktop is dark (0.15.31's unreadable lyrics). ---
+const desktopScheme = require('./desktop-scheme')
+let themePref = 'system'     // the theme file: 'system' | 'light' | 'dark'
+let chromiumDark = false
+let portalScheme = null      // 'dark' | 'light' | null (no portal, or no preference)
+let kdeScheme = null
+let schemeWatch = null       // the `gdbus monitor` child while following the desktop
+function applyThemePref() {
+  const want = desktopScheme.effectiveScheme(themePref, portalScheme, kdeScheme, chromiumDark)
+  if (nativeTheme.themeSource !== want) nativeTheme.themeSource = want
+}
+// error: NOT-WORTH — no gdbus, no portal or no kdeglobals: that source says nothing, the next one decides
+function readDesktopScheme() {
+  if (process.platform !== 'linux') return
+  try { kdeScheme = desktopScheme.parseKdeglobals(fs.readFileSync(path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'kdeglobals'), 'utf8')) } catch (e) { kdeScheme = null }
+  applyThemePref()
+  execFile('gdbus', ['call', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop',
+    '--method', 'org.freedesktop.portal.Settings.ReadOne', 'org.freedesktop.appearance', 'color-scheme'], { timeout: 3000 }, (err, out) => {
+    portalScheme = err ? null : desktopScheme.parsePortal(out)
+    applyThemePref()
+  })
+}
+// While Sonata follows the desktop: one `gdbus monitor` child hears the portal's SettingChanged, so a
+// switch to BreezeDark (or back) applies at once. No polling.
+// lifetime: one child process while the theme is "Same as the desktop" (Linux); stopped when Sonata's
+// own choice is set and on quit · cost one idle process that wakes only on portal signals
+function watchDesktopScheme() {
+  readDesktopScheme()
+  if (process.platform !== 'linux' || themePref !== 'system' || schemeWatch) return
+  try {
+    schemeWatch = spawn('gdbus', ['monitor', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop'], { stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch (e) { schemeWatch = null; return }   // error: NOT-WORTH — no gdbus: the scheme read at start stays
+  let buf = ''
+  // lifetime: data/exit/error listeners on that child, gone with it
+  schemeWatch.stdout.on('data', (chunk) => {
+    buf += chunk
+    const lines = buf.split('\n')
+    buf = lines.pop()
+    // loop: NOT-WORTH — the lines of one portal signal
+    for (const line of lines) {
+      const v = desktopScheme.parsePortalSignal(line)
+      if (v !== undefined) { portalScheme = v; applyThemePref() }
+    }
+  })
+  schemeWatch.on('error', () => { schemeWatch = null })   // error: NOT-WORTH — gdbus missing: start-time scheme stays
+  schemeWatch.on('exit', () => { schemeWatch = null })
+}
+function stopDesktopScheme() { if (schemeWatch) { schemeWatch.kill(); schemeWatch = null } }
+function setThemePref(v) {
+  themePref = v
+  try { if (themeFile) fs.writeFileSync(themeFile, v) } catch (e) { console.error('theme: save failed:', e.message) }   // error: NOT-WORTH — logged; the choice holds for this run
+  if (v === 'system') watchDesktopScheme()
+  else stopDesktopScheme()
+  applyThemePref()
 }
 
 function toggleTheme() {
-  nativeTheme.themeSource = nativeTheme.shouldUseDarkColors ? 'light' : 'dark'
-  if (themeFile) {
-    fs.writeFileSync(themeFile, nativeTheme.themeSource);
-  }
+  setThemePref(nativeTheme.shouldUseDarkColors ? 'light' : 'dark')
+  pushPanel()
 }
 
 function mainAlive() {
@@ -270,6 +344,8 @@ function createMiniWindow() {
   miniWindow.webContents.once('did-finish-load', () => {
     miniTrackKey = ''
     if (lastPalette) miniWindow.webContents.send('palette', lastPalette)
+    miniWindow.webContents.send('theme', themeState())
+    applyMiniBlur()
     // loop: mini player now-playing poll · 1000 ms · runs while the mini window exists (also when minimized or paused) · stops on mini 'closed' (and main 'close') · cost 1 executeJavaScript/s into the page + 1 IPC send; measured 0.04-0.05 % of one core in the main process (docs/PERFORMANCE.md). Left as is: only runs while the mini player is open; polling on while minimized costs the same, not worth a code change.
     // error: a failing executeJavaScript (page mid-navigation) is skipped until the next tick; at 1/s that can't hammer, and a reload ends it
     miniPoll = setInterval(async () => {
@@ -277,7 +353,7 @@ function createMiniWindow() {
       try {
         const state = await appleWC().executeJavaScript(nowPlayingScript)
         if (!miniWindow || miniWindow.isDestroyed()) return
-        miniWindow.webContents.send('now-playing', state)
+        miniWindow.webContents.send('now-playing', Object.assign({}, state, { lyricsOpen: !!lyricsWindow }))
         // refresh the favorite star only when the track changes (avoids an
         // API call every tick)
         const key = state && state.ok && state.title ? state.title + '|' + state.artist : ''
@@ -609,6 +685,7 @@ function createLyricsWindow() {
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
     startLyricsFeed()
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
+    lyricsWindow.webContents.send('theme', themeState())
     // loop: lyrics keep-above · 300 ms one-shot · once per lyrics open · stops after firing · cost one qdbus exec (KDE Wayland only)
     if (settings.lyricsAlwaysOnTop) setTimeout(() => applyLyricsKeepAbove(true), 300)
   })
@@ -729,6 +806,7 @@ function toggleVisualizer() {
   else createVizWindow()
 }
 
+// lifetime: registered once at module load (see above)
 ipcMain.on('viz-close', () => { if (vizWindow) vizWindow.close() })
 
 // --- three-dots menu on the mini player ---
@@ -858,7 +936,7 @@ async function showMoreMenu() {
         applyMiniKeepAbove(item.checked)
         applyLyricsKeepAbove(item.checked)
         saveSettings()
-        if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:refresh')
+        pushPanel()
       }
     },
     { label: 'Open Full Player', click: toggleMiniPlayer }
@@ -887,6 +965,31 @@ function applyKeepAbove(caption, scriptId, on) {
     `${scripting}.unloadScript ${scriptId}`,
     (err) => { if (err) console.error('kwin keep-above failed:', err.message) }
   )
+}
+// KWin's real blur behind the mini player's pill (Apple's player bar blurs what's behind it), on KDE
+// under X11 (Sonata often runs with --ozone-platform=x11): the window's _KDE_NET_WM_BLUR_BEHIND_REGION,
+// shaped like the pill (mini-model.js blurRegion), set with xprop. Native Wayland would need the
+// org_kde_kwin_blur protocol, which Electron gives no way to reach; there, and on other desktops,
+// the pill keeps the Glass material (artwork) or its plain tint.
+// lifetime: one short-lived xprop child per mini open or Glass change, never on a timer
+// error: NOT-WORTH — xprop missing or failing: logged once, the pill keeps its tint (the page doesn't know the difference)
+function miniBlurAvailable() {
+  if (process.platform !== 'linux' || !(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return false
+  const ozone = app.commandLine.getSwitchValue('ozone-platform') || process.env.ELECTRON_OZONE_PLATFORM_HINT || ''
+  return ozone === 'x11' || (!process.env.WAYLAND_DISPLAY && !!process.env.DISPLAY)
+}
+const glassOn = () => !!settings.glass && !!settings.adaptiveColor
+function applyMiniBlur() {
+  if (!miniWindow || miniWindow.isDestroyed() || !miniBlurAvailable()) return
+  const h = miniWindow.getNativeWindowHandle()
+  const xid = h.length >= 8 ? Number(h.readBigUInt64LE(0)) : h.readUInt32LE(0)
+  if (!xid) return
+  const b = miniWindow.getContentBounds()
+  const scale = screen.getDisplayMatching(miniWindow.getBounds()).scaleFactor || 1
+  const args = glassOn()
+    ? ['-id', String(xid), '-f', '_KDE_NET_WM_BLUR_BEHIND_REGION', '32c', '-set', '_KDE_NET_WM_BLUR_BEHIND_REGION', miniModel.blurRegion(4, 4, b.width - 8, b.height - 8, scale).join(',')]
+    : ['-id', String(xid), '-remove', '_KDE_NET_WM_BLUR_BEHIND_REGION']
+  execFile('xprop', args, (err) => { if (err) console.error('mini blur: xprop failed:', err.message) })
 }
 function applyMiniKeepAbove(on) { applyKeepAbove(appName + ' — Mini Player', 'sonata-keep-above-mini', on) }
 function applyLyricsKeepAbove(on) { applyKeepAbove(appName + ' — Lyrics', 'sonata-keep-above-lyrics', on) }
@@ -926,33 +1029,73 @@ function cleanupWindowPositionMemory() {
   } catch (e) {}
 }
 
-// --- adaptive album-art color ---
+// --- adaptive album-art color and the Glass backdrop ---
+// Every Sonata window takes the album's colour and (Glass on) the blurred artwork through ONE theme
+// object (themeState: theme.js computes the tokens in each page); the visualizer also keeps its
+// 'palette' (the sung word's glow).
+let lastBackdrop = null    // { dark: { url, lumMin, lumMax }, light: {...} } for the current track
 function broadcastPalette(p) {
+  const t = themeState()
   for (const w of [miniWindow, lyricsWindow, vizWindow]) {
-    if (w && !w.isDestroyed()) w.webContents.send('palette', p)
+    if (!w || w.isDestroyed()) continue
+    w.webContents.send('palette', p)
+    if (w !== vizWindow) w.webContents.send('theme', t)   // the visualizer's stage is always dark (theme.css --s-stage-*)
   }
-  pushRail()   // the rail's glass takes the accent too
+  pushRail()   // the rail's surface takes the accent (and the Glass) too
+  pushPanel()
+  syncToasts()
 }
-// lifetime: called from the mini/lyrics polls and (for the rail's tint) the 5 s tick while the main
-// window is shown, never in tray-only state. One artwork fetch +
-// nativeImage per track change (keyed by title|artist); the buffer and image are locals, only the
-// small { accent, bg, bg2, hue } object survives in lastPalette. Nothing accumulates per track.
+// The Glass material's backdrop: the artwork at 40×40, saturated, blurred and squeezed into a light
+// band (light mode) and a dark band (dark mode), as two small PNG data URLs (theme.js makeBackdrop).
+// Once per track change; the pages scale it up (which blurs it further) and crossfade to it.
+// loop: HOT-PATH-OK — 2 × 1,600 pixels, once per track change (measured ~3-6 ms, docs/PERFORMANCE.md)
+function makeBackdrops(img) {
+  const size = 40
+  const bmp = img.resize({ width: size, height: size, quality: 'good' }).toBitmap()
+  const out = {}
+  for (const mode of ['dark', 'light']) {
+    const b = themeLib.makeBackdrop(bmp, size, size, { dark: mode === 'dark' })
+    if (!b) return null
+    const url = nativeImage.createFromBitmap(Buffer.from(b.data.buffer, b.data.byteOffset, b.data.byteLength), { width: size, height: size }).toDataURL()
+    out[mode] = { url, lumMin: +b.lumMin.toFixed(4), lumMax: +b.lumMax.toFixed(4) }
+  }
+  return out
+}
+// lifetime: called from the mini/lyrics polls and (for the rail's and the panel's tint) the 5 s tick
+// while the main window is shown, never in tray-only state. One artwork fetch + nativeImage per track
+// change (keyed by title|artist); the buffer and images are locals, only the small palette object and
+// the two ~3 KB backdrop data URLs survive (lastPalette, lastBackdrop). Nothing accumulates per track.
 async function refreshPalette(state) {
   if (!settings.adaptiveColor) {
-    if (lastPalette !== null) { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
+    if (lastPalette !== null) { lastPalette = null; lastBackdrop = null; lastPaletteKey = null; broadcastPalette(null) }
     return
   }
+  if (process.env.SONATA_TEST_ARTWORK && !state.title) return   // UI checks: the test artwork stays
   const key = (state.title || '') + '|' + (state.artist || '')
   if (key === lastPaletteKey) return
   lastPaletteKey = key
   const url = state.artworkLarge || state.artwork
-  if (!url) { lastPalette = null; broadcastPalette(null); return }
+  if (!url) { lastPalette = null; lastBackdrop = null; broadcastPalette(null); return }
   try {
     const res = await fetch(url)
-    const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())).resize({ width: 32, height: 32 })
-    lastPalette = extractPalette(img.toBitmap(), { bgra: true })
-    broadcastPalette(lastPalette)
-  } catch (e) { /* keep previous palette */ }
+    useArtwork(nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())))
+  } catch (e) { /* error: NOT-WORTH — artwork unreachable: the previous palette stays */ }
+}
+function useArtwork(full) {
+  lastPalette = extractPalette(full.resize({ width: 32, height: 32 }).toBitmap(), { bgra: true })
+  lastBackdrop = makeBackdrops(full)
+  broadcastPalette(lastPalette)
+}
+// UI checks only (tools/ui-check.js): SONATA_TEST_ARTWORK=<local image> stands in for a playing
+// song's artwork (the checks run logged out, with nothing playing), so the album tint and the Glass
+// backdrop can be measured over a worst-case picture. Unset (always, in normal use): nothing happens.
+function useTestArtwork() {
+  const f = process.env.SONATA_TEST_ARTWORK
+  if (!f || !settings.adaptiveColor) return
+  const img = nativeImage.createFromPath(f)
+  if (img.isEmpty()) { console.error('test artwork: unreadable ' + f); return }
+  lastPaletteKey = 'test-artwork'
+  useArtwork(img)
 }
 
 function toggleMiniPlayer() {
@@ -965,6 +1108,7 @@ function toggleMiniPlayer() {
   }
 }
 
+// lifetime: registered once at module load (see the note at ipcMain 'lyrics-command')
 ipcMain.on('mini-command', (event, command, value) => {
   if (command === 'expand') {
     toggleMiniPlayer()
@@ -1045,11 +1189,13 @@ function startNowPlayingLoop() {
       return
     }
     if (!state || !state.ok) return
+    setPlaying(!!state.isPlaying)
     if (tray) updateTrayTooltip(state)
     // the rail's album tint (one artwork fetch per track change, while the main window shows) and
     // its status dots (Discord reconnecting, the align helper starting/stopping): sent on change only
-    if (railMounted && mainWindow.isVisible()) refreshPalette(state)
+    if ((railMounted || panelMounted) && mainWindow.isVisible()) refreshPalette(state)
     pushRail()
+    pushPanel()
     if (wantLastfm && state.title) feedScrobbler(state)
     if (wantDiscord) feedDiscord(state)
     if (wantNotify && state.title) {
@@ -1147,22 +1293,21 @@ function saveDiscordConfig() {
   fs.writeFileSync(discordConfigPath, JSON.stringify(discordConfig, null, 2) + '\n')
 }
 
+// --- Last.fm and Discord: set up and connected from Settings → Integrations (or the tray, which opens
+// it). Each step is a notice in that section, with the actions it needs; no pop-up dialogs. ---
+const INTEGRATIONS = { page: 'settings', section: 'integrations' }
 async function connectDiscord() {
-  const parent = mainWindow && mainWindow.isVisible() ? mainWindow : undefined
+  showPanel('settings', 'integrations')
   loadDiscordConfig()
+  notices.clear('discord')
   if (!discordConfig.applicationId) {
     saveDiscordConfig()
-    const { response } = await dialog.showMessageBox(parent, {
-      type: 'info',
-      title: 'Discord presence',
-      message: 'Discord presence needs a (free) Discord application ID.',
-      detail: '1. Create an application named "Sonata" at https://discord.com/developers/applications\n' +
-              '2. Copy its Application ID into:\n' + discordConfigPath + '\n' +
-              '3. Click "Connect Discord" in the tray menu again.',
-      buttons: ['Open config file', 'Open Discord developer portal', 'Close']
+    notices.show({
+      id: 'discord', place: INTEGRATIONS,
+      text: 'Discord presence needs a (free) Discord application ID.',
+      detail: '1. Create an application named "Sonata" in Discord\'s developer portal. 2. Paste its Application ID into ' + discordConfigPath + '. 3. Press Connect again.',
+      actions: [{ id: 'discord-open-config', label: 'Open config file' }, { id: 'discord-open-portal', label: 'Open developer portal' }]
     })
-    if (response === 0) shell.openPath(discordConfigPath)
-    if (response === 1) shell.openExternal('https://discord.com/developers/applications')
     return
   }
   // lifetime: user-initiated only (Settings / tray); see feedDiscord for the reconnect path
@@ -1173,15 +1318,11 @@ async function connectDiscord() {
     saveDiscordConfig()
     lastPresenceKey = ''
     refreshTrayMenu()
+    toast('Discord connected: it shows what you play')
   } catch (e) {
+    // error: SHOWN — an error notice in Integrations with the reason
     discord = null
-    dialog.showMessageBox(parent, {
-      type: 'error',
-      title: 'Discord connection failed',
-      message: e.message,
-      detail: 'Make sure the Discord desktop app is running and the application ID in\n' +
-              discordConfigPath + '\nis correct.'
-    })
+    notices.show({ id: 'discord', place: INTEGRATIONS, kind: 'error', text: 'Discord didn\'t connect: ' + e.message, detail: 'Make sure the Discord desktop app is running and the application ID in ' + discordConfigPath + ' is correct.' })
   }
 }
 
@@ -1193,107 +1334,125 @@ function disconnectDiscord() {
   }
   discordConfig.enabled = false
   saveDiscordConfig()
+  notices.clear('discord')
   refreshTrayMenu()
 }
 
 async function connectLastFm() {
-  const parent = mainWindow && mainWindow.isVisible() ? mainWindow : undefined
+  showPanel('settings', 'integrations')
+  notices.clear('lastfm')
   if (!lastfm.configured) {
     lastfm.writeTemplate()
-    const { response } = await dialog.showMessageBox(parent, {
-      type: 'info',
-      title: 'Connect Last.fm',
-      message: 'Last.fm needs your own (free) API credentials.',
-      detail: '1. Create an API account at https://www.last.fm/api/account/create\n' +
-              '2. Paste the API key and shared secret into:\n' + lastfm.configPath + '\n' +
-              '3. Click "Connect Last.fm" in the tray menu again.',
-      buttons: ['Open config file', 'Get API account', 'Close']
+    notices.show({
+      id: 'lastfm', place: INTEGRATIONS,
+      text: 'Last.fm needs your own (free) API key and shared secret.',
+      detail: '1. Create an API account on last.fm. 2. Paste the API key and shared secret into ' + lastfm.configPath + '. 3. Press Connect again.',
+      actions: [{ id: 'lastfm-open-config', label: 'Open config file' }, { id: 'lastfm-get-account', label: 'Get an API account' }]
     })
-    if (response === 0) shell.openPath(lastfm.configPath)
-    if (response === 1) shell.openExternal('https://www.last.fm/api/account/create')
     return
   }
   try {
     const url = await lastfm.startAuth()
-    shell.openExternal(url)
-    const { response } = await dialog.showMessageBox(parent, {
-      type: 'info',
-      title: 'Connect Last.fm',
-      message: 'Authorize this app in the browser window that just opened, then click Done.',
-      buttons: ['Done', 'Cancel']
+    openExternalSafe(url)
+    notices.show({
+      id: 'lastfm', place: INTEGRATIONS,
+      text: 'Allow Sonata in the browser window that just opened, then press Done.',
+      actions: [{ id: 'lastfm-cancel', label: 'Cancel' }, { id: 'lastfm-done', label: 'Done', primary: true }]
     })
-    if (response !== 0) return
+  } catch (e) {
+    // error: SHOWN — an error notice in Integrations with the reason
+    notices.show({ id: 'lastfm', place: INTEGRATIONS, kind: 'error', text: 'Last.fm didn\'t connect: ' + e.message, detail: 'Check the API key and secret in ' + lastfm.configPath })
+  }
+}
+async function finishLastFm() {
+  notices.clear('lastfm')
+  try {
     await lastfm.finishAuth()
     refreshTrayMenu()
-    dialog.showMessageBox(parent, {
-      type: 'info',
-      title: 'Last.fm connected',
-      message: `Scrobbling as ${lastfm.username}.`
-    })
+    toast('Last.fm connected: scrobbling as ' + lastfm.username)
   } catch (e) {
-    dialog.showMessageBox(parent, {
-      type: 'error',
-      title: 'Last.fm connection failed',
-      message: e.message,
-      detail: 'Check the API key and secret in ' + lastfm.configPath
-    })
+    // error: SHOWN — an error notice in Integrations with the reason
+    notices.show({ id: 'lastfm', place: INTEGRATIONS, kind: 'error', text: 'Last.fm didn\'t connect: ' + e.message, detail: 'Check the API key and secret in ' + lastfm.configPath })
   }
 }
-
-// --- settings window ---
-
-function createSettingsWindow() {
-  if (settingsWindow) { settingsWindow.focus(); return }
-  settingsWindow = new BrowserWindow({
-    width: 460, height: 560, resizable: false,
-    title: appName + ' — Settings',
-    autoHideMenuBar: true,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
-  })
-  settingsWindow.loadFile('settings.html')
-  lockDownLocalWindow(settingsWindow)
-  settingsWindow.on('closed', () => { settingsWindow = null; pushRail() })
-  pushRail()
+function disconnectLastFm() {
+  if (lastfm) lastfm.disconnect()
+  notices.clear('lastfm')
+  refreshTrayMenu()
 }
 
-ipcMain.handle('settings:get', () => ({
-  ...settings,
-  version: app.getVersion(),
-  appImage: !!appImagePath,
-  lastfmConnected: !!(lastfm && lastfm.connected),
-  lastfmUser: lastfm ? lastfm.username : '',
-  discordEnabled: !!discordConfig.enabled,
-  alignInstalled: alignInstalled(true)
-}))
-
-// Settings status line for precise word timing: spawns the helper (if needed) and pings it
-ipcMain.handle('align:status', async () => {
-  if (!alignInstalled()) return { ok: false, message: 'not installed' }
-  try {
-    const pong = await getAlignHelper().ping()
-    console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
-    return { ok: true, device: pong.device, gpu: pong.gpu || '', version: pong.version || '', models: pong.models || {} }
-  } catch (e) {
-    console.log('align: helper not answering: ' + e.message)
-    return { ok: false, message: e.message }
-  }
+// --- notices and toasts (notices-model.js): the side panel draws the notices, the toast view the toasts ---
+// lifetime: one model for the app's life; its notices are bounded (one per id, ≤ ~8 ids) and its toasts (≤ 3)
+const notices = noticesModel.createNotices({
+  dismissed: [],
+  saveDismissed: (keys) => { settings.dismissedNotices = keys; saveSettings() },
+  windowShown: () => mainAlive() && mainWindow.isVisible(),
+  onChange: () => { pushPanel(); pushRail(); syncToasts() }
 })
+function toast(text, opts) { notices.toast(text, opts) }
+// a repaired settings or lyrics cache file: one notice, a dot on Settings until it's dismissed
+function showRecovered(what, text, aside) {
+  notices.show({
+    id: 'recovered-' + what, kind: 'info', task: true, page: 'settings',
+    dismissKey: 'recovered-' + what + ':' + (aside || Date.now()),
+    text, actions: aside ? [{ id: 'recovered-show-' + what, label: 'Show the copy' }] : []
+  })
+  recoveredAside[what] = aside
+}
+const recoveredAside = {}
 
-ipcMain.on('settings:set', (event, key, value) => {
-  if (!(key in settings)) return
+// What each notice's buttons do (the notice ids and action ids main itself put there)
+// error: an action for a notice that isn't shown any more, or not one of these, is dropped
+function noticeAction(id, action) {
+  const n = notices.get(id)
+  if (!n || !n.actions.some((a) => a.id === action && !a.disabled)) return
+  switch (action) {
+    case 'discord-open-config': shell.openPath(discordConfigPath); break
+    case 'discord-open-portal': openExternalSafe('https://discord.com/developers/applications'); break
+    case 'lastfm-open-config': shell.openPath(lastfm.configPath); break
+    case 'lastfm-get-account': openExternalSafe('https://www.last.fm/api/account/create'); break
+    case 'lastfm-done': finishLastFm(); break
+    case 'lastfm-cancel': notices.clear('lastfm'); break
+    case 'update-details': showPanel('settings', 'updates'); break
+    case 'update-install': installUpdate(); break
+    case 'update-restart': if (!lastPlaying) restartIntoUpdate(); break
+    case 'whatsnew-see': showPanel('about', 'whatsnew'); break
+    case 'ask-auto-yes': setSetting('autoInstallUpdates', true); break
+    case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
+    case 'recovered-show-settings': if (recoveredAside.settings) shell.showItemInFolder(recoveredAside.settings); break
+    case 'recovered-show-lyrics': if (recoveredAside.lyrics) shell.showItemInFolder(recoveredAside.lyrics); break
+  }
+}
+
+// --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
+const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates']
+function setSetting(key, value) {
+  if (key === 'theme') {
+    if (!['system', 'light', 'dark'].includes(value)) return
+    setThemePref(value)
+    pushPanel()
+    return
+  }
+  if (!PANEL_SETTABLE.includes(key) || !settingsStore.validSetting(key, value)) return
+  if (settings[key] === value) return
   settings[key] = value
+  if (key === 'autoInstallUpdates') { settings.updatesAsked = true; notices.clear('ask-auto') }
   saveSettings()
   if (key === 'launchAtLogin' || key === 'startMinimized') applyAutostart()
   else if (key === 'adaptiveColor') {
+    applyMiniBlur()
     if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette) }  // re-extract next poll
-    else { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
+    else { lastPalette = null; lastBackdrop = null; lastPaletteKey = null; broadcastPalette(null) }
   }
+  else if (key === 'glass') { broadcastPalette(lastPalette); applyMiniBlur() }
   else if (key === 'updateChannel') {
-    // a switch re-checks at once on the new channel (AppImage builds only)
-    if (value !== 'stable' && value !== 'dev') { settings.updateChannel = 'stable'; saveSettings() }
-    pendingUpdateVersion = null
-    checkForUpdates(false)
+    // a switch: the other channel's offer goes; checks again at once if checks are on (never a downgrade)
+    if (updater) updater.reset()
+    backConfirm = false
+    if (settings.checkForUpdates) checkForUpdates(false)
   }
+  else if (key === 'checkForUpdates') startUpdateChecks()
   else if (key === 'lyricsArtSpin' || key === 'lyricsArtSpinSpeed') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
   }
@@ -1306,7 +1465,8 @@ ipcMain.on('settings:set', (event, key, value) => {
     if (!value) {
       if (alignSession) alignSession.stop(false)   // drop any recording
       if (alignHelper) alignHelper.stop()           // and free the GPU now
-    }
+      alignStatusText = ''
+    } else askAlignStatus()
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
@@ -1314,17 +1474,35 @@ ipcMain.on('settings:set', (event, key, value) => {
       applyLyricsKeepAbove(value)
     }
   }
+  else if (key === 'miniAlwaysOnTop') {
+    if (miniWindow && !miniWindow.isDestroyed()) {
+      miniWindow.setAlwaysOnTop(value)
+      applyMiniKeepAbove(value)
+    }
+  }
   pushRail()   // precise timing, the update channel and the pin show in the rail
-})
+  pushPanel()
+}
 
-ipcMain.on('settings:action', async (event, action) => {
-  if (action === 'connectLastfm') await connectLastFm()
-  else if (action === 'disconnectLastfm') { if (lastfm) lastfm.disconnect() }
-  else if (action === 'connectDiscord') await connectDiscord()
-  else if (action === 'disconnectDiscord') disconnectDiscord()
-  refreshTrayMenu()
-  if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('settings:refresh')
-})
+// Settings → Precise timing's status line: spawns the helper (if needed) and pings it
+// error: SHOWN — the helper's answer or its error, in that line
+let alignStatusText = ''
+let alignAsking = false
+async function askAlignStatus() {
+  if (alignAsking || !settings.lyricsPreciseTiming || !alignInstalled(true)) return
+  alignAsking = true
+  alignStatusText = 'Starting the helper…'
+  pushPanel()
+  try {
+    const pong = await getAlignHelper().ping()
+    console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
+    alignStatusText = pong.device === 'cuda' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
+  } catch (e) {
+    console.log('align: helper not answering: ' + e.message)
+    alignStatusText = 'Helper not working: ' + e.message
+  } finally { alignAsking = false }
+  pushPanel()
+}
 
 // --- tray ---
 
@@ -1341,7 +1519,7 @@ function updateTrayTooltip(state) {
 // previous Menu, which is then collected. The Tray itself is created once.
 function refreshTrayMenu() {
   const lastfmItem = lastfm && lastfm.connected
-    ? { label: `Disconnect Last.fm (${lastfm.username})`, click: () => { lastfm.disconnect(); refreshTrayMenu() } }
+    ? { label: `Disconnect Last.fm (${lastfm.username})`, click: disconnectLastFm }
     : { label: 'Connect Last.fm…', click: connectLastFm }
   const discordItem = discordConfig.enabled
     ? { label: 'Disconnect Discord', click: disconnectDiscord }
@@ -1360,9 +1538,10 @@ function refreshTrayMenu() {
     lastfmItem,
     discordItem,
     { type: 'separator' },
-    { label: 'Check for Updates…', click: () => checkForUpdates(true) },
-    { label: 'Settings…', click: createSettingsWindow },
-    { label: 'Quit', click: () => app.exit(0) }
+    { label: 'Check for Updates…', click: () => { showPanel('settings', 'updates'); checkForUpdates(true) } },
+    { label: 'Settings…', click: () => showPanel('settings') },
+    { label: 'About Sonata', click: () => showPanel('about') },
+    { label: 'Quit', click: () => { stopDesktopScheme(); app.exit(0) } }
   ]))
   pushRail()   // Last.fm / Discord connected or not
 }
@@ -1382,27 +1561,36 @@ const appUrl = 'https://music.apple.com/'
 const customCss = '.web-navigation__native-upsell {display: none !important;}'
 let applyCustomCss = () => {}
 
-// --- the main window: two views, Apple's page and the navigation rail ---
-// mainWindow is a BaseWindow holding two WebContentsViews side by side: Apple's page (appleView) and
-// the rail (railView, rail.html, on top). Apple's view is the window minus the rail's room
-// (rail-model.js viewBounds), so Apple's own layout, its vw units, fixed panels (lyrics, queue),
-// sheets, menus and toasts end at the rail by themselves. While the unpinned rail is open over the
-// page (hover or keyboard focus), its view widens over Apple's ("wide") and narrows once it has
-// slid shut. Both views are sandboxed with contextIsolation; only the rail view loads local code.
+// --- the main window: Apple's page, the side panel, the navigation rail (and toasts) ---
+// mainWindow is a BaseWindow holding WebContentsViews side by side: Apple's page (appleView), the side
+// panel (panelView, panel.html: Settings and About, only once first shown) and the rail (railView,
+// rail.html, on top). Apple's view is the window minus the rail's room and the docked panel
+// (panel-model.js windowLayout), so Apple's own layout, its vw units, fixed panels (lyrics, queue),
+// sheets, menus and toasts end where Sonata's views begin. A narrow window gets the panel as a drawer
+// over Apple's page instead. While the unpinned rail is open over the page (hover or keyboard focus),
+// its view widens over Apple's ("wide") and narrows once it has slid shut. Toasts get a small view of
+// their own over the bottom right of Apple's page, only while one shows. Every view is sandboxed
+// with contextIsolation; only Sonata's own views load local code, Apple's page gets none of it.
 let appleView = null
 let railView = null
+let panelView = null      // created on first show, kept (hidden: setVisible(false))
+let toastView = null      // created for a toast, closed when the last one goes
 function appleWC() { return appleView.webContents }
 function railAlive() { return !!(railView && !railView.webContents.isDestroyed()) }
+function panelAlive() { return !!(panelView && !panelView.webContents.isDestroyed()) }
+function toastAlive() { return !!(toastView && !toastView.webContents.isDestroyed()) }
+const SONATA_VIEW_PREFS = (preload) => ({ preload: path.join(__dirname, preload), contextIsolation: true, sandbox: true, nodeIntegration: false })
 
 // --- navigation rail state (rail-model.js, rail-ui.js, rail.css, rail.html, preload-rail-view.js) ---
 // Main owns its state (which windows are open, the pin and lock, connections, the album accent,
-// whether its view is wide) and sends it only when it changes; the rail sends back command names,
-// checked here.
+// whether its view is wide, the panel) and sends it only when it changes; the rail sends back
+// command names, checked here.
 let railMounted = false   // rail.html said 'mounted'
 let railWide = false      // the rail view is widened over Apple's page (unpinned, open)
 let railSent = ''         // the last state sent, as JSON
 let railBoundsKey = ''    // the last bounds applied, as JSON
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
+let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
   if (!settings.lyricsPreciseTiming) return 'off'
   if (!alignInstalled()) return 'missing'
@@ -1412,17 +1600,40 @@ function contentSize() {
   const b = mainWindow.getContentBounds()
   return [b.width, b.height]
 }
-// Sizes the two views for the window, the pin and the rail's open state. Cheap when nothing changed
-// (one bounds read and a string compare).
+// the toast view's place: bottom right of Apple's view, as tall as its toasts
+let toastHeight = 0
+function toastBounds(apple) {
+  const w = Math.min(360, Math.max(0, apple.width - 32))
+  const h = Math.min(toastHeight || 48 * notices.toasts().length, Math.max(0, apple.height - 32))
+  return { x: apple.x + apple.width - w - 16, y: apple.y + apple.height - h - 16, width: w, height: h }
+}
+// Sizes the views for the window, the pin, the rail's open state and the panel. Cheap when nothing
+// changed (one bounds read and a string compare).
 function layoutViews() {
   if (!mainAlive() || !railAlive()) return
   const [w, h] = contentSize()
-  const b = railModel.viewBounds(w, h, !!settings.railPinned, railWide && !settings.railLocked)
-  const key = JSON.stringify(b)
+  const b = panelModel.windowLayout(w, h, { pinned: !!settings.railPinned, wide: railWide && !settings.railLocked, panelShown: !!settings.panelShown && panelAlive() })
+  const t = toastAlive() ? toastBounds(b.apple) : null
+  const key = JSON.stringify([b, t])
   if (key === railBoundsKey) return
   railBoundsKey = key
+  panelMode = b.panelMode
   appleView.setBounds(b.apple)
   railView.setBounds(b.rail)
+  if (panelAlive()) {
+    panelView.setVisible(!!b.panel)
+    if (b.panel) panelView.setBounds(b.panel)
+  }
+  if (t) toastView.setBounds(t)
+}
+function themeState() {
+  const on = !!settings.adaptiveColor && !!lastPalette
+  return {
+    palette: on ? { accent: lastPalette.accent } : null,
+    glass: glassOn(),
+    blurBehind: miniBlurAvailable(),
+    backdrop: on && settings.glass && lastBackdrop ? lastBackdrop : null
+  }
 }
 function railSnapshot() {
   const layout = railModel.railLayout(contentSize()[0], !!settings.railPinned)
@@ -1432,14 +1643,16 @@ function railSnapshot() {
     mode: layout.mode,
     room: layout.room,
     wide: railWide && layout.mode !== 'pinned' && !settings.railLocked,
-    open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow, settings: !!settingsWindow },
-    keys: { lyrics: LYRICS_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '' },
+    open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow },
+    panel: { shown: !!settings.panelShown, page: settings.panelPage },
+    reminders: notices.reminders().pages,
+    keys: { lyrics: LYRICS_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     precise: railPrecise(),
     channel: settings.updateChannel,
     version: app.getVersion(),
-    palette: lastPalette && settings.adaptiveColor ? { accent: lastPalette.accent } : null
+    theme: themeState()
   }
 }
 // Lays the views out and sends the rail's state if it changed. Called on every event that can change
@@ -1466,14 +1679,184 @@ function toggleRailFlag(which) {
 }
 function toggleRailPin() { toggleRailFlag('pin') }
 
-// --- keyboard focus between the two views ---
-// Into the rail: Tab past either end of Apple's page (apple-focus.js stops), or F6. Out of it: Tab
-// (Apple's first control), Shift+Tab (its last), F6 (where Apple's focus was).
-let railFocused = false
+// --- the side panel (panel-model.js, panel-ui.js, panel.css, panel.html, preload-panel.js) ---
+// Settings and About, shown and hidden from the rail (its item pressed again hides it), the tray and
+// menus. Main owns its state: shown, the page, each page's open section and pins (settings.json),
+// the notices, and sends it only when it changes.
+let panelMounted = false
+let panelSent = ''
+let reveal = null         // the last deep link: { page, section, n, focus }
+let revealCount = 0
+let aboutCache = null     // About's texts (CHANGELOG.md, BACKLOG.md), read when About first shows
+let backConfirm = false   // Back to stable: the confirm step is showing
+function createPanelView() {
+  if (panelAlive() || !mainAlive()) return
+  panelView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-panel.js') })
+  panelView.setBackgroundColor('#00000000')
+  // between Apple's page and the rail: the rail, opening over the page, stays on top
+  mainWindow.contentView.addChildView(panelView, mainWindow.contentView.children.indexOf(railView))
+  panelView.webContents.loadFile('panel.html')
+  lockDownLocalWindow(panelView)
+  // lifetime: one listener each on the panel's web contents, created once, die with it
+  panelView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
+  panelView.webContents.on('focus', () => { focusedView = 'panel' })
+  panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = '' })
+}
+// the open section and pins of a page (first visit: the first section with an open task opens)
+function accOf(page) {
+  const stored = { open: (settings.panelOpen || {})[page], pins: (settings.panelPins || {})[page] }
+  if (stored.open === undefined) {
+    const rem = notices.reminders().sections
+    stored.open = panelModel.sectionIds(page).find((id) => rem[page + '/' + id]) || null
+  }
+  return panelModel.accState(stored, page)
+}
+function saveAcc(page, st) {
+  settings.panelOpen = Object.assign({}, settings.panelOpen, { [page]: st.open })
+  settings.panelPins = Object.assign({}, settings.panelPins, { [page]: st.pins })
+  saveSettings()
+}
+function accAction(page, type, id) {
+  const before = accOf(page)
+  const after = panelModel.accReduce(before, { type, id })
+  if (JSON.stringify(after) === JSON.stringify(before)) return
+  saveAcc(page, after)
+  if (page === 'settings' && panelModel.isOpen(after, 'timing') && !panelModel.isOpen(before, 'timing')) askAlignStatus()
+  seenWhatsNew()
+  pushPanel()
+}
+// show the panel (with a page, and a section opened and scrolled to); the main window comes forward
+function showPanel(page, section, opts) {
+  if (!mainAlive()) return
+  const o = opts || {}
+  if (page && panelModel.PAGE_IDS.includes(page)) settings.panelPage = page
+  settings.panelShown = true
+  if (section) {
+    saveAcc(settings.panelPage, panelModel.accReduce(accOf(settings.panelPage), { type: 'reveal', id: section }))
+    reveal = { page: settings.panelPage, section, n: ++revealCount, focus: !!o.focus }
+  }
+  saveSettings()
+  createPanelView()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (settings.panelPage === 'settings' && panelModel.isOpen(accOf('settings'), 'timing')) askAlignStatus()
+  seenWhatsNew()
+  pushRail()
+  pushPanel()
+}
+function hidePanel() {
+  if (!settings.panelShown) return
+  const hadFocus = focusedView === 'panel'
+  settings.panelShown = false
+  saveSettings()
+  pushRail()
+  pushPanel()
+  // the keyboard was in the panel: it goes to the rail (where the panel came from)
+  if (hadFocus) focusRail()
+}
+// a rail item for a panel page: the page shown -> hide; otherwise show it with that page
+function togglePanelPage(page) {
+  if (settings.panelShown && settings.panelPage === page && panelAlive()) hidePanel()
+  else showPanel(page)
+}
+// About read on demand (CHANGELOG.md and BACKLOG.md ship in the app); kept for the run
+// error: NOT-WORTH — a missing file reads as empty: About says so ("nothing listed")
+function aboutData() {
+  if (!aboutCache) {
+    const read = (f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8') } catch (e) { return '' } }
+    aboutCache = aboutDataLib.aboutData(read('CHANGELOG.md'), read('BACKLOG.md'), app.getVersion(), alignInstalled())
+  }
+  return aboutCache
+}
+function panelSnapshot() {
+  const u = updater ? updater.state() : { phase: 'idle' }
+  const v = {}
+  for (const k of PANEL_SETTABLE) v[k] = settings[k]
+  Object.assign(v, {
+    theme: themePref,
+    version: app.getVersion(),
+    appImage: !!appImagePath,
+    alignInstalled: alignInstalled(),
+    alignStatus: alignStatusText,
+    lastfmConnected: !!(lastfm && lastfm.connected),
+    lastfmUser: lastfm && lastfm.connected ? (lastfm.username || '') : '',
+    discordEnabled: !!discordConfig.enabled,
+    discordState: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
+    updateLine: updaterLib.statusLine(u, app.getVersion(), settings.updateChannel),
+    updateBusy: ['checking', 'downloading', 'installing'].includes(u.phase),
+    updateNotes: u.phase === 'available' ? (u.notes || '') : '',
+    backToStable: settings.updateChannel === 'dev' || updateFeed.isDevVersion(app.getVersion()),
+    backConfirm
+  })
+  const shownAbout = settings.panelShown && settings.panelPage === 'about'
+  return {
+    page: settings.panelPage,
+    shown: !!settings.panelShown,
+    mode: panelMode,
+    acc: { settings: accOf('settings'), about: accOf('about') },
+    v,
+    notices: notices.visible(),
+    reminders: notices.reminders(),
+    about: shownAbout || aboutCache ? aboutData() : null,
+    theme: themeState(),
+    reveal
+  }
+}
+// sends the panel's state if it changed; one JSON compare otherwise
+function pushPanel() {
+  if (!panelAlive() || !panelMounted) return
+  const s = panelSnapshot()
+  const json = JSON.stringify(s)
+  if (json === panelSent) return
+  panelSent = json
+  panelView.webContents.send('panel:state', s)
+}
+
+// --- toasts: their own small view, only while one shows ---
+let toastMounted = false
+let toastSent = ''
+function syncToasts() {
+  const list = notices.toasts()
+  if (!list.length) {
+    if (toastAlive()) {
+      mainWindow.contentView.removeChildView(toastView)
+      toastView.webContents.close()
+    }
+    toastView = null; toastMounted = false; toastSent = ''; toastHeight = 0
+    return
+  }
+  if (!mainAlive()) return
+  if (!toastAlive()) {
+    toastView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-panel.js') })
+    toastView.setBackgroundColor('#00000000')
+    mainWindow.contentView.addChildView(toastView)   // on top of everything
+    toastView.webContents.loadFile('toast.html')
+    lockDownLocalWindow(toastView)
+    railBoundsKey = ''
+  }
+  layoutViews()
+  if (!toastMounted) return
+  const s = { toasts: list, theme: themeState() }
+  const json = JSON.stringify(s)
+  if (json === toastSent) return
+  toastSent = json
+  toastView.webContents.send('panel:state', s)
+}
+
+// --- keyboard focus between the views: Apple's page -> the panel (when shown) -> the rail -> Apple's ---
+// Tab past either end of Apple's page (apple-focus.js stops), Tab out at either end of the panel or the
+// rail, or F6, moves to the next view in that ring (Shift: the previous one).
+let focusedView = 'apple'   // the view the keyboard is in: 'apple' | 'panel' | 'rail'
 function focusRail() {
   if (!mainAlive() || !railAlive()) return
   railView.webContents.focus()
   railView.webContents.send('rail:take-focus')
+}
+function focusPanel(where) {
+  if (!mainAlive() || !panelAlive() || !settings.panelShown) return false
+  panelView.webContents.focus()
+  panelView.webContents.send('panel:take-focus', where)
+  return true
 }
 // error: a failing injection (page mid-navigation) only leaves the focus in the window; logged
 function focusApple(where) {
@@ -1484,13 +1867,20 @@ function focusApple(where) {
     .catch((e) => console.error('rail: focus handoff failed:', e.message))
     .finally(() => { if (mainAlive()) appleWC().focus() })
 }
+// move from view `from` forward or back (panel-model.js focusNext); `entry`: where in the target
+function focusView(from, back, entry) {
+  const to = panelModel.focusNext(from, back, !!settings.panelShown && panelAlive())
+  if (to === 'rail') focusRail()
+  else if (to === 'panel') focusPanel(back ? 'last' : 'first')
+  else focusApple(entry || (back ? 'prev' : 'next'))
+}
 function toggleViewFocus() {
-  if (railFocused) focusApple('restore')
-  else focusRail()
+  focusView(focusedView, false, focusedView === 'rail' ? 'restore' : undefined)
 }
 function injectFocusStops() {
   if (!mainAlive()) return
-  if (!focusCode) focusCode = fs.readFileSync(path.join(__dirname, 'apple-focus.js'), 'utf8')
+  // the wheel-volume maths first (a plain script there: SonataWheelVolume), then the focus stops
+  if (!focusCode) focusCode = fs.readFileSync(path.join(__dirname, 'wheel-volume.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'apple-focus.js'), 'utf8')
   appleWC().executeJavaScriptInIsolatedWorld(999, [{ code: focusCode }])
     .catch((e) => console.error('rail: focus stops failed:', e.message))
 }
@@ -1504,22 +1894,84 @@ ipcMain.on('rail:command', (event, command) => {
   if (command === 'mounted') { railMounted = true; railSent = ''; pushRail() }
   else if (command === 'expand') { if (!settings.railLocked && !settings.railPinned) { railWide = true; pushRail() } }
   else if (command === 'collapse') { railWide = false; pushRail() }
-  else if (command === 'focus-apple-next') focusApple('next')
-  else if (command === 'focus-apple-prev') focusApple('prev')
+  else if (command === 'focus-apple-next') focusView('rail', false)
+  else if (command === 'focus-apple-prev') focusView('rail', true)
   else if (command === 'lyrics') toggleLyricsWindow()
   else if (command === 'visualizer') toggleVisualizer()
   else if (command === 'mini') toggleMiniPlayer()
-  else if (command === 'settings') createSettingsWindow()
+  else if (command === 'settings') togglePanelPage('settings')
+  else if (command === 'about') togglePanelPage('about')
   else if (command === 'pin') toggleRailPin()
   else if (command === 'lock') toggleRailFlag('lock')
 })
 // lifetime: registered once at module load
-// error: only from Apple's view, top frame; anything else is dropped
-ipcMain.on('rail:focus-in', (event) => {
+// error: only from Apple's view, top frame; anything else is dropped. 'last' (Tab past Apple's end):
+// the next view; 'first' (Shift+Tab before its start, or a fresh page's first Tab): the previous one
+ipcMain.on('rail:focus-in', (event, where) => {
   if (!mainAlive() || event.sender !== appleWC()) return
   if (!event.senderFrame || event.senderFrame.parent) return
-  focusRail()
+  focusView('apple', where !== 'last')
 })
+
+// The mouse wheel over Apple's own volume control (apple-focus.js): N notches, 5 % each, set through
+// MusicKit like the mini player's volume.
+// lifetime: registered once at module load
+// error: only from Apple's view, top frame, a whole number -20..20; anything else is dropped; a failing
+// script (page mid-navigation) is logged and the wheel does nothing that time
+const wheelVolume = require('./wheel-volume')
+ipcMain.on('apple:volume', (event, steps) => {
+  if (!mainAlive() || event.sender !== appleWC() || !event.senderFrame || event.senderFrame.parent) return
+  if (!Number.isInteger(steps) || steps === 0 || Math.abs(steps) > 20) return
+  appleWC().executeJavaScript('(() => { const mk = MusicKit.getInstance(); return mk.volume; })()')
+    .then((v) => {
+      const next = wheelVolume.stepVolume(v, steps)
+      return appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${next}; })();`)
+    })
+    .catch((e) => console.error('wheel volume failed:', e.message))
+})
+
+// The panel's and the toast view's commands, from their own top frames only, each argument checked.
+// lifetime: registered once at module load
+// error: anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel']
+ipcMain.on('panel:command', (event, command, a, b, c) => {
+  if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
+  if (!panelModel.COMMANDS.includes(command)) return
+  const fromToast = toastAlive() && event.sender === toastView.webContents
+  const fromPanel = panelAlive() && event.sender === panelView.webContents
+  if (fromToast) {
+    if (command === 'mounted') { toastMounted = true; toastSent = ''; syncToasts() }
+    else if (command === 'toast-done' && Number.isInteger(a)) notices.endToast(a)
+    else if (command === 'toast-action' && Number.isInteger(a)) { const t = notices.toasts().find((x) => x.id === a); if (t && t.action) noticeAction('toast', t.action.id); notices.endToast(a) }
+    else if (command === 'toast-size' && Number.isFinite(a) && a >= 0 && a < 1000) { toastHeight = Math.ceil(a); railBoundsKey = ''; layoutViews() }
+    return
+  }
+  if (!fromPanel) return
+  if (command === 'mounted') { panelMounted = true; panelSent = ''; pushPanel() }
+  else if (command === 'set' && typeof a === 'string') setSetting(a, b)
+  else if (command === 'action' && PANEL_ACTIONS.includes(a)) panelAction(a)
+  else if (command === 'notice-action' && typeof a === 'string' && typeof b === 'string') noticeAction(a, b)
+  else if (command === 'notice-dismiss' && typeof a === 'string') { if (a === 'whatsnew') seenWhatsNew(true); notices.dismiss(a) }
+  else if (command === 'acc' && panelModel.PAGE_IDS.includes(a) && ['toggle', 'pin', 'collapseAll', 'clearPins'].includes(b) &&
+    (b === 'collapseAll' || b === 'clearPins' || panelModel.sectionIds(a).includes(c))) accAction(a, b, c)
+  else if (command === 'hide') hidePanel()
+  else if (command === 'focus-next') focusView('panel', false)
+  else if (command === 'focus-prev') focusView('panel', true)
+  else if (command === 'open-link' && typeof a === 'string' && /^https:\/\//.test(a)) openExternalSafe(a)
+  else if (command === 'show-page' && panelModel.PAGE_IDS.includes(a)) showPanel(a)
+})
+function panelAction(name) {
+  if (name === 'lastfm') { if (lastfm && lastfm.connected) disconnectLastFm(); else connectLastFm() }
+  else if (name === 'discord') { if (discordConfig.enabled) disconnectDiscord(); else connectDiscord() }
+  else if (name === 'check-now') checkForUpdates(true)
+  else if (name === 'back-to-stable') {
+    // the first press asks (the line says what happens), the second installs
+    if (!backConfirm) { backConfirm = true; pushPanel(); return }
+    backConfirm = false
+    backToStable()
+  }
+  else if (name === 'back-cancel') { backConfirm = false; pushPanel() }
+}
 
 // The keys both views share (Apple's page and the rail): reload, theme, mini player, pin, lyrics,
 // visualizer, back/forward, F6 to move between the two views
@@ -1569,9 +2021,7 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload-apple.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   })
   // the rail: a local page, sandboxed and isolated too, transparent where it has nothing to draw
-  railView = new WebContentsView({
-    webPreferences: { preload: path.join(__dirname, 'preload-rail-view.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
-  })
+  railView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-rail-view.js') })
   railView.setBackgroundColor('#00000000')
   mainWindow.contentView.addChildView(appleView)
   mainWindow.contentView.addChildView(railView)   // added last: on top
@@ -1579,6 +2029,8 @@ function createWindow() {
   appleWC().loadURL(appUrl + locale.toLowerCase() + '/browse')
   railView.webContents.loadFile('rail.html')
   lockDownLocalWindow(railView)
+  // the side panel, if it was showing when Sonata last closed
+  if (settings.panelShown) createPanelView()
   appleWC().focus()
 
   // remember size/position across launches (debounced)
@@ -1603,7 +2055,8 @@ function createWindow() {
   // web contents of its own)
   mainWindow.on('focus', () => {
     if (!mainAlive()) return
-    if (railFocused && railAlive()) railView.webContents.focus()
+    if (focusedView === 'rail' && railAlive()) railView.webContents.focus()
+    else if (focusedView === 'panel' && panelAlive() && settings.panelShown) panelView.webContents.focus()
     else appleWC().focus()
   })
 
@@ -1611,8 +2064,8 @@ function createWindow() {
   // window's listeners below are registered once and die with them
   appleWC().on('before-input-event', (event, input) => windowShortcut(input))
   railView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
-  appleWC().on('focus', () => { railFocused = false })
-  railView.webContents.on('focus', () => { railFocused = true })
+  appleWC().on('focus', () => { focusedView = 'apple' })
+  railView.webContents.on('focus', () => { focusedView = 'rail' })
   // the rail page loading again (it never navigates; only a reload after a renderer crash): it says 'mounted' again
   railView.webContents.on('did-start-loading', () => { railMounted = false; railSent = '' })
 
@@ -1656,7 +2109,7 @@ function createWindow() {
 
   // lifetime: a BaseWindow doesn't destroy its views' web contents; they are closed here
   mainWindow.on('closed', () => {
-    for (const v of [appleView, railView]) if (v && !v.webContents.isDestroyed()) v.webContents.close()
+    for (const v of [appleView, railView, panelView, toastView]) if (v && !v.webContents.isDestroyed()) v.webContents.close()
   })
 
   mainWindow.on("close", (e) => {
@@ -1667,6 +2120,7 @@ function createWindow() {
       return
     }
     shuttingDown = true
+    stopDesktopScheme()
     clearInterval(miniPoll)
     clearInterval(lyricsPoll)
     if (listenSession) listenSession.stop()
@@ -1686,8 +2140,6 @@ if (appImagePath) {
   stablePath = path.join(path.dirname(installedPath), 'Sonata.AppImage')
 }
 const appId = 'io.github.MarcelineVPQ.Sonata'
-let pendingUpdateVersion = null
-let updateCheckBusy = false
 
 // Running from an AppImage leaves no menu entry or icon behind; write the
 // XDG pieces ourselves, and keep Exec pointed at the AppImage if it moves.
@@ -1747,14 +2199,18 @@ function fetchText(url) {
   })
 }
 
-function downloadFile(url, dest) {
+// error: PASSES-ON — a failed request or write rejects; updater.js shows it and deletes the .part file
+function downloadFile(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest)
     const fail = (e) => { file.close(() => fs.unlink(dest, () => {})); reject(e) }
     const req = net.request(url)
     req.on('response', (res) => {
       if (res.statusCode !== 200) { fail(new Error('HTTP ' + res.statusCode)); return }
-      res.on('data', (chunk) => file.write(chunk))
+      const total = Number(res.headers['content-length']) || 0
+      let got = 0
+      // loop: download stream · one chunk at a time (~16-64 KB) · once per update · ends at EOF · progress ≤ 4/s (updater.js)
+      res.on('data', (chunk) => { got += chunk.length; file.write(chunk); if (onProgress) onProgress(got, total) })
       res.on('end', () => file.end(resolve))
       res.on('error', fail)
     })
@@ -1763,87 +2219,105 @@ function downloadFile(url, dest) {
   })
 }
 
-const isNewerVersion = updateFeed.isNewerVersion  // handles X.Y.Z-dev.N
-
-// Download the new AppImage next to the current one, verify, and swap it in
-// place. The running instance keeps its mount of the old file; the new
-// version takes over on the next launch.
-async function checkForUpdates(interactive) {
-  if (updateCheckBusy) return
-  if (!appImagePath) {
-    if (interactive) dialog.showMessageBox({
-      type: 'info', title: 'Updates',
-      message: 'Not running from an AppImage.',
-      detail: 'Automatic updates only apply to the AppImage build; from a source checkout, update with git pull.'
-    })
-    return
-  }
-  updateCheckBusy = true
-  try {
-    // Signed latest.json / latest-dev.json; while update-feed.js still holds the
-    // PLACEHOLDER key this falls back to the old unsigned latest-linux.yml path.
-    const feed = await updateFeed.fetchUpdate({
-      channel: settings.updateChannel, fetchText, log: (m) => console.log(m)
-    })
-    if (!isNewerVersion(feed.version, app.getVersion())) {
-      if (interactive) dialog.showMessageBox({
-        type: 'info', title: 'Updates',
-        message: `You're up to date (v${app.getVersion()}, ${settings.updateChannel === 'dev' ? 'Development' : 'Stable'} channel).`
-      })
-      return
-    }
-    if (pendingUpdateVersion !== feed.version) {
-      const newPath = path.join(path.dirname(installedPath), feed.file)
-      const tmp = newPath + '.part'
-      await downloadFile(feed.url, tmp)
-      try {
-        await updateFeed.verifyDownload(tmp, feed)  // size + SHA-512 from the (signed) feed
-      } catch (e) {
-        // error: PASSES-ON — the unverified file is deleted, the message goes to the log and the interactive dialog below
-        fs.rmSync(tmp, { force: true })
-        throw e
-      }
-      fs.chmodSync(tmp, 0o755)
-      fs.renameSync(tmp, newPath)
-      if (newPath !== installedPath) {
-        // Do NOT delete installedPath here: the app is still executing from
-        // that AppImage's FUSE mount, and removing it crashes the running
-        // process with SIGBUS. Stale old versions are pruned at next launch.
-        installedPath = newPath
-        process.env.APPIMAGE = newPath
-        integrateAppImage()  // repoint the menu entry at the new file name
-        if (settings.launchAtLogin) applyAutostart()
-      }
-      pendingUpdateVersion = feed.version
-    }
-    notifyUpdateReady(feed.version, interactive)
-  } catch (e) {
-    console.error('update check failed:', e.message)
-    if (interactive) dialog.showMessageBox({ type: 'error', title: 'Update failed', message: e.message })
-  } finally {
-    updateCheckBusy = false
-  }
-}
-
-function notifyUpdateReady(version, interactive) {
-  if (interactive) {
-    dialog.showMessageBox({
-      type: 'info', title: 'Update ready',
-      message: `Sonata v${version} is installed.`,
-      detail: 'Restart to start using it.',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0
-    }).then(({ response }) => { if (response === 0) restartIntoUpdate() })
-  } else if (Notification.isSupported()) {
+// --- self-update: the flow and its rules are updater.js's; main wires it to the feed, the files, the
+// notices and the playback state ---
+const testFeed = updateFeed.testFeed(process.env)
+if (testFeed) console.log('update: TEST FEED ' + testFeed.prefix + ' (loopback only)')
+let lastPlaying = false          // from the now-playing polls: Restart now waits for a pause
+let updateNotified = ''          // the version a desktop notification was shown for (tray-only state)
+// lifetime: one updater for the app's life (AppImage builds only)
+const updater = updaterLib.createUpdater({
+  version: app.getVersion(),
+  channel: () => settings.updateChannel,
+  fetchUpdate: (channel) => updateFeed.fetchUpdate({ channel, fetchText, test: testFeed, log: (m) => console.log(m) }),
+  download: downloadFile,
+  verify: (file, feed) => updateFeed.verifyDownload(file, feed),
+  fs,
+  installedPath: () => installedPath,
+  blocker: () => (!appImagePath ? 'only the AppImage updates itself; from source, update with git pull' : null),
+  onInstalled: (newPath) => {
+    // the running AppImage stays (FUSE-mounted); the new one is beside it, the symlink and menu entry point at it
+    installedPath = newPath
+    process.env.APPIMAGE = newPath
+    integrateAppImage()
+    if (settings.launchAtLogin) applyAutostart()
+  },
+  emit: () => onUpdateState(),
+  now: () => Date.now(),
+  log: (m) => console.error(m)
+})
+function onUpdateState() {
+  const st = updater.state()
+  const n = updaterLib.updateNotice(st, { playing: lastPlaying })
+  if (n) notices.show(Object.assign({ place: 'top', page: 'settings' }, n))
+  else if (st.phase !== 'checking') notices.clear('update')
+  // Install updates automatically: an offered (newer) update downloads, checks and installs by itself
+  if (st.phase === 'available' && settings.autoInstallUpdates && !st.older) installUpdate()
+  // in the tray (window hidden): one desktop notification per version, which opens Settings → Updates
+  if ((st.phase === 'available' || st.phase === 'ready') && updateNotified !== st.phase + st.version &&
+      !(mainAlive() && mainWindow.isVisible()) && Notification.isSupported()) {
+    updateNotified = st.phase + st.version
     const note = new Notification({
-      title: `Sonata v${version} is ready`,
-      body: 'Update downloaded — click to restart into it.',
-      icon: path.join(__dirname, 'sonata.png'),
-      silent: true
+      title: st.phase === 'ready' ? 'Sonata ' + st.version + ' is installed' : 'Sonata ' + st.version + ' is available',
+      body: st.phase === 'ready' ? 'It starts the next time you open Sonata.' : 'Open Settings → Updates to install it.',
+      icon: path.join(__dirname, 'sonata.png'), silent: true
     })
-    note.on('click', restartIntoUpdate)
+    // lifetime: one click listener on this notification, collected with it
+    note.on('click', () => showPanel('settings', 'updates'))
     note.show()
   }
+  pushPanel()
+}
+function installUpdate() { updater.install() }
+async function checkForUpdates(interactive) {
+  if (!appImagePath) {
+    if (interactive) toast('Only the AppImage updates itself; from source, update with git pull.')
+    return
+  }
+  const st = await updater.check({ interactive })
+  if (interactive && st.phase === 'up-to-date') toast('Sonata ' + app.getVersion() + ' is up to date (' + (settings.updateChannel === 'dev' ? 'Development' : 'Stable') + ').')
+}
+// Back to stable (confirmed in the panel): the Stable channel, then its newest release even if older
+async function backToStable() {
+  if (settings.updateChannel !== 'stable') { settings.updateChannel = 'stable'; saveSettings(); pushRail() }
+  await updater.backToStable()
+}
+// a change in playback (from the 5 s poll): Restart now shows only while paused
+function setPlaying(playing) {
+  if (playing === lastPlaying) return
+  lastPlaying = playing
+  if (updater.state().phase === 'ready') onUpdateState()
+}
+
+// "Updated to X · See what's new": once after an update, until About's What's new was seen or it's dismissed
+function showWhatsNew() {
+  const last = settings.lastRunVersion || (settingsExisted ? 'earlier' : '')
+  const v = updaterLib.updatedSince(last, app.getVersion())
+  if (!v) { if (settings.lastRunVersion !== app.getVersion()) { settings.lastRunVersion = app.getVersion(); saveSettings() } return }
+  notices.show({
+    id: 'whatsnew', place: 'top', page: 'about', task: true, kind: 'info',
+    text: 'Updated to Sonata ' + v + '.',
+    actions: [{ id: 'whatsnew-see', label: 'See what\'s new', primary: true }]
+  })
+}
+// About → What's new shown (or the notice dismissed): it was seen
+function seenWhatsNew(dismissed) {
+  if (!notices.has('whatsnew')) return
+  const shown = settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), 'whatsnew')
+  if (!shown && !dismissed) return
+  settings.lastRunVersion = app.getVersion()
+  saveSettings()
+  notices.clear('whatsnew')
+}
+// asked once (DS5): install updates automatically? Until answered, Sonata asks before installing.
+function askAutoUpdate() {
+  if (settings.updatesAsked || !appImagePath) return
+  notices.show({
+    id: 'ask-auto', place: 'top', kind: 'info',
+    text: 'Keep Sonata up to date?',
+    detail: 'New versions can download and install by themselves, checked like every update (signature and checksum), and start the next time you open Sonata. You can change this in Settings → Updates.',
+    actions: [{ id: 'ask-auto-no', label: 'Ask me each time' }, { id: 'ask-auto-yes', label: 'Update automatically', primary: true }]
+  })
 }
 
 function restartIntoUpdate() {
@@ -1870,6 +2344,7 @@ function restartIntoUpdate() {
     for (const v of sessionVars) if (process.env[v]) env[v] = process.env[v]
     spawn('/bin/sh', ['-c', 'sleep 0.5; exec ' + JSON.stringify(target)], { detached: true, stdio: 'ignore', env }).unref()
   }
+  stopDesktopScheme()
   app.exit(0)
 }
 
@@ -1883,22 +2358,31 @@ function pruneOldAppImages() {
     const self = path.basename(appImagePath)
     for (const f of fs.readdirSync(dir)) {
       const m = f.match(/^sonata-(\d+\.\d+\.\d+(?:-dev\.\d+)?)-.*\.AppImage$/i)
-      if (m && f !== self && isNewerVersion(app.getVersion(), m[1])) {
+      if (m && f !== self && updateFeed.isNewerVersion(app.getVersion(), m[1])) {
+        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
+      }
+      // a download a crash or a quit cut short (never a running file: those end in .AppImage)
+      else if (/^sonata-\d+\.\d+\.\d+(?:-dev\.\d+)?-x86_64\.AppImage\.part$/.test(f)) {
         try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
       }
     }
   } catch (e) {}
 }
 
+// Check for updates automatically (Settings → Updates, on by default): 20 s after start, then every 2 h.
+// Off: no timer and nothing online at start; only Check now (or the tray's Check for Updates…) goes online.
+// loop: update check · 20 s one-shot, then every 2 h · AppImage builds with checks on only · stopped when
+// checks are turned off, and on app exit · cost two small HTTPS GETs per 2 h (feed + .sig), a download
+// only when a new version is offered and installed; updater.js's busy flag stops overlaps
+// error: a failed check (offline, bad signature, hash mismatch) is shown in Settings → Updates and waits the full 2 h, so it can't hammer
+let updateFirstTimer = null
+let updateTimer = null
 function startUpdateChecks() {
-  if (!appImagePath) return
-  pruneOldAppImages()
-  // loop: update check · 20 s one-shot, then every 2 h · AppImage builds only · stops on app exit ·
-  // cost two small HTTPS GETs per 2 h (feed + .sig; one GET on the placeholder-key yml path), download only
-  // when a new version exists; a channel switch adds one check; updateCheckBusy stops overlaps
-  // error: a failed check (offline, bad signature, hash mismatch) logs and waits the full 2 h, so it can't hammer
-  setTimeout(() => checkForUpdates(false), 20 * 1000)
-  setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
+  clearTimeout(updateFirstTimer); clearInterval(updateTimer)
+  updateFirstTimer = null; updateTimer = null
+  if (!appImagePath || !settings.checkForUpdates) return
+  updateFirstTimer = setTimeout(() => checkForUpdates(false), 20 * 1000)
+  updateTimer = setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
 }
 
 // ~/.config/autostart entry for launch-on-login (Electron's setLoginItemSettings
@@ -1946,21 +2430,36 @@ app.whenReady().then(async () => {
   discordConfigPath = path.join(app.getPath('userData'), 'discord.json')
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
-  lyricsStore = require('./lyrics-store').createLyricsStore({ file: path.join(app.getPath('userData'), 'lyrics-cache.json') })
+  // a damaged cache keeps what reads, is copied aside and says so once (lyrics-store.js)
+  lyricsStore = require('./lyrics-store').createLyricsStore({
+    file: path.join(app.getPath('userData'), 'lyrics-cache.json'),
+    onRecovered: (r) => {
+      console.error('lyrics cache: damaged file repaired: ' + JSON.stringify(r))
+      showRecovered('lyrics', 'Sonata\'s lyrics cache was damaged, so it was repaired: ' + r.kept + ' songs kept' +
+        (r.dropped ? ', ' + r.dropped + ' unreadable ' + (r.dropped === 1 ? 'entry' : 'entries') + ' dropped (they are fetched again when played)' : '') + '. ' +
+        (r.aside ? 'A copy of the damaged file: ' + r.aside : 'No copy of the damaged file could be kept.'), r.aside)
+    }
+  })
   app.on('before-quit', () => {
+    stopDesktopScheme()
     if (listenSession) listenSession.stop()
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
     if (lyricsStore) lyricsStore.flush()
   })
   loadSettings()
+  notices.setDismissed(settings.dismissedNotices)
   applyAutostart()
   cleanupWindowPositionMemory()
   integrateAppImage()
   createWindow()
   createTray()
   startNowPlayingLoop()
+  useTestArtwork()
+  pruneOldAppImages()   // local files only (no network), also with automatic checks off
   startUpdateChecks()
+  showWhatsNew()
+  askAutoUpdate()
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }
@@ -1968,7 +2467,10 @@ app.whenReady().then(async () => {
     toggleVisualizer()
   }
   if (process.argv.includes('--settings')) {
-    createSettingsWindow()
+    showPanel('settings')
+  }
+  if (process.argv.includes('--about')) {
+    showPanel('about')
   }
   if (process.argv.includes('--lyrics')) {
     toggleLyricsWindow()

@@ -12,35 +12,11 @@
   'use strict'
   const M = globalThis.SonataRailModel
   const bridge = globalThis.sonataRailBridge
-  if (!M || !bridge || globalThis.__sonataRail) return
+  if (!M || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataRail) return
 
   const doc = document
-  const SVG = 'http://www.w3.org/2000/svg'
-  // Lucide icons (ISC licence): mic-vocal, audio-waveform, picture-in-picture-2, settings, panel-right-open/close, lock, lock-open
-  const ICONS = {
-    lyrics: ['path:m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12', 'path:M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5', 'circle:16,7,5'],
-    visualizer: ['path:M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2'],
-    mini: ['path:M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4', 'rect:12,13,10,7,2'],
-    settings: ['path:M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z', 'circle:12,12,3'],
-    lock: ['rect:3,11,18,11,2', 'path:M7 11V7a5 5 0 0 1 10 0v4'],
-    unlock: ['rect:3,11,18,11,2', 'path:M7 11V7a5 5 0 0 1 9.9-1'],
-    pinOpen: ['rect:3,3,18,18,2', 'path:M15 3v18', 'path:m10 15-3-3 3-3'],
-    pinClose: ['rect:3,3,18,18,2', 'path:M15 3v18', 'path:m8 9 3 3-3 3']
-  }
-  function icon(name) {
-    const svg = doc.createElementNS(SVG, 'svg')
-    svg.setAttribute('viewBox', '0 0 24 24')
-    svg.setAttribute('aria-hidden', 'true')
-    for (const part of ICONS[name]) {
-      const [tag, a] = part.split(/:(.*)/s)
-      const el = doc.createElementNS(SVG, tag)
-      if (tag === 'path') el.setAttribute('d', a)
-      else if (tag === 'circle') { const [cx, cy, r] = a.split(','); el.setAttribute('cx', cx); el.setAttribute('cy', cy); el.setAttribute('r', r) }
-      else { const [x, y, w, h, rx] = a.split(','); el.setAttribute('x', x); el.setAttribute('y', y); el.setAttribute('width', w); el.setAttribute('height', h); el.setAttribute('rx', rx) }
-      svg.appendChild(el)
-    }
-    return svg
-  }
+  // Lucide icons (ISC licence), shared with the side panel (icons.js)
+  const icon = (name) => globalThis.SonataIcons.icon(doc, name)
   const el = (tag, cls, text) => {
     const e = doc.createElement(tag)
     if (cls) e.className = cls
@@ -63,11 +39,14 @@
     b.tabIndex = -1
     const ic = el('span', 'ic')
     ic.appendChild(icon(iconName))
+    // an open task on a panel page (Settings, About): a dot on the icon (the tooltip says what)
+    if (iconName === 'settings' || iconName === 'about') { const dot = el('i', 'task'); dot.hidden = true; ic.appendChild(dot) }
     const label = el('span', 'label')
     b.append(ic, label)
     buttons.push(b)
     return b
   }
+  // loop: NOT-WORTH — 5 items, once at load
   for (const it of M.ITEMS) nav.appendChild(makeButton(it.id, it.id))
   const dev = el('div', 'dev')
   dev.hidden = true
@@ -76,6 +55,7 @@
   statusList.setAttribute('role', 'group')
   statusList.setAttribute('aria-label', 'Connections')
   const statusRows = {}
+  // loop: NOT-WORTH — 3 status lines, once at load
   for (const id of ['lastfm', 'discord', 'precise']) {
     const row = el('div', 'status off')
     row.setAttribute('role', 'img')   // one readable line: "Last.fm: connected as …"
@@ -108,7 +88,8 @@
   let view = M.initialView()
   let focusIndex = 0
   const darkQuery = matchMedia('(prefers-color-scheme: dark)')
-  let themeKey = ''
+  // the one theme system (theme.js) with the Glass material on the panel
+  const theme = globalThis.SonataThemeApply.attach({ surfaces: [panel] })
 
   function setAttr(e, name, value) {
     if (value === null || value === undefined || value === false) { if (e.hasAttribute(name)) e.removeAttribute(name) }
@@ -123,18 +104,12 @@
     setAttr(b, 'aria-label', item.label)
     setAttr(b, 'aria-keyshortcuts', item.ariaKeys || null)
     b.classList.toggle('active', !!item.active)
-    if (item.kind === 'window') {
-      setAttr(b, 'aria-current', item.active ? 'true' : null)
-      setAttr(b, 'aria-description', item.active ? 'Open' : null)
-    } else setAttr(b, 'aria-pressed', item.active ? 'true' : 'false')
-  }
-
-  function renderTheme() {
-    const key = (state && state.palette ? state.palette.accent : '') + '|' + darkQuery.matches
-    if (key === themeKey) return
-    themeKey = key
-    const t = M.glassTheme(state && state.palette, darkQuery.matches)
-    for (const k in t.vars) panel.style.setProperty(k, t.vars[k])
+    setAttr(b, 'aria-pressed', item.active ? 'true' : 'false')
+    const dot = b.querySelector('.task')
+    if (dot) {
+      dot.hidden = !item.task
+      setAttr(b, 'aria-description', item.task ? 'Waiting: ' + item.task : null)
+    }
   }
 
   // the view's width follows the panel: widen before sliding open, narrow after sliding shut
@@ -161,9 +136,10 @@
     panel.classList.toggle('pinned', mode === 'pinned')
     syncWidth(mode, want)
     panel.classList.toggle('locked', locked)
-    renderTheme()
     if (!state) return
+    theme.set(state.theme)
     const items = M.railItems(state)
+    // loop: NOT-WORTH — 5 items per state change
     items.forEach((it, i) => renderButton(buttons[i], it))
     const pin = M.pinItem(state)
     renderButton(pinBtn, pin)
@@ -174,6 +150,7 @@
     const lic = lockBtn.firstChild
     const lwant = state.locked ? 'lock' : 'unlock'
     if (lic.dataset.icon !== lwant) { lic.dataset.icon = lwant; lic.replaceChildren(icon(lwant)) }
+    // loop: NOT-WORTH — 3 status lines per state change
     for (const s of M.railStatus(state)) {
       const r = statusRows[s.id]
       r.row.className = 'status ' + s.level
@@ -193,6 +170,7 @@
       setAttr(dev, 'role', 'note')
       setAttr(dev, 'aria-label', badge.tip)
     }
+    // loop: NOT-WORTH — 7 buttons per render
     buttons.forEach((b, i) => { b.tabIndex = i === focusIndex ? 0 : -1 })
   }
 
@@ -234,6 +212,7 @@
     e.preventDefault()
     if (k.action === 'escape') { update('escape'); return }
     focusIndex = k.index
+    // loop: NOT-WORTH — 7 buttons per key press
     buttons.forEach((b, i) => { b.tabIndex = i === focusIndex ? 0 : -1 })
     buttons[focusIndex].focus({ focusVisible: true })
     update('key')
@@ -248,8 +227,7 @@
     // a pointer click (detail > 0), not Enter/Space: close the rail now, like a menu
     if (e.detail > 0) update('pick')
   })
-  // lifetime: one 'change' listener on the colour-scheme query · fires on theme switches only (Ctrl+D, desktop theme)
-  darkQuery.addEventListener('change', () => { themeKey = ''; render() })
+  // (the colour-scheme and reduced-transparency listeners are theme-apply.js's, one each)
 
   render()
 
@@ -273,6 +251,7 @@
     root, panel, query: darkQuery,
     view: () => Object.assign({}, view),
     state: () => state,
-    counts: () => ({ observers: 0, listeners: 9, panels: doc.querySelectorAll('.panel').length })
+    theme: () => theme.state(),
+    counts: () => ({ observers: 0, listeners: 10, panels: doc.querySelectorAll('.panel').length })
   })
 })()
