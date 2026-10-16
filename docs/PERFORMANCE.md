@@ -169,6 +169,7 @@ store, software GL because the GPU process can't start under Xvfb), visualizer.h
 | toast, 0.15.20 (a few beat-spawned toasters) | 56.4 | 9.7 |
 | toast, 0.15.22 (full formation, ~40 sprites, lyrics overlay) | 59.6 | 9.9 |
 | bars, 0.15.22 (reference, 30 s) | 61.4 | 8.6 |
+| toast, 0.15.23 (3D-rendered sprites, smoothed scaling) | 65.7 | 8.7 |
 
 Under software GL most of this is rasterising a full-screen canvas every frame, which every scene does;
 the formation itself adds about 3 % (one cached-sprite `drawImage` per visible toaster). On a real GPU the

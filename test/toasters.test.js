@@ -1,54 +1,53 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('fs')
+const path = require('path')
 const T = require('../toasters')
 
-test('sprites: every pose and the toast use palette colours only, at the declared size', () => {
-  const sprites = [...T.WING_POSES.map((_, i) => T.buildToaster(i)), T.buildToast()]
-  for (const g of sprites) {
-    assert.equal(g.px.length, g.w * g.h)
-    for (const c of g.px) assert.ok(c === 0 || (c < T.PALETTE.length && T.PALETTE[c]), 'colour ' + c)
+const ROOT = path.join(__dirname, '..')
+
+// PNG width/height from the IHDR chunk
+function pngSize(file) {
+  const b = fs.readFileSync(file)
+  assert.equal(b.toString('latin1', 1, 4), 'PNG', file + ' is a PNG')
+  return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+}
+
+test('assets: all 9 sprite files exist, have the declared sizes and ship in the AppImage', () => {
+  const files = [...T.TOASTER_FILES, T.TOAST_FILE]
+  assert.equal(files.length, 9)
+  const shipped = require('../package.json').build.files
+  let total = 0
+  for (const f of files) {
+    const full = path.join(ROOT, f)
+    assert.ok(fs.existsSync(full), f + ' exists')
+    assert.ok(shipped.includes(f) || shipped.some((g) => f.startsWith(g.replace(/\*\*.*$/, ''))), f + ' is in package.json build.files')
+    total += fs.statSync(full).size
   }
-  assert.equal(sprites[0].w, T.TW)
-  assert.equal(sprites[0].h, T.TH)
+  for (const f of T.TOASTER_FILES) assert.deepEqual(pngSize(path.join(ROOT, f)), T.TOASTER_SIZE)
+  assert.deepEqual(pngSize(path.join(ROOT, T.TOAST_FILE)), T.TOAST_SIZE)
+  assert.ok(total < 1024 * 1024, 'sprites stay under 1 MB (' + total + ' bytes)')
 })
 
-test('sprites: the wings move between poses (up reaches higher, down lower) and nothing touches the edge', () => {
-  const extent = (g) => {
-    let top = g.h, bottom = -1
-    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) if (g.px[y * g.w + x]) { top = Math.min(top, y); bottom = Math.max(bottom, y) }
-    return { top, bottom }
-  }
-  const poses = T.WING_POSES.map((_, i) => T.buildToaster(i))
-  const up = extent(poses[0])
-  const down = extent(poses[poses.length - 1])
-  assert.ok(up.top < down.top, 'up pose reaches higher')
-  for (const g of poses) {
-    for (let y = 0; y < g.h; y++) {
-      assert.equal(g.px[y * g.w], 0)
-      assert.equal(g.px[y * g.w + g.w - 1], 0)
-    }
-    for (let x = 0; x < g.w; x++) assert.equal(g.px[(g.h - 1) * g.w + x], 0)
-  }
-  // all poses differ
-  for (let i = 1; i < poses.length; i++) assert.notDeepEqual(poses[i].px, poses[i - 1].px)
-})
-
-test('flapPose: eased ping-pong cycle up -> down -> up, wraps per turn', () => {
+test('flapFrame: one turn loops the 8 frames in order, wraps per turn', () => {
   const seq = []
-  for (let k = 0; k < 8; k++) seq.push(T.flapPose(k / 8))
-  assert.deepEqual(seq, [0, 1, 2, 3, 4, 3, 2, 1].map((p) => p))  // 8 steps of a turn
-  assert.equal(T.flapPose(0.5), T.WING_POSES.length - 1)
-  assert.equal(T.flapPose(3.25), T.flapPose(0.25))
-  assert.equal(T.flapPose(-0.25), T.flapPose(0.75))
+  for (let k = 0; k < 8; k++) seq.push(T.flapFrame((k + 0.5) / 8))
+  assert.deepEqual(seq, [0, 1, 2, 3, 4, 5, 6, 7])
+  assert.equal(T.flapFrame(3.3), T.flapFrame(0.3))
+  assert.equal(T.flapFrame(-0.25), T.flapFrame(0.75))
+  assert.equal(T.flapFrame(0.999999), 7)
 })
 
-test('spriteScale: integer, at least 2, grows with the screen', () => {
-  assert.equal(T.spriteScale(200), 2)
-  const hd = T.spriteScale(1080), uhd = T.spriteScale(2160)
-  assert.ok(Number.isInteger(hd) && Number.isInteger(uhd))
-  assert.ok(uhd >= hd * 2 - 1)
-  // a toaster stays a readable fraction of the screen height on 4K
-  assert.ok(T.TH * uhd > 2160 / 12 && T.TH * uhd < 2160 / 4)
+test('spriteSize: about a sixth of the screen tall, aspect kept, grows with the screen', () => {
+  const hd = T.spriteSize(1080), uhd = T.spriteSize(2160)
+  assert.equal(hd.h, 180)
+  assert.ok(Math.abs(hd.w / hd.h - T.TOASTER_SIZE.w / T.TOASTER_SIZE.h) < 0.01)
+  assert.ok(uhd.h === hd.h * 2)
+})
+
+test('DIR: flies down and to the left (top right -> bottom left), unit length', () => {
+  assert.ok(T.DIR.x < 0 && T.DIR.y > 0)
+  assert.ok(Math.abs(Math.hypot(T.DIR.x, T.DIR.y) - 1) < 1e-9)
 })
 
 test('wrap: always in [0, m)', () => {
@@ -59,24 +58,23 @@ test('wrap: always in [0, m)', () => {
 })
 
 test('formation: covers the screen, density scales with size, stable for a size', () => {
-  const s = T.spriteScale(1080)
-  const f = T.formation(1920, 1080, T.TW * s, T.TH * s)
-  assert.ok(f.fw >= 1920 + T.TW * s && f.fh >= 1080 + T.TH * s, 'torus is screen + one sprite')
+  const { w, h } = T.spriteSize(1080)
+  const f = T.formation(1920, 1080, w, h)
+  assert.ok(f.fw >= 1920 + w && f.fh >= 1080 + h, 'torus is screen + one sprite')
   assert.equal(f.fw, f.cols * f.cw)
   assert.equal(f.fh, f.rows * f.ch)
   assert.equal(f.rows % 2, 0)
   assert.equal(f.items.length, f.cols * f.rows)
   assert.ok(f.items.some((i) => i.toast) && f.items.some((i) => !i.toast))
-  assert.deepEqual(T.formation(1920, 1080, T.TW * s, T.TH * s), f)
+  assert.deepEqual(T.formation(1920, 1080, w, h), f)
   // a bigger screen at the same sprite size holds more
-  const big = T.formation(3840, 2160, T.TW * s, T.TH * s)
-  assert.ok(big.items.length > f.items.length * 3)
+  const big = T.formation(3840, 2160, w, h)
+  assert.ok(big.items.length > f.items.length * 2.5)   // ~4× the area, minus the fixed one-sprite margin
 })
 
 test('formation: the screen never empties while flying, at any offset', () => {
   const W = 1920, H = 1080
-  const s = T.spriteScale(H)
-  const sw = T.TW * s, sh = T.TH * s
+  const { w: sw, h: sh } = T.spriteSize(H)
   const f = T.formation(W, H, sw, sh)
   for (let step = 0; step < 400; step++) {
     const d = step * 37.3
@@ -100,8 +98,8 @@ test('formation: the screen never empties while flying, at any offset', () => {
 })
 
 test('itemPos: wrapping is seamless (one full torus period returns the same place)', () => {
-  const f = T.formation(1280, 720, 160, 104)
+  const f = T.formation(1280, 720, 113, 120)
   const it = f.items[5]
-  assert.deepEqual(T.itemPos(f, it, -f.fw, 0, 160, 104), T.itemPos(f, it, 0, 0, 160, 104))
-  assert.deepEqual(T.itemPos(f, it, 0, f.fh * 3, 160, 104), T.itemPos(f, it, 0, 0, 160, 104))
+  assert.deepEqual(T.itemPos(f, it, -f.fw, 0, 113, 120), T.itemPos(f, it, 0, 0, 113, 120))
+  assert.deepEqual(T.itemPos(f, it, 0, f.fh * 3, 113, 120), T.itemPos(f, it, 0, 0, 113, 120))
 })

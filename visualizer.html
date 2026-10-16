@@ -276,64 +276,56 @@
     ctx.globalCompositeOperation = 'source-over'
   }
 
-  // --- MODE 4: toast (After Dark homage, all original pixel art: toasters.js) ---
-  // A full-screen staggered formation flies diagonally (upper right -> lower left) at a steady speed
-  // and wraps around, so the screen never empties; the music sets the wing flap rate (tempo, energy)
-  // and nudges the speed. Each sprite frame is drawn once into an offscreen canvas at an integer scale;
-  // a frame is then one drawImage per visible sprite.
+  // --- MODE 4: toast (After Dark homage; sprites rendered from Marcy's Blender model: toasters.js) ---
+  // A full-screen staggered formation flies diagonally (upper right -> lower left, where the noses
+  // point) at a steady speed and wraps around, so the screen never empties; the music sets the wing
+  // flap rate (tempo, energy) and nudges the speed. The 8 flap frames and the toast are loaded once;
+  // a frame is one drawImage per visible sprite (smoothed, scaled to the screen height).
   const TOASTERS = require('./toasters')
-  const toast = { f: null, w: 0, h: 0, s: 0, frames: null, slice: null, sliceOff: 0, dist: 0, flap: 0, speed: 1, last: 0, list: [] }
-  function spriteCanvas(g, s) {
-    const c = document.createElement('canvas')
-    c.width = g.w * s; c.height = g.h * s
-    const x = c.getContext('2d')
-    for (let y = 0; y < g.h; y++) {
-      for (let col = 0; col < g.w; col++) {
-        const i = g.px[y * g.w + col]
-        if (!i) continue
-        x.fillStyle = TOASTERS.PALETTE[i]
-        x.fillRect(col * s, y * s, s, s)
-      }
-    }
-    return c
-  }
-  // lifetime: the cached frames (5 poses + the slice) are rebuilt only when the canvas size changes
+  // lifetime: the 9 images are loaded once at page load and live as long as the window
+  function loadImage(src) { const img = new Image(); img.src = src; return img }
+  const toastImages = { frames: TOASTERS.TOASTER_FILES.map(loadImage), slice: loadImage(TOASTERS.TOAST_FILE) }
+  const toast = { f: null, w: 0, h: 0, sw: 0, sh: 0, tw: 0, th: 0, dist: 0, flap: 0, speed: 1, last: 0, time: 0, list: [] }
   function setupToast() {
-    const s = TOASTERS.spriteScale(H)
-    if (s !== toast.s || !toast.frames) {
-      toast.frames = TOASTERS.WING_POSES.map((_, i) => spriteCanvas(TOASTERS.buildToaster(i), s))
-      const slice = TOASTERS.buildToast()
-      const ss = s
-      toast.slice = spriteCanvas(slice, ss)
-      toast.sliceOff = { x: Math.round((TOASTERS.TW * s - slice.w * ss) / 2), y: Math.round((TOASTERS.TH * s - slice.h * ss) / 2) }
-      toast.s = s
-    }
-    toast.f = TOASTERS.formation(W, H, TOASTERS.TW * s, TOASTERS.TH * s)
+    const size = TOASTERS.spriteSize(H)
+    toast.sw = size.w; toast.sh = size.h
+    toast.tw = Math.round(TOASTERS.TOAST_SIZE.w * size.k); toast.th = Math.round(TOASTERS.TOAST_SIZE.h * size.k)
+    toast.f = TOASTERS.formation(W, H, size.w, size.h)
     toast.w = W; toast.h = H
-    toast.list = toast.f.items.map((it) => ({ it, x: 0, y: 0 }))
+    toast.list = toast.f.items.map((item) => ({ item, x: 0, y: 0 }))
   }
   function renderToast(a) {
     if (!toast.f || toast.w !== W || toast.h !== H) setupToast()
     const now = performance.now()
     const dt = toast.last ? Math.min(0.05, (now - toast.last) / 1000) : 0
     toast.last = now
+    toast.time += dt
     ctx.globalCompositeOperation = 'source-over'
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
     ctx.clearRect(0, 0, W, H)
     ctx.fillStyle = 'rgba(6,5,12,0.84)'; ctx.fillRect(0, 0, W, H)    // night sky, the album glow faint behind
-    const s = toast.s, sw = TOASTERS.TW * s, sh = TOASTERS.TH * s
+    const sw = toast.sw, sh = toast.sh
     // steady flight; the music nudges it (±15 %), smoothed so it never jerks
     toast.speed += ((0.9 + 0.35 * Math.min(1, a.energy * 1.6)) - toast.speed) * Math.min(1, dt * 1.5)
-    toast.dist += s * 24 * toast.speed * dt
-    // wings flap at the tempo, quicker when the track is busy
+    toast.dist += sh * 0.5 * toast.speed * dt
+    // wings flap at the tempo, quicker when the track is busy (one cycle = the 8 frames)
     toast.flap += dt * Math.min(3.2, Math.max(1, beat.bpm / 60)) * (0.75 + 0.5 * Math.min(1, a.energy * 1.6))
     const ox = TOASTERS.DIR.x * toast.dist, oy = TOASTERS.DIR.y * toast.dist
     const list = toast.list
-    for (const e of list) { const p = TOASTERS.itemPos(toast.f, e.it, ox, oy, sw, sh); e.x = p.x; e.y = p.y }
+    for (const e of list) { const p = TOASTERS.itemPos(toast.f, e.item, ox, oy, sw, sh); e.x = p.x; e.y = p.y }
     list.sort((p, q) => p.y - q.y)           // lower ones in front
     for (const e of list) {
       if (e.x >= W || e.y >= H || e.x + sw <= 0 || e.y + sh <= 0) continue
-      if (e.it.toast) ctx.drawImage(toast.slice, e.x + toast.sliceOff.x, e.y + toast.sliceOff.y)
-      else ctx.drawImage(toast.frames[TOASTERS.flapPose(toast.flap + e.it.phase)], e.x, e.y)
+      if (e.item.toast) {
+        // a slice tumbles gently as it flies
+        const ang = 0.28 * Math.sin(toast.time * 0.9 + e.item.phase * 6.28)
+        ctx.save()
+        ctx.translate(e.x + sw / 2, e.y + sh / 2)
+        ctx.rotate(ang)
+        ctx.drawImage(toastImages.slice, -toast.tw / 2, -toast.th / 2, toast.tw, toast.th)
+        ctx.restore()
+      } else ctx.drawImage(toastImages.frames[TOASTERS.flapFrame(toast.flap + e.item.phase)], e.x, e.y, sw, sh)
     }
   }
 

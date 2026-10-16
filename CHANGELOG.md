@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.23] — Flying toasters from a real 3D model
+
+### Changed
+
+- **New flying toasters.** The *toast* scene's toasters and toast slices are now rendered from a 3D model: shiny chrome two-slot toasters with feathered wings, flying nose-first from the top right to the bottom left, with an 8-frame wing flap that keeps time with the music. Slices of toast tumble gently along with them. Smooth at any screen size, 4K included.
+
 ## [0.15.22] — Visualizer lyrics and flying toasters
 
 ### Changed
