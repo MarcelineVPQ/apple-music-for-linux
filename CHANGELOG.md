@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.20] — Refine timing by listening (experimental)
+
+### Added
+
+- **Refine timing by listening (experimental, off by default):** Settings → *Refine timing by listening*. For songs with estimated word timing, Sonata listens to its own audio while the lyrics window is open and moves words to where they're actually sung: syncopated words land on the beat they're sung on, and held notes keep their word lit. What it learns is saved per song, so replays get tighter. Audio is analysed in memory only, never saved or sent; it uses about half a percent of one CPU core. On mixes where guitars drown the vocals it leaves the timing alone rather than guess.
+
 ## [0.15.19] — Tighter lyrics timing
 
 ### Changed

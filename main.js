@@ -416,10 +416,10 @@ function getListenSession() {
   if (listenSession || listenLoadFailed) return listenSession
   try {
     const { createVocalDetector } = require('./vocal-detect')
-    const { refineWords, mergeLearned } = require('./timing-refine')
+    const { refineWords, mergeLearned, noiseRate } = require('./timing-refine')
     const { createListener } = require('./audio-listen')
     listenSession = createListenSession({
-      createListener, createVocalDetector, refineWords, mergeLearned,
+      createListener, createVocalDetector, refineWords, mergeLearned, noiseRate,
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
       send: (channel, payload) => { if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send(channel, payload) },
       now: () => performance.now(),

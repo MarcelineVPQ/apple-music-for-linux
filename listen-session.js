@@ -17,6 +17,10 @@ const T = require('./lyrics-timing')
 // fragment plus PipeWire's typical quantum (1024 frames at 48 kHz ≈ 21 ms) and a margin.
 const MONITOR_LATENCY = 0.05
 const EVIDENCE_PAD = 0.5        // s of evidence before a line's start and after its end
+// Delegated decision (overnight 2026-10-16, Marcy can overrule): the bench showed maxShift 1.0 roughly
+// halves the median error vs 0.35 with the same ~2 % of words made worse, because LRC line timing is
+// often off by more than 0.35 s. See docs/LISTEN-RESULTS.md.
+const MAX_SHIFT = 1.0
 const MIN_CONFIDENCE = 0.3      // refinements below this are neither shown nor learned
 const GAP_TOLERANCE = 0.25      // s; a bigger jump between chunks is a seek/pause: start over
 const KEEP_EVIDENCE = 30        // s of onsets/voiced segments kept behind the playhead
@@ -83,6 +87,7 @@ function createListenSession(deps) {
   let onsets = []
   let voiced = []
 
+  let allOnsets = []    // lifetime: whole song's onsets for the noise gate (bounded by song length); cleared per song
   function resetEvidence() {
     onsets = []
     voiced = []
@@ -91,7 +96,7 @@ function createListenSession(deps) {
     if (detector) detector.reset()
   }
 
-  function onChunk(mid, wallMs) {
+  function onChunk(mid, wallMs, side) {
     if (!song || !clock || !clock.playing || !detector) return
     const t0 = chunkStart(clock, wallMs, mid.length, rate, latency)
     if (expectNext == null || Math.abs(t0 - expectNext) > GAP_TOLERANCE) {
@@ -99,16 +104,23 @@ function createListenSession(deps) {
       coveredFrom = t0
     }
     expectNext = t0 + mid.length / rate
-    const res = detector.push(mid, t0)
+    // the detector uses stereo for its mid/side vocal hint: rebuild interleaved L,R when we have side
+    let input = mid
+    if (side && side.length === mid.length) {
+      input = new Float32Array(mid.length * 2)
+      // loop: one pass over the chunk's frames · ends with the chunk
+      for (let i = 0; i < mid.length; i++) { input[2 * i] = mid[i] + side[i]; input[2 * i + 1] = mid[i] - side[i] }
+    }
+    const res = detector.push(input, t0)
     if (res) {
-      if (res.onsets) for (const o of res.onsets) onsets.push(o)
+      if (res.onsets) for (const o of res.onsets) { onsets.push(o); allOnsets.push(o) }
       if (res.voiced) for (const v of res.voiced) voiced.push(v)
     }
   }
 
   function startListening() {
     if (listener) return
-    if (!detector) detector = deps.createVocalDetector({ sampleRate: rate })
+    if (!detector) detector = deps.createVocalDetector({ sampleRate: rate, channels: 2 })
     resetEvidence()
     listener = deps.createListener({ sampleRate: rate, onChunk })
     listener.start()
@@ -140,7 +152,10 @@ function createListenSession(deps) {
         voiced: voiced.filter((v) => v.end >= from && v.start <= to)
       }
       let res
-      try { res = deps.refineWords(line, evidence) } catch (e) { log('refine failed: ' + e.message); continue }
+      // song gate: onsets during intro/interludes (guitar chugs in mono mixes) mean low trust
+      const gate = deps.noiseRate ? deps.noiseRate(allOnsets, lines, now) : { rate: null }
+      const opts = { nextStart: lines[i + 1] && lines[i + 1].t != null ? lines[i + 1].t : undefined, noiseRate: gate.rate, maxShift: MAX_SHIFT }
+      try { res = deps.refineWords(line, evidence, opts) } catch (e) { log('refine failed: ' + e.message); continue }
       if (!res || !res.words || !sameWords(line.words, res.words) || !(res.confidence >= MIN_CONFIDENCE)) continue
       const entry = recordLearned(deps.store.get(learnedKey(song.title, song.artist)), i, line, res.words, deps.mergeLearned)
       deps.store.set(learnedKey(song.title, song.artist), entry)
@@ -162,6 +177,7 @@ function createListenSession(deps) {
       clock = null
       const estimated = !!lines && lines.some((l) => l.estimated)
       song = enabled && estimated ? { key, title, artist, base: lines, done: new Set() } : null
+      allOnsets = []
       if (!song) return { lines, refined: false }
       const got = applyLearned(lines, deps.store.get(learnedKey(title, artist)))
       return { lines: got.lines, refined: got.used }
