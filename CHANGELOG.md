@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Navigation rail in the main window.** A slim glass bar on the right edge with Lyrics, Visualizer, Mini Player and Settings. It shows icons only and opens over the page when you point at it or Tab to it, then closes after you pick something. **Ctrl+B** (or its pin button) keeps it open: Apple's page makes room for it and the choice is remembered. If the window is too narrow (under about 1,000 px), the pinned rail opens over the page until the window is wider. An item is marked while its window is open, and tooltips name the shortcuts. Last.fm, Discord and precise word timing show their state at the bottom with a symbol and words, not colour alone. On the Development channel the rail shows a *Development* badge with the version. It is tinted by the album colour and follows light/dark mode. Keyboard: Tab, ↑ / ↓, Home / End, Enter / Space, Esc. Reduced-motion settings are respected. The rail sits in its own sealed-off layer, so Apple's styles can't change it and it can't change Apple's page. Apple's page still gets no access to your system. The tray, menus and shortcuts are unchanged.
+
 ## [0.15.26] — Karaoke syllables for every song
 
 ### Changed

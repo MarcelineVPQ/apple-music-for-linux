@@ -15,8 +15,9 @@ window hidden) the app runs one 5 s poll and nothing else.
 | update check | 2 h (AppImage only) | self-update |
 | Discord reconnect attempt | every 6th poll (30 s), only while Discord is enabled but unreachable | presence |
 
-Nothing else runs: palette extraction and lyrics lookups only happen while the mini
-player or lyrics window is open. Per track change there is at most one artwork fetch
+Nothing else runs: palette extraction only happens while the mini player or lyrics
+window is open, or (since the navigation rail) while the main window is shown, for the
+rail's tint; lyrics lookups only while a lyric view is open. Per track change there is at most one artwork fetch
 plus one `Notification` (notifications on), one Last.fm now-playing call and one
 Discord update. None of these objects is stored.
 
@@ -24,7 +25,7 @@ Discord update. None of these objects is stored.
 
 | Where | Loop | Period | Runs while | Stops on | Cost / verdict |
 |---|---|---|---|---|---|
-| main.js `startNowPlayingLoop` | now-playing poll | 5 s | always (the tray always exists) | app exit | 1 `executeJavaScript`/5 s, 0.02–0.07 % main CPU. Needed, left as is |
+| main.js `startNowPlayingLoop` | now-playing poll | 5 s | always (the tray always exists) | app exit | 1 `executeJavaScript`/5 s, 0.02–0.07 % main CPU. Needed, left as is. Since the rail it also refreshes the palette while the main window is shown (one artwork fetch per track change) and calls `pushRail` (one small JSON compare; an IPC send only when the rail's state changed) |
 | main.js `createMiniWindow` | mini poll | 1 s | mini window exists, including minimized/paused | mini `closed`, main `close` | 1 read/s, 0.05 % main CPU. Left as is |
 | main.js `startLyricsFeed` (0.15.22) | lyrics feed poll, for the lyrics window and the visualizer | 500 ms | lyrics window or visualizer exists, including minimized/paused | last of them `closed`, main `close` | 2 reads/s plus one lyrics lookup per track (cached), 1 IPC send per view per tick. Replaces the lyrics poll and the visualizer's own 300 ms poll |
 | main.js `vizAudioTick` + visualizer.js | own-stream parec (audio-listen.js; since 0.15.24 the one shared parec that also feeds refine and precise timing) → 1024-point FFT → IPC | ~43 frames/s | visualizer exists and the song plays (system-monitor fallback: visualizer exists) | pause, viz `closed` | 1 FFT + 1 IPC send per frame; FFT buffers reused (no per-frame garbage) |
@@ -140,6 +141,48 @@ artwork URL (Chromium's HTTP cache), sent only when the art changes. The progres
 written at most 4×/s and only when it moved. The spin (off by default) is a compositor-only
 CSS rotation: about +3.5 % in the software-GL GPU process, nothing in the renderer; it is
 paused while the window is hidden or the music is paused.
+
+## Navigation rail (unreleased, branch sonata-rail)
+
+The rail lives in Apple's page (closed shadow root, isolated world, see README). It has no
+loop of its own: no timer, no animation frame, no polling (`rail-ui.js` contains none; a unit
+test checks). It redraws only on a state push from main, pointer enter/leave, focus, keys and
+a colour-scheme change.
+
+| Where | Thing | Verdict |
+|---|---|---|
+| rail-ui.js panel listeners | pointerenter/leave, focusin/out, keydown, keyup, click (7) + 1 colour-scheme `change` | added once per document, live with it; measured flat (8) through 50 open/close cycles, 50 navigations and 5 reloads |
+| rail-ui.js `MutationObserver` | the only one; `childList` on `<html>` and `<body>` (no subtree, no attributes) | fires only when Apple adds/removes direct children of those two; never fired during 50 in-app navigations (re-attachments 0). Removing the rail by script: back at once; replacing `<body>`: moves to the new one, observer re-bound, still one |
+| main.js `rail:command` | `ipcMain.on`, module load | 1 throughout; drops anything not from the main window's top frame or not a known command |
+| main.js `dom-ready` → `injectRail`, rail `resize` listener | main window listeners | registered once in `createWindow`; counts flat (dom-ready 1, resize 2 with the bounds saver) |
+| main.js `pushRail` | state send | only on change (JSON compare); called from window open/close, settings, connections, palette, resize and the 5 s tick |
+| preload-rail.js | one `rail:state` listener per document | the preload runs once per page load |
+
+Measured in the isolated app (packaged `dist/linux-unpacked`, Xvfb, throwaway HOME, logged-out
+Apple page, window 1100×760; `tools/rail-check.js`, CPU from `/proc`, % of one core, 60 s):
+
+| State | all Sonata processes | renderer | idle repaints (10 s) |
+|---|---|---|---|
+| without the rail (combined-0.15.24 code, same build) | 0.43 % | 0.38 % | 0 frames |
+| rail unpinned, closed | 0.43 % | 0.37 % | 0 frames |
+| rail open on hover, pointer resting on it | 0.02 % | 0.02 % | 0 frames |
+| rail pinned | 0.05 % | 0.02 % | — |
+
+The rail adds nothing measurable at idle; the 0.4 % in the first two rows is Apple's page
+under the pointer (the pointer rested on one of its cards there). Opening/closing on hover
+animates `transform` and `opacity` only: 20 crossings cost 2 layouts and 9 style recalcs in
+total (no per-frame layout). Crossing Apple's own cards costs ~10 layouts per crossing with or
+without the rail (Apple's hover effects).
+
+Loops (after a forced GC before each sample): 50× Lyrics open/close through the rail with real
+clicks: page JS listeners 7677 → 7675–7676, nodes 28.9 k flat, documents 2; main-process IPC
+handler and main-window listener counts unchanged, active timers 1 → 1.
+
+**Apple's page grows on in-app navigation, rail or not.** 50 navigations between New, Radio and
+Browse, GC'd: 15.5 k → 332 k DOM nodes and 5.3 k → 71.8 k listeners *without* the rail, 15.6 k →
+320 k and 5.4 k → 69.3 k with it (about 6.3 k nodes and 1.3 k listeners kept per navigation by
+Apple's own code). A reload frees it all (2 k listeners after). Logged in this may differ; see
+BACKLOG.
 
 ## Not measurable headless
 

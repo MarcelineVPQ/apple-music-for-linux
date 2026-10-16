@@ -54,6 +54,7 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 
 ### Player
 
+- **Navigation rail:** a slim glass bar on the right edge of the main window with Lyrics, Visualizer, Mini Player and Settings. It shows icons only and slides open over the page when you point at it or Tab to it, then closes again after you pick something. Press **Ctrl+B** (or its pin button) to keep it open: the page then makes room for it, and Sonata remembers that. An item is marked while its window is open, and each tooltip names the item's shortcut. At the bottom it shows Last.fm, Discord and precise word timing, each with a symbol and words (not just a coloured dot). On the Development channel it also shows a *Development* badge with the version. It takes on the album's colour and follows light/dark mode. From the keyboard: Tab reaches it, ↑ / ↓ move, Enter or Space opens, Esc closes. The tray, menus and shortcuts all still work as before.
 - **System tray:** click to hide or show the window; right-click for play/pause, next, previous, mini player, visualizer, dark mode, settings and quit. Music keeps playing while the window is hidden.
 - **Mini player** (Ctrl+M): a small, translucent, always-on-top pill with artwork, shuffle, previous / play-pause / next, repeat, a seekable progress bar, volume and mute, favourite, and a ⋯ menu (Add to Library, Copy Link, Lyrics, Visualizer, Always on Top). Drag it anywhere.
 - **Visualizer / ambient mode** (Ctrl+Shift+V): full-screen album art, synced lyrics and a real-time spectrum from the actual audio output (captured through PipeWire/PulseAudio, so it works with Apple's DRM). Four scenes: **Bars**, **Aurora** (a Flurry homage), **Nebula** (an iTunes-visualizer homage) and **Toast** (pixel-art winged toasters that flap to the beat, an After Dark wink). Click or ← / → to change, Esc to leave.
@@ -101,6 +102,7 @@ Sonata talks to Apple (through the Apple Music web player you sign in to) and, o
 | `Ctrl+M` | Toggle mini player |
 | `Ctrl+Shift+L` | Toggle lyrics (also in the mini player) |
 | `Ctrl+Shift+V` | Toggle visualizer (also in the mini player; ← / → or click to change scene, Esc to exit) |
+| `Ctrl+B` | Pin / unpin the navigation rail (remembered) |
 | `Ctrl+D` | Toggle dark / light mode |
 | `Alt+←` / `Alt+→` | Back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |
