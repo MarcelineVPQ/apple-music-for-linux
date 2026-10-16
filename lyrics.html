@@ -295,6 +295,7 @@
   })
 
   ipcRenderer.on('lyrics-refined', (event, msg) => view.refine(msg))
+  ipcRenderer.on('lyrics-aligned', (event, msg) => view.align(msg))
 
   ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying) => {
     view.setTime(playbackTime, isPlaying)

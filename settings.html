@@ -105,6 +105,10 @@
       <div class="grow"><div class="label">Refine timing by listening (experimental)</div><div class="desc" id="lyricsListenRefine-desc">Listens to Sonata's own audio while the lyrics window is open to move estimated words to where they're sung. Audio is analysed in memory, never saved or sent.</div></div>
       <label class="switch"><input type="checkbox" id="lyricsListenRefine"><span class="slider"></span></label>
     </div>
+    <div class="row">
+      <div class="grow"><div class="label">Precise word timing (GPU, experimental)</div><div class="desc">Separates the vocals and lines up each word with the singing, on this computer, after a song has played once with the lyrics window or the visualizer open. Audio stays in memory and is dropped right after; only the word times are kept.</div><div class="status" id="lyricsPreciseTiming-status"></div></div>
+      <label class="switch" id="lyricsPreciseTiming-switch"><input type="checkbox" id="lyricsPreciseTiming"><span class="slider"></span></label>
+    </div>
   </div>
 
   <h2>Updates</h2>
@@ -132,7 +136,7 @@
 
 <script>
   const { ipcRenderer } = require('electron')
-  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback', 'estimatedWordTiming', 'lyricsListenRefine']
+  const TOGGLES = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming']
 
   async function refresh() {
     const s = await ipcRenderer.invoke('settings:get')
@@ -145,6 +149,7 @@
     ch.disabled = !s.appImage
     // listening refines estimated timing, so it needs Estimated word timing on
     listenDependsOnEstimate(!!s.estimatedWordTiming)
+    showPrecise(s)
     if (!s.appImage) document.getElementById('updateChannel-desc').textContent = 'Only the AppImage updates itself; from source, update with git pull'
     const lc = s.lastfmConnected
     document.getElementById('lastfm-status').textContent = lc ? 'Connected as ' + s.lastfmUser : 'Not connected'
@@ -165,6 +170,34 @@
     document.getElementById('lyricsListenRefine-desc').textContent = on ? listenDesc : 'Needs Estimated word timing (above) on'
   }
   document.getElementById('estimatedWordTiming').addEventListener('change', (e) => listenDependsOnEstimate(e.target.checked))
+
+  // precise word timing: the switch exists only when the sonata-align helper is installed; with it
+  // on, the status line asks the helper (spawned on demand, see align-helper.js) what it runs on
+  const preciseStatus = document.getElementById('lyricsPreciseTiming-status')
+  let preciseAsked = 0
+  function showPrecise(s) {
+    document.getElementById('lyricsPreciseTiming-switch').style.display = s.alignInstalled ? '' : 'none'
+    if (!s.alignInstalled) {
+      preciseStatus.textContent = 'Needs the sonata-align helper (about 10 GB). Install it with align/install.sh from the Sonata source, then reopen Settings.'
+      return
+    }
+    if (s.lyricsPreciseTiming) askPrecise()
+    else preciseStatus.textContent = ''
+  }
+  async function askPrecise() {
+    const n = ++preciseAsked
+    preciseStatus.textContent = 'Starting the helper…'
+    const r = await ipcRenderer.invoke('align:status')
+    if (n !== preciseAsked || !document.getElementById('lyricsPreciseTiming').checked) return
+    if (!r.ok) { preciseStatus.textContent = 'Helper not working: ' + r.message; return }
+    preciseStatus.textContent = r.device === 'cuda'
+      ? 'Ready on ' + (r.gpu || 'the GPU')
+      : 'Ready, CPU only (slow: about a minute per song)'
+  }
+  document.getElementById('lyricsPreciseTiming').addEventListener('change', (e) => {
+    if (e.target.checked) askPrecise()
+    else { preciseAsked++; preciseStatus.textContent = '' }
+  })
   document.getElementById('lyricsArtSpinSpeed').addEventListener('change', (e) => ipcRenderer.send('settings:set', 'lyricsArtSpinSpeed', e.target.value))
   document.getElementById('updateChannel').addEventListener('change', (e) => ipcRenderer.send('settings:set', 'updateChannel', e.target.value))
   document.getElementById('lastfm-btn').onclick = () => ipcRenderer.send('settings:action',

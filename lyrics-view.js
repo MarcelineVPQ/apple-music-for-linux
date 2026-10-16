@@ -7,7 +7,9 @@
 //   'lyrics-data'    -> setData(data)      full line/word objects, estimated + learned timing applied
 //   'lyrics-time'    -> setTime(t, playing)  2 pushes/s; the smooth clock (lyrics-timing syncClock)
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
-// The pure helpers (prepare, refinedLine, stageNext) are tested in test/lyrics-view.test.js.
+//   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
+// The pure helpers (prepare, refinedLine, alignedLines, timingNote, stageNext) are tested in
+// test/lyrics-view.test.js.
 const T = require('./lyrics-timing')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
@@ -33,6 +35,37 @@ function refinedLine(lines, msg, key) {
 }
 
 /**
+ * The lines after a 'lyrics-aligned' message ({ key, lines: { index: { text, words } } }), or null
+ * when the message isn't for this song or changes nothing. A line takes the aligned words only when
+ * it isn't aligned yet and its text and words match (only the timing of the same words may change).
+ * Returns { lines, changed: [index] }.
+ */
+function alignedLines(lines, msg, key) {
+  if (!msg || msg.key !== key || !msg.lines || typeof msg.lines !== 'object') return null
+  const next = lines.slice()
+  const changed = []
+  // loop: one pass over the message's lines (at most the song's line count) · per 'lyrics-aligned' message
+  for (const [k, a] of Object.entries(msg.lines)) {
+    const i = Number(k)
+    const line = next[i]
+    const words = a && a.words
+    if (!line || line.aligned || !line.words || !Array.isArray(words) || a.text !== line.text ||
+        words.length !== line.words.length || words.some((w, j) => !w || w.text !== line.words[j].text)) continue
+    const out = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), aligned: true })
+    delete out.estimated
+    next[i] = out
+    changed.push(i)
+  }
+  return changed.length ? { lines: next, changed } : null
+}
+
+/** The word timing note: aligned beats refined beats estimated; some lines left estimated says so. */
+function timingNote(lines, aligned, refined) {
+  if (aligned) return lines.some((l) => l.estimated) ? 'Word timing aligned on this PC (some lines estimated)' : 'Word timing aligned on this PC'
+  return refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated'
+}
+
+/**
  * Stage layout: the line shown under the current one (-1 for none). During an interlude it's the
  * line the countdown dots lead into; otherwise the line after the one that lit up last (the first
  * line before the song's singing starts).
@@ -44,7 +77,7 @@ function stageNext(lineCount, latest, interlude) {
 
 /**
  * createLyricsView({ container, layout: 'scroll' | 'stage', onSeek(t)?, onFrame(time)?,
- *   emptyText(data)? -> string|null, notes: bool }) -> { setData, setTime, refine, time, playing }
+ *   emptyText(data)? -> string|null, notes: bool }) -> { setData, setTime, refine, align, time, playing }
  */
 function createLyricsView(opts) {
   const container = opts.container
@@ -63,6 +96,7 @@ function createLyricsView(opts) {
   let wake = 0
   let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
   let refined = false       // learned or live-refined word timing in use
+  let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
   let notesEl = null
   let notes = []
 
@@ -87,6 +121,7 @@ function createLyricsView(opts) {
     lines = prep.lines
     songKey = (data.title || '') + '|' + (data.artist || '')
     refined = !!data.refined
+    aligned = !!data.aligned
     notesEl = null
     lineEls = []
     interludes = []
@@ -152,14 +187,14 @@ function createLyricsView(opts) {
     notes = []
     if (opts.notes) {
       if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : ''))
-      if (lines[0].estimated) notes.push(null)   // word timing note, see showNotes
+      if (lines.some((l) => l.estimated || l.aligned)) notes.push(null)   // word timing note, see showNotes
       showNotes()
     }
     if (clock) render(T.clockTime(clock, performance.now()))
   }
 
   function showNotes() {
-    const text = notes.map((n) => n === null ? (refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated') : n).join(' · ')
+    const text = notes.map((n) => n === null ? timingNote(lines, aligned, refined) : n).join(' · ')
     if (!text) return
     if (!notesEl) {
       notesEl = doc.createElement('div')
@@ -178,6 +213,18 @@ function createLyricsView(opts) {
     lines[msg.lineIndex] = line
     entry.pos = null
     if (!refined) { refined = true; if (opts.notes) showNotes() }
+    if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
+  }
+
+  // precise word timing (Settings, experimental): main sends the aligned words when the alignment of
+  // the song on screen finishes; only those lines' timing changes (same words, so the spans stay)
+  function align(msg) {
+    const got = alignedLines(lines, msg, songKey)
+    if (!got) return
+    lines = got.lines
+    for (const i of got.changed) if (lineEls[i]) lineEls[i].pos = null
+    aligned = true
+    if (opts.notes) showNotes()
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
   }
 
@@ -300,9 +347,10 @@ function createLyricsView(opts) {
     setData,
     setTime,
     refine,
+    align,
     time: () => T.clockTime(clock, performance.now()),
     get playing() { return !!clock && clock.playing }
   }
 }
 
-module.exports = { WORD_LEAD, prepare, refinedLine, stageNext, createLyricsView }
+module.exports = { WORD_LEAD, prepare, refinedLine, alignedLines, timingNote, stageNext, createLyricsView }

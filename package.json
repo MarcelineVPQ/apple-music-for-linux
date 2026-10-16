@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.23",
+  "version": "0.15.24",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -48,8 +48,18 @@
       "listen-session.js",
       "vocal-detect.js",
       "timing-refine.js",
+      "align-session.js",
+      "align-helper.js",
+      "align/server.py",
+      "align/sonata_align.py",
+      "align/sonata-align",
+      "align/install.sh",
+      "align/requirements.txt",
       "update-feed.js",
       "sonata.png"
+    ],
+    "asarUnpack": [
+      "align/**"
     ],
     "linux": {
       "target": ["AppImage"],

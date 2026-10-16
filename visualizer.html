@@ -143,6 +143,7 @@
   ipcRenderer.on('lyrics-data', (e, data) => lyricsView.setData(data))
   ipcRenderer.on('lyrics-time', (e, t, playing) => lyricsView.setTime(t, playing))
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
+  ipcRenderer.on('lyrics-aligned', (e, msg) => lyricsView.align(msg))
   // album accent for the sung word's glow (adaptive colour; null resets to white)
   ipcRenderer.on('palette', (e, p) => {
     if (p && p.accent) document.documentElement.style.setProperty('--active', p.accent)

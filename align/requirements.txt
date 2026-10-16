@@ -1,0 +1,10 @@
+# sonata-align runtime (installed into ~/.local/share/sonata-align/venv by install.sh)
+# torch + torchaudio come from the PyTorch CUDA 12.8 index (Blackwell sm_120 needs cu128+)
+torch==2.11.0
+torchaudio==2.11.0
+demucs==4.1.0
+soundfile==0.14.0
+transformers==5.20.0   # per-language XLSR aligners (Apache-2.0 models)
+numpy
+# transcription fallback only
+faster-whisper==1.2.1

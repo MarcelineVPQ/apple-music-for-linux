@@ -7,6 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.24] — Precise word timing meets the visualizer
+
+### Added
+
+- **Precise word timing (GPU, experimental, off by default)** from 0.15.21 and the **visualizer lyrics and flying toasters** from 0.15.22–0.15.23 now come in one build.
+- **Aligned words in the visualizer too.** When precise word timing lines a song's words up with the singing, the visualizer's lyrics use the aligned timing as well, not only the lyrics window. Recording for the alignment now also runs while only the visualizer is open, just like refine by listening.
+
+### Changed
+
+- **One audio capture for everything.** The visualizer's spectrum, refine by listening and precise word timing now share a single recording of Sonata's own stream instead of each starting its own.
+
 ## [0.15.23] — Flying toasters from a real 3D model
 
 ### Changed
@@ -20,6 +31,12 @@ See docs/RELEASING.md.
 - **The visualizer shows lyrics like the lyrics window does.** Its overlay now runs the same lyrics engine: words light up as they are sung, the smooth clock, estimated word timing (and refine by listening), interlude dots, duets and background vocals. The line being sung is big and centred with the next line under it, and the sung word glows in the album colour.
 - **The visualizer listens to Sonata only.** Its spectrum now comes from Sonata's own audio stream instead of everything your computer plays (other apps' sounds no longer move it). If Sonata's stream can't be found, it falls back to the whole system mix as before.
 - **Flying toasters, done properly.** The *toast* scene now fills the whole screen with a staggered formation of chrome 1950s toasters (and the odd slice of toast) flying from the top right to the bottom left and wrapping around, so the sky never empties. Their feathered wings flap to the music's tempo, each toaster in its own rhythm. All-new original pixel art, sized for the screen (4K included).
+
+## [0.15.21] — Precise word timing (experimental)
+
+### Added
+
+- **Precise word timing (GPU, experimental, off by default):** Settings → *Precise word timing*. For songs whose lyrics only have line timing, Sonata records its own playback in memory while the lyrics window is open and, once the song has been heard, hands it to the sonata-align helper on this computer, which separates the vocals and lines each word up with the singing (about 4 s per song on an NVIDIA GPU). The word times are saved per song, so from the next play the words light up when they're actually sung; the lyrics window says "Word timing aligned on this PC". The audio never touches the disk and is dropped right after the alignment; nothing is sent anywhere. Apple's own word timing is never changed. The setting appears once the helper is installed (`align/install.sh` from the source, about 10 GB); the helper starts only when needed and quits after two idle minutes.
 
 ## [0.15.20] — Refine timing by listening (experimental)
 

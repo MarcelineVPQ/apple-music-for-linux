@@ -7,9 +7,9 @@ const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer, RATE: VIZ_RATE } = require('./visualizer');
-const { createListener: createAudioListener } = require('./audio-listen')
-const lyricsTiming = require('./lyrics-timing')
 const { createListenSession } = require('./listen-session')
+const alignSessionLib = require('./align-session')
+const alignHelperLib = require('./align-helper')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 
@@ -44,7 +44,7 @@ let vizWindow = null
 let visualizer = null
 let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
 let vizArt = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, updateChannel: 'stable' }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, lyricsPreciseTiming: false, updateChannel: 'stable' }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -419,7 +419,7 @@ function getListenSession() {
     const { createVocalDetector } = require('./vocal-detect')
     const { refineWords, mergeLearned, noiseRate } = require('./timing-refine')
     listenSession = createListenSession({
-      createListener: createAudioListener, createVocalDetector, refineWords, mergeLearned, noiseRate,
+      createListener: getSharedListener(), createVocalDetector, refineWords, mergeLearned, noiseRate,
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
       send: sendLyrics,
       now: () => performance.now(),
@@ -430,6 +430,61 @@ function getListenSession() {
     console.error('listen: refine by listening unavailable:', e.message)
   }
   return listenSession
+}
+
+// One parec for every listener of Sonata's own stream (visualizer spectrum, Level 1 refine, Level 2
+// precise timing): audio-listen.js shareListener
+// lifetime: the shared parec runs while at least one of them listens (see audio-listen.js)
+let sharedListener = null
+function getSharedListener() {
+  if (!sharedListener) {
+    const { createListener, shareListener } = require('./audio-listen')
+    sharedListener = shareListener(createListener)
+  }
+  return sharedListener
+}
+
+// "Precise word timing (GPU, experimental)" (Settings, off by default; docs/LEVEL2-ALIGN.md): while
+// a lyric view (lyrics window or visualizer) is open, a line-only song's own audio is recorded in
+// memory and, once heard, handed to the user's sonata-align helper, which lines each word up with the
+// singing. Only the word times are cached (lyrics store, `aligned|title|artist`); the audio is dropped
+// after the hand-over.
+// lifetime: one session + one helper client for the app's life. The session records only while a
+// lyric view is open, the song plays and it isn't aligned yet; the helper process (one child) is
+// spawned for a job, quits after 2 min idle and is killed on setting off and quit (align-helper.js).
+// error: helper not installed, crashing or refusing -> one log line, the song keeps its current timing
+// The install is checked at start and whenever Settings asks (install.sh runs outside Sonata), not
+// per poll tick.
+let alignPaths = null
+let alignInstalledNow = false
+let alignHelper = null
+let alignSession = null
+function alignInstalled(recheck) {
+  if (recheck || !alignPaths) {
+    // one object, updated in place: the helper client reads it at its next spawn
+    alignPaths = Object.assign(alignPaths || {}, alignHelperLib.helperPaths(process.env, __dirname))
+    alignInstalledNow = alignHelperLib.isInstalled(alignPaths)
+  }
+  return alignInstalledNow
+}
+function getAlignHelper() {
+  alignInstalled()
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, log: (m) => console.log('align:', m) })
+  return alignHelper
+}
+function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
+function getAlignSession() {
+  if (!alignSession) {
+    alignSession = alignSessionLib.createAlignSession({
+      createListener: getSharedListener(),
+      helper: getAlignHelper(),
+      store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
+      send: sendLyrics,
+      now: () => performance.now(),
+      log: (m) => console.log('align:', m)
+    })
+  }
+  return alignSession
 }
 
 // --- lyrics feed: one now-playing poll for every lyric view (lyrics window, visualizer overlay) ---
@@ -456,6 +511,7 @@ function stopLyricsFeedIfIdle() {
   lyricsPoll = null
   lyricsRetry = null
   if (listenSession) listenSession.stop()
+  if (alignSession) alignSession.stop(true)   // a song heard to the end is still aligned
 }
 
 // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
@@ -483,16 +539,23 @@ async function lyricsTick() {
       lyricsRetry = null
       prefetchNextLyrics(key)
     }
-    // estimated word timing is computed here (same lyrics-timing call the views would make), so
-    // main knows the lines are estimated and can apply learned timing before they render
-    let lines = got.lines
+    // word timing is chosen here, by priority: Apple/LRC word timing (never touched) > aligned on
+    // this PC (Level 2) > refined by listening (Level 1) > estimated. Estimation is the same
+    // lyrics-timing call the views would make, so main knows which lines are estimated.
+    const precise = preciseTimingOn()
+    const aligner = precise ? getAlignSession() : alignSession
+    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise)
+    const prep = alignSessionLib.prepareLines(got.lines || [], {
+      estimate: !!settings.estimatedWordTiming,
+      entry: precise ? aligner.entryFor(state.title, state.artist, got.lines || []) : null
+    })
+    let lines = prep.lines
     let refined = false
     if (settings.estimatedWordTiming) {
-      lines = lyricsTiming.estimateWords(lines || [])
       const session = settings.lyricsListenRefine ? getListenSession() : listenSession
       if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
     } else if (listenSession) listenSession.stop()
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined })
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -509,6 +572,7 @@ async function lyricsTick() {
   // isPlaying lets the views stop their word-highlight clock right away on pause
   sendLyrics('lyrics-time', state.playbackTime, state.isPlaying)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
+  if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())
   vizAudioTick(state.isPlaying)
   refreshPalette(state)
 }
@@ -593,12 +657,12 @@ function createVizWindow() {
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
 
-  // lifetime: one Visualizer (FFT) and one own-stream listener (one parec while playing) per
-  // visualizer window; both stopped and dropped on 'closed'
+  // lifetime: one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
+  // see getSharedListener) per visualizer window; both stopped and dropped on 'closed'
   visualizer = new Visualizer((bands) => {
     if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
   })
-  vizListener = createAudioListener({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
+  vizListener = getSharedListener()({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
 
   // the lyrics feed drives the overlay's lyrics, its now-playing and its audio (vizAudioTick)
   vizWindow.webContents.once('did-finish-load', () => {
@@ -606,7 +670,8 @@ function createVizWindow() {
     if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
   })
 
-  // lifetime: 'closed' stops the listener and the Visualizer (kills parec) and nulls vizWindow; the
+  // lifetime: 'closed' stops the listener handle (the parec ends when no other user listens) and the
+  // Visualizer (kills its fallback parec, if any) and nulls vizWindow; the
   // lyrics feed stops when no lyric view is left
   vizWindow.on('closed', () => {
     if (vizListener) { vizListener.stop(); vizListener = null }
@@ -1164,8 +1229,22 @@ ipcMain.handle('settings:get', () => ({
   appImage: !!appImagePath,
   lastfmConnected: !!(lastfm && lastfm.connected),
   lastfmUser: lastfm ? lastfm.username : '',
-  discordEnabled: !!discordConfig.enabled
+  discordEnabled: !!discordConfig.enabled,
+  alignInstalled: alignInstalled(true)
 }))
+
+// Settings status line for precise word timing: spawns the helper (if needed) and pings it
+ipcMain.handle('align:status', async () => {
+  if (!alignInstalled()) return { ok: false, message: 'not installed' }
+  try {
+    const pong = await getAlignHelper().ping()
+    console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
+    return { ok: true, device: pong.device, gpu: pong.gpu || '', version: pong.version || '', models: pong.models || {} }
+  } catch (e) {
+    console.log('align: helper not answering: ' + e.message)
+    return { ok: false, message: e.message }
+  }
+})
 
 ipcMain.on('settings:set', (event, key, value) => {
   if (!(key in settings)) return
@@ -1188,6 +1267,13 @@ ipcMain.on('settings:set', (event, key, value) => {
   else if (key === 'estimatedWordTiming' || key === 'lyricsListenRefine') {
     lyricsKey = null  // re-send the current song's lyrics with the new setting
     if (!value && listenSession) listenSession.stop()
+  }
+  else if (key === 'lyricsPreciseTiming') {
+    lyricsKey = null
+    if (!value) {
+      if (alignSession) alignSession.stop(false)   // drop any recording
+      if (alignHelper) alignHelper.stop()           // and free the GPU now
+    }
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
@@ -1359,6 +1445,8 @@ function createWindow() {
     clearInterval(miniPoll)
     clearInterval(lyricsPoll)
     if (listenSession) listenSession.stop()
+    if (alignSession) alignSession.stop(false)
+    if (alignHelper) alignHelper.stop()
     app.exit(0);
  });
 }
@@ -1634,7 +1722,12 @@ app.whenReady().then(async () => {
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   lyricsStore = require('./lyrics-store').createLyricsStore({ file: path.join(app.getPath('userData'), 'lyrics-cache.json') })
-  app.on('before-quit', () => { if (listenSession) listenSession.stop(); if (lyricsStore) lyricsStore.flush() })
+  app.on('before-quit', () => {
+    if (listenSession) listenSession.stop()
+    if (alignSession) alignSession.stop(false)
+    if (alignHelper) alignHelper.stop()
+    if (lyricsStore) lyricsStore.flush()
+  })
   loadSettings()
   applyAutostart()
   cleanupWindowPositionMemory()

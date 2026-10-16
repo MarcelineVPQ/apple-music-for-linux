@@ -1,0 +1,11 @@
+#!/bin/sh
+# sonata-align helper launcher: runs server.py (JSON lines on stdio) in the private venv.
+# Install first with ./install.sh. SONATA_ALIGN_HOME overrides ~/.local/share/sonata-align.
+HOME_DIR="${SONATA_ALIGN_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/sonata-align}"
+export SONATA_ALIGN_HOME="$HOME_DIR"
+PY="$HOME_DIR/venv/bin/python"
+if [ ! -x "$PY" ]; then
+  echo '{"type":"error","message":"sonata-align is not installed (run align/install.sh)"}'
+  exit 1
+fi
+exec "$PY" -u "$(dirname "$(readlink -f "$0")")/server.py" "$@"
