@@ -7,6 +7,8 @@ const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
+const lyricsTiming = require('./lyrics-timing')
+const { createListenSession } = require('./listen-session')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 
@@ -41,7 +43,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, updateChannel: 'stable' }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, lyricsListenRefine: false, updateChannel: 'stable' }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -403,6 +405,33 @@ async function prefetchNextLyrics(currentKey) {
   } catch (e) { /* prefetch is best effort */ }
 }
 
+// "Refine timing by listening" (Settings, off by default): listens to Sonata's own stream while
+// the lyrics window is open, the song plays and its word timing is estimated (see listen-session.js).
+// lifetime: one session for the app's life; its listener (one parec) runs only in that state and
+// is stopped on pause, track change, setting off, lyrics close and quit.
+// error: vocal-detect.js / timing-refine.js missing or failing to load -> listening stays off, logged once
+let listenSession = null
+let listenLoadFailed = false
+function getListenSession() {
+  if (listenSession || listenLoadFailed) return listenSession
+  try {
+    const { createVocalDetector } = require('./vocal-detect')
+    const { refineWords, mergeLearned } = require('./timing-refine')
+    const { createListener } = require('./audio-listen')
+    listenSession = createListenSession({
+      createListener, createVocalDetector, refineWords, mergeLearned,
+      store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
+      send: (channel, payload) => { if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send(channel, payload) },
+      now: () => performance.now(),
+      log: (m) => console.log('listen:', m)
+    })
+  } catch (e) {
+    listenLoadFailed = true
+    console.error('listen: refine by listening unavailable:', e.message)
+  }
+  return listenSession
+}
+
 function createLyricsWindow() {
   lyricsWindow = new BrowserWindow(applySavedBounds({
     width: 380,
@@ -453,8 +482,17 @@ function createLyricsWindow() {
           lyricsRetry = null
           prefetchNextLyrics(key)
         }
+        // estimated word timing is computed here (same lyrics-timing call the window would make), so
+        // main knows the lines are estimated and can apply learned timing before they render
+        let lines = got.lines
+        let refined = false
+        if (settings.estimatedWordTiming) {
+          lines = lyricsTiming.estimateWords(lines || [])
+          const session = settings.lyricsListenRefine ? getListenSession() : listenSession
+          if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
+        } else if (listenSession) listenSession.stop()
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines: got.lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, status: got.error || '', estimate: !!settings.estimatedWordTiming, refined })
         }
       }
       // album art for the header thumbnail: the mini player's URL (same Chromium cache), sent on change only
@@ -465,6 +503,7 @@ function createLyricsWindow() {
       }
       // isPlaying lets the window stop its word-highlight clock right away on pause
       if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime, state.isPlaying)
+      if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
       refreshPalette(state)
     }, 500)
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
@@ -476,6 +515,7 @@ function createLyricsWindow() {
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
     lyricsRetry = null
+    if (listenSession) listenSession.stop()
     clearInterval(lyricsPoll)
     lyricsPoll = null
   })
@@ -1123,8 +1163,9 @@ ipcMain.on('settings:set', (event, key, value) => {
   else if (key === 'lyricsArtSpin' || key === 'lyricsArtSpinSpeed') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
   }
-  else if (key === 'estimatedWordTiming') {
+  else if (key === 'estimatedWordTiming' || key === 'lyricsListenRefine') {
     lyricsKey = null  // re-send the current song's lyrics with the new setting
+    if (!value && listenSession) listenSession.stop()
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
@@ -1295,6 +1336,7 @@ function createWindow() {
     shuttingDown = true
     clearInterval(miniPoll)
     clearInterval(lyricsPoll)
+    if (listenSession) listenSession.stop()
     app.exit(0);
  });
 }
@@ -1570,7 +1612,7 @@ app.whenReady().then(async () => {
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   lyricsStore = require('./lyrics-store').createLyricsStore({ file: path.join(app.getPath('userData'), 'lyrics-cache.json') })
-  app.on('before-quit', () => { if (lyricsStore) lyricsStore.flush() })
+  app.on('before-quit', () => { if (listenSession) listenSession.stop(); if (lyricsStore) lyricsStore.flush() })
   loadSettings()
   applyAutostart()
   cleanupWindowPositionMemory()
