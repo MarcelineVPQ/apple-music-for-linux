@@ -3,12 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { exec, spawn, execFileSync } = require('child_process');
-const crypto = require('crypto');
 const { extractPalette } = require('./palette');
 const { LastFm } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer } = require('./visualizer');
 const { createCssReplacer } = require('./css-replacer');
+const updateFeed = require('./update-feed');
 
 const appName = 'Sonata'
 
@@ -40,7 +40,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, estimatedWordTiming: true }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, estimatedWordTiming: true, updateChannel: 'stable' }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -1062,6 +1062,12 @@ ipcMain.on('settings:set', (event, key, value) => {
     if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette) }  // re-extract next poll
     else { lastPalette = null; lastPaletteKey = null; broadcastPalette(null) }
   }
+  else if (key === 'updateChannel') {
+    // a switch re-checks at once on the new channel (AppImage builds only)
+    if (value !== 'stable' && value !== 'dev') { settings.updateChannel = 'stable'; saveSettings() }
+    pendingUpdateVersion = null
+    checkForUpdates(false)
+  }
   else if (key === 'lyricsArtSpin') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!value })
   }
@@ -1251,7 +1257,6 @@ if (appImagePath) {
   stablePath = path.join(path.dirname(installedPath), 'Sonata.AppImage')
 }
 const appId = 'io.github.MarcelineVPQ.Sonata'
-const updateFeedUrl = 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases/latest/download/latest-linux.yml'
 let pendingUpdateVersion = null
 let updateCheckBusy = false
 
@@ -1329,24 +1334,7 @@ function downloadFile(url, dest) {
   })
 }
 
-// electron-builder publishes latest-linux.yml alongside each release's
-// AppImage; top-level keys only (the indented per-file block is skipped)
-function parseUpdateFeed(text) {
-  const grab = (key) => {
-    const m = text.match(new RegExp('^' + key + ':\\s*(.+)$', 'm'))
-    return m ? m[1].trim() : ''
-  }
-  return { version: grab('version'), file: grab('path'), sha512: grab('sha512') }
-}
-
-function isNewerVersion(a, b) {
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d) return d > 0
-  }
-  return false
-}
+const isNewerVersion = updateFeed.isNewerVersion  // handles X.Y.Z-dev.N
 
 // Download the new AppImage next to the current one, verify, and swap it in
 // place. The running instance keeps its mount of the old file; the new
@@ -1363,22 +1351,28 @@ async function checkForUpdates(interactive) {
   }
   updateCheckBusy = true
   try {
-    const feed = parseUpdateFeed(await fetchText(updateFeedUrl))
-    if (!feed.version || !feed.file || !isNewerVersion(feed.version, app.getVersion())) {
+    // Signed latest.json / latest-dev.json; while update-feed.js still holds the
+    // PLACEHOLDER key this falls back to the old unsigned latest-linux.yml path.
+    const feed = await updateFeed.fetchUpdate({
+      channel: settings.updateChannel, fetchText, log: (m) => console.log(m)
+    })
+    if (!isNewerVersion(feed.version, app.getVersion())) {
       if (interactive) dialog.showMessageBox({
-        type: 'info', title: 'Updates', message: `You're up to date (v${app.getVersion()}).`
+        type: 'info', title: 'Updates',
+        message: `You're up to date (v${app.getVersion()}, ${settings.updateChannel === 'dev' ? 'Development' : 'Stable'} channel).`
       })
       return
     }
     if (pendingUpdateVersion !== feed.version) {
-      const url = `https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v${feed.version}/${feed.file}`
       const newPath = path.join(path.dirname(installedPath), feed.file)
       const tmp = newPath + '.part'
-      await downloadFile(url, tmp)
-      const digest = crypto.createHash('sha512').update(fs.readFileSync(tmp)).digest('base64')
-      if (feed.sha512 && digest !== feed.sha512) {
-        fs.unlinkSync(tmp)
-        throw new Error('update checksum mismatch')
+      await downloadFile(feed.url, tmp)
+      try {
+        await updateFeed.verifyDownload(tmp, feed)  // size + SHA-512 from the (signed) feed
+      } catch (e) {
+        // error: PASSES-ON — the unverified file is deleted, the message goes to the log and the interactive dialog below
+        fs.rmSync(tmp, { force: true })
+        throw e
       }
       fs.chmodSync(tmp, 0o755)
       fs.renameSync(tmp, newPath)
@@ -1459,7 +1453,7 @@ function pruneOldAppImages() {
     const dir = path.dirname(appImagePath)
     const self = path.basename(appImagePath)
     for (const f of fs.readdirSync(dir)) {
-      const m = f.match(/^sonata-(\d+\.\d+\.\d+)-.*\.AppImage$/i)
+      const m = f.match(/^sonata-(\d+\.\d+\.\d+(?:-dev\.\d+)?)-.*\.AppImage$/i)
       if (m && f !== self && isNewerVersion(app.getVersion(), m[1])) {
         try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
       }
@@ -1471,8 +1465,9 @@ function startUpdateChecks() {
   if (!appImagePath) return
   pruneOldAppImages()
   // loop: update check · 20 s one-shot, then every 2 h · AppImage builds only · stops on app exit ·
-  // cost one small HTTPS GET per 2 h (download only when a new version exists); updateCheckBusy stops overlaps
-  // error: a failed check logs and waits the full 2 h, so it can't hammer
+  // cost two small HTTPS GETs per 2 h (feed + .sig; one GET on the placeholder-key yml path), download only
+  // when a new version exists; a channel switch adds one check; updateCheckBusy stops overlaps
+  // error: a failed check (offline, bad signature, hash mismatch) logs and waits the full 2 h, so it can't hammer
   setTimeout(() => checkForUpdates(false), 20 * 1000)
   setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
 }
