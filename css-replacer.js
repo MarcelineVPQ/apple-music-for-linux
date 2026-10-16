@@ -4,10 +4,13 @@
 // page collected one extra stylesheet per title change for as long as the app ran.
 // Each insert removes the previous one once the new one is in (no unstyled flash).
 // A key from a previous document is stale; removing it just fails quietly.
+// `css` is a string, or a function returning the current CSS (read at every apply: the
+// navigation rail's room changes with its pin and the window width).
 function createCssReplacer(webContents, css) {
   let key = null
   return function apply() {
-    return webContents.insertCSS(css).then((next) => {
+    const text = typeof css === 'function' ? css() : css
+    return webContents.insertCSS(text).then((next) => {
       const old = key
       key = next
       if (old) return webContents.removeInsertedCSS(old).catch(() => {})

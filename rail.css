@@ -1,0 +1,180 @@
+/* Sonata's navigation rail (rail-ui.js), inside its closed shadow root: Apple's CSS can't reach
+   in and nothing here reaches out. Colours come from rail-model.js glassTheme (one system: the
+   album accent over a light or dark glass, contrast checked) as --rail-* custom properties.
+   The panel is always its open width; closed, it is slid right so only the icon column shows.
+   Opening and closing only change transform and opacity (compositor-only, no layout). */
+:host { all: initial; }
+
+.panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 196px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  color: var(--rail-text);
+  font: 13px/1.25 "SF Pro Text", "SF Pro", -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--rail-glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: blur(18px) saturate(1.5);
+  transform: translateX(144px);
+  transition: transform 0.18s ease;
+  will-change: transform;
+  user-select: none;
+}
+.panel.open { transform: none; }
+/* the inner edge catches the light (DS5's specular rim, without pointer tracking: no idle work) */
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1px;
+  background: linear-gradient(180deg, var(--rail-edge), transparent 40%, transparent 60%, var(--rail-edge));
+  pointer-events: none;
+}
+/* the shadow over the page while open (unpinned): its own layer, faded with opacity */
+.panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-shadow: -8px 0 24px var(--rail-shadow);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+.panel.open:not(.pinned)::after { opacity: 1; }
+
+.nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow: hidden;
+}
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-top: 1px solid var(--rail-edge);
+}
+
+.link,
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+.link { cursor: pointer; }
+.link:hover { background: var(--rail-hover); }
+.link:focus { outline: none; }
+.link:focus-visible {
+  outline: 2px solid var(--rail-ring);
+  outline-offset: -2px;
+}
+/* active (its window is open): tinted, bold, with the bar on the inner edge (a shape, not only a colour) */
+.link.active {
+  background: var(--rail-active);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--rail-ring);
+}
+.link:active { transform: scale(0.96); transition: transform 90ms; }
+
+.ic {
+  position: relative;
+  display: grid;
+  flex: 0 0 20px;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.ic svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.panel.open .label { opacity: 1; }
+
+/* status lines: not buttons, so a little denser; the words say the state */
+.status { min-height: 32px; cursor: default; }
+.status .label { display: flex; flex-direction: column; line-height: 1.2; }
+.status .label > span { overflow: hidden; text-overflow: ellipsis; }
+.status .sub { color: var(--rail-soft); font-size: 11.5px; }
+.dot {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+/* fixed status colours; the symbol inside carries the meaning too */
+.status.ok .dot { background: #1f8f4e; color: #fff; }
+.status.wait .dot,
+.status.warn .dot { background: #f2b33d; color: #1d1d1f; }
+.status.off .dot { background: transparent; color: var(--rail-text); border: 1.5px solid var(--rail-soft); }
+
+/* "DEVELOPMENT · 0.15.26-dev.1" read bottom to top in the free space (dev channel only) */
+.dev {
+  align-self: flex-start;
+  margin: auto 0 4px 17px;
+  max-height: 60%;
+  overflow: hidden;
+  color: var(--rail-text);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+.dev b { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
+.dev[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .panel::after,
+  .label,
+  .link:active { transition: none; }
+  .link:active { transform: none; }
+}
+/* reduce transparency: a solid surface */
+@media (prefers-reduced-transparency: reduce) {
+  .panel { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--rail-solid); }
+}
+@media (prefers-contrast: more) {
+  .panel { outline: 1px solid var(--rail-text); }
+}
