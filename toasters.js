@@ -31,55 +31,173 @@ const PALETTE = [
   '#e9eef5',  // 18 wing mid
   '#ffffff'   // 19 wing white
 ]
-const CHROME = [2, 3, 4, 5, 6, 7]
-
-// sprite canvas (source pixels)
-const TW = 80
-const TH = 52
-const BODY = { x0: 23, x1: 56, y0: 19, y1: 40 }    // inclusive bounds of the loaf body
-// wing angles (degrees above horizontal) for the 5 drawn poses: up, high, mid, low, down
-const WING_POSES = [56, 32, 8, -16, -38]
-
-function grid(w, h) { return { w, h, px: new Uint8Array(w * h) } }
-function put(g, x, y, c) { if (x >= 0 && y >= 0 && x < g.w && y < g.h) g.px[y * g.w + x] = c }
-function get(g, x, y) { return x >= 0 && y >= 0 && x < g.w && y < g.h ? g.px[y * g.w + x] : 0 }
 
 // distance from p to segment ab
+function segT(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay
+  return Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)))
+}
 function segDist(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)))
   return Math.hypot(px - ax - t * dx, py - ay - t * dy)
 }
 
-// inside the loaf body: a superellipse, round on top (streamline shoulders and ends) and flatter
-// toward the base; the widest point sits a little below the middle
-function inLoaf(x, y, b) {
-  const cx = (b.x0 + b.x1) / 2
-  const cy = b.y0 + (b.y1 - b.y0) * 0.56
-  const a = (b.x1 - b.x0) / 2 + 0.5
-  const top = y < cy
-  const h = top ? cy - b.y0 + 0.5 : b.y1 - cy + 0.5
-  const p = top ? 2.4 : 5
-  return Math.abs((x - cx) / a) ** p + Math.abs((y - cy) / h) ** p <= 1
+// --- the sprites: a tiny 3D model, ray-marched once into palette pixels ---
+// Seen three-quarter from above (orthographic): the top with its two bread slots, the front end
+// (lever, dial) pointing to the lower left, where the formation flies, and the right-hand long side.
+// Chrome is shaded by what it reflects (sky, horizon, the mint floor), so the reflection bands curve
+// with the rounded body; the enamel band and the bread are shaded by a light. The wings are 2D
+// feathered pixel art on top, hinged at the body's two top edges and sweeping up and back.
+
+// sprite canvas (source pixels)
+const TW = 96
+const TH = 76
+const PX = 26                 // source pixels per model unit
+// wing angles (degrees above the screen horizontal, pointing right/back) for the 5 poses: up … down
+const WING_POSES = [78, 56, 34, 12, -10]
+
+const V = {
+  norm: (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] },
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+// camera: looking down onto the toaster's top, its front end (+z) toward the lower left
+const VIEW = V.norm([-0.52, -0.78, -0.42])
+const RIGHT = V.norm(V.cross(VIEW, [0, 1, 0]))
+const UP = V.cross(RIGHT, VIEW)
+const SUN = V.norm([-0.35, 0.85, 0.4])            // reflected sky hot spot / light
+// sprite pixel of a model point (centre of the canvas = model origin, shifted to leave wing room)
+const ORIGIN = { x: 40, y: 44 }
+function project(p) {
+  return { x: ORIGIN.x + V.dot(RIGHT, p) * PX, y: ORIGIN.y - V.dot(UP, p) * PX }
 }
 
-// one feathered wing, behind the body: primaries fanned out from the shoulder, longest at the leading
-// edge, their rounded tips overlapping. Pixels are owned by the frontmost feather covering them; the
-// wing's outer edge gets the outline, and the borders between feathers (outer half only) a soft shade
-// line, so the tips read as separate feathers without speckle.
-function paintWing(g, rootX, rootY, dir, angleDeg) {
-  // [angle offset (deg), length, radius], back to front: primaries, then the shoulder coverts
-  const feathers = [[18, 17, 2.4], [10, 21, 2.5], [2, 23, 2.6], [-7, 22, 2.6], [-16, 19, 2.5], [-25, 15, 2.4], [-4, 12, 4.2], [6, 10, 3.8]]
-  const shapes = feathers.map(([off, len, r]) => {
-    const a = (angleDeg + off) * Math.PI / 180
-    return { len, r, tx: rootX + dir * Math.cos(a) * len, ty: rootY - Math.sin(a) * len, nx: -Math.sin(a) * dir, ny: -Math.cos(a), covert: len < 13 }
-  })
+function grid(w, h) { return { w, h, px: new Uint8Array(w * h) } }
+function put(g, x, y, c) { if (x >= 0 && y >= 0 && x < g.w && y < g.h) g.px[y * g.w + x] = c }
+function get(g, x, y) { return x >= 0 && y >= 0 && x < g.w && y < g.h ? g.px[y * g.w + x] : 0 }
+
+function sdRoundBox(p, c, b, r) {
+  const qx = Math.abs(p[0] - c[0]) - b[0] + r, qy = Math.abs(p[1] - c[1]) - b[1] + r, qz = Math.abs(p[2] - c[2]) - b[2] + r
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r
+}
+function sdSphere(p, c, r) { return Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) - r }
+// cylinder along z
+function sdCylZ(p, c, r, h) {
+  const dx = Math.hypot(p[0] - c[0], p[1] - c[1]) - r, dz = Math.abs(p[2] - c[2]) - h
+  return Math.min(Math.max(dx, dz), 0) + Math.hypot(Math.max(dx, 0), Math.max(dz, 0))
+}
+
+// the toaster: [distance, material]
+const SLOTS = [-0.17, 0.17]
+function toasterSdf(p) {
+  let d = sdRoundBox(p, [0, 0, 0], [0.5, 0.52, 0.92], 0.3)            // the streamline loaf
+  for (const sx of SLOTS) d = Math.max(d, -sdRoundBox(p, [sx, 0.62, 0], [0.065, 0.3, 0.6], 0.03))
+  let best = [d, 'chrome']
+  const add = (dist, m) => { if (dist < best[0]) best = [dist, m] }
+  for (const sx of SLOTS) add(sdRoundBox(p, [sx, 0.47, 0], [0.045, 0.2, 0.5], 0.06), 'bread')
+  add(sdRoundBox(p, [0, -0.55, 0], [0.44, 0.04, 0.84], 0.04), 'base')
+  for (const fx of [-0.36, 0.36]) for (const fz of [-0.66, 0.66]) add(sdSphere(p, [fx, -0.64, fz], 0.08), 'foot')
+  add(sdCylZ(p, [0.22, -0.12, 0.92], 0.13, 0.04), 'dial')
+  add(sdRoundBox(p, [-0.2, 0.16, 0.98], [0.035, 0.035, 0.1], 0.02), 'lever')
+  add(sdSphere(p, [-0.2, 0.16, 1.1], 0.075), 'knob')
+  return best
+}
+
+function sdfNormal(f, p) {
+  const e = 0.004
+  return V.norm([
+    f([p[0] + e, p[1], p[2]])[0] - f([p[0] - e, p[1], p[2]])[0],
+    f([p[0], p[1] + e, p[2]])[0] - f([p[0], p[1] - e, p[2]])[0],
+    f([p[0], p[1], p[2] + e])[0] - f([p[0], p[1], p[2] - e])[0]
+  ])
+}
+
+// chrome: the colour of what the surface reflects
+function chromeColour(n, p) {
+  const dn = V.dot(VIEW, n)
+  const r = [VIEW[0] - 2 * dn * n[0], VIEW[1] - 2 * dn * n[1], VIEW[2] - 2 * dn * n[2]]
+  if (V.dot(r, SUN) > 0.93) return 7                       // the sun's hot spot
+  // the enamel band round the body's waist
+  if (p[1] > -0.3 && p[1] < -0.12) return V.dot(n, SUN) > 0.1 ? 10 : V.dot(n, SUN) > -0.3 ? 9 : 8
+  const y = r[1]
+  if (y > 0.62) return 6
+  if (y > 0.3) return 5
+  if (y > 0.08) return 4
+  if (y > -0.06) return 2                                   // horizon
+  if (y > -0.25) return 9                                   // the mint floor, reflected
+  if (y > -0.6) return 3                                    // the dark ground near by
+  return n[0] > 0.9 && Math.abs(p[2]) < 0.5 && p[1] > 0 ? 6 : 5  // the far floor, lit: the flat sides
+}
+
+function lit(n, ramp) {
+  const l = V.dot(n, SUN)
+  return l > 0.55 ? ramp[0] : l > 0.1 ? ramp[1] : ramp[2]
+}
+
+/** Ray-march a model into a grid; materials map to palette colours via colourOf(material, n, p). */
+function renderModel(g, sdf, colourOf) {
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      const sx = (x + 0.5 - ORIGIN.x) / PX, sy = -(y + 0.5 - ORIGIN.y) / PX
+      let p = [RIGHT[0] * sx + UP[0] * sy - VIEW[0] * 4, RIGHT[1] * sx + UP[1] * sy - VIEW[1] * 4, RIGHT[2] * sx + UP[2] * sy - VIEW[2] * 4]
+      // loop: sphere tracing, at most 80 steps per pixel · once per sprite build
+      for (let i = 0, t = 0; i < 80 && t < 8; i++) {
+        const [d, m] = sdf(p)
+        if (d < 0.002) { put(g, x, y, colourOf(m, sdfNormal(sdf, p), p)); break }
+        p = [p[0] + VIEW[0] * d, p[1] + VIEW[1] * d, p[2] + VIEW[2] * d]
+        t += d
+      }
+    }
+  }
+}
+
+// the outline: every empty pixel next to a filled one
+function outline(g, colour) {
+  const src = g.px.slice()
+  const at = (x, y) => x >= 0 && y >= 0 && x < g.w && y < g.h && src[y * g.w + x]
+  for (let y = 0; y < g.h; y++) {
+    for (let x = 0; x < g.w; x++) {
+      if (!src[y * g.w + x] && (at(x + 1, y) || at(x - 1, y) || at(x, y + 1) || at(x, y - 1))) put(g, x, y, colour)
+    }
+  }
+}
+
+// one feathered wing (2D), a bird's spread wing: a covert arm from the shoulder along the leading edge,
+// and a row of long pointed flight feathers hanging back from it, longest at the tip, overlapping so
+// the trailing edge is scalloped. Pixels are owned by the frontmost shape covering them; the outer
+// edge gets the outline, and the borders between feathers (outer half) a soft shade line.
+// angleDeg: the arm's direction on screen (degrees counter-clockwise from pointing right).
+function paintWing(g, rootX, rootY, angleDeg, scale = 1) {
+  const rad = (d) => d * Math.PI / 180
+  const a = rad(angleDeg)
+  const L = 21 * scale
+  const tipX = rootX + Math.cos(a) * L, tipY = rootY - Math.sin(a) * L
+  const shapes = []
+  const N = 7
+  // flight feathers, tip first so the inner ones overlap them
+  for (let i = N - 1; i >= 0; i--) {
+    const k = i / (N - 1)
+    const bx = rootX + Math.cos(a) * L * (0.3 + 0.7 * k), by = rootY - Math.sin(a) * L * (0.3 + 0.7 * k)
+    const fa = a - rad(62 + 30 * (1 - k))                     // hang back; the tip feathers fan outward
+    const len = (9 + 10 * k) * scale
+    shapes.push({ ax: bx, ay: by, bx: bx + Math.cos(fa) * len, by: by - Math.sin(fa) * len, r: 2.7 * scale, taper: 0.8, covert: false })
+  }
+  // the covert arm along the leading edge, on top
+  shapes.push({ ax: rootX, ay: rootY, bx: tipX, by: tipY, r: 3.4 * scale, taper: 0.55, covert: true })
+  for (const f of shapes) {
+    f.len = Math.hypot(f.bx - f.ax, f.by - f.ay)
+    const ux = (f.bx - f.ax) / f.len, uy = (f.by - f.ay) / f.len
+    f.nx = -uy; f.ny = ux
+  }
   const owner = new Int8Array(g.w * g.h).fill(-1)
+  const tOf = new Float32Array(g.w * g.h)
   for (let y = 0; y < g.h; y++) {
     for (let x = 0; x < g.w; x++) {
       for (let i = shapes.length - 1; i >= 0; i--) {
         const f = shapes[i]
-        if (segDist(x, y, rootX, rootY, f.tx, f.ty) <= f.r) { owner[y * g.w + x] = i; break }
+        const t = segT(x, y, f.ax, f.ay, f.bx, f.by)
+        if (segDist(x, y, f.ax, f.ay, f.bx, f.by) <= f.r * (1 - f.taper * t * t)) { owner[y * g.w + x] = i; tOf[y * g.w + x] = t; break }
       }
     }
   }
@@ -92,166 +210,83 @@ function paintWing(g, rootX, rootY, dir, angleDeg) {
         continue
       }
       const f = shapes[i]
-      const along = Math.hypot(x - rootX, y - rootY) / f.len
-      // border with the feather behind (drawn earlier): a shade line on the outer half
+      const t = tOf[y * g.w + x]
       const back = [own(x + 1, y), own(x - 1, y), own(x, y + 1), own(x, y - 1)].some((j) => j >= 0 && j < i)
-      if (back && along > 0.45 && !f.covert) { put(g, x, y, 17); continue }
-      const side = (x - rootX) * f.nx + (y - rootY) * f.ny
-      put(g, x, y, f.covert ? (side > f.r * 0.5 ? 18 : 19) : side > f.r * 0.45 ? 17 : along > 0.7 ? 19 : 18)
+      if (back && !f.covert && t > 0.35) { put(g, x, y, 17); continue }
+      if (f.covert && back) { put(g, x, y, 18); continue }
+      const side = (x - f.ax) * f.nx + (y - f.ay) * f.ny
+      put(g, x, y, f.covert ? (side < -f.r * 0.3 ? 18 : 19) : side > f.r * 0.3 ? 17 : t > 0.6 ? 19 : 18)
     }
   }
 }
 
-// bread top poking out of a slot: rounded loaf top, crust rim, toasted face
-function paintBread(g, x0, x1, yTop, yBottom) {
-  const cx = (x0 + x1) / 2
-  for (let y = yTop; y <= yBottom; y++) {
-    for (let x = x0; x <= x1; x++) {
-      // the slice's rounded shoulders
-      const top = yTop + Math.max(0, Math.abs(x - cx) - (x1 - x0) / 2 + 3) ** 2 / 3
-      if (y < top) continue
-      const edge = x === x0 || x === x1 || y < top + 1
-      put(g, x, y, edge ? 11 : (y < top + 2 ? 12 : (x - x0 < 2 ? 15 : 14)))
-    }
-  }
+function toasterColour(m, n, p) {
+  if (m === 'chrome') return chromeColour(n, p)
+  if (m === 'bread') return n[1] > 0.6 ? (p[2] > 0.15 ? 15 : 14) : lit(n, [14, 13, 12])
+  if (m === 'base') return lit(n, [3, 2, 2])
+  if (m === 'foot') return 2
+  if (m === 'dial') return n[2] > 0.8 ? (Math.hypot(p[0] - 0.22, p[1] + 0.12) < 0.06 ? 7 : 10) : 8
+  if (m === 'lever') return lit(n, [6, 4, 2])
+  if (m === 'knob') return lit(n, [10, 9, 8])
+  return 1
 }
+
+// the body is the same in every pose: rendered once
+let bodyCache = null
+function toasterBody() {
+  if (!bodyCache) {
+    const g = grid(TW, TH)
+    renderModel(g, toasterSdf, toasterColour)
+    outline(g, 1)
+    bodyCache = g
+  }
+  return bodyCache
+}
+
+// wing hinges: the body's two top long edges, toward the back (screen up-right)
+const NEAR_HINGE = project([0.46, 0.4, -0.25])
+const FAR_HINGE = project([-0.46, 0.45, -0.35])
 
 /** Toaster pose (0 up … 4 down) -> { w, h, px } palette indices. */
 function buildToaster(pose) {
   const g = grid(TW, TH)
   const ang = WING_POSES[pose]
-  // wings behind the body
-  paintWing(g, BODY.x0 + 4, BODY.y0 + 7, -1, ang)
-  paintWing(g, BODY.x1 - 4, BODY.y0 + 7, 1, ang)
-  // two slices in the two slots
-  paintBread(g, BODY.x0 + 7, BODY.x0 + 15, BODY.y0 - 7, BODY.y0 + 6)
-  paintBread(g, BODY.x1 - 15, BODY.x1 - 7, BODY.y0 - 7, BODY.y0 + 6)
-  // the loaf body: chrome, shaded as a rounded solid. Its reflection bands curve with the surface
-  // (they bend upward toward the ends): a bright sky band, a curved specular streak, a dark horizon
-  // and the reflected mint floor, then the lit lower edge.
-  const b = BODY
-  const hgt = b.y1 - b.y0
-  const midX = (b.x0 + b.x1) / 2
-  const halfW = (b.x1 - b.x0) / 2
-  for (let y = b.y0 - 1; y <= b.y1 + 1; y++) {
-    for (let x = b.x0 - 1; x <= b.x1 + 1; x++) {
-      if (!inLoaf(x, y, b)) {
-        // outline: transparent-or-wing pixel next to the body
-        if (inLoaf(x + 1, y, b) || inLoaf(x - 1, y, b) || inLoaf(x, y + 1, b) || inLoaf(x, y - 1, b)) {
-          if (get(g, x, y) < 11 || get(g, x, y) > 15) put(g, x, y, 1)
-        }
-        continue
-      }
-      const dx = Math.abs(x - midX) / halfW
-      const v = (y - b.y0) / hgt + 0.16 * dx * dx      // curved bands
-      let c
-      if (v < 0.12) c = 4
-      else if (v < 0.2) c = dx < 0.62 ? 5 : 4          // the specular streak
-      else if (v < 0.3) c = 4
-      else if (v < 0.46) c = 3
-      else if (v < 0.54) c = 2
-      else if (v < 0.62) c = 0                          // horizon
-      else if (v < 0.76) c = -1                         // reflected colour
-      else if (v < 0.9) c = 3
-      else c = 2
-      if (c === -1) { put(g, x, y, dx > 0.8 ? 8 : v < 0.69 ? 9 : 10); continue }
-      if (dx > 0.88) c = Math.max(0, c - 2)
-      else if (dx > 0.72) c = Math.max(0, c - 1)
-      put(g, x, y, CHROME[c])
-    }
-  }
-  // slot openings, following the rounded top
-  for (const [s0, s1] of [[b.x0 + 7, b.x0 + 15], [b.x1 - 15, b.x1 - 7]]) {
-    for (let x = s0 - 1; x <= s1 + 1; x++) {
-      let ty = b.y0
-      while (!inLoaf(x, ty, b) && ty < b.y1) ty++
-      put(g, x, ty, 1)
-      put(g, x, ty + 1, 3)
-      if (x >= s0 && x <= s1) put(g, x, ty - 1, x === s0 || x === s1 ? 11 : 12)
-    }
-  }
-  // the hot specular: a long white streak along the shoulder and a star glint on it
-  for (let x = b.x0 + 6; x <= b.x1 - 9; x++) {
-    const dx = Math.abs(x - midX) / halfW
-    const y = Math.round(b.y0 + 0.16 * hgt - 0.16 * dx * dx * hgt)
-    if (inLoaf(x, y, b) && get(g, x, y) !== 1) put(g, x, y, 7)
-  }
-  const gx = b.x0 + 9, gy = Math.round(b.y0 + 0.16 * hgt - 0.16 * (Math.abs(gx - midX) / halfW) ** 2 * hgt)
-  for (const [ddx, ddy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]]) put(g, gx + ddx, gy + ddy, 7)
-  // a soft rim light down the right end
-  for (let y = b.y0 + 6; y <= b.y1 - 6; y++) {
-    let x = b.x1
-    while (!inLoaf(x, y, b) && x > midX) x--
-    put(g, x - 1, y, 5)
-  }
-  // streamline speed ribs on the lower front (left), tapering
-  const ribs = [[b.y1 - 5, 13], [b.y1 - 3, 9]]
-  for (const [y, len] of ribs) {
-    for (let x = b.x0 + 3; x < b.x0 + 3 + len; x++) { put(g, x, y, 7); put(g, x, y + 1, 2) }
-    put(g, b.x0 + 3 + len, y, 10)
-  }
-  // the dial: dark ring, mint knob, white pointer
-  const dcx = b.x1 - 7, dcy = b.y1 - 5
-  for (let y = dcy - 3; y <= dcy + 3; y++) {
-    for (let x = dcx - 3; x <= dcx + 3; x++) {
-      const d = Math.hypot(x - dcx, y - dcy)
-      if (d <= 1.6) put(g, x, y, 10)
-      else if (d <= 2.6) put(g, x, y, 8)
-      else if (d <= 3.2) put(g, x, y, 1)
-    }
-  }
-  put(g, dcx, dcy - 1, 7)
-  // the side lever: a dark slot in the body's right side and a stem out to a round mint knob
-  const ly = b.y1 - 9
-  for (let y = ly - 2; y <= ly + 2; y++) put(g, b.x1, y, 1)
-  for (let x = b.x1 + 1; x <= b.x1 + 3; x++) { put(g, x, ly - 1, 1); put(g, x, ly, 5); put(g, x, ly + 1, 1) }
-  for (let y = ly - 3; y <= ly + 3; y++) {
-    for (let x = b.x1 + 3; x <= b.x1 + 9; x++) {
-      const d = Math.hypot(x - (b.x1 + 6), y - ly)
-      if (d <= 2.1) put(g, x, y, x + y < b.x1 + 6 + ly ? 10 : 9)
-      else if (d <= 3.1) put(g, x, y, 1)
-    }
-  }
-  // chrome base band, a touch wider than the body, and stubby feet
-  for (let x = b.x0 - 1; x <= b.x1 + 1; x++) {
-    put(g, x, b.y1 + 1, 1)
-    put(g, x, b.y1 + 2, x < b.x0 + 3 || x > b.x1 - 3 ? 4 : 6)
-    put(g, x, b.y1 + 3, 3)
-    put(g, x, b.y1 + 4, 1)
-  }
-  for (const fx of [b.x0 + 3, b.x1 - 6]) {
-    for (let x = fx; x < fx + 4; x++) { put(g, x, b.y1 + 5, x === fx || x === fx + 3 ? 1 : 2); put(g, x, b.y1 + 6, 1) }
-  }
+  // far wing behind the body (a touch smaller, further away), body, near wing in front
+  paintWing(g, Math.round(FAR_HINGE.x), Math.round(FAR_HINGE.y), ang + 10, 0.9)
+  const body = toasterBody()
+  for (let i = 0; i < body.px.length; i++) if (body.px[i]) g.px[i] = body.px[i]
+  paintWing(g, Math.round(NEAR_HINGE.x), Math.round(NEAR_HINGE.y), ang - 4, 1.08)
   return g
+}
+
+// the toast: a slice lying tilted, seen from the same camera; its crown (two lobes) to the back
+function toastSdf(p) {
+  // into the slice's frame: tilt it up toward the viewer a little, turn it along the flight
+  const ca = Math.cos(0.5), sa = Math.sin(0.5)
+  const q = [p[0], p[1] * ca - p[2] * sa, p[1] * sa + p[2] * ca]
+  const flat = Math.abs(q[1]) - 0.07                         // thickness
+  // the slice outline in its plane (x, z): a square body under a two-lobed crown
+  const bx = Math.abs(q[0]) - 0.48, bz = Math.abs(q[2] - 0.12) - 0.42
+  let shape = Math.min(Math.max(bx, bz), 0) + Math.hypot(Math.max(bx, 0), Math.max(bz, 0)) - 0.08
+  shape = Math.min(shape, Math.hypot(q[0] - 0.27, q[2] + 0.36) - 0.32, Math.hypot(q[0] + 0.27, q[2] + 0.36) - 0.32)
+  const d = Math.min(Math.max(flat, shape), 0) + Math.hypot(Math.max(flat, 0), Math.max(shape, 0))
+  return [d - 0.02, shape > -0.09 ? 'crust' : 'face']
 }
 
 /** A golden-brown toast slice: crust rim, toasted face, highlight. */
 function buildToast() {
-  const w = 24, h = 24
-  const g = grid(w, h)
-  // a bread slice: a square-ish body under a wider rounded crown with a slight dip in the middle
-  const inside = (x, y) => {
-    if (y >= 10 && y <= 21 && x >= 4 && x <= 19) return true
-    if (y > 12 || y < 2) return false
-    const e = ((x - 11.5) / 9.6) ** 2 + ((y - 9.5) / 6.4) ** 2 <= 1
-    return e && !(Math.hypot(x - 11.5, y - 1.6) < 2.4)
-  }
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (!inside(x, y)) {
-        if (inside(x + 1, y) || inside(x - 1, y) || inside(x, y + 1) || inside(x, y - 1)) put(g, x, y, 1)
-        continue
-      }
-      const rim = !inside(x + 1, y) || !inside(x - 1, y) || !inside(x, y + 1) || !inside(x, y - 1)
-      const rim2 = !inside(x + 2, y) || !inside(x - 2, y) || !inside(x, y + 2) || !inside(x, y - 2)
-      let c = rim ? 11 : rim2 ? 12 : 13
-      if (!rim2 && x + y < 17) c = 15               // highlight toward the upper left
-      else if (!rim2 && x + y < 21) c = 14
-      put(g, x, y, c)
-    }
-  }
-  // a few darker toasting marks
-  for (const [x, y] of [[13, 14], [14, 14], [9, 17], [16, 18], [17, 18], [11, 12]]) put(g, x, y, 12)
+  const g = grid(48, 44)
+  const saved = { x: ORIGIN.x, y: ORIGIN.y }
+  ORIGIN.x = 24; ORIGIN.y = 22
+  renderModel(g, toastSdf, (m, n, p) => {
+    if (m === 'crust') return lit(n, [12, 12, 11])
+    const l = V.dot(n, SUN)
+    return l > 0.9 && p[0] < 0 ? 15 : l > 0.5 ? 14 : 13
+  })
+  ORIGIN.x = saved.x; ORIGIN.y = saved.y
+  outline(g, 1)
+  // a few toasting marks on the face
+  for (const [x, y] of [[22, 20], [23, 20], [27, 24], [19, 25], [26, 18]]) if (get(g, x, y) === 14 || get(g, x, y) === 13) put(g, x, y, 12)
   return g
 }
 
@@ -268,9 +303,9 @@ function flapPose(phase) {
 
 // --- formation ---
 
-/** Integer pixel scale for a canvas height: a toaster about a ninth of the screen tall. */
+/** Integer pixel scale for a canvas height: a toaster sprite about a sixth of the screen tall. */
 function spriteScale(height) {
-  return Math.max(2, Math.round(height / (TH * 7.5)))
+  return Math.max(2, Math.round(height / (TH * 5.5)))
 }
 
 // small deterministic PRNG, so a formation is the same for the same size
@@ -316,8 +351,8 @@ function itemPos(f, item, ox, oy, sw, sh) {
   return { x: Math.round(wrap(item.bx + ox, f.fw) - sw), y: Math.round(wrap(item.by + oy, f.fh) - sh) }
 }
 
-// flight direction: left and down (unit-ish; y per x as After Dark's shallow dive)
-const DIR = { x: -0.86, y: 0.51 }
+// flight direction on screen: where the toaster's nose (+z) points, upper right -> lower left
+const DIR = (() => { const a = project([0, 0, 1]), o = project([0, 0, 0]); const l = Math.hypot(a.x - o.x, a.y - o.y); return { x: (a.x - o.x) / l, y: (a.y - o.y) / l } })()
 
 module.exports = {
   PALETTE, TW, TH, WING_POSES, buildToaster, buildToast, flapPose,

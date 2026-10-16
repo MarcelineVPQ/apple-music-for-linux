@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.20",
+  "version": "0.15.22",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -31,6 +31,9 @@
       "css-replacer.js",
       "lyrics-sources.js",
       "lyrics-timing.js",
+      "lyrics-view.js",
+      "lyrics-view.css",
+      "toasters.js",
       "lyrics-store.js",
       "audio-listen.js",
       "listen-session.js",

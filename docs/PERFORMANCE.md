@@ -26,10 +26,10 @@ Discord update. None of these objects is stored.
 |---|---|---|---|---|---|
 | main.js `startNowPlayingLoop` | now-playing poll | 5 s | always (the tray always exists) | app exit | 1 `executeJavaScript`/5 s, 0.02–0.07 % main CPU. Needed, left as is |
 | main.js `createMiniWindow` | mini poll | 1 s | mini window exists, including minimized/paused | mini `closed`, main `close` | 1 read/s, 0.05 % main CPU. Left as is |
-| main.js `createLyricsWindow` | lyrics poll | 500 ms | lyrics window exists, including minimized/paused | lyrics `closed`, main `close` | 2 reads/s plus one lyrics lookup per track (cached). Left as is |
-| main.js `createVizWindow` | visualizer poll | 300 ms | visualizer exists | viz `closed` | 3.3 reads/s. Left as is (fullscreen, foreground-only mode) |
-| visualizer.js | parec → FFT → IPC | ~43 frames/s | visualizer exists | viz `closed` (`stop()` kills parec) | 1 FFT + 1 IPC send per frame. Left as is |
+| main.js `startLyricsFeed` (0.15.22) | lyrics feed poll, for the lyrics window and the visualizer | 500 ms | lyrics window or visualizer exists, including minimized/paused | last of them `closed`, main `close` | 2 reads/s plus one lyrics lookup per track (cached), 1 IPC send per view per tick. Replaces the lyrics poll and the visualizer's own 300 ms poll |
+| main.js `vizAudioTick` + visualizer.js | own-stream parec (audio-listen.js) → 1024-point FFT → IPC | ~43 frames/s | visualizer exists and the song plays (system-monitor fallback: visualizer exists) | pause, viz `closed` | 1 FFT + 1 IPC send per frame; FFT buffers reused (no per-frame garbage) |
 | visualizer.html `frame` | requestAnimationFrame | display rate | window visible (Chromium pauses rAF when hidden) | window close | one canvas frame. Left as is: ambient modes animate on purpose |
+| visualizer.html lyrics (0.15.22) | lyrics-view.js word/dot loop (the lyrics window's) | per word change | visible, playing, word timing | as the lyrics window | DOM class writes per word change |
 | visualizer.html `showLabel` | label fade | 1.4 s one-shot | after a mode switch | fires; cleared before re-arm | ~0 |
 | main.js `startUpdateChecks` | update check | 20 s once, then 2 h (+1 per channel switch) | AppImage builds | app exit | 2 small GETs/2 h (signed feed + `.sig`; 1 on the placeholder-key `latest-linux.yml` path); `updateCheckBusy` prevents overlap. A new version is hashed by a streamed read (`update-feed.js` `verifyDownload`), once per version |
 | main.js `persistBounds`, `rememberBounds` | bounds save debounce | 500 ms one-shot | after a move/resize | fires | ~0; checks `isDestroyed()` |
@@ -65,7 +65,7 @@ returns `{ ok: false }` and doesn't throw. No backoff is needed.
 | discord.js `connect` | probe `error` listener stays on the connected socket | *theoretical, left as is:* a later socket error would retry the remaining paths. Never observed |
 | discord.js `onData` | frame buffer | only holds an incomplete frame |
 | lyrics-sources.js `createLyricsResolver` | lyrics cache | bounded at 50 entries; empty results are dropped; in-flight lookups are shared between lyrics and the visualizer (LRCLIB behaviour untouched) |
-| visualizer.js `emit` | two 16 KB `Float64Array`s per frame | short-lived young-generation garbage while the visualizer is open. Cosmetic, left as is |
+| visualizer.js `emit` | FFT buffers | reused since 0.15.22 (one pair per Visualizer); only the 48-entry band array per frame |
 | renderer pages | `ipcRenderer.on` listeners | added once at load (lyrics.html also one `visibilitychange` listener). lyrics.html replaces its line, word and dot elements per track and cancels its rAF on every new track. miniplayer.html swaps the artwork `src` only on a track change |
 
 ## Measurements
@@ -157,3 +157,19 @@ paused while the window is hidden or the music is paused.
 | lyrics retry (main.js lyrics poll) | 30 s, 60 s, then 120 s after a failed lyrics lookup | lyrics window open, same song | success, track change, window close | one lookup per retry; capped backoff |
 | lyrics prefetch (main.js prefetchNextLyrics) | once per track change | lyrics window open, current lyrics found | — | one lookup per track; cached in memory and on disk |
 | lyrics disk cache (lyrics-store.js) | debounced write 2 s after changes | after a good lookup | write done; flush on quit | ≤ 2,000 entries / 20 MB, LRU; atomic temp+rename |
+
+## Visualizer toast scene (0.15.22)
+
+Isolated harness (throwaway HOME and XDG_RUNTIME_DIR, Xvfb 1920×1080, private D-Bus, basic password
+store, software GL because the GPU process can't start under Xvfb), visualizer.html fed mock bands at
+43/s plus lyrics and time pushes, 60 s, % of one core:
+
+| Scene | renderer | GPU process |
+|---|---|---|
+| toast, 0.15.20 (a few beat-spawned toasters) | 56.4 | 9.7 |
+| toast, 0.15.22 (full formation, ~40 sprites, lyrics overlay) | 59.6 | 9.9 |
+| bars, 0.15.22 (reference, 30 s) | 61.4 | 8.6 |
+
+Under software GL most of this is rasterising a full-screen canvas every frame, which every scene does;
+the formation itself adds about 3 % (one cached-sprite `drawImage` per visible toaster). On a real GPU the
+canvas is GPU-rasterised and these numbers are much lower; that isn't measurable here.

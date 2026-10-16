@@ -303,7 +303,7 @@
     if (s !== toast.s || !toast.frames) {
       toast.frames = TOASTERS.WING_POSES.map((_, i) => spriteCanvas(TOASTERS.buildToaster(i), s))
       const slice = TOASTERS.buildToast()
-      const ss = Math.max(s, Math.round(s * 1.5))
+      const ss = s
       toast.slice = spriteCanvas(slice, ss)
       toast.sliceOff = { x: Math.round((TOASTERS.TW * s - slice.w * ss) / 2), y: Math.round((TOASTERS.TH * s - slice.h * ss) / 2) }
       toast.s = s
