@@ -7,7 +7,7 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
-## [0.15.14] — Signed updates, Development channel, bigger album art
+## [0.15.15] — Signed updates, Development channel, bigger album art
 
 ### Added
 
@@ -18,6 +18,6 @@ See docs/RELEASING.md.
 
 - **Signed updates.** Sonata now only installs an update whose feed is signed with the project's Ed25519 key and whose download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.
 - **Bigger album art** in the lyrics window (+50 %), with the progress ring scaled to match.
-- **Record speeds:** with *Spin album art like a record* on, albums turn at 33⅓ rpm and singles/EPs at 45 rpm, like the vinyl.
+- **Record speed** for *Spin album art like a record*: **Relaxed** (default, a calm turn) or **True** (33⅓ rpm for albums, 45 for singles and EPs, like the vinyl).
 - Releases are published by the release workflow (development builds as prereleases), and the update feeds are generated and signed in CI, never by hand.
 

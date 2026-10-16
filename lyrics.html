@@ -281,7 +281,15 @@
   // Settings → "Spin album art like a record" on (off by default), art shown, window visible and
   // music playing · paused via animation-play-state when hidden or paused · cost in docs/PERFORMANCE.md
   let spin = false
+  let relaxed = true      // Settings → Record speed: Relaxed (default, ¼ of true speed) or True
+  let single = false
+  function applyTurn() {
+    const turn = (single ? 60 / 45 : 60 / (100 / 3)) * (relaxed ? 4 : 1)
+    document.body.style.setProperty('--turn', turn.toFixed(3) + 's')
+  }
   ipcRenderer.on('lyrics-settings', (event, s) => {
+    relaxed = !(s && s.speed === 'true')
+    applyTurn()
     spin = !!(s && s.spin)
     document.body.classList.toggle('spin', spin)
     updateStill()
@@ -321,7 +329,8 @@
 
   ipcRenderer.on('lyrics-data', (event, data) => {
     // record speed for the spin: singles and EPs were 7" 45s, albums 33⅓ LPs
-    document.body.style.setProperty('--turn', / - (Single|EP)$/i.test(data.album || '') ? '1.333s' : '1.8s')
+    single = / - (Single|EP)$/i.test(data.album || '')
+    applyTurn()
     lines = data.estimate ? T.estimateWords(data.lines || []) : (data.lines || [])
     duration = Number(data.duration) || 0
     updateRing(0, true)

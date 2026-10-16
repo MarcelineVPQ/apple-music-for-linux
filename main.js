@@ -40,7 +40,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, estimatedWordTiming: true, updateChannel: 'stable' }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true, lyricsArtSpin: false, lyricsArtSpinSpeed: 'relaxed', estimatedWordTiming: true, updateChannel: 'stable' }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -387,7 +387,7 @@ function createLyricsWindow() {
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsKey = null // force a lyrics fetch on first tick
     lyricsArt = null // and an artwork send
-    lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin })
+    lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
     // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window exists (also when minimized or paused) · stops on lyrics 'closed' (and main 'close') · cost 2 executeJavaScript/s + 1 IPC send/tick; one lyrics lookup per track change (cached, see lyrics-sources.js). Left as is: only runs while lyrics are open; with mini + lyrics + visualizer all open the three polls make 6.5 reads/s for 0.19 % main-process CPU (docs/PERFORMANCE.md), so a shared poller isn't worth the change.
     // error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
     lyricsPoll = setInterval(async () => {
@@ -1068,8 +1068,8 @@ ipcMain.on('settings:set', (event, key, value) => {
     pendingUpdateVersion = null
     checkForUpdates(false)
   }
-  else if (key === 'lyricsArtSpin') {
-    if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!value })
+  else if (key === 'lyricsArtSpin' || key === 'lyricsArtSpinSpeed') {
+    if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
   }
   else if (key === 'estimatedWordTiming') {
     lyricsKey = null  // re-send the current song's lyrics with the new setting

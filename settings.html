@@ -85,6 +85,13 @@
       <label class="switch"><input type="checkbox" id="lyricsArtSpin"><span class="slider"></span></label>
     </div>
     <div class="row">
+      <div class="grow"><div class="label">Record speed</div><div class="desc">Relaxed feels like a record across the room; True is 33⅓ rpm for albums, 45 for singles and EPs</div></div>
+      <select id="lyricsArtSpinSpeed">
+        <option value="relaxed">Relaxed</option>
+        <option value="true">True</option>
+      </select>
+    </div>
+    <div class="row">
       <div class="grow"><div class="label">LRCLIB lyrics</div><div class="desc">When Apple has no lyrics, look the song up on lrclib.net (sends title, artist, album and length)</div></div>
       <label class="switch"><input type="checkbox" id="lrclibFallback"><span class="slider"></span></label>
     </div>
@@ -126,6 +133,7 @@
     document.getElementById('about').textContent =
       'Sonata v' + s.version + (s.appImage ? '' : ' · running from source')
     for (const k of TOGGLES) document.getElementById(k).checked = !!s[k]
+    document.getElementById('lyricsArtSpinSpeed').value = s.lyricsArtSpinSpeed === 'true' ? 'true' : 'relaxed'
     const ch = document.getElementById('updateChannel')
     ch.value = s.updateChannel === 'dev' ? 'dev' : 'stable'
     ch.disabled = !s.appImage
@@ -143,6 +151,7 @@
   for (const k of TOGGLES) {
     document.getElementById(k).addEventListener('change', (e) => ipcRenderer.send('settings:set', k, e.target.checked))
   }
+  document.getElementById('lyricsArtSpinSpeed').addEventListener('change', (e) => ipcRenderer.send('settings:set', 'lyricsArtSpinSpeed', e.target.value))
   document.getElementById('updateChannel').addEventListener('change', (e) => ipcRenderer.send('settings:set', 'updateChannel', e.target.value))
   document.getElementById('lastfm-btn').onclick = () => ipcRenderer.send('settings:action',
     document.getElementById('lastfm-status').classList.contains('connected') ? 'disconnectLastfm' : 'connectLastfm')
