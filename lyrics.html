@@ -127,6 +127,7 @@
      (GPU transform + weight) never moves the line. Word colours apply on the active line only. */
   .w {
     display: inline-flex;
+    margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space */
     flex-direction: column;
     align-items: center;
     transform-origin: 50% 65%;
@@ -147,13 +148,13 @@
     color: var(--active);
     font-weight: 800;
     -webkit-text-stroke: 0.5px currentColor;
-    transform: scale(1.15);
+    transform: scale(1.1);
     text-shadow: 0 0 14px var(--active), 0 0 4px var(--active);
   }
   /* background vocals: smaller and dimmer, under their line, with their own highlight */
   .bgv { font-size: 15px; font-weight: 600; line-height: 1.35; margin-top: 2px; opacity: 0.7; }
   .bgv .w::after { font-weight: 700; }
-  .line.active .bgv .w.now { font-weight: 700; transform: scale(1.12); }
+  .line.active .bgv .w.now { font-weight: 700; transform: scale(1.08); }
   /* interlude countdown: three dots in place of the next line */
   .dots {
     display: flex;
