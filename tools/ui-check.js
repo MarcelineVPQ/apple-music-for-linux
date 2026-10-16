@@ -60,7 +60,8 @@ const MAIN_COUNTS = `(() => {
     views: Object.fromEntries(win.contentView.children.map((v) => [/music\.apple\.com/.test(v.webContents.getURL()) ? 'apple' : v.webContents.getURL().split('/').pop(), ['before-input-event', 'focus', 'did-start-loading', 'will-navigate', 'dom-ready', 'did-navigate', 'page-title-updated'].reduce((a, n) => a + v.webContents.listenerCount(n), 0)])),
     children: win.contentView.children.length,
     webContents: webContents.getAllWebContents().length,
-    timers: process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length
+    timers: process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length,
+    windows: BaseWindow.getAllWindows().map((w) => w.getTitle())
   }
 })()`
 const settingsFile = `JSON.parse(require('fs').readFileSync(require('path').join(${E}.app.getPath('userData'), 'settings.json'), 'utf8'))`
@@ -193,7 +194,7 @@ async function matrix() {
   // the window was just resized: wait until the views follow
   const L0 = await waitFor(async () => { const l = await mp.ev(LAYOUT); return l.apple.width + 52 <= l.content.width && l.rail.x + l.rail.width === l.content.width ? l : null }, 6000) || await mp.ev(LAYOUT)
   const W = L0.content.width; const H = L0.content.height
-  check(LABEL + ' window size', true, W + 'x' + H)
+  check(LABEL + ' window size is the one asked for', !/^\d+x\d+$/.test(LABEL) || LABEL === W + 'x' + H, W + 'x' + H)
   for (const dark of [false, true]) {
     check(LABEL + (dark ? ' dark' : ' light') + ' theme set (Ctrl+D)', await setTheme(mp, apple, dark))
     for (const pinned of [false, true]) {
@@ -331,6 +332,9 @@ async function loops() {
   const railY = await rail.ev('(() => { const r = document.querySelector("[data-rail=settings]").getBoundingClientRect(); return Math.round(r.top + r.height / 2) })()')
   for (let i = 1; i <= 50; i++) {
     x('move', W - 20, railY); await sleep(350); x('click', W - 26, railY); await sleep(350)
+    // every window this opened besides the main one (a mis-hit would show here, cycle by cycle)
+    const titles = await mp.ev(`${E}.BaseWindow.getAllWindows().map((w) => w.getTitle()).join(',')`)
+    if (titles !== 'Sonata') { check('show/hide cycle ' + i + ': only the panel changed (no other window opened)', false, titles); xshot(path.join(OUT, 'stray-' + i + '.png'), W, L0.content.height); await mp.ev(`(${E}.BaseWindow.getAllWindows().filter((w) => w.getTitle() !== 'Sonata').forEach((w) => w.close()), true)`); await sleep(500) }
     x('move', 300, 300); await sleep(250)
     if (i % 10 === 0) rows.push(await snap('show/hide ' + i))
   }
@@ -360,7 +364,7 @@ async function loops() {
   check('panel page: JS listeners, nodes and documents flat after GC (folded state compared)', rows.filter((r) => /start|navigate/.test(r.tag)).every((r) => r.panelDom.documents === first.panelDom.documents && Math.abs(r.panelDom.jsEventListeners - first.panelDom.jsEventListeners) <= 2 && Math.abs(r.panelDom.nodes - first.panelDom.nodes) <= 2), rows.map((r) => [r.panelDom.jsEventListeners, r.panelDom.nodes].join('/')))
   check('rail page: JS listeners and nodes flat', rows.every((r) => r.railDom.jsEventListeners === first.railDom.jsEventListeners && r.railDom.nodes === first.railDom.nodes), rows.map((r) => [r.railDom.jsEventListeners, r.railDom.nodes].join('/')))
   check('Apple page: always two focus stops', rows.every((r) => r.stops.stops === 2), rows.map((r) => r.stops.stops))
-  results.push({ name: 'loop counts (table)', ok: true, detail: rows.map((r) => ({ tag: r.tag, panelJs: r.panelDom.jsEventListeners, panelNodes: r.panelDom.nodes, railJs: r.railDom.jsEventListeners, appleJs: r.appleDom.jsEventListeners, appleNodes: r.appleDom.nodes, webContents: r.main.webContents, timers: r.main.timers })) })
+  results.push({ name: 'loop counts (table)', ok: true, detail: rows.map((r) => ({ tag: r.tag, panelJs: r.panelDom.jsEventListeners, panelNodes: r.panelDom.nodes, railJs: r.railDom.jsEventListeners, appleJs: r.appleDom.jsEventListeners, appleNodes: r.appleDom.nodes, webContents: r.main.webContents, timers: r.main.timers, windows: r.main.windows.join(',') })) })
   apple.c.close(); panel.c.close(); rail.c.close(); mp.c.close()
 }
 

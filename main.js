@@ -2246,13 +2246,17 @@ const updater = updaterLib.createUpdater({
   now: () => Date.now(),
   log: (m) => console.error(m)
 })
+let lastInstallFailure = null   // { version, detail } of the last failed install (said while that version is offered)
 function onUpdateState() {
   const st = updater.state()
-  const n = updaterLib.updateNotice(st, { playing: lastPlaying })
+  if (st.phase === 'failed' && st.during === 'install') lastInstallFailure = { version: st.version, detail: st.detail }
+  else if (st.phase === 'ready') lastInstallFailure = null
+  const n = updaterLib.updateNotice(st, { playing: lastPlaying, lastFailure: lastInstallFailure })
   if (n) notices.show(Object.assign({ place: 'top', page: 'settings' }, n))
   else if (st.phase !== 'checking') notices.clear('update')
   // Install updates automatically: an offered (newer) update downloads, checks and installs by itself
-  if (st.phase === 'available' && settings.autoInstallUpdates && !st.older) installUpdate()
+  // (not again by itself after that version failed: Try again is the user's)
+  if (st.phase === 'available' && settings.autoInstallUpdates && !st.older && !(lastInstallFailure && lastInstallFailure.version === st.version)) installUpdate()
   // in the tray (window hidden): one desktop notification per version, which opens Settings → Updates
   if ((st.phase === 'available' || st.phase === 'ready') && updateNotified !== st.phase + st.version &&
       !(mainAlive() && mainWindow.isVisible()) && Notification.isSupported()) {

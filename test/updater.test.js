@@ -121,6 +121,13 @@ test('notices: available (Update + Details), progress, installed: Restart now on
   assert.equal(U.updateNotice({ phase: 'failed', during: 'check', detail: 'offline', shown: true }, {}).kind, 'error')
   assert.match(U.updateNotice({ phase: 'failed', during: 'install', detail: 'bad sha' }, {}).text, /didn't install: bad sha Your current version is untouched/)
   assert.match(U.statusLine({ phase: 'up-to-date' }, '0.15.32', 'stable'), /Up to date: 0\.15\.32 \(Stable\)/)
+  // a failed install stays said when a later check offers the same version again (DS5)
+  const again = U.updateNotice({ phase: 'available', version: '0.16.0' }, { lastFailure: { version: '0.16.0', detail: 'bad sha.' } })
+  assert.equal(again.kind, 'error')
+  assert.match(again.detail, /The last try didn't install: bad sha\. Your current version is untouched\./)
+  assert.equal(again.actions[1].label, 'Try again')
+  assert.notEqual(again.dismissKey, a.dismissKey, 'a new reason: shows even if the plain offer was dismissed')
+  assert.equal(U.updateNotice({ phase: 'available', version: '0.16.1' }, { lastFailure: { version: '0.16.0', detail: 'x' } }).kind, 'info')
 })
 
 test('test feed: loopback http only; its key only with it', () => {
@@ -174,6 +181,7 @@ test('local feed: a download whose SHA-512 differs is deleted and refused; nothi
     assert.equal(s.phase, 'failed')
     assert.equal(s.during, 'install')
     assert.match(s.detail, /SHA512 does not match/)
+    assert.equal(s.version, '0.15.33')
     assert.deepEqual(fs.readdirSync(r.dir), [path.basename(r.running)], 'no .part, no new file')
     assert.deepEqual(r.installed, [])
   } finally { r.close() }

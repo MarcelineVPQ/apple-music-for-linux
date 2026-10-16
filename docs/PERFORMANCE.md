@@ -248,3 +248,48 @@ launches, the pool never grows except on a resize to a bigger sky, and the fligh
 objects per frame
 (test/toasters.test.js: same objects over 10,000 frames). Live resize 1920×1080 → 1100×800 kept
 every flyer in the air and rescaled them.
+
+## Side panel, notices, theme and Glass (0.15.32)
+
+The main window now holds up to four views: Apple's page, the side panel (`panel.html`, created the
+first time Settings or About is shown, then kept and hidden with `setVisible(false)`), the rail, and,
+only while a toast shows, the toast view (`toast.html`, created for the toast and closed with the last
+one). The panel docks beside Apple's page only while Apple keeps at least 760 px; otherwise it is a
+drawer over the page and Apple's width doesn't change.
+
+**Apple's ~740 px breakpoint.** Apple's web player switches layout at about 740 px, and every crossing
+leaves about 40 listeners and 170 DOM nodes behind in its page (Apple's own code). Measured by toggling
+Apple's view between two widths, 5 cycles each, after GC: 1598↔1238 +0, 1238↔1048 +4, 1048↔900 +0,
+900↔800 −6, 800↔760 +0, **760↔720 +201**, 720↔688 −1, 688↔640 +0 listeners. The first version of the
+panel docked down to Apple = 640 px, so showing and hiding it at 1100 px crossed the breakpoint every
+time (+40 listeners per show/hide). The docking threshold is now 760 px (panel-model.js `PANEL`):
+docked at windows ≥ 1172 px (≥ 1316 with the rail pinned), a drawer below. A user dragging the window
+across that width would still grow Apple's page; that is Apple's, and the BACKLOG's quiet-reload row
+covers it.
+
+| Where | Thing | Verdict |
+|---|---|---|
+| main.js `createPanelView` | the panel's view | created once on first show, kept; its listeners (before-input-event, focus, did-start-loading, the lockdown) once each |
+| main.js `syncToasts` | the toast view | created for the first toast, closed when the last one ends: no idle renderer |
+| main.js `pushPanel` / `pushRail` | state sends | one JSON compare per call; an IPC send only on change |
+| main.js `panel:command`, `apple:volume` | `ipcMain.on` | once at module load; sender view, top frame, command list and every argument checked |
+| panel-ui.js | the panel page | no timers, no animation frames, no observers (a test checks); a section's body is built only while it is open and dropped when it folds |
+| toast-ui.js | one timer per toast on screen (≤ 3) | cleared when the toast ends or pauses (pointer or focus on it) |
+| theme-apply.js | two media-query listeners per page | fires on a theme or reduced-transparency change only |
+| main.js `refreshPalette` / `makeBackdrops` | the Glass backdrop | once per track change: the artwork at 40×40, two backdrops (light and dark) as ~3 KB PNG data URLs; the pages crossfade once (CSS opacity) and are static after |
+| main.js `watchDesktopScheme` | one `gdbus monitor` child | only while the theme follows the desktop (Linux); wakes on portal signals only, stopped on Sonata's own choice and on quit |
+| apple-focus.js | one passive capturing `pointerover` on Apple's document + one wheel listener per volume control | the wheel listener only on Apple's volume control, never on the document (a non-passive document wheel listener would make every scroll of Apple's page wait) |
+| miniplayer.html | the scrubber | CSS hover crossfade (150 ms, reduced motion: none); the progress bars are `transform: scaleX`, written once per 1 s push |
+
+Measured 2026-10-16 in the isolated packaged build (`tools/ui-check.js`; Xvfb, throwaway HOME, logged-out
+Apple page, worst-case test artwork for the Glass checks unless noted):
+
+| What | Result |
+|---|---|
+| idle repaints, 10 s, panel shown (Settings), pointer resting | panel 0 frames, rail 0 frames |
+| CPU, all Sonata processes, 30 s idle, panel shown (no artwork) | 0.17 % of one core (hidden, measured first while Apple's page was still settling after start: 1.0 %) |
+| memory (working set), panel shown | Apple's renderer 307 MB, the rail's and the panel's renderers ~130 MB each, browser 231 MB, GPU 200 MB |
+| show/hide ×10 (panel page) | 0 layouts, 5 style recalcs, 0 ms script |
+| Glass backdrop per track (pure part, both light and dark) | 0.9 ms; the tokens for one page 0.05 ms |
+| 50 show/hide (real clicks on the rail), 50 pin + open/fold cycles, 50 navigations, at 1600 px (docked) and 1100 px (drawer) | main-process IPC handler, window and view listener counts unchanged; views and web contents unchanged (no toast view left); timers 1; panel page 22 listeners / 215 nodes folded, every time; rail 10 / unchanged; Apple's page unchanged over show/hide and pin cycles (7,379 listeners), growing only with navigations (Apple's own, as before) |
+| progressive alignment while playing (`tools/drift-check/stutter-check.js`, real helper on the RTX 5080, 6 section jobs inside the running app) | media time vs wall clock 1.0006 (quiet 1.0001), longest stall 25 ms = one sample (quiet: same), main-process event-loop lag max 2 ms; the first job 17 s (model load), the others 0.2–0.4 s |

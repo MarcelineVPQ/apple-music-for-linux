@@ -36,18 +36,23 @@ function updatedSince(lastRun, current) {
 
 const mb = (n) => (Number(n) > 0 ? (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB' : '')
 
-// The notice for an update state (place: top of the panel), or null. ctx: { playing, auto, channel }
+// The notice for an update state (place: top of the panel), or null. ctx: { playing, lastFailure }
+// lastFailure ({ version, detail }): an install of that version failed; while the same version is on
+// offer again (a later check), the notice keeps saying why (DS5: a failed install stays said)
 function updateNotice(st, ctx) {
   const c = ctx || {}
   switch (st.phase) {
-    case 'available':
+    case 'available': {
+      const failed = c.lastFailure && c.lastFailure.version === st.version ? c.lastFailure.detail : ''
       return {
-        id: 'update', kind: 'info', task: true, dismissKey: 'update:' + st.version,
+        id: 'update', kind: failed ? 'error' : 'info', task: true, dismissKey: 'update:' + st.version + (failed ? ':failed' : ''),
+        detail: failed ? 'The last try didn\'t install: ' + failed + ' Your current version is untouched.' : '',
         text: st.older
           ? 'Stable ' + st.version + ' is ready to install (Back to stable)' + (st.size ? ', ' + mb(st.size) : '') + '.'
           : 'Sonata ' + st.version + ' is available' + (st.size ? ' (' + mb(st.size) + ')' : '') + '.',
-        actions: [{ id: 'update-details', label: 'Details' }, { id: 'update-install', label: st.older ? 'Install stable' : 'Update', primary: true }]
+        actions: [{ id: 'update-details', label: 'Details' }, { id: 'update-install', label: failed ? 'Try again' : st.older ? 'Install stable' : 'Update', primary: true }]
       }
+    }
     case 'downloading': {
       const pct = st.total ? Math.floor(st.got * 100 / st.total) : 0
       return { id: 'update', kind: 'info', closable: false, text: 'Downloading Sonata ' + st.version + ': ' + mb(st.got) + ' of ' + mb(st.total) + ' (' + pct + ' %)', progress: pct }
@@ -153,7 +158,7 @@ function createUpdater(deps) {
     } catch (e) {
       // error: SHOWN — the update notice says it didn't install and why; the current version is untouched
       d.log('update install failed: ' + e.message)
-      return set({ phase: 'failed', during: 'install', detail: e.message })
+      return set({ phase: 'failed', during: 'install', detail: e.message, version: f.version })
     } finally { busy = false }
   }
 

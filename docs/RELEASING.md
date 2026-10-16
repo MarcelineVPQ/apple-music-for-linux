@@ -33,6 +33,34 @@ match. Anything else is refused: the log says `update check failed: update refus
 check shows the same message. Only strictly newer versions are installed (`0.15.13-dev.2 < 0.15.13 < 0.15.14-dev.1`).
 Switching from Development back to Stable installs nothing until Stable passes the dev build you have.
 
+What the user sees (0.15.32, `updater.js`): "Sonata X is available" with *Update* and *Details* (the feed's
+`notes`), download progress, "Sonata X is installed" with *Restart now* (only while nothing plays), and
+"Updated to X · See what's new" after the restart. *Install updates automatically* (asked once) installs an
+offered newer version by itself; *Check for updates automatically* off means no timer and nothing online
+until *Check now*. **Back to stable** (Settings → Updates, from Development, confirmed) is the one path that
+installs an older version: the newest stable release. A plain switch from Development to Stable installs
+nothing until Stable passes the build you have.
+
+### A local signed test feed
+
+To exercise a whole update before anything is published (as in the DS5 app):
+
+```bash
+# a throwaway key pair; the public key only ever goes to the test app's environment
+node -e "const c=require('crypto');const k=c.generateKeyPairSync('ed25519');require('fs').writeFileSync('test-key.pem',k.privateKey.export({format:'pem',type:'pkcs8'}));console.log(k.publicKey.export({format:'der',type:'spki'}).toString('base64'))" > test-key.pub
+# feed: latest.json (+ latest-dev.json) with url http://127.0.0.1:8765/vX.Y.Z/sonata-X.Y.Z-x86_64.AppImage,
+# its sha512 and size, signed like CI does:
+SONATA_FEED_KEY="$(cat test-key.pem)" node tools/sign-feed.js latest.json
+python3 -m http.server 8765        # serving latest.json(.sig) and vX.Y.Z/<file>
+SONATA_UPDATE_FEED=http://127.0.0.1:8765/ SONATA_UPDATE_PUBKEY="$(cat test-key.pub)" ./sonata-*.AppImage
+```
+
+`SONATA_UPDATE_FEED` is honoured only for loopback `http://` (127.0.0.1 / localhost), downloads must then
+come from the same server, and the test key is trusted only together with it. `test/updater.test.js` runs
+the same flow automatically: bad signature, bad hash, an older version on Stable, Development → Stable, and
+Back to stable. Run a test AppImage only from a scratch folder, never from ~/Downloads: it repoints the
+`Sonata.AppImage` link beside itself and prunes older AppImages there.
+
 **Never edit the feeds by hand.** CI writes and signs them (`.github/workflows/feed.yml`); to regenerate,
 run that workflow (Actions → Update feed → Run workflow).
 

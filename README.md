@@ -32,7 +32,7 @@ chmod +x sonata-*.AppImage
 ```
 
 - The first run adds Sonata to your app menu (desktop entry and icon, kept in sync if you move the file).
-- **It updates itself.** Sonata checks for a new release every two hours and installs it only if the update feed's Ed25519 signature checks out and the download matches the feed's size and SHA-512. Anything else is refused and the reason is shown. Tray → *Check for Updates…* checks right away.
+- **It updates itself** (see [Updates](#updates)): it checks every two hours and installs a new release only if the update feed's Ed25519 signature checks out and the download matches the feed's size and SHA-512. Anything else is refused and the reason is shown.
 - **Flatpak: coming.** A Sonata Flatpak repository that installs from KDE Discover (and GNOME Software) is planned.
 
 > **Raspberry Pi / ARM:** not supported. Google publishes no Widevine DRM module for desktop linux-arm64, so no Chromium or Electron app can play Apple Music there.
@@ -54,12 +54,12 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 
 ### Player
 
-- **Navigation rail:** a slim bar on the right edge of the main window with Lyrics, Visualizer, Mini Player and Settings. It shows icons only and slides open over the page when you point at it or Tab to it, then closes again after you pick something. Press **Ctrl+B** (or its pin button) to keep it open: the page then makes room for it, and Sonata remembers that. The small lock in its bottom corner does the opposite: it keeps the rail small (icons only), so it no longer opens when you point at it; click again to unlock. Pinning and locking exclude each other. An item is marked while its window is open, and each tooltip names the item's shortcut. At the bottom it shows Last.fm, Discord and precise word timing, each with a symbol and words (not just a coloured dot). On the Development channel it also shows a *Development* badge with the version. It takes on the album's colour and follows light/dark mode. From the keyboard: Tab past either end of the page (or F6) reaches it, ↑ / ↓ move, Enter or Space opens, Esc closes, Tab leaves it. The rail has its own space beside Apple's page, so it never covers anything of Apple's, signed in or not. The tray, menus and shortcuts all still work as before.
+- **Navigation rail:** a slim bar on the right edge of the main window with Lyrics, Visualizer, Mini Player, Settings and About. It shows icons only and slides open over the page when you point at it or Tab to it, then closes again after you pick something. Press **Ctrl+B** (or its pin button) to keep it open: the page then makes room for it, and Sonata remembers that. The small lock in its bottom corner does the opposite: it keeps the rail small (icons only), so it no longer opens when you point at it; click again to unlock. Pinning and locking exclude each other. An item is marked while its window is open, and each tooltip names the item's shortcut. At the bottom it shows Last.fm, Discord and precise word timing, each with a symbol and words (not just a coloured dot). On the Development channel it also shows a *Development* badge with the version. It takes on the album's colour and follows light/dark mode. From the keyboard: Tab past either end of the page (or F6) reaches it, ↑ / ↓ move, Enter or Space opens, Esc closes, Tab leaves it. Settings and About open in the [side panel](#settings-and-about); pressing the item again hides it, and a dot on the item says something is waiting there (an update, what's new). The rail has its own space beside Apple's page, so it never covers anything of Apple's, signed in or not. The tray, menus and shortcuts all still work as before.
 - **System tray:** click to hide or show the window; right-click for play/pause, next, previous, mini player, visualizer, dark mode, settings and quit. Music keeps playing while the window is hidden.
-- **Mini player** (Ctrl+M): a small, translucent, always-on-top pill with artwork, shuffle, previous / play-pause / next, repeat, a seekable progress bar, volume and mute, favourite, and a ⋯ menu (Add to Library, Copy Link, Lyrics, Visualizer, Always on Top). Drag it anywhere.
+- **Mini player** (Ctrl+M): an always-on-top pill shaped like Apple Music's own player bar: shuffle, previous / play-pause / next and repeat on the left; the artwork, title and artist with a thin progress line in the middle; lyrics, Up Next, mute and a volume slider on the right; favourite and a ⋯ menu (Add to Library, Copy Link, Lyrics, Visualizer, Always on Top). Point at the middle and it turns into a scrubber with the elapsed and remaining time: click or drag to seek, or ← / → (5 s) when it has the focus. The mouse wheel over the volume (or the speaker) changes it in 5 % steps, also over the volume in Apple's player bar. On KDE (X11) the desktop behind the pill is blurred. Drag it anywhere.
 - **Visualizer / ambient mode** (Ctrl+Shift+V): full-screen album art, synced lyrics and a real-time spectrum from the actual audio output (captured through PipeWire/PulseAudio, so it works with Apple's DRM). Four scenes: **Bars**, **Aurora** (a Flurry homage), **Nebula** (an iTunes-visualizer homage) and **Toast** (pixel-art winged toasters that flap to the beat, an After Dark wink). Click or ← / → to change, Esc to leave.
-- **Adaptive album colours:** the mini player and lyrics window take their colours from the current album art, and the active lyric line glows in the album's colour. Toggle in Settings.
-- **Dark mode** follows your desktop; Ctrl+D switches by hand and is remembered.
+- **Adaptive album colours and Glass:** every Sonata window (the rail, the side panel, the mini player, the lyrics window) takes its colours from the current album art, and the sung lyric line lights up in the album's colour. With *Glass* on (Settings → Appearance, the default), they share a translucent material made from the artwork, blurred and tinted. Words always keep at least 4.5:1 contrast, dimmed lyric lines 3:1, over any artwork.
+- **Dark mode** follows your desktop (the XDG portal or KDE's colour scheme, not only the GTK theme); Ctrl+D or Settings → Appearance → Theme switches by hand and is remembered.
 - Back / forward with Alt+← / Alt+→ and the mouse buttons; window size and position are remembered.
 
 ### Integration
@@ -69,10 +69,22 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 - **Track-change notifications** with album art (toggle in Settings).
 - Settings for close to tray, start minimized and launch at login.
 
+### Settings and About
+
+Settings and About open in a panel beside Apple's page (the rail's Settings and About items, the tray's *Settings…* and *About Sonata*). Apple's page makes room for it; in a narrow window it slides in as a drawer over the page instead (Esc closes it). Settings are grouped in sections: Playback & lyrics, Precise timing, Appearance, Mini player & windows, Integrations (Last.fm, Discord), Updates and Startup. Each header says the current state in a few words. One section is open at a time; pin the ones you want to keep open (the dot in a header's corner). The ⋮ menu collapses all sections or clears the pins. Sonata remembers it all. About has what's new in your version, what's coming soon, credits and licences, and links.
+
+Messages (a Last.fm step, an update, a repaired file) appear at the top of the panel or in their section, with their buttons and a × to dismiss. Short confirmations show for a few seconds at the bottom right of the page.
+
+If Sonata's settings file or lyrics cache is ever damaged, Sonata keeps everything that still reads, sets only the damaged parts back to their defaults, keeps a copy of the damaged file beside it (`*.corrupt-<date>`), and tells you once.
+
 ### Updates
 
-- **Signed updates** (see [Install](#install)).
-- **Two channels** in Settings → Updates: **Stable** (default) gets tested releases; **Development** also gets development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds.
+- **Signed updates** (see [Install](#install)). Nothing installs unless the feed's signature, the file's size and its SHA-512 all check out.
+- **What you see:** "Sonata X is available" with *Update* and *Details* (the release notes), a progress bar while it downloads, then "Sonata X is installed" with *Restart now* (only while nothing plays; otherwise it starts the next time you open Sonata), and after the restart "Updated to X" with *See what's new*. In the tray-only state a desktop notification says it once.
+- **Install updates automatically** (Settings → Updates; Sonata asks once): updates download and install by themselves and start next time. Off: Sonata asks each time.
+- **Check for updates automatically** (on by default): every two hours. Off: Sonata goes online for updates only when you press *Check now* (or the tray's *Check for Updates…*).
+- **Two channels:** **Stable** (default) gets tested releases; **Development** also gets development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds. Switching back to Stable never installs an older version by itself; **Back to stable** (Settings → Updates, on Development) installs the newest stable release even if it's older, after asking.
+- Never a downgrade otherwise, and never over the AppImage that is running: the new file goes beside it and `Sonata.AppImage` (the menu entry's link) points to it.
 
 ## Screenshots
 
@@ -103,7 +115,7 @@ Sonata talks to Apple (through the Apple Music web player you sign in to) and, o
 | `Ctrl+Shift+L` | Toggle lyrics (also in the mini player) |
 | `Ctrl+Shift+V` | Toggle visualizer (also in the mini player; ← / → or click to change scene, Esc to exit) |
 | `Ctrl+B` | Pin / unpin the navigation rail (remembered) |
-| `F6` | Move the keyboard between Apple's page and the navigation rail |
+| `F6` | Move the keyboard between Apple's page, the side panel (when shown) and the navigation rail |
 | `Ctrl+D` | Toggle dark / light mode |
 | `Alt+←` / `Alt+→` | Back / forward (mouse back/forward buttons work too) |
 | `Ctrl+R` | Reload |
@@ -125,16 +137,16 @@ It started as a fork of [cross-platform/apple-music-for-linux](https://github.co
 ## Last.fm scrobbling
 
 1. Create a free API account at <https://www.last.fm/api/account/create> (any name and description).
-2. Tray → **Connect Last.fm…**: Sonata creates its config file and offers to open it; paste your API key and shared secret.
-3. Tray → **Connect Last.fm…** again, authorize in the browser, click **Done**.
+2. Settings → Integrations → Last.fm **Connect…** (or the tray's **Connect Last.fm…**): Sonata creates its config file and offers to open it; paste your API key and shared secret.
+3. **Connect…** again, allow Sonata in the browser, press **Done**.
 
-Disconnect any time from the tray.
+Disconnect any time from the tray or Settings → Integrations.
 
 ## Discord presence
 
 1. Create an application at <https://discord.com/developers/applications> (free, instant). Its name is what Discord shows, e.g. "Apple Music".
-2. Tray → **Connect Discord…**: Sonata creates its config file and offers to open it; paste the Application ID.
-3. Tray → **Connect Discord…** again, with the Discord desktop app running.
+2. Settings → Integrations → Discord **Connect…** (or the tray's **Connect Discord…**): Sonata creates its config file and offers to open it; paste the Application ID.
+3. **Connect…** again, with the Discord desktop app running.
 
 Works with normal, Flatpak and snap Discord installs. Disconnect any time from the tray.
 
@@ -172,7 +184,7 @@ StartupWMClass=apple-music-for-linux
 
 > **Tip:** don't launch from a terminal inside a snap-packaged IDE (VS Code/Codium snap); the snap's confinement breaks Electron's helper processes.
 
-Tests: `npm test`. Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md).
+Tests: `npm test`. UI checks of an isolated copy: `tools/ui-check.js` and `tools/rail-check.js` (their headers say how to run them). Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md); a local signed test feed for the updater: `SONATA_UPDATE_FEED` (same file).
 
 ## Always on top on Wayland
 
@@ -195,5 +207,9 @@ Sonata takes your region from your desktop's locale (country code, `US` if none 
 - Based on [cross-platform/apple-music-for-linux](https://github.com/cross-platform/apple-music-for-linux) by Marcus Tomlinson.
 - Fallback lyrics from [LRCLIB](https://lrclib.net), a free, open lyrics database run by its community.
 - Widevine playback through [castlabs Electron for Content Security](https://github.com/castlabs/electron-releases).
+- Karaoke syllables with [hyphen](https://github.com/ytiurin/hyphen) (ISC) and the TeX hyphenation patterns of [hyph-utf8](https://github.com/hyphenation/tex-hyphen), each under its own licence (listed in About → Credits & licences).
+- The flying toasters are lit with the "White Home Studio" HDRI from [Poly Haven](https://polyhaven.com) (CC0).
+
+The full list, including the optional sonata-align models, is in the app: About → Credits & licences.
 
 GPL-3.0, see [LICENSE](LICENSE). Made by Marcy under 42 Pixel Studios.
