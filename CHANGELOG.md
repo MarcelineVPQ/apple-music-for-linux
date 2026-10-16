@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.16] — Clearer lyrics header
+
+### Changed
+
+- The lyrics window header shows the song title larger and bolder, with the artist underneath, sized to sit next to the record.
+
 ## [0.15.15] — Signed updates, Development channel, bigger album art
 
 ### Added
