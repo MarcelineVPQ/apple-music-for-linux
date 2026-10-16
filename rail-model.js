@@ -1,7 +1,7 @@
 // The navigation rail's pure logic (no DOM, no Electron): layout math, the open/closed state,
 // the keyboard map, the items and status lines, and the glass colours with their contrast.
-// Used by main.js (room for Apple's page, the state it sends) and by rail-ui.js, which runs in
-// the main window's isolated world (main injects this file there first, as SonataRailModel).
+// Used by main.js (the two views' bounds, the state it sends) and by rail-ui.js in rail.html, the
+// rail's own view (loaded there as a plain script: SonataRailModel).
 // Modeled on the DS5 app's AppRail: right edge, icons only, expands over the page on hover or
 // keyboard focus, closes right after a pointer pick; pinned it takes its full width (Ctrl+B).
 ;(function (root) {
@@ -22,17 +22,22 @@
     return { mode: 'floating', room: RAIL.collapsed }
   }
 
-  // CSS for Apple's document (main.js inserts it with insertCSS, one sheet kept). Apple's page is
-  // narrowed by `room` px: the root gets narrower, so everything laid out in % (the grid, the
-  // scrolling page with its scrollbar) ends at the rail. Apple sizes the floating player bar in
-  // vw (100vw - the sidebar), which ignores the root's width, so it gets the room taken off too.
-  // Fixed overlays (modals and their dimmed curtains) still span the whole window; modals sit
-  // above the rail (Apple's --z-modal is 10001, the rail's z-index is 10000).
-  function roomCss(room) {
-    const r = Math.max(0, Math.round(Number(room) || 0))
-    if (!r) return ''
-    return 'html{width:calc(100% - ' + r + 'px) !important}' +
-      '@media (min-width:484px){.player-bar{width:calc(100vw - var(--web-navigation-width, 0px) - ' + r + 'px) !important}}'
+  // The main window holds two views side by side: Apple's page and the rail (its own web contents,
+  // on top). Apple's view gets the window minus the rail's room, so Apple's own layout (vw units,
+  // fixed and right:0 panels, its lyrics and queue panels, sheets, menus) ends at the rail by itself.
+  // The rail view is its room wide, or its full open width while it is open over Apple's page
+  // (`wide`: hover or keyboard focus, unpinned; it narrows again once it has closed).
+  // -> { apple: {x,y,width,height}, rail: {x,y,width,height}, mode, room }
+  function viewBounds(contentWidth, contentHeight, pinned, wide) {
+    const w = Math.max(0, Math.round(Number(contentWidth) || 0))
+    const h = Math.max(0, Math.round(Number(contentHeight) || 0))
+    const { mode, room } = railLayout(w, pinned)
+    const railW = Math.min(w, mode === 'pinned' || wide ? RAIL.expanded : RAIL.collapsed)
+    return {
+      mode, room,
+      apple: { x: 0, y: 0, width: Math.max(0, w - room), height: h },
+      rail: { x: w - railW, y: 0, width: railW, height: h }
+    }
   }
 
   // --- open / closed (the rail's own pointer and focus state) ---
@@ -90,7 +95,9 @@
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
     { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'window' }
   ]
-  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'mounted']
+  // what the rail view may send: its items, the pin and lock, 'mounted', 'expand'/'collapse' (widen
+  // the view over Apple's page while open), 'focus-apple-next'/'focus-apple-prev' (Tab out)
+  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
 
   // Pin and lock exclude each other, as in the DS5 app: keeping it open unlocks it, locking it
   // unpins it. -> the new { pinned, locked } after toggling `which` ('pin' | 'lock')
@@ -197,9 +204,12 @@
   }
   const css = (rgb, a) => 'rgba(' + rgb.map((v) => Math.round(v)).join(',') + ',' + (a === undefined ? 1 : +a.toFixed(3)) + ')'
 
+  // alpha 0.9: the rail is its own view, and a blur can't reach Apple's view under it, so the tint
+  // over Apple's page is nearly opaque to keep busy art from showing through the words (measured:
+  // the window shows exactly the CSS alpha, so the contrast maths below holds on screen)
   const BASE = {
-    dark: { glass: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, alpha: 0.78 },
-    light: { glass: [248, 248, 250], text: [29, 29, 31], soft: 0.20, tint: 0.10, alpha: 0.80 }
+    dark: { glass: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, alpha: 0.9 },
+    light: { glass: [248, 248, 250], text: [29, 29, 31], soft: 0.20, tint: 0.10, alpha: 0.9 }
   }
   const DEFAULT_ACCENT = [250, 45, 72]   // Apple Music's red, when there's no album colour
 
@@ -246,7 +256,7 @@
   }
 
   const api = {
-    RAIL, ITEMS, COMMANDS, railLayout, roomCss, initialView, viewReduce, isOpen, railKey,
+    RAIL, ITEMS, COMMANDS, railLayout, viewBounds, initialView, viewReduce, isOpen, railKey,
     railItems, pinItem, lockItem, toggleFlags, railStatus, devBadge, glassTheme, contrast, worstContrast, hexRgb
   }
   if (typeof module === 'object' && module.exports) module.exports = api

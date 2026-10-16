@@ -1,18 +1,18 @@
-// Sonata's navigation rail in Apple's page (see rail-model.js for the behaviour, rail.css for
-// the look). main.js runs this in the main window's ISOLATED world (999, the one the preload
-// lives in) on every page load, after SonataRailModel and SONATA_RAIL_CSS. Apple's own scripts
-// run in the main world: they can't see this code, its objects or the bridge, and the rail sits
-// in a CLOSED shadow root, so Apple's CSS can't style it and its CSS can't style Apple.
-// Talks to main only through the preload's sonataRailBridge (ipcRenderer, isolated world only).
+// Sonata's navigation rail (see rail-model.js for the behaviour, rail.css for the look). Runs in
+// rail.html, the rail's OWN view in the main window (a WebContentsView beside Apple's page, local,
+// sandboxed, contextIsolation on, no Node): Apple's page and the rail share nothing but the window.
+// Main sizes the two views: Apple's page gets the window minus the rail's room, so nothing of
+// Apple's ever sits under the rail. To open over Apple's page (hover or keyboard focus, unpinned)
+// the rail asks main to widen its view ('expand'), slides its panel in, and once it has slid out
+// again asks to narrow it ('collapse').
+// Talks to main only through the preload's sonataRailBridge (preload-rail-view.js).
 // No timers, no animation frames, no polling: it redraws only when main sends a new state, the
-// pointer enters or leaves, focus moves, a key is pressed, or the colour scheme changes.
+// pointer enters or leaves, focus moves, a key is pressed, a slide ends, or the colour scheme changes.
 ;(function () {
   'use strict'
   const M = globalThis.SonataRailModel
   const bridge = globalThis.sonataRailBridge
-  const CSS = globalThis.SONATA_RAIL_CSS
-  // one rail per document (a second injection into the same page is a no-op)
-  if (!M || !bridge || typeof CSS !== 'string' || globalThis.__sonataRail) return
+  if (!M || !bridge || globalThis.__sonataRail) return
 
   const doc = document
   const SVG = 'http://www.w3.org/2000/svg'
@@ -48,19 +48,7 @@
     return e
   }
 
-  // --- the host: fixed to the right edge, above Apple's chrome (9901) and below its modals (10001).
-  // CSSOM with !important (not a style attribute): Apple's rules can't move it.
-  const host = doc.createElement('sonata-rail')
-  const hostStyle = {
-    all: 'initial', display: 'block', position: 'fixed', top: '0', right: '0', bottom: '0', left: 'auto',
-    width: M.RAIL.expanded + 'px', height: 'auto', margin: '0', padding: '0', border: '0', 'z-index': '10000',
-    'pointer-events': 'none', contain: 'layout style', transform: 'none', opacity: '1', visibility: 'visible'
-  }
-  for (const k in hostStyle) host.style.setProperty(k, hostStyle[k], 'important')
-  const root = host.attachShadow({ mode: 'closed' })
-  const sheet = new CSSStyleSheet()
-  sheet.replaceSync(CSS)
-  root.adoptedStyleSheets = [sheet]
+  const root = doc   // the rail's own page (kept as `root` for the test hook)
 
   // --- the DOM, built once; render() only changes attributes and text ---
   const panel = el('nav', 'panel')
@@ -113,7 +101,7 @@
   buttons.push(lockBtn)
   footer.append(statusList, pinBtn, lockBtn)
   panel.append(nav, footer)
-  root.appendChild(panel)
+  doc.body.appendChild(panel)
 
   // --- state ---
   let state = null          // from main (rail:state)
@@ -149,12 +137,29 @@
     for (const k in t.vars) panel.style.setProperty(k, t.vars[k])
   }
 
+  // the view's width follows the panel: widen before sliding open, narrow after sliding shut
+  let sliding = false   // a transform transition is running
+  let asked = ''        // the last expand/collapse sent, until main's state answers it
+  const instant = () => getComputedStyle(panel).transitionDuration.split(',').every((d) => parseFloat(d) === 0)
+  function syncWidth(mode, want) {
+    if (!state || mode === 'pinned') { asked = ''; return }
+    const wide = !!state.wide
+    if (want && !wide && asked !== 'expand') { asked = 'expand'; bridge.send('expand') }
+    else if (!want && wide && !panel.classList.contains('open') && !sliding && asked !== 'collapse') { asked = 'collapse'; bridge.send('collapse') }
+  }
+
   function render() {
     const mode = (state && state.mode) || 'collapsed'
     const locked = !!(state && state.locked)
-    const open = M.isOpen(mode, view, locked)
-    panel.classList.toggle('open', open)
+    const want = M.isOpen(mode, view, locked)
+    // open only once the view is wide enough to show it (pinned: always)
+    const open = want && (mode === 'pinned' || !!(state && state.wide))
+    if (open !== panel.classList.contains('open')) {
+      panel.classList.toggle('open', open)
+      sliding = mode !== 'pinned' && !instant()
+    }
     panel.classList.toggle('pinned', mode === 'pinned')
+    syncWidth(mode, want)
     panel.classList.toggle('locked', locked)
     renderTheme()
     if (!state) return
@@ -163,8 +168,8 @@
     const pin = M.pinItem(state)
     renderButton(pinBtn, pin)
     const ic = pinBtn.querySelector('.ic')
-    const want = state.pinned ? 'pinClose' : 'pinOpen'
-    if (ic.dataset.icon !== want) { ic.dataset.icon = want; ic.replaceChildren(icon(want)) }
+    const pwant = state.pinned ? 'pinClose' : 'pinOpen'
+    if (ic.dataset.icon !== pwant) { ic.dataset.icon = pwant; ic.replaceChildren(icon(pwant)) }
     renderButton(lockBtn, M.lockItem(state))
     const lic = lockBtn.firstChild
     const lwant = state.locked ? 'lock' : 'unlock'
@@ -210,20 +215,23 @@
     update(e.target.matches(':focus-visible') ? 'focus-visible' : 'focus-pointer')
   })
   panel.addEventListener('focusout', (e) => {
-    if (!e.relatedTarget || !root.contains(e.relatedTarget)) update('blur')
+    if (!e.relatedTarget || !panel.contains(e.relatedTarget)) update('blur')
   })
-  // Enter/Space activate our buttons natively; Apple's page must not see them (its Space is
-  // play/pause and cancels the key, which would cancel the button's click)
-  const ownKey = (e) => (e.key === ' ' || e.key === 'Enter') && !e.ctrlKey && !e.altKey && !e.metaKey
-  // lifetime: panel keyup · one · only stops Enter/Space from reaching Apple's handlers
-  panel.addEventListener('keyup', (e) => { if (ownKey(e)) e.stopPropagation() })
-  // lifetime: panel keydown · one · arrows/Home/End move focus (roving tabindex), Esc closes
+  // lifetime: panel transitionend/transitioncancel · one each · the slide is over: narrow the view if it closed
+  const slideDone = (e) => { if (e.target === panel && e.propertyName === 'transform') { sliding = false; render() } }
+  panel.addEventListener('transitionend', slideDone)
+  panel.addEventListener('transitioncancel', slideDone)
+  // lifetime: panel keydown · one · arrows/Home/End move focus (roving tabindex), Esc closes, Tab and
+  // Shift+Tab hand focus back to Apple's page (the rail is one Tab stop between the two views)
   panel.addEventListener('keydown', (e) => {
-    if (ownKey(e)) { e.stopPropagation(); return }
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault()
+      bridge.send(e.shiftKey ? 'focus-apple-prev' : 'focus-apple-next')
+      return
+    }
     const k = M.railKey(e.key, focusIndex, buttons.length, { ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey })
     if (!k) return
     e.preventDefault()
-    e.stopPropagation()   // Apple's page doesn't see our arrow keys
     if (k.action === 'escape') { update('escape'); return }
     focusIndex = k.index
     buttons.forEach((b, i) => { b.tabIndex = i === focusIndex ? 0 : -1 })
@@ -243,49 +251,28 @@
   // lifetime: one 'change' listener on the colour-scheme query · fires on theme switches only (Ctrl+D, desktop theme)
   darkQuery.addEventListener('change', () => { themeKey = ''; render() })
 
-  // --- attach, and stay attached: Apple's SPA re-renders <body> children; if the host is removed
-  // (or <body> itself replaced) it goes back. It goes FIRST in <body>: the rail is one Tab stop
-  // (roving focus inside), reached with one Tab from the top of the page or Shift+Tab from Apple's
-  // first link, instead of after the ~480 links of a logged-out page. ---
-  // loop: none · ONE MutationObserver, childList only (no subtree, no attributes) on <html> and <body> ·
-  // fires only when Apple adds/removes direct children of those two (route shells, modals: a few per
-  // navigation, none while idle) · cost one isConnected check per batch · lives as long as the document
-  let observedBody = null
-  let rebinds = 0       // a new <body> observed (1 = the first one)
-  let reattached = 0    // the host put back after Apple removed it
-  const observer = new MutationObserver(() => ensureAttached())
-  function ensureAttached() {
-    const body = doc.body
-    if (!body) return
-    if (host.parentNode !== body) {
-      if (observedBody) reattached++
-      body.prepend(host)
-    }
-    if (observedBody !== body) {
-      observer.disconnect()
-      observer.observe(doc.documentElement, { childList: true })
-      observer.observe(body, { childList: true })
-      observedBody = body
-      rebinds++
-    }
-  }
-  ensureAttached()
   render()
 
   // state from main; the first one arrives right after 'mounted'
   bridge.onState((s) => {
+    if (!state || !!state.wide !== !!(s && s.wide)) asked = ''
     state = s
     if (state && state.mode === 'pinned' && view.picked) view = M.initialView()
     render()
   })
+  // main hands keyboard focus over (Tab or Shift+Tab out of Apple's page, F6): the current item
+  bridge.onFocus(() => {
+    buttons[focusIndex].focus({ focusVisible: true })
+    update('key')
+  })
   bridge.send('mounted')
 
-  // test hook, in this isolated world only (Apple's main world can't see it): the UI tests read
-  // the shadow root, the view and the counts through it (remote debugging, isolated context)
+  // test hook (the rail's own page; Apple's page is another view and can't reach it): the UI tests
+  // read the DOM, the view and the counts through it over remote debugging
   globalThis.__sonataRail = Object.freeze({
-    root, host, panel, query: darkQuery,
+    root, panel, query: darkQuery,
     view: () => Object.assign({}, view),
     state: () => state,
-    counts: () => ({ observers: 1, observerTargets: 2, listeners: 9, observerRebinds: rebinds, reattached, hosts: doc.querySelectorAll('sonata-rail').length })
+    counts: () => ({ observers: 0, listeners: 9, panels: doc.querySelectorAll('.panel').length })
   })
 })()

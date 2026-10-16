@@ -19,14 +19,24 @@ test('layout: pinned takes its full width while Apple keeps >= 800 px, else floa
   assert.deepEqual(M.railLayout(undefined, true), { mode: 'floating', room: 52 })
 })
 
-test('room CSS: narrows the root and the vw-sized player bar by the room, nothing at 0', () => {
-  assert.equal(M.roomCss(0), '')
-  assert.equal(M.roomCss(-5), '')
-  assert.equal(M.roomCss('x'), '')
-  const css = M.roomCss(196)
-  assert.match(css, /html\{width:calc\(100% - 196px\) !important\}/)
-  assert.match(css, /\.player-bar\{width:calc\(100vw - var\(--web-navigation-width, 0px\) - 196px\) !important\}/)
-  assert.match(M.roomCss(51.6), /100% - 52px/)
+test('view bounds: Apple gets the window minus the room; the rail sits at the right edge, on top', () => {
+  assert.deepEqual(M.viewBounds(1100, 760, false, false), { mode: 'collapsed', room: 52, apple: { x: 0, y: 0, width: 1048, height: 760 }, rail: { x: 1048, y: 0, width: 52, height: 760 } })
+  // open over the page (unpinned): the rail view widens over Apple's, Apple keeps its size
+  assert.deepEqual(M.viewBounds(1100, 760, false, true), { mode: 'collapsed', room: 52, apple: { x: 0, y: 0, width: 1048, height: 760 }, rail: { x: 904, y: 0, width: 196, height: 760 } })
+  // pinned: side by side, nothing overlaps
+  assert.deepEqual(M.viewBounds(1100, 760, true, false), { mode: 'pinned', room: 196, apple: { x: 0, y: 0, width: 904, height: 760 }, rail: { x: 904, y: 0, width: 196, height: 760 } })
+  assert.deepEqual(M.viewBounds(1100, 760, true, true).apple.width, 904)
+  // too narrow to pin: floats like unpinned
+  assert.deepEqual(M.viewBounds(900, 600, true, false).rail, { x: 848, y: 0, width: 52, height: 600 })
+  assert.deepEqual(M.viewBounds(900, 600, true, true).rail, { x: 704, y: 0, width: 196, height: 600 })
+  // never negative, rounded; Apple's view and the rail's room always add up to the window
+  assert.deepEqual(M.viewBounds(30.4, -5, false, false), { mode: 'collapsed', room: 52, apple: { x: 0, y: 0, width: 0, height: 0 }, rail: { x: 0, y: 0, width: 30, height: 0 } })
+  for (const w of [800, 995, 996, 1100, 1600, 3840]) for (const p of [false, true]) for (const wide of [false, true]) {
+    const b = M.viewBounds(w, 700, p, wide)
+    assert.equal(b.apple.width + b.room, w)
+    assert.equal(b.rail.x + b.rail.width, w)
+    if (!wide || b.mode === 'pinned') assert.equal(b.rail.x, b.apple.width, 'no overlap unless open over the page')
+  }
 })
 
 test('open state: hover opens, a pointer pick closes until the pointer leaves and returns', () => {

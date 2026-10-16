@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components, net } = require('electron')
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, dialog, clipboard, Notification, components, net } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -119,7 +119,7 @@ function toggleTheme() {
 }
 
 function mainAlive() {
-  return mainWindow && !mainWindow.isDestroyed()
+  return !!(mainWindow && !mainWindow.isDestroyed() && appleView && !appleView.webContents.isDestroyed())
 }
 
 // Only hand web/mail links to the OS. The main window shows remote web
@@ -200,7 +200,7 @@ function playerCommand(command) {
       clickPageButton(/up next|queue/i);
     })();`
   }
-  mainWindow.webContents.executeJavaScript(scripts[command])
+  appleWC().executeJavaScript(scripts[command])
     .catch((e) => console.error('player command failed:', command, e.message))
 }
 
@@ -275,7 +275,7 @@ function createMiniWindow() {
     miniPoll = setInterval(async () => {
       if (!mainAlive() || !miniWindow) return
       try {
-        const state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+        const state = await appleWC().executeJavaScript(nowPlayingScript)
         if (!miniWindow || miniWindow.isDestroyed()) return
         miniWindow.webContents.send('now-playing', state)
         // refresh the favorite star only when the track changes (avoids an
@@ -283,7 +283,7 @@ function createMiniWindow() {
         const key = state && state.ok && state.title ? state.title + '|' + state.artist : ''
         if (key && key !== miniTrackKey) {
           miniTrackKey = key
-          const fav = await mainWindow.webContents.executeJavaScript(ratingFetchScript)
+          const fav = await appleWC().executeJavaScript(ratingFetchScript)
           if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('favorite-state', fav)
         }
         if (state && state.ok) refreshPalette(state)
@@ -387,7 +387,7 @@ const lyricsSources = require('./lyrics-sources')
 let lyricsStore = null
 const getLyrics = lyricsSources.createLyricsResolver({
   fetchApple: async (state) => {
-    const res = await mainWindow.webContents.executeJavaScript(state.queueOffset ? lyricsFetchScriptFor(state.queueOffset) : lyricsFetchScript)
+    const res = await appleWC().executeJavaScript(state.queueOffset ? lyricsFetchScriptFor(state.queueOffset) : lyricsFetchScript)
     return (res && res.ttml) || ''
   },
   store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
@@ -408,7 +408,7 @@ async function prefetchNextLyrics(currentKey) {
   if (prefetchedAfter === currentKey || !mainAlive()) return
   prefetchedAfter = currentKey
   try {
-    const next = await mainWindow.webContents.executeJavaScript(nextItemScript)
+    const next = await appleWC().executeJavaScript(nextItemScript)
     if (next && next.ok && next.title) await getLyrics(Object.assign(next, { queueOffset: 1 }))
   } catch (e) { /* prefetch is best effort */ }
 }
@@ -526,7 +526,7 @@ async function lyricsTick() {
   if (!mainAlive() || !lyricViews().length) return
   let state
   try {
-    state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+    state = await appleWC().executeJavaScript(nowPlayingScript)
   } catch (e) { return }
   if (!state || !state.ok || !lyricViews().length) return
 
@@ -641,13 +641,13 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     mainWindow.focus()
     // open the playing album through the page's own album link (client-side routing, so playback
     // goes on); without such a link on screen the window is only shown
-    mainWindow.webContents.executeJavaScript(showAlbumScript)
+    appleWC().executeJavaScript(showAlbumScript)
       .catch((e) => console.error('show album failed:', e.message))
   }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainWindow) {
-      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
+      appleWC().executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
         .catch((e) => console.error('lyrics seek failed:', e.message))
     }
   }
@@ -755,7 +755,7 @@ const trackInfoScript = `(async () => {
 
 function musicApiCall(script, label) {
   if (!mainAlive()) return
-  mainWindow.webContents.executeJavaScript(script)
+  appleWC().executeJavaScript(script)
     .catch((e) => console.error(label + ' failed:', e.message))
 }
 
@@ -811,7 +811,7 @@ async function showMoreMenu() {
   if (!mainAlive() || !miniWindow || miniWindow.isDestroyed()) return
   let info = null
   try {
-    info = await mainWindow.webContents.executeJavaScript(trackInfoScript)
+    info = await appleWC().executeJavaScript(trackInfoScript)
   } catch (e) { return }
   if (!info || !info.ok) return
 
@@ -981,7 +981,7 @@ ipcMain.on('mini-command', (event, command, value) => {
   }
   else if (command === 'toggleFavorite') {
     if (mainAlive()) {
-      mainWindow.webContents.executeJavaScript(toggleFavoriteScript)
+      appleWC().executeJavaScript(toggleFavoriteScript)
         .then((res) => {
           if (res && res.ok && miniWindow && !miniWindow.isDestroyed()) {
             miniWindow.webContents.send('favorite-state', res)
@@ -993,14 +993,14 @@ ipcMain.on('mini-command', (event, command, value) => {
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainAlive()) {
-      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
+      appleWC().executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
         .catch((e) => console.error('seek failed:', e.message))
     }
   }
   else if (command === 'setVolume') {
     const volume = Math.min(1, Math.max(0, Number(value) || 0))
     if (mainAlive()) {
-      mainWindow.webContents.executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
+      appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
         .catch((e) => console.error('set volume failed:', e.message))
     }
   }
@@ -1040,7 +1040,7 @@ function startNowPlayingLoop() {
     if ((!wantLastfm && !wantDiscord && !wantNotify && !tray) || !mainAlive()) return
     let state
     try {
-      state = await mainWindow.webContents.executeJavaScript(nowPlayingScript)
+      state = await appleWC().executeJavaScript(nowPlayingScript)
     } catch (e) {
       return
     }
@@ -1378,52 +1378,60 @@ function createTray() {
 
 const appUrl = 'https://music.apple.com/'
 
-// Our CSS for Apple's page: the native-app upsell hidden, plus the rail's room (Apple's layout
-// narrowed by the rail's width, rail-model.js roomCss) once the rail is up in this document.
-const baseCss = '.web-navigation__native-upsell {display: none !important;}'
-const customCss = () => baseCss + (railMounted ? railModel.roomCss(railRoom) : '')
+// Our CSS for Apple's page: the native-app upsell hidden.
+const customCss = '.web-navigation__native-upsell {display: none !important;}'
 let applyCustomCss = () => {}
 
-// --- navigation rail in the main window (rail-model.js, rail-ui.js, rail.css, preload-rail.js) ---
-// The rail lives in Apple's page, in a closed shadow root, run in the preload's isolated world.
-// Main owns its state (which windows are open, the pin, connections, the album accent) and sends
-// it only when it changes; the rail sends back command names, checked here.
-let railMounted = false   // the rail said 'mounted' in the current document
-let railRoom = 0          // px of the window the rail takes from Apple's page (applied CSS)
+// --- the main window: two views, Apple's page and the navigation rail ---
+// mainWindow is a BaseWindow holding two WebContentsViews side by side: Apple's page (appleView) and
+// the rail (railView, rail.html, on top). Apple's view is the window minus the rail's room
+// (rail-model.js viewBounds), so Apple's own layout, its vw units, fixed panels (lyrics, queue),
+// sheets, menus and toasts end at the rail by themselves. While the unpinned rail is open over the
+// page (hover or keyboard focus), its view widens over Apple's ("wide") and narrows once it has
+// slid shut. Both views are sandboxed with contextIsolation; only the rail view loads local code.
+let appleView = null
+let railView = null
+function appleWC() { return appleView.webContents }
+function railAlive() { return !!(railView && !railView.webContents.isDestroyed()) }
+
+// --- navigation rail state (rail-model.js, rail-ui.js, rail.css, rail.html, preload-rail-view.js) ---
+// Main owns its state (which windows are open, the pin and lock, connections, the album accent,
+// whether its view is wide) and sends it only when it changes; the rail sends back command names,
+// checked here.
+let railMounted = false   // rail.html said 'mounted'
+let railWide = false      // the rail view is widened over Apple's page (unpinned, open)
 let railSent = ''         // the last state sent, as JSON
-let railCode = null       // the scripts injected per page load (read once)
-function railScripts() {
-  if (!railCode) {
-    const read = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8')
-    railCode = [
-      { code: 'globalThis.SONATA_RAIL_CSS = ' + JSON.stringify(read('rail.css')) + ';' },
-      { code: read('rail-model.js') },
-      { code: read('rail-ui.js') }
-    ]
-  }
-  return railCode
-}
-// error: an injection that fails (page torn down mid-load) is logged; the next load injects again,
-// and without 'mounted' Apple's page keeps its full width (no empty strip)
-function injectRail() {
-  if (!mainAlive()) return
-  try {
-    mainWindow.webContents.executeJavaScriptInIsolatedWorld(999, railScripts())
-      .catch((e) => console.error('rail: inject failed:', e.message))
-  } catch (e) { console.error('rail: inject failed:', e.message) }
-}
+let railBoundsKey = ''    // the last bounds applied, as JSON
+let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
 function railPrecise() {
   if (!settings.lyricsPreciseTiming) return 'off'
   if (!alignInstalled()) return 'missing'
   return alignHelper && alignHelper.running ? 'busy' : 'ready'
 }
+function contentSize() {
+  const b = mainWindow.getContentBounds()
+  return [b.width, b.height]
+}
+// Sizes the two views for the window, the pin and the rail's open state. Cheap when nothing changed
+// (one bounds read and a string compare).
+function layoutViews() {
+  if (!mainAlive() || !railAlive()) return
+  const [w, h] = contentSize()
+  const b = railModel.viewBounds(w, h, !!settings.railPinned, railWide && !settings.railLocked)
+  const key = JSON.stringify(b)
+  if (key === railBoundsKey) return
+  railBoundsKey = key
+  appleView.setBounds(b.apple)
+  railView.setBounds(b.rail)
+}
 function railSnapshot() {
-  const layout = railModel.railLayout(mainWindow.getContentSize()[0], !!settings.railPinned)
+  const layout = railModel.railLayout(contentSize()[0], !!settings.railPinned)
   return {
     pinned: !!settings.railPinned,
     locked: !!settings.railLocked,
     mode: layout.mode,
     room: layout.room,
+    wide: railWide && layout.mode !== 'pinned' && !settings.railLocked,
     open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow, settings: !!settingsWindow },
     keys: { lyrics: LYRICS_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
@@ -1434,17 +1442,19 @@ function railSnapshot() {
     palette: lastPalette && settings.adaptiveColor ? { accent: lastPalette.accent } : null
   }
 }
-// Sends the rail's state if it changed, and re-applies Apple's room if the rail's width changed.
-// Called on every event that can change it (windows, settings, connections, palette, resize, the
-// 5 s now-playing tick); unchanged state costs one small JSON.stringify and sends nothing.
+// Lays the views out and sends the rail's state if it changed. Called on every event that can change
+// it (windows, settings, connections, palette, resize, the 5 s now-playing tick); unchanged state
+// costs one small JSON.stringify and sends nothing.
 function pushRail() {
-  if (!railMounted || !mainAlive()) return
+  if (!mainAlive() || !railAlive()) return
+  if (settings.railPinned || settings.railLocked) railWide = false
+  layoutViews()
+  if (!railMounted) return
   const s = railSnapshot()
-  if (s.room !== railRoom) { railRoom = s.room; applyCustomCss() }
   const json = JSON.stringify(s)
   if (json === railSent) return
   railSent = json
-  mainWindow.webContents.send('rail:state', s)
+  railView.webContents.send('rail:state', s)
 }
 // Pin (Ctrl+B) and lock exclude each other, as in the DS5 app (rail-model.js toggleFlags)
 function toggleRailFlag(which) {
@@ -1455,13 +1465,47 @@ function toggleRailFlag(which) {
   pushRail()
 }
 function toggleRailPin() { toggleRailFlag('pin') }
+
+// --- keyboard focus between the two views ---
+// Into the rail: Tab past either end of Apple's page (apple-focus.js stops), or F6. Out of it: Tab
+// (Apple's first control), Shift+Tab (its last), F6 (where Apple's focus was).
+let railFocused = false
+function focusRail() {
+  if (!mainAlive() || !railAlive()) return
+  railView.webContents.focus()
+  railView.webContents.send('rail:take-focus')
+}
+// error: a failing injection (page mid-navigation) only leaves the focus in the window; logged
+function focusApple(where) {
+  if (!mainAlive()) return
+  const code = 'globalThis.__sonataFocus ? globalThis.__sonataFocus.focusApple(' + JSON.stringify(where) + ') : false'
+  // the target is focused first (inside Apple's page), then the view: the page never lands back on a stop
+  appleWC().executeJavaScriptInIsolatedWorld(999, [{ code }])
+    .catch((e) => console.error('rail: focus handoff failed:', e.message))
+    .finally(() => { if (mainAlive()) appleWC().focus() })
+}
+function toggleViewFocus() {
+  if (railFocused) focusApple('restore')
+  else focusRail()
+}
+function injectFocusStops() {
+  if (!mainAlive()) return
+  if (!focusCode) focusCode = fs.readFileSync(path.join(__dirname, 'apple-focus.js'), 'utf8')
+  appleWC().executeJavaScriptInIsolatedWorld(999, [{ code: focusCode }])
+    .catch((e) => console.error('rail: focus stops failed:', e.message))
+}
+
 // lifetime: registered once at module load (like every ipcMain handler here)
-// error: a command not from the main window's top frame, or not one of the rail's names, is dropped
+// error: a command not from the rail view's top frame, or not one of the rail's names, is dropped
 ipcMain.on('rail:command', (event, command) => {
-  if (!mainAlive() || event.sender !== mainWindow.webContents) return
+  if (!mainAlive() || !railAlive() || event.sender !== railView.webContents) return
   if (!event.senderFrame || event.senderFrame.parent) return
   if (!railModel.COMMANDS.includes(command)) return
-  if (command === 'mounted') { railMounted = true; railSent = ''; railRoom = 0; pushRail() }
+  if (command === 'mounted') { railMounted = true; railSent = ''; pushRail() }
+  else if (command === 'expand') { if (!settings.railLocked && !settings.railPinned) { railWide = true; pushRail() } }
+  else if (command === 'collapse') { railWide = false; pushRail() }
+  else if (command === 'focus-apple-next') focusApple('next')
+  else if (command === 'focus-apple-prev') focusApple('prev')
   else if (command === 'lyrics') toggleLyricsWindow()
   else if (command === 'visualizer') toggleVisualizer()
   else if (command === 'mini') toggleMiniPlayer()
@@ -1469,6 +1513,40 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'pin') toggleRailPin()
   else if (command === 'lock') toggleRailFlag('lock')
 })
+// lifetime: registered once at module load
+// error: only from Apple's view, top frame; anything else is dropped
+ipcMain.on('rail:focus-in', (event) => {
+  if (!mainAlive() || event.sender !== appleWC()) return
+  if (!event.senderFrame || event.senderFrame.parent) return
+  focusRail()
+})
+
+// The keys both views share (Apple's page and the rail): reload, theme, mini player, pin, lyrics,
+// visualizer, back/forward, F6 to move between the two views
+function windowShortcut(input) {
+  if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'r') {
+    appleWC().reload()
+  }
+  else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'd') {
+    toggleTheme()
+  }
+  else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
+    toggleMiniPlayer()
+  }
+  else if (input.type === 'keyUp' && input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'b') {
+    toggleRailPin()   // Ctrl+B (the rail's tooltip names it: rail-model.js pinItem)
+  }
+  else if (input.type === 'keyUp' && input.key === 'F6' && !input.control && !input.alt) {
+    toggleViewFocus()
+  }
+  else if (viewShortcut(input)) return
+  else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
+    if (appleWC().navigationHistory.canGoBack()) appleWC().navigationHistory.goBack()
+  }
+  else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowRight') {
+    if (appleWC().navigationHistory.canGoForward()) appleWC().navigationHistory.goForward()
+  }
+}
 
 function createWindow() {
   Menu.setApplicationMenu(null)
@@ -1478,21 +1556,30 @@ function createWindow() {
     width: 1000, height: 600, minWidth: 800, minHeight: 500,
     show: !(settings.startMinimized || process.argv.includes('--hidden')),
     title: appName,
-    // the rail's bridge only (preload-rail.js); the security defaults are spelled out, unchanged:
-    // Apple's page gets no Node, the preload is sandboxed and isolated from the page's scripts
-    webPreferences: {
-      preload: path.join(__dirname, 'preload-rail.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false
-    }
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ffffff'
   }
   if (b && b.width >= 800 && b.height >= 500) {
     Object.assign(opts, { width: b.width, height: b.height })
     if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
   }
-  mainWindow = new BrowserWindow(opts)
-  mainWindow.loadURL(appUrl + locale.toLowerCase() + '/browse')
+  mainWindow = new BaseWindow(opts)
+  // Apple's page: its preload is only the focus bridge to the rail (preload-apple.js); the security
+  // defaults are spelled out, unchanged: no Node, sandboxed, isolated from the page's scripts
+  appleView = new WebContentsView({
+    webPreferences: { preload: path.join(__dirname, 'preload-apple.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+  })
+  // the rail: a local page, sandboxed and isolated too, transparent where it has nothing to draw
+  railView = new WebContentsView({
+    webPreferences: { preload: path.join(__dirname, 'preload-rail-view.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+  })
+  railView.setBackgroundColor('#00000000')
+  mainWindow.contentView.addChildView(appleView)
+  mainWindow.contentView.addChildView(railView)   // added last: on top
+  layoutViews()
+  appleWC().loadURL(appUrl + locale.toLowerCase() + '/browse')
+  railView.webContents.loadFile('rail.html')
+  lockDownLocalWindow(railView)
+  appleWC().focus()
 
   // remember size/position across launches (debounced)
   const rememberBounds = () => {
@@ -1505,80 +1592,72 @@ function createWindow() {
   // loop: main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
   mainWindow.on('resize', rememberBounds)
   mainWindow.on('move', rememberBounds)
-  // lifetime: one resize listener for the rail, dies with the window · per resize event one
-  // getContentSize + compare; the room CSS and the state go out only when the rail's mode changes
-  // (a pinned rail floats below 996 px and takes its room back above)
+  // lifetime: one listener each for the views' layout, die with the window · per event one bounds
+  // read + compare; setBounds only when the size or the rail's mode changed (a pinned rail floats
+  // below 996 px). Maximize and fullscreen arrive as resizes; the fullscreen events are listened to
+  // as well in case a window manager resizes before announcing them.
   mainWindow.on('resize', pushRail)
-
-  // lifetime: createWindow runs once (plus macOS 'activate' with no windows), so the main window's
-  // webContents/window listeners below are registered once and die with the window
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'r') {
-      mainWindow.reload();
-    }
-    else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'd') {
-      toggleTheme()
-    }
-    else if (input.type === 'keyUp' && input.control && input.key.toLowerCase() === 'm') {
-      toggleMiniPlayer()
-    }
-    else if (input.type === 'keyUp' && input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'b') {
-      toggleRailPin()   // Ctrl+B (the rail's tooltip names it: rail-model.js pinItem)
-    }
-    else if (viewShortcut(input)) return
-    else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowLeft') {
-      if (mainWindow.webContents.navigationHistory.canGoBack()) {
-        mainWindow.webContents.navigationHistory.goBack()
-      }
-    }
-    else if (input.type === 'keyUp' && input.alt && input.key === 'ArrowRight') {
-      if (mainWindow.webContents.navigationHistory.canGoForward()) {
-        mainWindow.webContents.navigationHistory.goForward()
-      }
-    }
+  mainWindow.on('enter-full-screen', pushRail)
+  mainWindow.on('leave-full-screen', pushRail)
+  // lifetime: one listener · the window's focus goes to the view that had it (a BaseWindow has no
+  // web contents of its own)
+  mainWindow.on('focus', () => {
+    if (!mainAlive()) return
+    if (railFocused && railAlive()) railView.webContents.focus()
+    else appleWC().focus()
   })
+
+  // lifetime: createWindow runs once (plus macOS 'activate' with no windows), so the views' and the
+  // window's listeners below are registered once and die with them
+  appleWC().on('before-input-event', (event, input) => windowShortcut(input))
+  railView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
+  appleWC().on('focus', () => { railFocused = false })
+  railView.webContents.on('focus', () => { railFocused = true })
+  // the rail page loading again (it never navigates; only a reload after a renderer crash): it says 'mounted' again
+  railView.webContents.on('did-start-loading', () => { railMounted = false; railSent = '' })
 
   // back/forward mouse buttons
   mainWindow.on('app-command', (event, command) => {
-    if (command === 'browser-backward' && mainWindow.webContents.navigationHistory.canGoBack()) {
-      mainWindow.webContents.navigationHistory.goBack()
+    if (command === 'browser-backward' && appleWC().navigationHistory.canGoBack()) {
+      appleWC().navigationHistory.goBack()
     }
-    else if (command === 'browser-forward' && mainWindow.webContents.navigationHistory.canGoForward()) {
-      mainWindow.webContents.navigationHistory.goForward()
+    else if (command === 'browser-forward' && appleWC().navigationHistory.canGoForward()) {
+      appleWC().navigationHistory.goForward()
     }
   })
 
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  appleWC().on('will-navigate', (event, url) => {
     if (!url.startsWith(appUrl)) {
       event.preventDefault()
       openExternalSafe(url)
     }
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  appleWC().setWindowOpenHandler(({ url }) => {
     openExternalSafe(url)
     return { action: 'deny' }
   });
 
   // lifetime: FIXED — this used to call insertCSS directly, which adds a new stylesheet every time;
   // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
-  applyCustomCss = createCssReplacer(mainWindow.webContents, customCss)
-  mainWindow.webContents.on('did-navigate', () => {
-    // a new document (load, reload): no rail in it until it says 'mounted', so no room either
-    railMounted = false
-    railRoom = 0
-    railSent = ''
+  applyCustomCss = createCssReplacer(appleWC(), customCss)
+  appleWC().on('did-navigate', () => {
     applyCustomCss()
   });
 
-  // lifetime: one dom-ready listener, dies with the window · per page load (not per SPA route
-  // change: Apple's routes keep the document, and the rail re-attaches itself) one injection
-  mainWindow.webContents.on('dom-ready', injectRail)
+  // lifetime: one dom-ready listener, dies with the view · per Apple page load (not per SPA route
+  // change: Apple's routes keep the document) one injection of the focus stops
+  appleWC().on('dom-ready', injectFocusStops)
 
-  mainWindow.webContents.on('page-title-updated', () => {
+  appleWC().on('page-title-updated', () => {
     applyCustomCss()
     mainWindow.setTitle(appName);
   });
+
+  // lifetime: a BaseWindow doesn't destroy its views' web contents; they are closed here
+  mainWindow.on('closed', () => {
+    for (const v of [appleView, railView]) if (v && !v.webContents.isDestroyed()) v.webContents.close()
+  })
 
   mainWindow.on("close", (e) => {
     // close-to-tray: hide instead of quitting (tray "Quit" bypasses via app.exit)

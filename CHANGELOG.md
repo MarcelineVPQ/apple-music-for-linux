@@ -7,6 +7,18 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.31] — The rail never covers Apple's page
+
+### Fixed
+
+- **A pinned rail no longer covers Apple's lyrics or queue panel.** The rail now has a space of its own beside Apple's page instead of sitting inside it. Apple's page is simply narrower by the rail's width, so everything Apple shows (its lyrics and queue panels, the full-screen player, sheets, menus and notices) ends where the rail begins, signed in or not. Unpinned, the rail keeps its slim icon column and opens over the page when you point at it, then gives the space back.
+
+### Changed
+
+- **Keyboard between the page and the rail.** Tab past the last item of Apple's page, or Shift+Tab before its first, moves into the rail. Tab or Shift+Tab leaves the rail again. **F6** jumps between the page and the rail. Ctrl+B and the other shortcuts work wherever the keyboard is.
+- **The rail's surface is a tint without blur.** A blur can't reach across to Apple's page any more, so the open rail is a nearly solid (90 %) album-coloured tint over the page, and fully solid where it has its own space. Labels keep at least 4.5:1 contrast.
+- The rail runs in its own small process (about 34 MB). Sign-in, cookies and settings are unchanged; you stay signed in.
+
 ## [0.15.30] — Rail lock and centred countdown
 
 ### Added

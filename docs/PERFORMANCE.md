@@ -142,42 +142,54 @@ written at most 4×/s and only when it moved. The spin (off by default) is a com
 CSS rotation: about +3.5 % in the software-GL GPU process, nothing in the renderer; it is
 paused while the window is hidden or the music is paused.
 
-## Navigation rail (unreleased, branch sonata-rail)
+## Navigation rail (0.15.29+; its own view since 0.15.31)
 
-The rail lives in Apple's page (closed shadow root, isolated world, see README). It has no
-loop of its own: no timer, no animation frame, no polling (`rail-ui.js` contains none; a unit
-test checks). It redraws only on a state push from main, pointer enter/leave, focus, keys and
+Since 0.15.31 the main window is a `BaseWindow` with two `WebContentsView`s: Apple's page and the
+rail (`rail.html`, on top). Apple's view is the window minus the rail's room, so nothing of Apple's
+can sit under the rail. The rail view widens over Apple's only while it is open there (hover or
+keyboard focus, unpinned) and narrows once it has slid shut. The rail has no loop of its own: no
+timer, no animation frame, no polling, no observer (`rail-ui.js` contains none; a unit test checks).
+It redraws only on a state push from main, pointer enter/leave, focus, keys, the end of a slide and
 a colour-scheme change.
 
 | Where | Thing | Verdict |
 |---|---|---|
-| rail-ui.js panel listeners | pointerenter/leave, focusin/out, keydown, keyup, click (7) + 1 colour-scheme `change` | added once per document, live with it; measured flat (8) through 50 open/close cycles, 50 navigations and 5 reloads |
-| rail-ui.js `MutationObserver` | the only one; `childList` on `<html>` and `<body>` (no subtree, no attributes) | fires only when Apple adds/removes direct children of those two; never fired during 50 in-app navigations (re-attachments 0). Removing the rail by script: back at once; replacing `<body>`: moves to the new one, observer re-bound, still one |
-| main.js `rail:command` | `ipcMain.on`, module load | 1 throughout; drops anything not from the main window's top frame or not a known command |
-| main.js `dom-ready` → `injectRail`, rail `resize` listener | main window listeners | registered once in `createWindow`; counts flat (dom-ready 1, resize 2 with the bounds saver) |
-| rail lock (0.15.30) | one more button in the rail | no new listener or timer (the panel's delegated click handles it); measured flat (8 listeners) through the same 50/50/5 loops on 0.15.30; locked, hover and focus change no transform |
-| main.js `pushRail` | state send | only on change (JSON compare); called from window open/close, settings, connections, palette, resize and the 5 s tick |
-| preload-rail.js | one `rail:state` listener per document | the preload runs once per page load |
+| main.js `createWindow` | `appleView` + `railView` | created once with the window; their web contents are closed on the window's `closed` (a BaseWindow doesn't do it). Measured: 2 views and 2 web contents throughout 50 open/close, 50 pin/unpin + hover, 50 navigation and 5 reload cycles |
+| main.js `layoutViews` / `pushRail` | view bounds + state send | only on change (bounds and state compared as JSON); called on resize, the two fullscreen events, window open/close, settings, connections, palette, expand/collapse and the 5 s tick |
+| main.js window listeners | resize ×2 (bounds saver + layout), move, close, closed, focus, enter/leave-full-screen, app-command | registered once in `createWindow`; counts flat |
+| main.js Apple view listeners | before-input-event, focus, will-navigate, did-navigate, dom-ready (focus stops), page-title-updated | once each, die with the view; counts flat |
+| main.js rail view listeners | before-input-event, focus, did-start-loading, will-navigate (lockdown) | once each, die with the view; counts flat |
+| main.js `rail:command`, `rail:focus-in` | `ipcMain.on`, module load | 1 each throughout; each checks its sender view and top frame (and the command list) |
+| rail-ui.js | pointerenter/leave, focusin/out, keydown, click, transitionend/cancel on the panel + 1 colour-scheme `change` | once per rail page load (the page never reloads in normal use); measured flat (9) |
+| preload-rail-view.js | one `rail:state` + one `rail:take-focus` listener | once per rail page load |
+| apple-focus.js (Apple's isolated world) | two focus stops (one `focus` listener each), one capturing `focusin` on the document, ONE `MutationObserver` (childList of `<body>`) | per Apple page load; keeps the stops first and last in `<body>`; measured: always exactly 2 stops |
+| preload-apple.js | no listener | only `send('rail:focus-in')` |
 
 Measured in the isolated app (packaged `dist/linux-unpacked`, Xvfb, throwaway HOME, logged-out
 Apple page, window 1100×760; `tools/rail-check.js`, CPU from `/proc`, % of one core, 60 s):
 
-| State | all Sonata processes | renderer | idle repaints (10 s) |
+| State (0.15.31) | all Sonata processes | renderers | idle repaints (10 s) |
 |---|---|---|---|
-| without the rail (combined-0.15.24 code, same build) | 0.43 % | 0.38 % | 0 frames |
-| rail unpinned, closed | 0.43 % | 0.37 % | 0 frames |
-| rail open on hover, pointer resting on it | 0.02 % | 0.02 % | 0 frames |
-| rail pinned | 0.05 % | 0.02 % | — |
+| without the rail (one-window build, same Electron) | 0.47 % | 0.42 % | — |
+| rail unpinned, closed | 0.53 % | 0.43 % | rail 0, Apple 0 |
+| rail open on hover, pointer resting on it | 0.03 % | 0.02 % | rail 0, Apple 0 |
+| rail pinned | 0.07 % | 0.02 % | rail 0, Apple 0 |
 
-The rail adds nothing measurable at idle; the 0.4 % in the first two rows is Apple's page
-under the pointer (the pointer rested on one of its cards there). Opening/closing on hover
-animates `transform` and `opacity` only: 20 crossings cost 2 layouts and 9 style recalcs in
-total (no per-frame layout). Crossing Apple's own cards costs ~10 layouts per crossing with or
-without the rail (Apple's hover effects).
+The difference at idle is within noise; the ~0.4 % in the first two rows is Apple's page under the
+pointer. The rail view is one more renderer process: **about 34 MB PSS** (Apple's renderer 307 MB vs
+345 MB in the one-window build at the same moment, so the total moved little). Hover open/close ×10:
+Apple's page 0 layouts (its view doesn't change), the rail page 3 layouts and 13 style recalcs in
+total (its viewport changes twice per cycle; the slide itself is transform-only).
 
-Loops (after a forced GC before each sample): 50× Lyrics open/close through the rail with real
-clicks: page JS listeners 7677 → 7675–7676, nodes 28.9 k flat, documents 2; main-process IPC
-handler and main-window listener counts unchanged, active timers 1 → 1.
+Loops (forced GC before each sample): 50× Lyrics open/close with real clicks, 50× pin/unpin (Ctrl+B)
++ hover open/close, 50 navigations, 5 reloads of Apple's page: rail page 9 listeners, 9 JS
+listeners, 98 nodes, 1 document throughout; Apple page JS listeners 7666–7667 over the open/close,
+pin and hover cycles; main-process IPC handler, window and view listener counts unchanged; 2 web
+contents; active timers 1 → 1.
+
+0.15.29–0.15.30 (rail inside Apple's page) measured the same idle cost and flat counts; that design
+is replaced because Apple's logged-in panels (lyrics, queue) are sized against the viewport and slid
+under a pinned rail.
 
 **Apple's page grows on in-app navigation, rail or not.** 50 navigations between New, Radio and
 Browse, GC'd: 15.5 k → 332 k DOM nodes and 5.3 k → 71.8 k listeners *without* the rail, 15.6 k →

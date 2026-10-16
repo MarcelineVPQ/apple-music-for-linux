@@ -1,9 +1,12 @@
-/* Sonata's navigation rail (rail-ui.js), inside its closed shadow root: Apple's CSS can't reach
-   in and nothing here reaches out. Colours come from rail-model.js glassTheme (one system: the
-   album accent over a light or dark glass, contrast checked) as --rail-* custom properties.
-   The panel is always its open width; closed, it is slid right so only the icon column shows.
-   Opening and closing only change transform and opacity (compositor-only, no layout). */
-:host { all: initial; }
+/* Sonata's navigation rail (rail-ui.js) in rail.html, its own view beside Apple's page. Colours
+   come from rail-model.js glassTheme (one system: the album accent over a light or dark glass,
+   contrast checked) as --rail-* custom properties. The panel is always its open width; closed, it
+   is slid right so only the icon column shows (the view is then only that wide). Opening and closing
+   only change transform and opacity (compositor-only, no layout).
+   Glass: a blur can't see through to another view, so the rail is a solid tinted surface where it
+   has room of its own, and a translucent tint (no blur, contrast still >= 4.5:1 over anything) while
+   it is open over Apple's page. */
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent; }
 
 .panel {
   position: absolute;
@@ -18,15 +21,15 @@
   color: var(--rail-text);
   font: 13px/1.25 "SF Pro Text", "SF Pro", -apple-system, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: var(--rail-glass);
-  -webkit-backdrop-filter: blur(18px) saturate(1.5);
-  backdrop-filter: blur(18px) saturate(1.5);
+  background: var(--rail-solid);
   transform: translateX(144px);
   transition: transform 0.18s ease;
   will-change: transform;
   user-select: none;
 }
 .panel.open { transform: none; }
+/* open over Apple's page: the translucent glass tint */
+.panel.open:not(.pinned) { background: var(--rail-glass); }
 /* the inner edge catches the light (DS5's specular rim, without pointer tracking: no idle work) */
 .panel::before {
   content: "";
@@ -198,9 +201,9 @@
   .link:active { transition: none; }
   .link:active { transform: none; }
 }
-/* reduce transparency: a solid surface */
+/* reduce transparency: solid everywhere */
 @media (prefers-reduced-transparency: reduce) {
-  .panel { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--rail-solid); }
+  .panel.open:not(.pinned) { background: var(--rail-solid); }
 }
 @media (prefers-contrast: more) {
   .panel { outline: 1px solid var(--rail-text); }
