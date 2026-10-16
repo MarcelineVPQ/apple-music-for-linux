@@ -2,13 +2,14 @@
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="lyrics-view.css">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; cursor: none; }
-  html, body { height: 100%; overflow: hidden; background: #000; }
+  html, body { height: 100%; overflow: hidden; background: var(--s-stage); }
   body {
     font-family: -apple-system, 'SF Pro Display', 'Segoe UI', Ubuntu, sans-serif;
-    color: #fff;
+    color: var(--s-stage-text);
     -webkit-app-region: drag;
   }
   #bg {
@@ -18,24 +19,24 @@
     transform: scale(1.2);
     transition: background-image 0.6s ease;
   }
-  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 28%, rgba(0,0,0,0.78) 100%); }
+  #vignette { position: fixed; inset: 0; background: radial-gradient(ellipse at center, transparent 28%, var(--s-stage-vignette) 100%); }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; }
   #meta {
     position: fixed; left: 40px; top: 40px;
     display: flex; align-items: center; gap: 16px;
-    text-shadow: 0 2px 20px rgba(0,0,0,0.8); pointer-events: none;
+    text-shadow: 0 2px 20px var(--s-stage-shade); pointer-events: none;
   }
-  #art { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; box-shadow: 0 10px 40px rgba(0,0,0,0.6); flex-shrink: 0; }
+  #art { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; box-shadow: 0 10px 40px var(--s-stage-shade-soft); flex-shrink: 0; }
   #title { font-size: 24px; font-weight: 700; }
   #artist { font-size: 16px; opacity: 0.72; margin-top: 3px; }
-  :root { --active: #ffffff; }
+  :root { --active: var(--s-stage-text); }
   /* lyrics overlay: the lyrics window's engine (lyrics-view.js, 'stage' layout). Only the line(s) being
      sung (.active, big), the countdown dots and the next line (.next, smaller) are shown, centred. */
   #lyrics { position: fixed; left: 7%; right: 7%; top: 50%; transform: translateY(-50%); text-align: center; pointer-events: none; }
   /* a soft dark scrim behind the words, so they read over busy scenes (the toasters) */
   #lyrics::before {
     content: ''; position: absolute; left: -4%; right: -4%; top: -60%; bottom: -60%; z-index: -1;
-    background: radial-gradient(closest-side, rgba(0, 0, 0, 0.5), transparent);
+    background: radial-gradient(closest-side, var(--s-stage-scrim), transparent);
   }
   #lyrics:empty::before, #lyrics:not(:has(.line.active, .line.next, .dots.on))::before { display: none; }
   #lyrics .line {
@@ -43,8 +44,8 @@
     font-size: clamp(30px, 3.4vw, 132px);
     font-weight: 800;
     line-height: 1.22;
-    color: #fff;
-    text-shadow: 0 0.05em 0.45em rgba(0, 0, 0, 0.8), 0 0 0.12em rgba(0, 0, 0, 0.6);
+    color: var(--s-stage-text);
+    text-shadow: 0 0.05em 0.45em var(--s-stage-shade), 0 0 0.12em var(--s-stage-shade-soft);
   }
   #lyrics .line.active { display: block; animation: lv-in 0.35s ease-out; }
   #lyrics .line.active + .line.active { margin-top: 0.25em; }
@@ -57,21 +58,21 @@
     animation: lv-next 0.35s ease-out;
   }
   #lyrics .line.active .w.now {
-    text-shadow: 0 0 0.5em var(--active), 0 0 0.15em var(--active), 0 0.05em 0.45em rgba(0, 0, 0, 0.6);
+    text-shadow: 0 0 0.5em var(--active), 0 0 0.15em var(--active), 0 0.05em 0.45em var(--s-stage-shade-soft);
   }
   #lyrics .dots { --dot: clamp(12px, 1.05vw, 42px); --dot-gap: calc(var(--dot) * 0.8); --dots-h: calc(var(--dot) * 3.6); }
   /* the stage is centred: the countdown dots too, for one singer and for either side of a duet
      (lyrics-view.css puts them at the line's side, right for the lyrics window's list) */
   #lyrics .dots, #lyrics .dots.left, #lyrics .dots.right, #lyrics .dots.plainside { justify-content: center; }
   #lyrics .dots .row, #lyrics .dots.right .row { transform-origin: 50% 50%; }
-  #lyrics .dots i { box-shadow: 0 0 0.6em rgba(0, 0, 0, 0.6); }
+  #lyrics .dots i { box-shadow: 0 0 0.6em var(--s-stage-shade-soft); }
   @keyframes lv-in { from { opacity: 0; transform: translateY(0.25em); } }
   @keyframes lv-next { from { opacity: 0; } }
   #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
   #mode-label {
     position: fixed; bottom: 20px; left: 24px; font-size: 13px; font-weight: 600;
     letter-spacing: 0.14em; text-transform: uppercase; opacity: 0;
-    transition: opacity 0.4s ease; text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+    transition: opacity 0.4s ease; text-shadow: 0 2px 12px var(--s-stage-shade);
   }
 </style>
 </head>

@@ -1,0 +1,117 @@
+/* Sonata's theme tokens and the Glass material (theme.js computes the tokens; theme-apply.js writes
+   them on :root for the album colour, light/dark and the Glass setting). This file holds their
+   first-paint defaults (no album colour, Glass's plain fallback) so a page never flashes unstyled,
+   and the material every Sonata surface shares. It is the only CSS in Sonata with literal colours
+   (test/theme.test.js); everything else uses var(--s-*). Keep the values in step with theme.js
+   BASE (the test compares them). */
+:root {
+  color-scheme: light dark;
+  --s-accent: rgba(250,45,72,1);
+  --s-surface: rgba(65,32,40,1);
+  --s-over-page: rgba(65,32,40,0.9);
+  --s-blur-tint: rgba(65,32,40,0.78);
+  --s-material: rgba(65,32,40,1);
+  --s-text: rgba(245,245,247,1);
+  --s-soft: rgba(213,207,210,1);
+  --s-accent-text: rgba(248,142,157,1);
+  --s-dim: rgba(150,132,137,1);
+  --s-active: rgba(250,45,72,0.34);
+  --s-hover: rgba(245,245,247,0.1);
+  --s-ring: rgba(249,69,93,1);
+  --s-fill: rgba(212,38,61,1);
+  --s-on-fill: rgba(255,255,255,1);
+  --s-field: rgba(245,245,247,0.08);
+  --s-track: rgba(245,245,247,0.22);
+  --s-knob: rgba(255,255,255,1);
+  --s-edge: rgba(255,255,255,0.14);
+  --s-specular: rgba(255,255,255,0.10);
+  --s-shadow: rgba(0,0,0,0.45);
+  --s-ok: rgba(31,143,78,1);
+  --s-on-ok: rgba(255,255,255,1);
+  --s-warn: rgba(242,179,61,1);
+  --s-on-warn: rgba(29,29,31,1);
+  --s-error-text: rgba(255,150,140,1);
+  --s-notice: rgba(242,179,61,0.16);
+  --s-notice-bd: rgba(242,179,61,0.45);
+  --s-notice-error: rgba(255,150,140,0.18);
+  --s-notice-error-bd: rgba(255,150,140,0.55);
+  --s-glass-on: 0;
+  /* fixed art, the same in every theme: the vinyl record in the lyrics header and the visualizer's
+     night-time stage (always dark, full screen) */
+  --s-vinyl-a: rgba(20,20,20,1);
+  --s-vinyl-b: rgba(31,31,31,1);
+  --s-vinyl-sheen: rgba(255,255,255,0.10);
+  --s-vinyl-sheen-2: rgba(255,255,255,0.07);
+  --s-vinyl-hole: rgba(11,11,11,1);
+  --s-vinyl-rim: rgba(255,255,255,0.06);
+  --s-art-shadow: rgba(0,0,0,0.45);
+  --s-stage: rgba(0,0,0,1);
+  --s-stage-text: rgba(255,255,255,1);
+  --s-stage-shade: rgba(0,0,0,0.8);
+  --s-stage-shade-soft: rgba(0,0,0,0.6);
+  --s-stage-scrim: rgba(0,0,0,0.5);
+  --s-stage-vignette: rgba(0,0,0,0.78);
+  /* a fine static grain over the Glass material (no animation) */
+  --s-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --s-surface: rgba(248,228,232,1);
+    --s-over-page: rgba(248,228,232,0.9);
+    --s-blur-tint: rgba(248,228,232,0.78);
+    --s-material: rgba(248,228,232,1);
+    --s-text: rgba(29,29,31,1);
+    --s-soft: rgba(73,69,71,1);
+    --s-accent-text: rgba(163,39,56,1);
+    --s-dim: rgba(123,114,118,1);
+    --s-active: rgba(250,45,72,0.22);
+    --s-hover: rgba(29,29,31,0.07);
+    --s-ring: rgba(223,43,67,1);
+    --s-field: rgba(29,29,31,0.06);
+    --s-track: rgba(29,29,31,0.24);
+    --s-edge: rgba(0,0,0,0.12);
+    --s-specular: rgba(255,255,255,0.55);
+    --s-shadow: rgba(0,0,0,0.18);
+    --s-ok: rgba(24,128,68,1);
+    --s-error-text: rgba(150,16,28,1);
+    --s-notice: rgba(242,179,61,0.22);
+    --s-notice-bd: rgba(242,179,61,0.6);
+    --s-notice-error: rgba(150,16,28,0.12);
+    --s-notice-error-bd: rgba(150,16,28,0.55);
+  }
+}
+
+/* --- the Glass material: a surface draws, bottom to top, the blurred artwork backdrop (two .s-bd
+   layers, for a crossfade on a track change), the tint layer .s-tint (--s-material: translucent with
+   Glass on, solid without; the grain and a specular edge on it) and then its content. theme-apply.js
+   adds the three layers as the surface's first children, so a page keeps its own ::before/::after.
+   Nothing animates while idle; the crossfade runs once per track. --- */
+:where(.s-glass) { position: relative; }
+.s-glass { isolation: isolate; }
+.s-glass > .s-bd,
+.s-glass > .s-tint {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.s-glass > .s-bd {
+  z-index: -2;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.s-glass > .s-bd.on { opacity: 1; }
+.s-glass > .s-tint { z-index: -1; display: none; }
+/* Glass on: the surface's own background gives way to the artwork + the tint layer */
+.s-glass.glass-on { background: transparent !important; }
+.s-glass.glass-on > .s-tint {
+  display: block;
+  background: var(--s-noise), var(--s-material);
+  box-shadow: inset 0 1px 0 var(--s-specular), inset 1px 0 0 var(--s-edge);
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-glass > .s-bd { transition: none; }
+}

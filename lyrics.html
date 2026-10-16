@@ -2,24 +2,13 @@
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="lyrics-view.css">
 <style>
+  /* colours: the theme tokens (theme.css / theme.js); the card is the shared Glass material */
   :root {
-    --bg: rgba(22, 22, 24, 0.88);
-    --border: rgba(255, 255, 255, 0.09);
-    --fg: #f5f5f7;
-    --fg-dim: rgba(245, 245, 247, 0.35);
-    --btn-hover: rgba(255, 255, 255, 0.12);
-    --active: #f5f5f7;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: rgba(245, 245, 247, 0.9);
-      --border: rgba(0, 0, 0, 0.08);
-      --fg: #1d1d1f;
-      --fg-dim: rgba(29, 29, 31, 0.35);
-      --btn-hover: rgba(0, 0, 0, 0.08);
-    }
+    --fg-dim: var(--s-dim);    /* lines not being sung: faded, but >= 3:1 on the card (theme.js) */
+    --active: var(--s-text);   /* the sung line; the album accent as text (>= 4.5:1) while Adaptive album color is on */
   }
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
   html, body { background: transparent; height: 100%; }
@@ -32,11 +21,12 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background: var(--bg);
-    border: 1px solid var(--border);
+    position: relative;
+    background: var(--s-over-page);
+    border: 1px solid var(--s-edge);
     border-radius: 16px;
     backdrop-filter: blur(24px);
-    color: var(--fg);
+    color: var(--s-text);
     overflow: hidden;
   }
   /* album art as a little vinyl record: grooved black disc, the cover as its centre label and a
@@ -54,7 +44,7 @@
   #art.shown { display: block; }
   #ring { position: absolute; inset: 0; width: 62px; height: 62px; transform: rotate(-90deg); }
   #ring circle { fill: none; stroke-width: 1.2; }
-  #ring .track { stroke: var(--border); }
+  #ring .track { stroke: var(--s-edge); }
   #ring .fill { stroke: var(--active); stroke-linecap: round; }
   #spin {
     position: absolute;
@@ -63,10 +53,10 @@
     overflow: hidden;
     /* grooves: fine concentric rings; a faint sheen so the turn reads like real vinyl */
     background:
-      conic-gradient(from 20deg, transparent 0 8%, rgba(255, 255, 255, 0.10) 12%, transparent 18% 58%,
-                     rgba(255, 255, 255, 0.07) 62%, transparent 68%),
-      repeating-radial-gradient(circle, #141414 0 0.7px, #1f1f1f 0.7px 1.4px);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      conic-gradient(from 20deg, transparent 0 8%, var(--s-vinyl-sheen) 12%, transparent 18% 58%,
+                     var(--s-vinyl-sheen-2) 62%, transparent 68%),
+      repeating-radial-gradient(circle, var(--s-vinyl-a) 0 0.7px, var(--s-vinyl-b) 0.7px 1.4px);
+    box-shadow: 0 1px 4px var(--s-art-shadow), inset 0 0 0 1px var(--s-vinyl-rim);
   }
   body.spin #spin { animation: spin var(--turn, 1.8s) linear infinite; }
   body.spin.still #spin { animation-play-state: paused; }
@@ -78,7 +68,7 @@
     inset: 11%;
     width: 78%;
     height: 78%;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 1px var(--s-art-shadow);
     display: block;
     border-radius: 50%;
     object-fit: cover;
@@ -93,8 +83,8 @@
     height: 3px;
     margin: -1.5px 0 0 -1.5px;
     border-radius: 50%;
-    background: #0b0b0b;
-    box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.25);
+    background: var(--s-vinyl-hole);
+    box-shadow: 0 0 0 0.5px var(--s-vinyl-sheen);
   }
   #header {
     flex-shrink: 0;
@@ -111,7 +101,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  #song .t { font-size: 16px; font-weight: 700; color: var(--fg); line-height: 1.25; }
+  #song .t { font-size: 16px; font-weight: 700; color: var(--s-text); line-height: 1.25; }
   #song .a { font-size: 13px; font-weight: 600; color: var(--fg-dim); line-height: 1.3; }
   #close {
     -webkit-app-region: no-drag;
@@ -126,7 +116,7 @@
     justify-content: center;
     cursor: pointer;
   }
-  #close:hover { background: var(--btn-hover); color: var(--fg); }
+  #close:hover { background: var(--s-hover); color: var(--s-text); }
   #close svg { width: 12px; height: 12px; fill: currentColor; }
   #lines {
     -webkit-app-region: no-drag;
@@ -146,9 +136,9 @@
     cursor: pointer;
     transition: color 0.3s ease, filter 0.3s ease;
   }
-  .line:hover { color: var(--fg); filter: none; }
+  .line:hover { color: var(--s-text); filter: none; }
   .line.active { color: var(--active); filter: none; }
-  .line.plain { color: var(--fg); filter: none; cursor: default; }
+  .line.plain { color: var(--s-text); filter: none; cursor: default; }
   #source {
     padding: 18px 0 6px;
     font-size: 11px;
@@ -181,17 +171,17 @@
   const { ipcRenderer } = require('electron')
   // loop: the word highlight / countdown rAF loop lives in lyrics-view.js (shared with the visualizer);
   // otherwise this page reacts to 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
-  // lifetime: the six ipcRenderer.on listeners and the visibilitychange listener are added once at
+  // lifetime: the seven ipcRenderer.on listeners and the visibilitychange listener are added once at
   // load and die with the window; per-track elements are owned and replaced by the view
 
-  // adaptive album color: tint the card + highlight the active line (null resets)
+  // the one theme system (theme.js): the card's colours and Glass material follow the album; the
+  // sung line glows in the album's accent
+  const theme = require('./theme-apply').attach({ surfaces: [document.getElementById('card')] })
+  ipcRenderer.on('theme', (event, t) => theme.set(t))
   ipcRenderer.on('palette', (event, p) => {
-    const r = document.documentElement.style
-    const keys = ['--bg', '--active', '--border']
-    if (!p) { keys.forEach(k => r.removeProperty(k)); return }
-    r.setProperty('--bg', p.bg + 'e6')          // mostly opaque album-tinted card
-    r.setProperty('--active', p.accent)         // current line glows in the accent
-    r.setProperty('--border', p.accent + '33')
+    // the album's accent, as the theme made it readable on this card (never the raw colour)
+    if (p && p.accent) document.documentElement.style.setProperty('--active', 'var(--s-accent-text)')
+    else document.documentElement.style.removeProperty('--active')
   })
 
   // album art in the header: the URL the mini player shows, so it usually comes from Chromium's

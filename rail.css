@@ -1,6 +1,6 @@
 /* Sonata's navigation rail (rail-ui.js) in rail.html, its own view beside Apple's page. Colours
-   come from rail-model.js glassTheme (one system: the album accent over a light or dark glass,
-   contrast checked) as --rail-* custom properties. The panel is always its open width; closed, it
+   are the theme tokens (theme.js / theme.css, one system: the album accent over a light or dark
+   surface, contrast checked); with Glass on, the panel is the shared Glass material (theme.css). The panel is always its open width; closed, it
    is slid right so only the icon column shows (the view is then only that wide). Opening and closing
    only change transform and opacity (compositor-only, no layout).
    Glass: a blur can't see through to another view, so the rail is a solid tinted surface where it
@@ -18,10 +18,10 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   display: flex;
   flex-direction: column;
   pointer-events: auto;
-  color: var(--rail-text);
+  color: var(--s-text);
   font: 13px/1.25 "SF Pro Text", "SF Pro", -apple-system, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: var(--rail-solid);
+  background: var(--s-surface);
   transform: translateX(144px);
   transition: transform 0.18s ease;
   will-change: transform;
@@ -29,14 +29,14 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 }
 .panel.open { transform: none; }
 /* open over Apple's page: the translucent glass tint */
-.panel.open:not(.pinned) { background: var(--rail-glass); }
+.panel.open:not(.pinned) { background: var(--s-over-page); }
 /* the inner edge catches the light (DS5's specular rim, without pointer tracking: no idle work) */
 .panel::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
   width: 1px;
-  background: linear-gradient(180deg, var(--rail-edge), transparent 40%, transparent 60%, var(--rail-edge));
+  background: linear-gradient(180deg, var(--s-edge), transparent 40%, transparent 60%, var(--s-edge));
   pointer-events: none;
 }
 /* the shadow over the page while open (unpinned): its own layer, faded with opacity */
@@ -44,7 +44,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   content: "";
   position: absolute;
   inset: 0;
-  box-shadow: -8px 0 24px var(--rail-shadow);
+  box-shadow: -8px 0 24px var(--s-shadow);
   opacity: 0;
   transition: opacity 0.18s ease;
   pointer-events: none;
@@ -65,7 +65,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  border-top: 1px solid var(--rail-edge);
+  border-top: 1px solid var(--s-edge);
 }
 
 .link,
@@ -87,17 +87,17 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   white-space: nowrap;
 }
 .link { cursor: pointer; }
-.link:hover { background: var(--rail-hover); }
+.link:hover { background: var(--s-hover); }
 .link:focus { outline: none; }
 .link:focus-visible {
-  outline: 2px solid var(--rail-ring);
+  outline: 2px solid var(--s-ring);
   outline-offset: -2px;
 }
 /* active (its window is open): tinted, bold, with the bar on the inner edge (a shape, not only a colour) */
 .link.active {
-  background: var(--rail-active);
+  background: var(--s-active);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--rail-ring);
+  box-shadow: inset 3px 0 0 var(--s-ring);
 }
 .link:active { transform: scale(0.96); transition: transform 90ms; }
 
@@ -134,7 +134,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .ic { flex-shrink: 0; overflow: hidden; }
 .status .label { display: flex; flex-direction: column; line-height: 1.2; }
 .status .label > span { overflow: hidden; text-overflow: ellipsis; }
-.status .sub { color: var(--rail-soft); font-size: 11.5px; }
+.status .sub { color: var(--s-soft); font-size: 11.5px; }
 .dot {
   display: grid;
   place-items: center;
@@ -150,13 +150,25 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   line-height: 1;
 }
 /* fixed status colours; the symbol inside carries the meaning too */
-.status.ok .dot { background: #1f8f4e; color: #fff; }
+.status.ok .dot { background: var(--s-ok); color: var(--s-on-ok); }
 .status.wait .dot,
-.status.warn .dot { background: #f2b33d; color: #1d1d1f; }
-.status.off .dot { background: transparent; color: var(--rail-text); border: 1.5px solid var(--rail-soft); }
+.status.warn .dot { background: var(--s-warn); color: var(--s-on-warn); }
+.status.off .dot { background: transparent; color: var(--s-text); border: 1.5px solid var(--s-soft); }
 
 /* the lock (DS5's bottom corner): a small icon button under the icons' column, 32 px to hit.
    Locked, the rail stays icons only: hover and keyboard focus no longer open it. */
+/* an open task on a panel page: a dot on the item's icon (the tooltip and aria-description say what) */
+.ic .task {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--s-warn);
+  box-shadow: 0 0 0 2px var(--s-surface);
+}
+.ic .task[hidden] { display: none; }
 .lockbtn {
   display: grid;
   place-items: center;
@@ -168,14 +180,14 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--rail-soft);
+  color: var(--s-soft);
   cursor: pointer;
 }
 .lockbtn .ic, .lockbtn svg { width: 16px; height: 16px; flex-basis: 16px; }
-.lockbtn[aria-pressed="true"] { color: var(--rail-text); background: var(--rail-active); }
-.lockbtn:hover { background: var(--rail-hover); color: var(--rail-text); }
+.lockbtn[aria-pressed="true"] { color: var(--s-text); background: var(--s-active); }
+.lockbtn:hover { background: var(--s-hover); color: var(--s-text); }
 .lockbtn:focus { outline: none; }
-.lockbtn:focus-visible { outline: 2px solid var(--rail-ring); outline-offset: -2px; }
+.lockbtn:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
 
 /* "DEVELOPMENT · 0.15.26-dev.1" read bottom to top in the free space (dev channel only) */
 .dev {
@@ -183,7 +195,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
   margin: auto 0 4px 17px;
   max-height: 60%;
   overflow: hidden;
-  color: var(--rail-text);
+  color: var(--s-text);
   font-size: 11px;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -203,8 +215,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 }
 /* reduce transparency: solid everywhere */
 @media (prefers-reduced-transparency: reduce) {
-  .panel.open:not(.pinned) { background: var(--rail-solid); }
+  .panel.open:not(.pinned) { background: var(--s-surface); }
 }
 @media (prefers-contrast: more) {
-  .panel { outline: 1px solid var(--rail-text); }
+  .panel { outline: 1px solid var(--s-text); }
 }
