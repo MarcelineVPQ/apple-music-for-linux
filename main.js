@@ -38,7 +38,7 @@ let vizWindow = null
 let vizPoll = null
 let visualizer = null
 let vizTrackKey = ''
-let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true }
+let settings = { notifications: true, closeToTray: false, launchAtLogin: false, startMinimized: false, windowBounds: null, miniAlwaysOnTop: true, lyricsAlwaysOnTop: true, adaptiveColor: true, lrclibFallback: true }
 let lastPalette = null
 let lastPaletteKey = null
 let settingsPath = null
@@ -304,28 +304,22 @@ const lyricsFetchScript = `(async () => {
   }
 })()`
 
-function parseTtmlClock(value) {
-  value = value.trim()
-  if (!value.includes(':')) return parseFloat(value) || 0
-  return value.split(':').reduce((total, part) => total * 60 + (parseFloat(part) || 0), 0)
-}
+const lyricsSources = require('./lyrics-sources')
 
-function parseTtml(ttml) {
-  const lines = []
-  const re = /<p[^>]*\bbegin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g
-  let match
-  while ((match = re.exec(ttml))) {
-    const text = match[2]
-      .replace(/></g, '> <')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (text) lines.push({ t: parseTtmlClock(match[1]), text })
-  }
-  return lines
-}
+// Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
+// Chromium's network stack, like the rest of the app.
+const getLyrics = lyricsSources.createLyricsResolver({
+  fetchApple: async () => {
+    const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
+    return (res && res.ttml) || ''
+  },
+  fetchLrclib: (state) => lyricsSources.fetchLrclib(state, {
+    fetch: (url, opts) => net.fetch(url, opts),
+    userAgent: 'Sonata/' + app.getVersion() + ' (https://github.com/MarcelineVPQ/apple-music-for-linux)'
+  }),
+  lrclibEnabled: () => !!settings.lrclibFallback,
+  log: (msg) => console.error(msg)
+})
 
 function createLyricsWindow() {
   lyricsWindow = new BrowserWindow(applySavedBounds({
@@ -360,15 +354,9 @@ function createLyricsWindow() {
       const key = state.title + '|' + state.artist
       if (key !== lyricsKey) {
         lyricsKey = key
-        let lines = []
-        if (state.title) {
-          try {
-            const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
-            if (res && res.ttml) lines = parseTtml(res.ttml)
-          } catch (e) { /* no lyrics */ }
-        }
+        const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
         if (lyricsWindow && !lyricsWindow.isDestroyed()) {
-          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, lines })
+          lyricsWindow.webContents.send('lyrics-data', { title: state.title, artist: state.artist, lines: got.lines, source: got.source })
         }
       }
       if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-time', state.playbackTime)
@@ -443,14 +431,9 @@ function createVizWindow() {
           title: state.title, artist: state.artist, artwork: state.artworkLarge || state.artwork
         })
         // fetch synced lyrics for the new track (same TTML pipeline as the lyrics window)
-        let lines = []
-        if (state.title) {
-          try {
-            const res = await mainWindow.webContents.executeJavaScript(lyricsFetchScript)
-            if (res && res.ttml) lines = parseTtml(res.ttml)
-          } catch (e) { /* no lyrics */ }
-        }
-        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', lines)
+        const got = state.title ? await getLyrics(state) : { lines: [] }
+        // the visualizer shows timed lines only
+        if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-lyrics', got.lines.filter((l) => l.t !== null))
       }
       if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-time', state.playbackTime)
     }, 300)

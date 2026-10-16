@@ -90,6 +90,13 @@
   }
   .line:hover { color: var(--fg); filter: none; }
   .line.active { color: var(--active); filter: none; }
+  .line.plain { color: var(--fg); filter: none; cursor: default; }
+  #source {
+    padding: 18px 0 6px;
+    font-size: 11px;
+    color: var(--fg-dim);
+    text-align: center;
+  }
   #empty {
     padding: 24px 20px;
     font-size: 13px;
@@ -141,15 +148,21 @@
     linesEl.innerHTML = ''
     lines.forEach((line, i) => {
       const el = document.createElement('div')
-      el.className = 'line'
+      el.className = line.t === null ? 'line plain' : 'line'
       el.textContent = line.text
-      el.onclick = () => ipcRenderer.send('lyrics-command', 'seek', line.t)
+      if (line.t !== null) el.onclick = () => ipcRenderer.send('lyrics-command', 'seek', line.t)
       linesEl.appendChild(el)
     })
+    if (data.source === 'lrclib') {
+      const src = document.createElement('div')
+      src.id = 'source'
+      src.textContent = 'Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '')
+      linesEl.appendChild(src)
+    }
   })
 
   ipcRenderer.on('lyrics-time', (event, playbackTime) => {
-    if (!lines.length) return
+    if (!lines.length || lines[0].t === null) return
     let index = -1
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].t <= playbackTime + 0.2) index = i
