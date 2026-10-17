@@ -158,3 +158,88 @@ test('writtenBy: the songwriter credit lists Apple\'s names as given; nothing wi
   assert.equal(V.writtenBy(undefined), '')
   assert.equal(V.writtenBy(['', '  ']), '')
 })
+
+// Backing vocals under the words they answer (mock-up B, after 0.15.40): which main word, and the row's paddings
+const ws = (t0, text, step = 0.5) => text.split(' ').map((w, i) => ({ t: t0 + i * step, end: t0 + i * step + step * 0.9, text: w }))
+// a measured line: words laid out left to right, 10 px per letter plus a 6 px space, one row unless a top is given
+const laid = (text, tops) => { let x = 0; return text.split(' ').map((w, i) => { const r = { left: x, right: x + w.length * 10, top: tops ? tops[i] : 0 }; x = r.right + 6; return r }) }
+
+test('backingAnchor: overlap — under the main word being sung when the backing comes in', () => {
+  const main = ws(10, 'I keep on running down the road')   // words at 10, 10.5, 11, ...
+  assert.deepEqual(V.backingAnchor(main, ws(11.6, '(ooh yeah)')), { index: 3, after: false })      // "running" (11.5)
+  assert.deepEqual(V.backingAnchor(main, ws(11.47, '(ooh yeah)')), { index: 3, after: false })     // just before it: still "running"
+  assert.deepEqual(V.backingAnchor(main, ws(10, '(ooh)')), { index: 0, after: false })
+})
+
+test('backingAnchor: echo — under the word it repeats, even when it comes in after the line', () => {
+  const main = ws(10, 'Took a couple months')
+  assert.deepEqual(V.backingAnchor(main, ws(12.2, '(Took a couple months)')), { index: 0, after: false })
+  // a partial echo of the line's end
+  assert.deepEqual(V.backingAnchor(ws(20, 'I want to hold your hand'), ws(23.1, '(hold your hand)')), { index: 3, after: false })
+  // the text repeats in two places: the one closest in time
+  assert.deepEqual(V.backingAnchor(ws(0, 'oh my love oh my love'), ws(1.6, '(oh my)')), { index: 3, after: false })
+  // one shared word isn't an echo of a longer backing line ("the" here): timing decides
+  assert.deepEqual(V.backingAnchor(ws(0, 'down the road we go'), ws(1.1, '(the night is young)')), { index: 2, after: false })
+})
+
+test('backingAnchor: after the line — where its last word ends', () => {
+  assert.deepEqual(V.backingAnchor(ws(10, 'Hold me close'), ws(12, '(so close now)')), { index: 2, after: true })
+})
+
+test('backingAnchor: none — before the line, no main words, no backing, no timing', () => {
+  assert.equal(V.backingAnchor(ws(10, 'Hold me close'), ws(9, '(ah)')), null)
+  assert.equal(V.backingAnchor([], ws(9, '(ah)')), null)
+  assert.equal(V.backingAnchor(ws(10, 'Hold me close'), []), null)
+  assert.equal(V.backingAnchor(ws(10, 'Hold me close'), [{ text: '(ah)' }]), null)
+  assert.equal(V.backingAnchor(null, null), null)
+})
+
+test('backingOffset: left-aligned — the first word under the anchor word, the lead hanging before it', () => {
+  const words = laid('I keep on running down the road')   // "running" at 88..158
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 400, words, anchor: { index: 3, after: false }, lead: 2, bgWidth: 90 }), { start: 86, end: 0 })
+  // after the line: from the last word's end
+  const w2 = laid('Hold me close')   // "close" ends at 122
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 400, words: w2, anchor: { index: 2, after: true }, lead: 0, bgWidth: 100 }), { start: 122, end: 0 })
+  // would run past the line's end: moves back just enough to fit (with the 1 px spare against rounding)
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 200, words: w2, anchor: { index: 2, after: true }, lead: 0, bgWidth: 150 }), { start: 49, end: 0 })
+})
+
+test('backingOffset: none — no anchor, or the first word: the line\'s own alignment, as before', () => {
+  const words = laid('Hold me close')
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 400, words, anchor: null, lead: 2, bgWidth: 90 }), { start: 0, end: 0 })
+  assert.deepEqual(V.backingOffset({ align: 'right', width: 400, words, anchor: null, lead: 2, bgWidth: 90 }), { start: 0, end: 0 })
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 400, words, anchor: { index: 0, after: false }, lead: 2, bgWidth: 90 }), { start: 0, end: 0 })
+  assert.deepEqual(V.backingOffset(null), { start: 0, end: 0 })
+})
+
+test('backingOffset: wrap — a wrapped line or a backing row too long for one row keeps the line\'s alignment', () => {
+  // narrow window: "running" on the first of two rows; the backing sits under the last row
+  // (the second row's words from the row's start: "down" 0..40, "the" 46..76, "road" 82..122)
+  const words = laid('I keep on running').concat(laid('down the road').map((w) => Object.assign(w, { top: 27 })))
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 140, words, anchor: { index: 3, after: false }, lead: 2, bgWidth: 90 }), { start: 0, end: 0 })
+  // the anchor word on the last row: placed as usual, from that row's start ("the" at 46)
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 300, words, anchor: { index: 5, after: false }, lead: 2, bgWidth: 90 }), { start: 44, end: 0 })
+  // a backing row wider than the line wraps as before
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 140, words: laid('Hold me close'), anchor: { index: 2, after: false }, lead: 2, bgWidth: 220 }), { start: 0, end: 0 })
+})
+
+test('backingOffset: right-aligned (duet singer 2) — mirrored: padded from the right so the first word still lands under the anchor', () => {
+  // a right-aligned line in a 400 px box: its words end at 400
+  const words = laid('I want to hold your hand').map((w) => ({ left: w.left + 180, right: w.right + 180, top: 0 }))   // 220 wide, ends at 400
+  const hold = words[3]   // 268..308
+  const o = V.backingOffset({ align: 'right', width: 400, words, anchor: { index: 3, after: false }, lead: 2, bgWidth: 60 })
+  assert.deepEqual(o, { start: 0, end: 74 })
+  // the row is right-aligned in (400 - end): its first word's box starts at 400 - 74 - 60 + lead = hold.left
+  assert.equal(400 - o.end - 60 + 2, hold.left)
+  // a long echo that would pass the right edge hugs it (1 px spare)
+  assert.deepEqual(V.backingOffset({ align: 'right', width: 400, words, anchor: { index: 3, after: false }, lead: 2, bgWidth: 150 }), { start: 0, end: 1 })
+})
+
+test('backingOffset: centred (both singers, the stage) — padded on the side that moves it', () => {
+  const words = laid('Both of them together now').map((w) => ({ left: w.left + 100, right: w.right + 100, top: 0 }))   // "together" at 218..298
+  const o = V.backingOffset({ align: 'center', width: 400, words, anchor: { index: 3, after: false }, lead: 0, bgWidth: 100 })
+  // centred in [start, 400 - end]: its start = start + (400 - start - end - 100) / 2 = 166
+  assert.equal(o.start + (400 - o.start - o.end - 100) / 2, 218)
+  const left = V.backingOffset({ align: 'center', width: 400, words, anchor: { index: 0, after: false }, lead: 0, bgWidth: 100 })
+  assert.equal(left.start + (400 - left.start - left.end - 100) / 2, 100)
+})

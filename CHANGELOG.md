@@ -7,6 +7,14 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **Backing vocals come in under the words they answer.** The smaller line of backing vocals under a lyric line now starts right under the word where the backing voices come in, or under the words they echo, so you can see where in the line they answer. They're set in italics with a small ↳, light up word by word as before, and follow the singer's side in duets. When they come in after the line, they start where it ends.
+
+### Fixed
+
+- **Backing vocals are easier to read.** Backing vocals not sung yet were fainter than the rest of the lyrics (as low as 2.1:1 contrast). They now meet the same 3:1 as the lines not being sung, in every theme, album colour and with Glass, and still look quieter than the main line.
+
 ## [0.15.40-dev.1] — The lyrics window drags again
 
 ### Fixed

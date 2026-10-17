@@ -120,7 +120,7 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     for (let e = el; e && e !== root.parentElement; e = e.parentElement) op *= +getComputedStyle(e).opacity
     if (op < 0.1) continue   // faded out by an ancestor (the mini player's title under its scrubber): not shown
     const color = op < 1 ? cs.color.replace(/rgba?\\(([^)]+)\\)/, (m, a) => { const p = a.split(/[ ,/]+/).filter(Boolean).map(Number); return 'rgba(' + p.slice(0, 3).join(', ') + ', ' + ((p.length > 3 ? p[3] : 1) * op) + ')' }) : cs.color
-    texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), op,
+    texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), bgv: !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), op,
       fits: el.scrollWidth <= el.clientWidth + 1 || cs.textOverflow === 'ellipsis' || cs.display === 'inline', clipped: cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1, cls: el.className && String(el.className).slice(0, 30),
       rect: [r.left, r.top, r.right, r.bottom] })
   }
@@ -500,6 +500,47 @@ async function mini() {
   mp.c.close(); page.c.close()
 }
 
+// Backing vocals under the words they answer (mock-up B, after 0.15.40): per line with a backing row, where
+// its first word starts and where each main word sits (layout boxes of the karaoke layer, px from the
+// line's content box), and the row's alignment. The checker knows which word each fixture anchors on.
+const BG_PLACES = `(() => [...document.querySelectorAll('.line')].map((l, i) => {
+  const ly = l.querySelector(':scope > .ly-main') || l.querySelector(':scope > .ly')
+  const row = ly && ly.querySelector('.bgv')
+  if (!row) return null
+  const main = ly.firstElementChild
+  const xOf = (n) => { let x = 0; for (; n; n = n.offsetParent) x += n.offsetLeft; return x }
+  const base = xOf(main)
+  const ws = [...main.querySelectorAll(':scope > .w')]
+  const first = row.querySelector('.w')
+  return { i, text: [...row.querySelectorAll('.w > .r')].map((r) => r.textContent).join(' '), width: main.clientWidth, first: xOf(first) - base, firstRight: xOf(first) - base + first.offsetWidth, last: (() => { const w = row.querySelectorAll('.w'); const e = w[w.length - 1]; return xOf(e) - base + e.offsetWidth })(),
+    rows: new Set([...row.querySelectorAll('.w')].map((w) => w.offsetTop)).size, align: getComputedStyle(row).textAlign,
+    words: ws.map((w) => ({ text: w.dataset.text, left: xOf(w) - base, right: xOf(w) - base + w.offsetWidth, top: w.offsetTop })) }
+}).filter(Boolean))()`
+// want: { lineIndex: { word: index | null, after?: true } } (null: no anchor, the row keeps the line's alignment)
+function judgeBacking(tag, places, want) {
+  for (const [k, w] of Object.entries(want)) {
+    const p = places.find((x) => x.i === Number(k))
+    if (!p) { check(tag + ' backing line ' + k + ' is shown', false, places.map((x) => x.i)); continue }
+    let ok; let expect
+    if (w.word === null) {
+      // the line's own alignment: at the start (left), or ending at the line's end (right), or centred
+      expect = p.align === 'right' ? 'ends at ' + p.width : p.align === 'center' ? 'centred' : 'starts at 0'
+      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : p.first <= 3
+    } else if (p.words[w.word].top !== p.words[p.words.length - 1].top) {
+      // its word isn't on the line's last row (the line wraps): the row keeps the line's alignment
+      expect = 'keeps the line\'s alignment ("' + p.words[w.word].text + '" is on an earlier row of the wrapped line)'
+      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : p.first <= 3
+    } else {
+      const a = p.words[w.word]
+      const x = w.after ? a.right : a.left
+      // starts under its word, or moved back just enough to fit (it then ends at the line's end)
+      expect = (w.after ? 'after "' : 'under "') + a.text + '" (' + Math.round(x) + ' px) or fitted to the end'
+      ok = p.rows === 1 && (Math.abs(p.first - x) <= 2 || (p.first < x && Math.abs(p.last - p.width) <= 3))
+    }
+    check(tag + ' backing "' + p.text + '" ' + expect + (p.rows > 1 ? ' (wraps: ' + p.rows + ' rows)' : ''), ok, p)
+  }
+}
+
 // the lyrics window over a dark and a light album, both schemes (0.15.31's unreadable lyrics)
 // The sung line in every combination (0.15.37): light/dark x album colour on/off x Glass on/off, each
 // word of the active line (sung, being sung, not reached yet) >= 4.5:1 over the card (the Glass
@@ -507,6 +548,10 @@ async function mini() {
 async function activeLine(mp, page, send, data, tag, b) {
   const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.6, end: t + i * 0.6 + 0.5, text: w }))
   const lines = [0, 1, 2, 3].map((i) => ({ t: i * 6, end: i * 6 + 5, text: 'Words of line ' + (i + 1) + ' here', words: word(i * 6, 'Words of line ' + (i + 1) + ' here') }))
+  // backing vocals (after 0.15.40): unsung on a line not being sung (line 2) and on the sung line (line 3,
+  // coming in on "3" at 13.9 s: not reached at 13.7 s)
+  lines[1].bg = word(8.1, '(ooh yeah)')
+  lines[2].bg = word(13.9, '(ooh yeah)')
   await send('lyrics-data', Object.assign({}, data, { title: 'Active line check', lines })); await sleep(400)
   await send('lyrics-time', 13.7, false); await sleep(700)   // line 3: "Words of line" sung, "line" lit, "3 here" to come
   const a = await page.ev(PAGE_AUDIT('#card'))
@@ -516,7 +561,24 @@ async function activeLine(mp, page, send, data, tag, b) {
   const rows = words.map((t) => ({ text: t.text, op: +t.op.toFixed(2), ratio: +worstOver(parse(t.color), t.layers.map(parse).filter(Boolean), bds).toFixed(2) }))
   const worstRow = rows.reduce((w, r) => (r.ratio < w.ratio ? r : w), { ratio: 99 })
   check(tag + ' the sung line: every word >= 4.5:1 (sung, being sung and still to come), worst ' + worstRow.ratio + ' ("' + worstRow.text + '")', rows.length >= 5 && rows.every((r) => r.ratio >= 4.5), rows)
+  // backing vocals not sung yet, on a dim line and on the sung line: >= 3:1, like the dim lines
+  const bgRows = a.texts.filter((t) => t.bgv).map((t) => ({ text: t.text, active: t.activeLine || false, op: +t.op.toFixed(2), ratio: +worstOver(parse(t.color), t.layers.map(parse).filter(Boolean), bds).toFixed(2) }))
+  const worstBg = bgRows.reduce((w, r) => (r.ratio < w.ratio ? r : w), { ratio: 99 })
+  check(tag + ' backing vocals not sung yet: every word >= 3:1, worst ' + worstBg.ratio + ' ("' + worstBg.text + '")', bgRows.length >= 4 && bgRows.every((r) => r.ratio >= 3), bgRows)
+  judgeBacking(tag, await page.ev(BG_PLACES), { 1: { word: 3 }, 2: { word: 3 } })   // "2" (8.1 s, sung from 7.8 s), "3" (13.9 s, from 13.8 s)
 }
+
+// a backing-vocal song (after 0.15.40): an echo, an overlap, a backing line after its line ends, one before
+// its line starts, and one under a long line that wraps in a narrow window
+const word2 = (t, text, step = 0.5) => text.split(' ').map((w, i) => ({ t: t + i * step, end: t + i * step + step * 0.9, text: w }))
+const BACKING = [
+  { t: 0, end: 4, text: 'Took a couple months', words: word2(0, 'Took a couple months'), bg: word2(2.2, '(Took a couple months)') },
+  { t: 5, end: 9, text: 'Keep on running', words: word2(5, 'Keep on running'), bg: word2(6.1, '(ooh yeah)') },
+  { t: 10, end: 13, text: 'Hold me close', words: word2(10, 'Hold me close'), bg: word2(11.6, '(so close)') },
+  { t: 14, end: 17, text: 'Here we go again', words: word2(14.2, 'Here we go again'), bg: word2(13.9, '(ah)') },
+  { t: 18, end: 24, text: 'And every single night I wander through the empty streets alone', words: word2(18, 'And every single night I wander through the empty streets alone', 0.45), bg: word2(19.4, '(night after night)') }
+]
+const BACKING_WANT = { 0: { word: 0 }, 1: { word: 2 }, 2: { word: 2, after: true }, 3: { word: null } }
 
 async function lyrics() {
   const mp = await mainProc()
@@ -561,11 +623,17 @@ async function lyrics() {
     const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.5, end: t + i * 0.5 + 0.45, text: w }))
     const duet = Object.assign({}, data, { title: 'Duet check', lines: [
       { t: 0, end: 4, text: 'First singer sings here', agent: 'v1', words: word(0, 'First singer sings here') },
-      { t: 5, end: 9, text: 'Second singer answers back', agent: 'v2', words: word(5, 'Second singer answers back') },
+      { t: 5, end: 9, text: 'You answer back', agent: 'v2', words: word(5, 'You answer back') },
       { t: 10, end: 14, text: 'Both of them together now', agent: 'v1000', words: word(10, 'Both of them together now') },
       { t: 15, end: 19, text: 'First singer once again', agent: 'v1', words: word(15, 'First singer once again') }] })
     duet.lines[2].agent = 'group'
+    // backing vocals on each side (after 0.15.40): singer 1 echoes, singer 2 overlaps (right-aligned: mirrored),
+    // together after the line
+    duet.lines[0].bg = word(2.1, '(sings here)')
+    duet.lines[1].bg = word(5.6, '(oh yeah)')
+    duet.lines[2].bg = word(12.6, '(now now)')
     await send('lyrics-data', duet); await sleep(500)
+    judgeBacking(tag + ' duet', await page.ev(BG_PLACES), { 0: { word: 2 }, 1: { word: 1 }, 2: { word: 4, after: true } })
     const seen = {}
     for (const [who, t] of [['singer 1', 1.2], ['singer 2', 6.2], ['together', 11.2]]) {
       await send('lyrics-time', t, true); await sleep(600)
@@ -575,6 +643,22 @@ async function lyrics() {
       const da = await page.ev(PAGE_AUDIT('#card'))
       judge(tag + ' duet ' + who, da, { minHit: 24 })
     }
+    // the backing-vocal song at the checker's width and in a narrow window (the long line wraps)
+    for (const [w, name] of [[380, 'backing'], [300, 'backing-narrow']]) {
+      const bb = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: ${w}, height: 560 }); return w.getBounds() })()`)
+      await send('lyrics-data', Object.assign({}, data, { title: 'Backing vocals check', lines: BACKING })); await sleep(500)
+      await send('lyrics-time', 6.9, false); await sleep(600)   // line 2 sung, its backing coming in
+      xshot(path.join(OUT, tag.replace('lyrics-', name + '-') + '.png'), bb.width, bb.height)
+      const pl = await page.ev(BG_PLACES)
+      // the long line comes in on "night", on the first row once it wraps: the backing keeps the start
+      const long = pl.find((p) => p.i === 4)
+      const wrapped = !!long && new Set(long.words.map((x) => x.top)).size > 1
+      check(tag + ' ' + name + ': the long line wraps', wrapped, long)
+      judgeBacking(tag + ' ' + name + ' (' + w + ' px)', pl, Object.assign({ 4: { word: 3 } }, BACKING_WANT))
+      judge(tag + ' ' + name, await page.ev(PAGE_AUDIT('#card')), { minHit: 24 })
+    }
+    await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return true })()`)
+    await send('lyrics-data', duet); await sleep(400)
     check(tag + ' duet: the singers sit on their own sides (left, right, centre)', seen['singer 1'] && seen['singer 1'].side === 'left' && seen['singer 2'].side === 'right' && seen['together'].side === 'center', seen)
     if (process.env.SONATA_TEST_ARTWORK || LABEL.includes('artwork')) {
       check(tag + ' duet: three different colours for singer 1, singer 2 and together', new Set(Object.values(seen).map((x) => x && x.color)).size === 3, seen)

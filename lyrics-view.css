@@ -57,8 +57,22 @@
   transform: scale(1.1);
   text-shadow: 0 0 0.67em var(--sing), 0 0 0.19em var(--sing);
 }
-/* background vocals: smaller and dimmer, under their line, with their own highlight */
-.bgv { font-size: 0.715em; font-weight: 600; line-height: 1.35; margin-top: 0.13em; opacity: 0.7; }
+/* background vocals: smaller, dimmer and in italics, under their line, with their own highlight.
+   They start under the main word they come in on (mock-up B, after 0.15.40): lyrics-view.js placeBacking
+   measures the line once when it's laid out and sets the row's side paddings (--bgv-start/--bgv-end,
+   physical left/right; mirrored for right-aligned lines). No transition on them: a layout property.
+   The ↳ hangs before the first word (absolute, at the row's start: it takes no room, so the first word
+   itself lands under the main word); decorative, so it has no text for screen readers.
+   .bgm is placeBacking's measuring state (one line, unpadded), on only between two script lines.
+   Pages may restyle the colours (lyrics.html: theme tokens >= 3:1 instead of the opacity). */
+.bgv {
+  font-size: 0.715em; font-weight: 600; font-style: italic; line-height: 1.35; margin-top: 0.13em; opacity: 0.7;
+  position: relative;
+  padding-left: var(--bgv-start, 0px);
+  padding-right: var(--bgv-end, 0px);
+}
+.bgv::before { content: '\21B3' / ''; position: absolute; font-style: normal; transform: translateX(calc(-100% - 0.12em)); }
+.line.bgm .bgv { width: max-content; padding: 0; white-space: nowrap; }
 .bgv .w::after, .bgv .w > .b { font-weight: 700; }
 .line.active .bgv .w.now { transform: scale(1.08); }
 
