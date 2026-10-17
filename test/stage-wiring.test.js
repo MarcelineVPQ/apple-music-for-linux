@@ -55,7 +55,7 @@ test('stage-command: only from the lyrics window\'s top frame, every command and
 })
 
 test('ways in and the remembered form: header button, rail item, Ctrl+Shift+S; one size per form', () => {
-  assert.match(html, /<button id="form" aria-label="Stage" aria-pressed="false" aria-keyshortcuts="Control\+Shift\+S"/)
+  assert.match(html, /<button id="form" aria-label="Studio" aria-pressed="false" aria-keyshortcuts="Control\+Shift\+S"/)
   assert.match(html, /ipcRenderer\.send\('stage-command', 'form', stage\.shown \? 'compact' : 'stage'\)/)
   assert.match(main, /else if \(key === 's'\) toggleStage\(\)/)
   assert.match(main, /else if \(command === 'stage'\) toggleStage\(\)/)

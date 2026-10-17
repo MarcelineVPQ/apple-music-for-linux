@@ -886,7 +886,7 @@ function toggleLyricsWindow() {
 // --- the stage: the lyrics window grown into the now-playing screen (lyrics.html body.stage) ---
 // One window, two forms: the lyrics window (compact) and the stage. Opening the lyrics (Ctrl+Shift+L,
 // the rail, the tray, the mini player) brings back the form last used (settings.lyricsStage); the stage
-// button in its header, the rail's Stage item and Ctrl+Shift+S grow it into the stage or shrink it back.
+// button in its header, the rail's Studio item and Ctrl+Shift+S grow it into the stage or shrink it back.
 // Each form keeps its own size (lyricsBounds, stageBounds).
 let stageSent = ''        // the last 'stage-np' sent (JSON), so it's sent on change only
 let stageQueueSig = ''    // the queue's signature as last sent: Apple's page answers "same" while it holds
@@ -923,7 +923,7 @@ function setLyricsForm(stage) {
   lyricsWindow.setBounds(b)
   pushRail()
 }
-// the rail's Stage item and Ctrl+Shift+S: the stage showing shrinks back to the lyrics window, else it opens as the stage
+// the rail's Studio item and Ctrl+Shift+S: the stage showing shrinks back to the lyrics window, else it opens as the stage
 function toggleStage() {
   setLyricsForm(!(lyricsWindow && !lyricsWindow.isDestroyed() && settings.lyricsStage))
 }

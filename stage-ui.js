@@ -183,7 +183,7 @@ function createStage(opts) {
     const btn = $('form')
     setIcon(btn, form.stage ? 'shrink' : 'grow')
     btn.setAttribute('aria-pressed', String(!!form.stage))
-    btn.title = form.stage ? 'Shrink to the lyrics window (Ctrl+Shift+S)' : 'Open the stage: the lyrics with the song and what plays next (Ctrl+Shift+S)'
+    btn.title = form.stage ? 'Shrink to the lyrics window (Ctrl+Shift+S)' : 'Open the Studio: the lyrics with the song and what plays next (Ctrl+Shift+S)'
     el.tLiner.hidden = !form.linerNotes
     showBand()
     if (form.stage) { shownSec = -1; seekP = -1; volShown = -1; drawNowPlaying(); drawQueue(true); drawTime(true) }

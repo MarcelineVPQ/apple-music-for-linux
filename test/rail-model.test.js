@@ -91,10 +91,10 @@ test('keyboard: arrows wrap, Home/End jump, Esc closes, modified keys and others
 test('items: order, shortcuts in tooltips, active state from open windows and the panel', () => {
   const s = { open: { lyrics: true }, panel: { shown: true, page: 'settings' }, keys: { lyrics: 'Ctrl+Shift+L', stage: 'Ctrl+Shift+S', visualizer: 'Ctrl+Shift+V', mini: 'Ctrl+M', settings: '', about: '' } }
   const items = M.railItems(s)
-  assert.deepEqual(items.map((i) => i.id), ['lyrics', 'stage', 'visualizer', 'mini', 'settings', 'about'])
-  assert.deepEqual(items.map((i) => i.active), [true, false, false, false, true, false])
-  assert.match(items[0].tip, /^Lyrics \(Ctrl\+Shift\+L\)\nOpen · click to close$/)
-  assert.match(items[1].tip, /^Stage \(Ctrl\+Shift\+S\)\nClick to open the lyrics as the stage/)
+  assert.deepEqual(items.map((i) => i.id), ['stage', 'lyrics', 'visualizer', 'mini', 'settings', 'about'])   // the Studio first (Marcy 2026-10-17)
+  assert.deepEqual(items.map((i) => i.active), [false, true, false, false, true, false])
+  assert.match(items[0].tip, /^Studio \(Ctrl\+Shift\+S\)\nClick to open the Studio: the lyrics with the song/)
+  assert.match(items[1].tip, /^Lyrics \(Ctrl\+Shift\+L\)\nOpen · click to close$/)
   assert.match(items[2].tip, /^Visualizer \(Ctrl\+Shift\+V\)\nClick to open$/)
   assert.equal(items[3].ariaKeys, 'Control+M')
   assert.equal(items[4].kind, 'panel')
@@ -102,11 +102,11 @@ test('items: order, shortcuts in tooltips, active state from open windows and th
   assert.match(items[5].tip, /^About\nClick to show it beside the page$/)
   assert.equal(items[4].ariaKeys, '')
   assert.ok(M.railItems(null).every((i) => !i.active))
-  // the stage showing: Lyrics and Stage both pressed; Stage says a press shrinks it back
+  // the Studio showing: Studio and Lyrics both pressed; Studio says a press shrinks it back
   const st = M.railItems({ open: { lyrics: true, stage: true }, keys: s.keys })
   assert.deepEqual(st.slice(0, 2).map((i) => i.active), [true, true])
-  assert.match(st[1].tip, /^Stage \(Ctrl\+Shift\+S\)\nShown · click to shrink it to the lyrics window$/)
-  assert.equal(st[1].ariaKeys, 'Control+Shift+S')
+  assert.match(st[0].tip, /^Studio \(Ctrl\+Shift\+S\)\nShown · click to shrink it to the lyrics window$/)
+  assert.equal(st[0].ariaKeys, 'Control+Shift+S')
   // the panel hidden: nothing active; a task on a page shows as its dot, said in words
   const hidden = M.railItems({ panel: { shown: false, page: 'settings' }, reminders: { settings: 'Sonata 0.16.0 is available.' } })
   assert.equal(hidden[4].active, false)

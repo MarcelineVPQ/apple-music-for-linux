@@ -113,6 +113,7 @@ Sonata talks to Apple (through the Apple Music web player you sign in to) and, o
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+M` | Toggle mini player |
+| `Ctrl+Shift+S` | Open the Studio (the lyrics with the song and what plays next), or shrink it back to the lyrics window |
 | `Ctrl+Shift+L` | Toggle lyrics (also in the mini player) |
 | `Ctrl+Shift+V` | Toggle visualizer (also in the mini player; ← / → or click to change scene, Esc to exit) |
 | `Ctrl+B` | Pin / unpin the navigation rail (remembered) |

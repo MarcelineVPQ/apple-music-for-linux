@@ -92,10 +92,11 @@
   // the panel, any other shows it with that page (aria-pressed: shown with this page). An open task
   // there (an update, a repaired file, what's new) puts a dot on the item while it isn't shown.
   const ITEMS = [
+    // the Studio (internally the stage: lyrics.html body.stage), the lyrics window grown into the
+    // now-playing screen; first on the rail (Marcy 2026-10-17: the standout feature). Pressed while the
+    // Studio shows; pressing it then shrinks it back to the lyrics window
+    { id: 'stage', label: 'Studio', keyName: 'stage', kind: 'toggle', tipOn: 'Shown · click to shrink it to the lyrics window', tipOff: 'Click to open the Studio: the lyrics with the song and what plays next' },
     { id: 'lyrics', label: 'Lyrics', keyName: 'lyrics', kind: 'toggle' },
-    // the lyrics window grown into the now-playing stage (lyrics.html body.stage): pressed while the
-    // stage shows; pressing it then shrinks the stage back to the lyrics window
-    { id: 'stage', label: 'Stage', keyName: 'stage', kind: 'toggle', tipOn: 'Shown · click to shrink it to the lyrics window', tipOff: 'Click to open the lyrics as the stage, with the song and what plays next' },
     { id: 'visualizer', label: 'Visualizer', keyName: 'visualizer', kind: 'toggle' },
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
     { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'panel' },

@@ -980,7 +980,7 @@ async function stage() {
   await mp.ev(`(() => { const { ipcMain } = ${E}; if (!globalThis.__stageLog) ipcMain.on('stage-command', (e, c, v) => globalThis.__stageLog.push([c, v])); globalThis.__stageLog = []; return true })()`)
   const stageLog = () => mp.ev('globalThis.__stageLog.splice(0)')
   await mp.ev(viewCommand('rail', 'stage')); await sleep(3000)
-  check('stage: the rail\'s Stage item opens the lyrics window as the stage', (await mp.ev(settingsFile)).lyricsStage === true && await winOpen(mp, 'Lyrics'))
+  check('stage: the rail\'s Studio item opens the lyrics window as the Studio', (await mp.ev(settingsFile)).lyricsStage === true && await winOpen(mp, 'Lyrics'))
   const panelShown = async () => mp.ev(`${settingsFile}.panelShown`)
   if (!(await panelShown())) { await mp.ev(viewCommand('rail', 'settings')); await sleep(2500) }
   const page = await target('lyrics.html')
