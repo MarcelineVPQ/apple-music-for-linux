@@ -7,6 +7,7 @@
 ;(function (root) {
   'use strict'
   const R = root.SonataRailModel || (typeof require === 'function' ? require('./rail-model') : null)
+  const K = root.SonataShortcutsModel || (typeof require === 'function' ? require('./shortcuts-model') : null)
 
   // 360 px wide; docked beside Apple's page while that leaves Apple at least 760 px, else a drawer.
   // Why 760: Apple's web player switches layout at about 740 px wide, and every crossing leaves ~40
@@ -48,6 +49,7 @@
         { id: 'timing', title: 'Precise timing', icon: 'timer' },
         { id: 'appearance', title: 'Appearance', icon: 'palette' },
         { id: 'windows', title: 'Mini player & windows', icon: 'windows' },
+        { id: 'shortcuts', title: 'Global shortcuts', icon: 'keyboard' },
         { id: 'integrations', title: 'Integrations', icon: 'plug' },
         { id: 'updates', title: 'Updates', icon: 'refresh' },
         { id: 'startup', title: 'Startup', icon: 'power' }
@@ -133,6 +135,7 @@
         case 'timing': return [onOff('Listening', !!st.lyricsListenRefine && !!st.estimatedWordTiming), st.alignInstalled ? onOff('Precise', !!st.lyricsPreciseTiming) : 'Precise: helper not installed'].join(' · ')
         case 'appearance': return [{ system: 'System theme', light: 'Light', dark: 'Dark' }[st.theme] || 'System theme', st.adaptiveColor ? 'album colours' : 'no album colours', st.adaptiveColor && st.glass ? 'Glass' : null].filter(Boolean).join(' · ')
         case 'windows': return [st.miniAlwaysOnTop ? 'Mini player on top' : null, st.lyricsAlwaysOnTop ? 'lyrics on top' : null].filter(Boolean).join(' · ') || 'Nothing kept on top'
+        case 'shortcuts': return K.statusLine(st.shortcuts)
         case 'integrations': return ['Last.fm ' + (st.lastfmConnected ? 'connected' : 'off'), 'Discord ' + (st.discordEnabled ? 'on' : 'off')].join(' · ')
         case 'updates': return [st.updateChannel === 'dev' ? 'Development' : 'Stable', !st.checkForUpdates ? 'no automatic checks' : st.autoInstallUpdates ? 'installs automatically' : 'asks before installing'].join(' · ')
         case 'startup': return [st.closeToTray ? 'Close to tray' : null, st.launchAtLogin ? 'Launch at login' : null, st.startMinimized ? 'Start minimized' : null].filter(Boolean).join(' · ') || 'All off'
@@ -151,7 +154,7 @@
   }
 
   // the panel's commands (main checks the sender, then this list and each argument)
-  const COMMANDS = ['mounted', 'set', 'action', 'notice-action', 'notice-dismiss', 'acc', 'hide', 'focus-next', 'focus-prev', 'open-link', 'show-page', 'toast-done', 'toast-action', 'toast-size']
+  const COMMANDS = ['mounted', 'set', 'action', 'notice-action', 'notice-dismiss', 'acc', 'hide', 'focus-next', 'focus-prev', 'open-link', 'show-page', 'toast-done', 'toast-action', 'toast-size', 'shortcut-key', 'shortcut-capture']
 
   const api = { PANEL, PAGES, PAGE_IDS, COMMANDS, windowLayout, sectionIds, accState, isOpen, isPinned, accReduce, menuItems, headerKey, sectionStatus, focusNext }
   if (typeof module === 'object' && module.exports) module.exports = api

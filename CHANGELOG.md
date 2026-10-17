@@ -12,6 +12,7 @@ See docs/RELEASING.md.
 - **View the album cover.** Right-click the cover in the lyrics window or the mini player (or press the Menu key on it), or choose View Album Cover in the mini player's More menu, and the song's cover opens large in the middle of your screen, as sharp as your screen can show it. Esc, a click anywhere or Close puts it away.
 - **A tonearm on the spinning record.** With "Spin album art like a record" on, a small tonearm rests on the lyrics window's record and moves inward as the song plays, like the real thing. It lifts when you pause, at the end of the song, and swings back for the next one.
 - **Songwriter credits.** The lyrics window ends with "Written by …" when Apple has the song's writers, from Apple's lyrics or its catalog.
+- **Global shortcuts** (Settings → Global shortcuts, off by default). Play or pause, skip to the next or previous song, and show or hide the lyrics window from any app, with Ctrl+Alt+P, Ctrl+Alt+Page Down, Ctrl+Alt+Page Up and Ctrl+Alt+Y. On Wayland (KDE Plasma, and GNOME versions that offer it) your desktop asks you once to confirm the keys and keeps them in its own shortcut settings; "Change keys…" opens its editor. On X11 you change the keys right in the section: press the button and then the new keys. If your desktop can't give apps global shortcuts, the section says so. Your keyboard's media keys keep working as before, with or without this.
 
 ### Changed
 

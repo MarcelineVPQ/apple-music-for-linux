@@ -49,6 +49,8 @@ const SCHEMA = {
   panelOpen: [{}, perPage(strOrNull), 'Open sections'],
   panelPins: [{}, perPage(stringList(20)), 'Pinned sections'],
   dismissedNotices: [[], stringList(50), 'Dismissed notices'],
+  globalShortcuts: [false, bool, 'Global shortcuts'],
+  shortcutKeys: [{}, require('./shortcuts-model').validStored, 'Global shortcut keys'],
   lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run']
 }
 

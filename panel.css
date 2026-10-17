@@ -328,3 +328,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 }
 @starting-style { .toast { opacity: 0; transform: translateY(8px); } }
 .toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* Global shortcuts: the key buttons (X11) and the desktop's key (Wayland) */
+.key-btn { min-width: 9.5em; font-variant-numeric: tabular-nums; }
+.key-btn.capturing { border-color: var(--s-fill); }
+.key-text { align-self: center; font-size: 12px; font-variant-numeric: tabular-nums; }
+.row.warn .row-desc { color: var(--s-text); font-weight: 600; }

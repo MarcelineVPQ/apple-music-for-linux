@@ -1,4 +1,4 @@
-const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, clipboard, Notification, components, net, screen } = require('electron')
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, clipboard, Notification, components, net, screen, globalShortcut } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -23,6 +23,10 @@ const themeLib = require('./theme');
 const miniModel = require('./mini-model');
 const coverModel = require('./cover-model');
 const relaunch = require('./relaunch');
+const shortcutsLib = require('./shortcuts')
+const shortcutsModel = require('./shortcuts-model')
+const dbusWire = require('./dbus-wire')
+const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
 // FUSE mount in PATH and LD_LIBRARY_PATH. Once that run ends the mount can answer ENOTCONN, and every
@@ -1667,7 +1671,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates']
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
 function setSetting(key, value) {
   if (key === 'theme') {
     if (!['system', 'light', 'dark'].includes(value)) return
@@ -1710,6 +1714,7 @@ function setSetting(key, value) {
     } else askAlignStatus()
     showAlignRepair()
   }
+  else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'alignGamingPause') {
     if (!value && gameGuard) gameGuard.reset()    // off: resume now
     sendAlignNote()
@@ -1948,7 +1953,7 @@ function createPanelView() {
   panelView.webContents.loadFile('panel.html')
   lockDownLocalWindow(panelView)
   // lifetime: OK — one listener each on the panel's web contents, created once, die with it
-  panelView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
+  panelView.webContents.on('before-input-event', (event, input) => { if (!shortcutCapture) windowShortcut(input) })
   panelView.webContents.on('focus', () => { focusedView = 'panel' })
   panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = '' })
 }
@@ -1997,6 +2002,7 @@ function showPanel(page, section, opts) {
 function hidePanel() {
   if (!settings.panelShown) return
   const hadFocus = focusedView === 'panel'
+  if (shortcutCapture) captureShortcut(false)   // a key wait never outlives the panel
   settings.panelShown = false
   saveSettings()
   pushRail()
@@ -2021,7 +2027,7 @@ function aboutData() {
 function panelSnapshot() {
   const u = updater ? updater.state() : { phase: 'idle' }
   const v = {}
-  for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 17 keys per panel snapshot
+  for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 18 keys per panel snapshot
   Object.assign(v, {
     theme: themePref,
     version: app.getVersion(),
@@ -2036,7 +2042,8 @@ function panelSnapshot() {
     updateBusy: ['checking', 'downloading', 'installing'].includes(u.phase),
     updateNotes: u.phase === 'available' ? (u.notes || '') : '',
     backToStable: settings.updateChannel === 'dev' || updateFeed.isDevVersion(app.getVersion()),
-    backConfirm
+    backConfirm,
+    shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null
   })
   const shownAbout = settings.panelShown && settings.panelPage === 'about'
   return {
@@ -2193,7 +2200,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel']
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return
@@ -2207,7 +2214,7 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
     return
   }
   if (!fromPanel) return
-  if (command === 'mounted') { panelMounted = true; panelSent = ''; pushPanel() }
+  if (command === 'mounted') { panelMounted = true; panelSent = ''; if (shortcutCapture) captureShortcut(false); pushPanel() }
   else if (command === 'set' && typeof a === 'string') setSetting(a, b)
   else if (command === 'action' && PANEL_ACTIONS.includes(a)) panelAction(a)
   else if (command === 'notice-action' && typeof a === 'string' && typeof b === 'string') noticeAction(a, b)
@@ -2219,6 +2226,8 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
   else if (command === 'focus-prev') focusView('panel', true)
   else if (command === 'open-link' && typeof a === 'string' && /^https:\/\//.test(a)) openExternalSafe(a)
   else if (command === 'show-page' && panelModel.PAGE_IDS.includes(a)) showPanel(a)
+  else if (command === 'shortcut-key' && shortcutsModel.IDS.includes(a) && (b === null || (typeof b === 'string' && b.length <= 40))) setShortcutKey(a, b)
+  else if (command === 'shortcut-capture' && typeof a === 'boolean') captureShortcut(a)
 })
 function panelAction(name) {
   if (name === 'lastfm') { if (lastfm && lastfm.connected) disconnectLastFm(); else connectLastFm() }
@@ -2231,6 +2240,50 @@ function panelAction(name) {
     backToStable()
   }
   else if (name === 'back-cancel') { backConfirm = false; pushPanel() }
+  else if (name === 'shortcuts-configure' && shortcuts) shortcuts.configure()
+  else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
+  else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
+}
+
+// --- global shortcuts (shortcuts.js: X11 key grabs, or the desktop's portal on Wayland) ---
+let shortcuts = null
+let shortcutError = ''      // why the last key typed in Settings was refused
+let shortcutCapture = false // Settings is waiting for a new key: Sonata's window keys and grabs step aside
+const SHORTCUT_ACTS = {
+  'play-pause': () => playerCommand('playPause'),
+  next: () => playerCommand('next'),
+  previous: () => playerCommand('previous'),
+  lyrics: () => toggleLyricsWindow()
+}
+function startShortcuts() {
+  shortcuts = shortcutsLib.createShortcuts({
+    globalShortcut, platform: process.platform, env: process.env, appId,
+    openConnection: () => dbusWire.Connection.open({ net: nodeNet, env: process.env }),
+    act: (id) => SHORTCUT_ACTS[id](),
+    onChange: () => pushPanel(),
+    log: (m) => console.log(m),
+    now: () => Date.now(),
+    setTimeout, clearTimeout
+  })
+  // Wayland: ask once whether the desktop offers the portal, so Settings can say so before it's turned on
+  if (shortcutsModel.chooseBackend({ platform: process.platform, env: process.env, portalVersion: null }).kind === 'unknown') shortcuts.probe()
+  applyShortcuts()
+}
+function applyShortcuts() {
+  if (shortcuts) shortcuts.apply(settings.globalShortcuts, settings.shortcutKeys)
+}
+function setShortcutKey(id, accel) {
+  const r = shortcutsModel.setKey(settings.shortcutKeys, id, accel)
+  captureShortcut(false)   // first: while grabs are suspended, Electron refuses new ones
+  shortcutError = r.error
+  if (!r.error) { settings.shortcutKeys = r.stored; saveSettings(); applyShortcuts() }
+  pushPanel()
+}
+function captureShortcut(on) {
+  shortcutCapture = !!on
+  if (shortcuts) shortcuts.suspend(shortcutCapture)
+  if (on) shortcutError = ''
+  pushPanel()
 }
 
 // The keys both views share (Apple's page and the rail): reload, theme, mini player, pin, lyrics,
@@ -2753,6 +2806,7 @@ app.whenReady().then(async () => {
   // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
     stopDesktopScheme()
+    if (shortcuts) shortcuts.stop()
     if (listenSession) listenSession.stop()
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
@@ -2765,6 +2819,7 @@ app.whenReady().then(async () => {
   startupStep('menu entry', integrateAppImage)
   startupStep('window', createWindow)
   startupStep('tray', createTray)
+  startupStep('global shortcuts', startShortcuts)
   startNowPlayingLoop()
   useTestArtwork()
   startupStep('old versions', pruneOldAppImages)   // local files only (no network), also with automatic checks off

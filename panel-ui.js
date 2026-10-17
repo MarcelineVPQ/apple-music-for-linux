@@ -13,8 +13,9 @@
   'use strict'
   const M = globalThis.SonataPanelModel
   const MD = globalThis.SonataMarkdown
+  const K = globalThis.SonataShortcutsModel
   const bridge = globalThis.sonataPanelBridge
-  if (!M || !MD || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
+  if (!M || !MD || !K || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
   const doc = document
   const icon = (name) => globalThis.SonataIcons.icon(doc, name)
   let uid = 0
@@ -111,7 +112,7 @@
         const off = opt.disabled ? opt.disabled(v) : false
         b.disabled = !!off
         r.classList.toggle('disabled', !!off)
-        setText(desc, (off && opt.why) || (opt.desc ? opt.desc(v) : descText) || '')
+        setText(desc, (off && (typeof opt.why === 'function' ? opt.why(v) : opt.why)) || (opt.desc ? opt.desc(v) : descText) || '')
         r.hidden = opt.hidden ? !!opt.hidden(v) : false
       }
     }
@@ -171,6 +172,81 @@
       }
     }
   }
+  // Global shortcuts: one row per action. X11: the key is a button; pressing it waits for the new keys
+  // (main lets go of Sonata's grabs and window keys meanwhile), Esc or leaving the button cancels, and
+  // Reset puts the suggested key back. Wayland: the desktop owns the keys, so the row only shows the
+  // desktop's key for it.
+  let capturing = null   // the action id waiting for its new keys
+  let captureNote = ''   // why the last press was refused (shown until the next one)
+  function shortcutRow(action) {
+    const keyBtn = el('button', 'btn key-btn')
+    keyBtn.type = 'button'
+    const reset = el('button', 'btn', 'Reset')
+    reset.type = 'button'
+    const shown = el('span', 'key-text')
+    const ctl = el('div', 'btns')
+    ctl.append(shown, keyBtn, reset)
+    const { r, desc } = row(action.label, '', ctl)
+    setAttr(keyBtn, 'aria-describedby', desc.id)
+    let last = null
+    const stopCapture = (send) => {
+      if (capturing !== action.id) return
+      capturing = null
+      if (send) bridge.send('shortcut-capture', false)
+      if (last) paint(last)
+    }
+    // lifetime: OK — click, keydown and blur on the key button and a click on Reset (all four below), dropped with the section's body
+    keyBtn.addEventListener('click', (e) => {
+      if (!e.isTrusted || keyBtn.disabled) return
+      if (capturing === action.id) { stopCapture(true); return }
+      capturing = action.id
+      captureNote = ''
+      bridge.send('shortcut-capture', true)
+      if (last) paint(last)
+    })
+    // lifetime: OK — the key button's keydown, dropped with the section's body
+    keyBtn.addEventListener('keydown', (e) => {
+      if (capturing !== action.id || !e.isTrusted) return
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) { stopCapture(true); return }
+      e.preventDefault()
+      e.stopPropagation()
+      const got = K.fromKeyEvent(e)
+      if (got.waiting) return
+      if (got.cancel) { stopCapture(true); return }
+      if (got.error) { captureNote = got.error; if (last) paint(last); return }
+      capturing = null
+      bridge.send('shortcut-key', action.id, got.key)   // main checks it again, saves it and ends the wait
+    })
+    // lifetime: OK — blur on the key button and Reset's click, dropped with the section's body
+    keyBtn.addEventListener('blur', () => stopCapture(true))
+    reset.addEventListener('click', (e) => { if (e.isTrusted && !reset.disabled) bridge.send('shortcut-key', action.id, null) })
+    function paint(v) {
+      const sc = v.shortcuts
+      const rw = sc && sc.rows.find((x) => x.id === action.id)
+      r.hidden = !sc || !rw || sc.backend.kind === 'none' || sc.backend.kind === 'unknown'
+      if (r.hidden) return
+      const viaPortal = sc.backend.kind === 'portal'
+      keyBtn.hidden = viaPortal
+      reset.hidden = viaPortal || !rw.changed
+      shown.hidden = !viaPortal
+      const waiting = capturing === action.id
+      keyBtn.classList.toggle('capturing', waiting)
+      setText(keyBtn, waiting ? 'Press the new keys…' : rw.key)
+      setAttr(keyBtn, 'aria-label', waiting ? action.label + ': press the new keys, Esc to cancel' : action.label + ': ' + rw.key + ', press to change')
+      setAttr(reset, 'aria-label', 'Reset ' + action.label + ' to ' + rw.suggested)
+      setAttr(reset, 'title', 'Back to ' + rw.suggested)
+      setText(shown, rw.key || '—')
+      let d = ''
+      if (waiting) d = captureNote || 'Hold Ctrl, Alt or Super and press a key. Esc cancels.'
+      else if (viaPortal) d = !sc.enabled ? 'Suggested: ' + rw.suggested + ' (your desktop decides)' : rw.state === 'unset' ? 'No key set in the desktop' : ''
+      else if (rw.state === 'taken') d = 'Taken by another app: pick another key'
+      else if (rw.changed) d = 'Suggested: ' + rw.suggested
+      setText(desc, d)
+      r.classList.toggle('warn', !waiting && rw.state === 'taken')
+    }
+    return { el: r, update(s) { last = s.v || {}; if (last.shortcuts && !last.shortcuts.capture && capturing === action.id && doc.activeElement !== keyBtn) capturing = null; paint(last) } }
+  }
+
   function textBlock(cls, fn) {
     const p = el('p', cls)
     return { el: p, update(s) { const t = fn(s.v || {}, s); setText(p, t); p.hidden = !t } }
@@ -245,6 +321,26 @@
         switchRow('adaptiveColor', 'Adaptive album color', 'Tint Sonata\'s windows (this panel, the rail, mini player, lyrics) with the current album\'s colour'),
         switchRow('glass', 'Glass look', 'A translucent material made from the album artwork, behind the panel, the rail, the lyrics window and the mini player. Off: plain surfaces',
           { disabled: (v) => !v.adaptiveColor, why: 'Glass is made from the album artwork: it needs Adaptive album color (above) on' })
+      ],
+      shortcuts: () => [
+        switchRow('globalShortcuts', 'Global shortcuts', '', {
+          disabled: (v) => !v.globalShortcuts && (!v.shortcuts || ['none', 'unknown'].includes(v.shortcuts.backend.kind)),
+          why: (v) => (v.shortcuts ? v.shortcuts.unavailable : 'Starting…'),
+          desc: (v) => (!v.shortcuts ? '' : v.shortcuts.unavailable ? v.shortcuts.unavailable   // on, but not here (another session type): say so
+            : v.shortcuts.backend.kind === 'portal'
+            ? 'Play, pause, skip and the lyrics window from any app. The first time, your desktop asks you to confirm the keys; it keeps them in ' + v.shortcuts.where + '.'
+            : 'Play, pause, skip and the lyrics window from any app, with the keys below. Sonata holds these keys while this is on.')
+        }),
+        ...K.ACTIONS.map(shortcutRow),
+        textBlock('note', (v) => (v.shortcuts ? (v.shortcuts.error || (v.shortcuts.enabled ? v.shortcuts.message : '')) : '')),
+        actionRow('Change the keys', (v) => (v.shortcuts && v.shortcuts.canConfigure ? 'In your desktop\'s shortcut editor' : 'In ' + ((v.shortcuts && v.shortcuts.where) || 'your desktop\'s settings')),
+          [{ label: 'Change keys…', action: 'shortcuts-configure', hidden: (v) => !v.shortcuts || !v.shortcuts.canConfigure },
+            { label: 'Ask again', action: 'shortcuts-ask-again', hidden: (v) => !v.shortcuts || !v.shortcuts.canAskAgain, tip: () => 'Ask the desktop for the shortcuts again' }],
+          { hidden: (v) => !v.shortcuts || v.shortcuts.backend.kind !== 'portal' || !v.globalShortcuts }),
+        actionRow('Suggested keys', () => 'Put every shortcut back to its suggested key',
+          [{ label: 'Reset all', action: 'shortcuts-reset' }],
+          { hidden: (v) => !v.shortcuts || v.shortcuts.backend.kind !== 'x11' || !v.shortcuts.anyChanged }),
+        textBlock('note', () => 'Your keyboard\'s media keys (play/pause, next, previous) work without this: the desktop sends them to Sonata through its media controls.')
       ],
       windows: () => [
         switchRow('miniAlwaysOnTop', 'Keep the mini player on top', 'Float the mini player above other windows (on GNOME Wayland: Alt+Space → Always on Top)'),
@@ -566,7 +662,7 @@
   function renderSections() {
     const st = M.accState(S.acc && S.acc[page], page)
     const rem = (S.reminders && S.reminders.sections) || {}
-    // loop: NOT-WORTH — ≤ 7 sections per state push
+    // loop: NOT-WORTH — ≤ 8 sections per state push
     for (const sec of sections) {
       const open = M.isOpen(st, sec.id)
       const pinned = M.isPinned(st, sec.id)

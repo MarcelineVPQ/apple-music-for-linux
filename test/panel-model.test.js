@@ -85,7 +85,7 @@ test('header keys: ↑ ↓ wrap, Home End jump, others pass; focus cycle apple -
 
 test('settings sections: every setting of the old Settings window has a section; statuses say the state in words', () => {
   const ids = P.sectionIds('settings')
-  assert.deepEqual(ids, ['playback', 'timing', 'appearance', 'windows', 'integrations', 'updates', 'startup'])
+  assert.deepEqual(ids, ['playback', 'timing', 'appearance', 'windows', 'shortcuts', 'integrations', 'updates', 'startup'])
   const ui = fs.readFileSync(path.join(__dirname, '..', 'panel-ui.js'), 'utf8')
   // every toggle the retired settings.html had
   for (const k of ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'lyricsArtSpinSpeed', 'updateChannel']) {
