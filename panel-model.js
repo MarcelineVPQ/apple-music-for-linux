@@ -56,10 +56,11 @@
     about: {
       title: 'About',
       sections: [
-        { id: 'whatsnew', title: 'What\'s new', icon: 'scroll' },
+        // the DS5 About's sections (Guide only where an app has a guide: Sonata has none); the hero
+        // card above them carries the links
+        { id: 'whatsnew', title: 'App changes', icon: 'scroll' },
         { id: 'soon', title: 'Coming soon', icon: 'flag' },
-        { id: 'credits', title: 'Credits & licences', icon: 'heart' },
-        { id: 'links', title: 'Links', icon: 'link' }
+        { id: 'credits', title: 'Credits', icon: 'heart' }
       ]
     }
   }

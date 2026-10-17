@@ -1,8 +1,11 @@
 // What About shows, from Sonata's own files (pure: text in, data out). main.js reads CHANGELOG.md and
 // BACKLOG.md (both ship in the app) only when About opens, and sends this to the side panel.
-//   What's new    the CHANGELOG section of the running version (or the newest one before it), older ones folded
-//   Coming soon   BACKLOG rows whose Notes start with "Soon:" (the user-facing sentence after it)
-//   Credits       CREDITS below: what Sonata is built on and every third-party licence it ships or uses
+//   Hero card     hero(): the 42PS card (eyebrow, name, developer, version and channel, links, ©); main
+//                 adds it to each panel snapshot, so a channel switch shows at once
+//   App changes   the CHANGELOG section of the running version (or the newest one before it), older ones folded
+//   Coming soon   BACKLOG rows whose Notes start with "Soon:" (the user-facing sentence after it), by status
+//   Credits       CREDITS below: the "Built on" group as prose, every other group and the hyphenation
+//                 patterns as one What | Credit table
 
 // "## [0.15.31] — The rail never covers Apple's page" -> sections
 function changelogSections(md) {
@@ -111,23 +114,54 @@ const CREDITS = [
 
 const NOT_AFFILIATED = 'Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" and "Apple" are trademarks of Apple Inc. You need your own Apple Music subscription.'
 
+// About's hero card (the 42PS card, the same in every 42PS app: DS5 AboutPage.tsx StudioCard)
+const REPO = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
+const ISSUES_URL = REPO + '/issues'
+const RELEASES_URL = REPO + '/releases'
 const LINKS = [
-  { id: 'github', label: 'Source code on GitHub', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux' },
-  { id: 'bug', label: 'Report a bug', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux/issues/new' },
-  { id: 'releases', label: 'All releases', url: 'https://github.com/MarcelineVPQ/apple-music-for-linux/releases' },
-  { id: 'studio', label: '42 Pixel Studios', url: 'https://42pixelstudios.com/' }
+  { id: 'studio', label: '42pixelstudios.com', url: 'https://42pixelstudios.com/', icon: 'globe' },
+  { id: 'profile', label: 'github.com/MarcelineVPQ', url: 'https://github.com/MarcelineVPQ', icon: 'github' },
+  { id: 'source', label: 'Source code (GPL-3.0)', url: REPO, icon: 'code' },
+  { id: 'issues', label: 'Report an issue', url: ISSUES_URL, icon: 'bug' }
 ]
 
-function aboutData(changelogMd, backlogMd, version, alignInstalled) {
+// -> the hero card's words for this run: version, update channel ('stable' | 'dev'), from source or not
+function hero(version, channel, appImage, year) {
+  const channelLabel = channel === 'dev' ? 'Development' : 'Stable'
   return {
-    whatsNew: whatsNew(changelogMd, version),
-    soon: comingSoon(backlogMd),
-    credits: CREDITS.map(([title, rows]) => ({ title, rows: rows.map(([what, text, url]) => ({ what, text, url: url.replace('{version}', String(version || '').replace(/^v/, '')) })) })),
-    patterns: PATTERNS.map(([code, lang, by, licence]) => ({ code, lang, by, licence })),
-    alignInstalled: !!alignInstalled,
-    notAffiliated: NOT_AFFILIATED,
+    eyebrow: 'A 42 Pixel Studios production',
+    name: 'Sonata',
+    by: 'Marcy Kuhn',
+    version: String(version || ''),
+    channel: channel === 'dev' ? 'dev' : 'stable',
+    // "Developed by Marcy Kuhn · v0.15.38 · Stable" (from source: no updates, so no channel to follow)
+    line: 'v' + String(version || '') + ' · ' + channelLabel + (appImage ? '' : ' · from source'),
+    copyright: '© ' + (year || new Date().getFullYear()) + ' 42 Pixel Studios — a Marcy Kuhn production.',
     links: LINKS
   }
 }
 
-module.exports = { changelogSections, whatsNew, comingSoon, aboutData, CREDITS, PATTERNS, LINKS, NOT_AFFILIATED }
+// Coming soon as the DS5 board's columns: in progress first, then planned, then ideas (empty ones left out)
+const SOON_GROUPS = [['Building', 'In progress'], ['Planned', 'Planned'], ['Idea', 'Ideas']]
+function soonGroups(items) {
+  return SOON_GROUPS.map(([status, label]) => ({ label, items: items.filter((it) => it.status.toLowerCase() === status.toLowerCase()) }))
+    .filter((g) => g.items.length)
+}
+
+function aboutData(changelogMd, backlogMd, version, alignInstalled) {
+  const soon = comingSoon(backlogMd)
+  return {
+    whatsNew: whatsNew(changelogMd, version),
+    soon,
+    soonGroups: soonGroups(soon),
+    credits: CREDITS.map(([title, rows]) => ({ title, rows: rows.map(([what, text, url]) => ({ what, text, url: url.replace('{version}', String(version || '').replace(/^v/, '')) })) })),
+    patterns: PATTERNS.map(([code, lang, by, licence]) => ({ code, lang, by, licence })),
+    alignInstalled: !!alignInstalled,
+    notAffiliated: NOT_AFFILIATED,
+    links: LINKS,
+    issues: ISSUES_URL,
+    releases: RELEASES_URL
+  }
+}
+
+module.exports = { changelogSections, whatsNew, comingSoon, soonGroups, hero, aboutData, CREDITS, PATTERNS, LINKS, NOT_AFFILIATED, ISSUES_URL, RELEASES_URL }

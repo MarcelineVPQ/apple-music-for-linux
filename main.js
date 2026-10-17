@@ -2047,7 +2047,8 @@ function panelSnapshot() {
     v,
     notices: notices.visible(),
     reminders: notices.reminders(),
-    about: shownAbout || aboutCache ? aboutData() : null,
+    // the hero card's version and channel are live (the channel can change while About is cached)
+    about: shownAbout || aboutCache ? Object.assign({ hero: aboutDataLib.hero(app.getVersion(), settings.updateChannel, !!appImagePath) }, aboutData()) : null,
     theme: themeState(),
     reveal
   }

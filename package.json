@@ -97,7 +97,8 @@
       "relaunch.js",
       "media-position.js",
       "update-feed.js",
-      "sonata.png"
+      "sonata.png",
+      "sonata.svg"
     ],
     "asarUnpack": [
       "align/**"

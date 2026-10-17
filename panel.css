@@ -240,30 +240,75 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .subhead { margin: 10px 0 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--s-soft); }
 .group + .group { border-top: 1px solid var(--s-edge); }
 
-/* About */
+/* About: the 42PS hero card and the accordion (the DS5 About, in Sonata's tokens) */
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 3px;
+  align-items: center;
+  margin: 0 0 8px;
+  padding: 16px 12px 12px;
+  overflow: hidden;
+  border: 1px solid var(--s-edge);
+  border-radius: 10px;
+  background: var(--s-field);
+}
+/* the top strip: the accent run into the album's second colour (one colour when there is none) */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--s-accent), var(--s-accent-mix-text), var(--s-accent-2-text));
+}
+.hero-logo { grid-row: 1 / span 4; width: 64px; height: 64px; filter: drop-shadow(0 2px 8px var(--s-shadow)); }
+.hero-eyebrow { font-size: 10px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; color: var(--s-accent-text); }
+.hero-title { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.15; }
+.hero-by { margin: 0; font-size: 12.5px; }
+.hero-version { margin: 0; color: var(--s-soft); font-size: 12px; }
+.hero-links { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.btn.pill { gap: 5px; min-height: 32px; padding: 0 8px; border-radius: 8px; font-weight: 500; font-size: 12px; }
+.hero-copy { grid-column: 1 / -1; margin-top: 6px; color: var(--s-soft); font-size: 11.5px; }
+
 .about-md { padding-top: 6px; }
 .release { margin: 8px 0 2px; font-size: 13px; }
 .md { font-size: 12.5px; line-height: 1.45; }
 .md h4, .md h5 { margin: 8px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--s-soft); }
 .md p { margin: 4px 0; }
-.md ul, .plain-list { margin: 4px 0; padding-left: 18px; }
-.md li, .plain-list li { margin: 3px 0; }
+.md ul { margin: 4px 0; padding-left: 18px; }
+.md li { margin: 3px 0; }
 .md code { padding: 0 3px; border-radius: 4px; background: var(--s-field); font-size: 11.5px; }
-.about-md > .btn { margin-top: 8px; }
-.link { color: var(--s-text); text-decoration: underline; text-decoration-color: var(--s-ring); text-underline-offset: 2px; }
+.about-btns { margin-top: 10px; }
+.link { color: var(--s-text); text-decoration: underline; text-decoration-color: var(--s-ring); text-underline-offset: 2px; overflow-wrap: anywhere; }
 .about-list { font-size: 12.5px; line-height: 1.45; }
-.credits { margin: 0; }
-.credits dt { margin-top: 6px; font-weight: 600; }
-.credits dd { margin: 0; color: var(--s-soft); }
-.patterns { margin: 4px 0; padding-left: 18px; color: var(--s-soft); font-size: 11.5px; }
-.links { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 2px; }
-.link-btn { justify-content: space-between; }
+
+/* Coming soon: the DS5 board's columns as groups, each plan a small card */
+.soon-head { display: flex; align-items: center; gap: 6px; margin: 12px 0 6px; font-size: 12px; font-weight: 650; }
+.count { padding: 0 6px; border-radius: 8px; background: var(--s-field); color: var(--s-soft); font-size: 11px; font-weight: 600; }
+.soon-cards { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.soon-card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--s-edge); border-radius: 8px; background: var(--s-field); }
+.soon-card span { color: var(--s-soft); }
+/* BACKLOG's titles and sentences start in lower case (they follow "Soon:"); a card starts a sentence */
+.soon-card strong, .soon-card span { display: block; }
+.soon-card strong::first-letter, .soon-card span::first-letter { text-transform: uppercase; }
+
+/* Credits: "Built on" as prose, then one What | Credit table */
+.credits-head { margin: 12px 0 4px; font-size: 13px; font-weight: 650; }
+.prose { margin: 4px 0 8px; }
+.credit-table { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.4; }
+.credit-table th, .credit-table td { padding: 5px 6px; border-top: 1px solid var(--s-edge); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.credit-table thead th { border-top: 0; color: var(--s-soft); font-size: 11.5px; font-weight: 500; }
+.credit-table tbody th { width: 34%; font-weight: 600; }
+.credit-table td { color: var(--s-soft); }
+.credit-table .group-row th { width: auto; padding-top: 10px; color: var(--s-text); font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 
 @media (prefers-reduced-motion: reduce) {
   .sec-chev, .switch .knob, .toast { transition: none !important; }
 }
 @media (prefers-contrast: more) {
-  .panel, .sec, .btn, .select, .notice { border-color: var(--s-text); }
+  .panel, .sec, .btn, .select, .notice, .hero, .soon-card { border-color: var(--s-text); }
 }
 
 /* --- toasts (toast.html): bottom right of Apple's page, newest at the bottom --- */

@@ -19,6 +19,7 @@ See docs/RELEASING.md.
 - **The visualizer's bars scene is lighter.** It used to make two new colour gradients for every bar on every frame; it now makes them once and reuses them. That is about 13 % less drawing work for the visualizer page at the same frame rate, and the bars look the same. The visualizer's colours now come from Sonata's one theme system, like the rest of the app. Nothing changes in the picture.
 - **About → Credits lists each hyphenation pattern's exact licence and version**, after a check of every file, and links the original copyright and licence notice of every pattern file, which now ships with Sonata (`licenses/hyphenation-NOTICES.txt`).
 - **Romanian and Indonesian lyrics no longer get estimated syllables.** Their hyphenation pattern files carry no licence Sonata can ship them under, so they were removed; words in those languages light up whole, as in other languages without patterns. We'll ask the authors and bring them back if they agree.
+- **About looks like the DS5 app's About.** It opens on the 42 Pixel Studios card: Sonata's icon, "A 42 Pixel Studios production", who made it, the version and update channel, and buttons for 42pixelstudios.com, github.com/MarcelineVPQ, the source code (GPL-3.0) and reporting an issue. Below it: App changes (the release notes, with a link to all releases), Coming soon (the plans as cards, grouped by status) and Credits ("Built on", then one What | Credit table with every third-party part and licence). The separate Links section is gone; its links are on the card.
 
 ### Fixed
 

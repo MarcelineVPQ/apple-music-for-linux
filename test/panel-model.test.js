@@ -99,7 +99,7 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.equal(P.sectionStatus('settings', 'startup', {}), 'All off')
   assert.equal(P.sectionStatus('settings', 'appearance', s), 'Dark · album colours · Glass')
   assert.equal(P.sectionStatus('settings', 'updates', Object.assign({}, s, { checkForUpdates: false })), 'Development · no automatic checks')
-  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits', 'links'])
+  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits'])
 })
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {
@@ -192,6 +192,8 @@ test('about: What\'s new = this version\'s CHANGELOG section, older ones after; 
   assert.equal(real.patterns.length, 20)
   assert.match(real.notAffiliated, /not affiliated/)
   assert.ok(real.links.every((l) => /^https:\/\//.test(l.url)))
+  assert.ok(/\/releases$/.test(real.releases) && /\/issues$/.test(real.issues))
+  assert.ok(real.soonGroups.length >= 1 && real.soonGroups.reduce((n, g) => n + g.items.length, 0) === real.soon.length, 'every plan in one group')
   // every shipped hyphenation pattern file has its licence listed
   const files = require('../package.json').build.files.find((f) => f.includes('patterns/!('))
   const shipped = /!\(([^)]+)\)/.exec(files)[1].split('|')
@@ -207,4 +209,37 @@ test('markdown-lite: headings, lists, bold/italic/code, https links only; no HTM
   assert.equal(links.length, 1)
   assert.equal(links[0].href, 'https://x.y')
   assert.equal(MD.plain(b[2].c), 'A <b>tag</b> stays text.')
+})
+
+test('about: the hero card (the 42PS card, as in the DS5 About): version, channel, the four links, the © line', () => {
+  const h = A.hero('0.15.38-dev.1', 'dev', true, 2026)
+  assert.equal(h.eyebrow, 'A 42 Pixel Studios production')
+  assert.equal(h.name, 'Sonata')
+  assert.equal(h.by, 'Marcy Kuhn')
+  assert.equal(h.version, '0.15.38-dev.1')
+  assert.equal(h.channel, 'dev')
+  assert.equal(h.line, 'v0.15.38-dev.1 · Development')
+  assert.equal(A.hero('0.15.38', 'stable', true, 2026).line, 'v0.15.38 · Stable')
+  assert.equal(A.hero('0.15.38', 'stable', false, 2026).line, 'v0.15.38 · Stable · from source')
+  assert.equal(h.copyright, '© 2026 42 Pixel Studios — a Marcy Kuhn production.')
+  assert.doesNotMatch(JSON.stringify(h), /joint/i, '"production", never "joint"')
+  assert.deepEqual(h.links.map((l) => [l.label, l.url]), [
+    ['42pixelstudios.com', 'https://42pixelstudios.com/'],
+    ['github.com/MarcelineVPQ', 'https://github.com/MarcelineVPQ'],
+    ['Source code (GPL-3.0)', 'https://github.com/MarcelineVPQ/apple-music-for-linux'],
+    ['Report an issue', 'https://github.com/MarcelineVPQ/apple-music-for-linux/issues']
+  ])
+  // every link has an icon the icon set draws, and the licence named is the repo's
+  const I = require('../icons')
+  for (const l of h.links) assert.ok(I.ICONS[l.icon], l.icon)
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'LICENSE'), 'utf8'), /GNU GENERAL PUBLIC LICENSE\s+Version 3/)
+  // the app icon the card shows ships in the AppImage
+  assert.ok(require('../package.json').build.files.includes('sonata.svg'))
+  // main sends it with each panel snapshot (live channel)
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8'), /hero: aboutDataLib\.hero\(app\.getVersion\(\), settings\.updateChannel, !!appImagePath\)/)
+})
+
+test('about: Coming soon groups follow the DS5 board (In progress, Planned, Ideas; empty groups left out)', () => {
+  const g = A.soonGroups([{ title: 'a', text: 'x.', status: 'Planned' }, { title: 'b', text: 'y.', status: 'Building' }, { title: 'c', text: 'z.', status: 'Planned' }])
+  assert.deepEqual(g.map((x) => [x.label, x.items.map((i) => i.title)]), [['In progress', ['b']], ['Planned', ['a', 'c']]])
 })

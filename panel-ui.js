@@ -75,7 +75,7 @@
   let page = ''           // the page the accordion is built for
   let sections = []       // [{ id, root, toggle, pin, status, dot, chev, bodyWrap, body: null | { el, update, notices } }]
   let revealN = 0
-  let olderShown = false  // About → What's new: older releases shown
+  let olderShown = false  // About → App changes: older releases shown
 
   // --- controls (each returns { el, update(S) }) ---
   function row(labelText, descText, control) {
@@ -301,79 +301,111 @@
             if (a.whatsNew.current) add(a.whatsNew.current)
             // loop: NOT-WORTH — ≤ ~40 releases, only after Show older releases
             if (olderShown) a.whatsNew.older.forEach(add)
-            else if (a.whatsNew.older.length) {
+            const btns = el('div', 'btns about-btns')
+            if (!olderShown && a.whatsNew.older.length) {
               const more = el('button', 'btn', 'Show older releases (' + a.whatsNew.older.length + ')')
               more.type = 'button'
               // lifetime: OK — one click listener, replaced with the body's content
               more.addEventListener('click', () => { olderShown = true; shownKey = ''; this.update(S) })
-              box.appendChild(more)
+              btns.appendChild(more)
             }
+            const all = link('All releases on GitHub', a.releases, 'btn')
+            all.appendChild(icon('external'))
+            btns.appendChild(all)
+            box.appendChild(btns)
           }
         }]
       },
+      // the DS5 board's columns as groups: In progress, Planned, Ideas, each with its count; an item is a card
       soon: () => {
         const box = el('div', 'about-list')
         let n = -1
         return [{
           el: box,
           update(s) {
-            const items = s.about ? s.about.soon : null
-            if (items && items.length === n) return
-            box.replaceChildren(el('p', 'note', 'Plans, not promises: they can change, and none has a date. Suggestions are welcome on GitHub.'))
-            if (!items) return
-            n = items.length
-            const ul = el('ul', 'plain-list')
-            // loop: NOT-WORTH — a handful of plans
-            for (const it of items) { const li = el('li'); li.append(el('strong', '', it.title), doc.createTextNode(': ' + it.text)); ul.appendChild(li) }
-            box.appendChild(ul)
+            const a = s.about
+            if (a && a.soon.length === n) return
+            const intro = el('p', 'note')
+            intro.append(doc.createTextNode('Plans, not promises: they can change, and none has a date. '))
+            if (a) intro.appendChild(link('Suggestions are welcome on GitHub.', a.issues))
+            else intro.appendChild(doc.createTextNode('Suggestions are welcome on GitHub.'))
+            box.replaceChildren(intro)
+            if (!a) return
+            n = a.soon.length
+            // loop: NOT-WORTH — ≤ 3 groups of a handful of plans, when Coming soon opens or BACKLOG changes
+            for (const g of a.soonGroups) {
+              const h = el('h3', 'soon-head', g.label + ' ')
+              h.appendChild(el('span', 'count', String(g.items.length)))
+              const ul = el('ul', 'soon-cards')
+              setAttr(ul, 'aria-label', g.label)
+              for (const it of g.items) {
+                const li = el('li', 'soon-card')
+                li.append(el('strong', '', it.title), el('span', '', it.text))
+                ul.appendChild(li)
+              }
+              box.append(h, ul)
+            }
           }
         }]
       },
+      // the DS5 Credits: "Built on" as prose, then one What | Credit table (each other group a header row,
+      // the hyphenation patterns as rows of their own), then the trademark line
       credits: () => {
-        const box = el('div', 'about-list')
+        const box = el('div', 'about-list credits-box')
         let built = false
+        const short = (url) => url.replace(/^https:\/\//, '').replace(/\/$/, '')
         return [{
           el: box,
           update(s) {
             if (built || !s.about) return
             built = true
             const a = s.about
-            // loop: NOT-WORTH — 4 groups of ≤ 6 credits, once
+            const table = el('table', 'credit-table')
+            const thead = el('thead')
+            const hr = el('tr')
+            const th1 = el('th', '', 'What'); setAttr(th1, 'scope', 'col')
+            const th2 = el('th', '', 'Credit'); setAttr(th2, 'scope', 'col')
+            hr.append(th1, th2)
+            thead.appendChild(hr)
+            const tbody = el('tbody')
+            table.append(thead, tbody)
+            const groupRow = (text) => {
+              const tr = el('tr', 'group-row')
+              const th = el('th', '', text)
+              setAttr(th, 'colspan', 2); setAttr(th, 'scope', 'colgroup')
+              tr.appendChild(th)
+              tbody.appendChild(tr)
+            }
+            const creditRow = (what, text, url) => {
+              const tr = el('tr')
+              const th = el('th', '', what); setAttr(th, 'scope', 'row')
+              const td = el('td', '', text)
+              if (url) { td.appendChild(doc.createTextNode(' ')); td.appendChild(link(short(url), url)) }
+              tr.append(th, td)
+              tbody.appendChild(tr)
+            }
+            box.appendChild(el('h3', 'credits-head', 'Built on'))
+            // loop: NOT-WORTH — 4 groups of ≤ 6 credits and 20 pattern rows, once per open
             for (const g of a.credits) {
-              box.appendChild(el('h3', 'subhead', g.title + (/sonata-align/.test(g.title) ? (a.alignInstalled ? ' · installed' : ' · not installed') : '')))
-              const dl = el('dl', 'credits')
-              for (const r of g.rows) {
-                const dt = el('dt')
-                if (r.url) dt.appendChild(link(r.what, r.url)); else dt.textContent = r.what
-                dl.append(dt, el('dd', '', r.text))
+              if (g.title === 'Built on') {
+                for (const r of g.rows) {
+                  const p = el('p', 'prose')
+                  if (r.url) p.appendChild(link(r.what, r.url)); else p.appendChild(el('strong', '', r.what))
+                  p.appendChild(doc.createTextNode(': ' + r.text))
+                  box.appendChild(p)
+                }
+                continue
               }
-              box.appendChild(dl)
+              groupRow(g.title + (/sonata-align/.test(g.title) ? (a.alignInstalled ? ' · installed' : ' · not installed') : ''))
+              // loop: NOT-WORTH — ≤ 6 credits of one group, once per open
+              for (const r of g.rows) creditRow(r.what, r.text, r.url)
               if (/^Lyrics$/.test(g.title)) {
-                const ul = el('ul', 'patterns')
-                setAttr(ul, 'aria-label', 'Hyphenation pattern licences')
-                // loop: NOT-WORTH — 20 pattern files, once
-                for (const p of a.patterns) ul.appendChild(el('li', '', p.lang + ': ' + p.by + ' · ' + p.licence))
-                box.appendChild(ul)
+                groupRow('Hyphenation patterns, by language')
+                // loop: NOT-WORTH — 20 pattern files, once per open
+                for (const p of a.patterns) creditRow(p.lang, p.by + ' · ' + p.licence, '')
               }
             }
-            box.appendChild(el('p', 'note', a.notAffiliated))
-          }
-        }]
-      },
-      links: () => {
-        const box = el('div', 'links')
-        let built = false
-        return [{
-          el: box,
-          update(s) {
-            if (built || !s.about) return
-            built = true
-            // loop: NOT-WORTH — 4 links, once
-            for (const l of s.about.links) {
-              const a = link(l.label, l.url, 'btn link-btn')
-              a.appendChild(icon('external'))
-              box.appendChild(a)
-            }
+            box.append(el('h3', 'credits-head', 'Third-party assets and code'), table, el('p', 'note', a.notAffiliated))
           }
         }]
       }
@@ -382,11 +414,57 @@
   function aboutStatus(id, s) {
     const a = s.about
     if (id === 'whatsnew') return a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : '')
-    if (id === 'soon') return a ? a.soon.length + (a.soon.length === 1 ? ' plan' : ' plans') : ''
-    if (id === 'credits') return 'castlabs Electron, LRCLIB, hyph-utf8 and more'
-    if (id === 'links') return 'GitHub, bugs, 42 Pixel Studios'
+    if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
+    if (id === 'credits') return 'Built on · Third-party assets and code'
     return ''
   }
+
+  // --- About's hero card (the 42PS card, as in the DS5 About): built once per About page, its version
+  // line updated in place on each state push ---
+  function heroCard() {
+    const card = el('section', 'hero')
+    const logo = el('img', 'hero-logo')
+    logo.src = 'sonata.svg'
+    logo.alt = ''
+    logo.width = 64
+    logo.height = 64
+    const eyebrow = el('span', 'hero-eyebrow')
+    const name = el('h3', 'hero-title')
+    name.id = 'hero-title'
+    setAttr(card, 'aria-labelledby', 'hero-title')
+    // "Developed by Marcy Kuhn" and "v0.15.38 · Stable" on two lines: the panel is too narrow for one
+    const by = el('p', 'hero-by')
+    const who = el('strong')
+    by.append(doc.createTextNode('Developed by '), who)
+    const line = el('p', 'hero-version')
+    const links = el('div', 'hero-links')
+    const copy = el('small', 'hero-copy')
+    card.append(logo, eyebrow, name, by, line, links, copy)
+    let linksBuilt = false
+    return {
+      el: card,
+      update(s) {
+        const h = s.about && s.about.hero
+        card.hidden = !h
+        if (!h) return
+        setText(eyebrow, h.eyebrow)
+        setText(name, h.name)
+        setText(who, h.by)
+        setText(line, h.line)
+        setText(copy, h.copyright)
+        if (linksBuilt) return
+        linksBuilt = true
+        // loop: NOT-WORTH — 4 links, once per About page
+        for (const l of h.links) {
+          const a = link('', l.url, 'btn pill')
+          a.appendChild(icon(l.icon))
+          a.appendChild(doc.createTextNode(l.label))
+          links.appendChild(a)
+        }
+      }
+    }
+  }
+  let hero = null
 
   // --- notices (top of the panel, or a section's) ---
   function noticeEl(n) {
@@ -449,6 +527,8 @@
     page = p
     olderShown = false
     acc.replaceChildren()
+    if (hero) { hero.el.remove(); hero = null }
+    if (p === 'about') { hero = heroCard(); scroll.insertBefore(hero.el, acc) }
     sections = M.PAGES[p].sections.map((def) => {
       const root = el('section', 'sec')
       root.dataset.section = def.id
@@ -551,11 +631,14 @@
     theme.set(S.theme)
     if (S.page !== page) buildPage(S.page)
     setText(title, M.PAGES[page].title)
-    setText(sub, 'Sonata ' + (S.v.version || '') + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
+    // About's hero card shows the version and channel, so its header says what the page holds (DS5)
+    setText(sub, page === 'about' ? 'Changes, plans and credits'
+      : 'Sonata ' + (S.v.version || '') + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
     renderMenu()
     renderNotices(topNotices, (S.notices || []).filter((n) => n.place === 'top'))
     topNotices.hidden = !topNotices.children.length
+    if (hero) hero.update(S)
     renderSections()
     // a deep link (a rail dot, a notice's action): open is main's; scroll there and focus its header
     if (S.reveal && S.reveal.n !== revealN && S.reveal.page === page) {

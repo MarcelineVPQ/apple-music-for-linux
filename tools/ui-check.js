@@ -128,7 +128,8 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     let name = el.getAttribute('aria-label') || ''
     if (!name && el.getAttribute('aria-labelledby')) name = el.getAttribute('aria-labelledby').split(' ').map((id) => (document.getElementById(id) || {}).textContent || '').join(' ').trim()
     if (!name) name = (el.textContent || '').trim() || el.getAttribute('title') || ''
-    const inline = el.tagName === 'A' && getComputedStyle(el).display === 'inline' && !!el.closest('p, li, dd, dt')
+    // a link inside running text (WCAG 2.5.8's inline exception): paragraphs, lists and the Credits table's cells
+    const inline = el.tagName === 'A' && getComputedStyle(el).display === 'inline' && !!el.closest('p, li, dd, dt, td')
     const sec = el.closest('[data-section]')
     return { tag: el.tagName, id: el.id || el.dataset.key || el.dataset.rail || el.className.toString().slice(0, 24), name: name.slice(0, 40), w: r.width, h: r.height, inline, disabled: !!el.disabled, section: sec ? sec.dataset.section : (el.closest('.head') ? 'header' : ''), rect: [r.left, r.top, r.right, r.bottom] }
   })
