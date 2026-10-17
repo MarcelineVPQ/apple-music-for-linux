@@ -25,7 +25,6 @@
     background: var(--s-over-page);
     border: 1px solid var(--s-edge);
     border-radius: 16px;
-    backdrop-filter: blur(24px);
     color: var(--s-text);
     overflow: hidden;
   }
@@ -132,18 +131,17 @@
     line-height: 1.3;
     padding: 7px 0;
     color: var(--fg-dim);
-    filter: blur(0.6px);
     cursor: pointer;
-    transition: color 0.3s ease, filter 0.3s ease;
+    transition: color 0.3s ease;
   }
-  .line:hover { color: var(--s-text); filter: none; }
-  .line.active { color: var(--sing); filter: none; }
+  .line:hover { color: var(--s-text); }
+  .line.active { color: var(--sing); }
   /* the sung line's words not reached yet: the theme's faded colour, >= 4.5:1 on the card in every
      theme, album colour and Glass (theme.js --s-upcoming), instead of lyrics-view.css's opacity 0.4,
      which left them 1.7-3:1 (near-white on the light card). Sung words take the singer's colour. */
   .line.active .w { opacity: 1; color: var(--s-upcoming); transition: transform 0.18s ease-out, color 0.25s ease; }
   .line.active .w.sung { color: var(--sing); }
-  .line.plain { color: var(--s-text); filter: none; cursor: default; }
+  .line.plain { color: var(--s-text); cursor: default; }
   #source {
     padding: 18px 0 6px;
     font-size: 11px;
