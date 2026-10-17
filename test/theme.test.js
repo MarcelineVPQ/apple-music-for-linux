@@ -160,7 +160,7 @@ test('one theme system: no literal colours in Sonata\'s own CSS outside theme.cs
   const LITERAL = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/
   const styles = (html) => [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n')
   const files = { 'rail.css': read('rail.css'), 'panel.css': read('panel.css'), 'lyrics-view.css': read('lyrics-view.css') }
-  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'panel.html', 'rail.html', 'toast.html']) files[f + ' <style>'] = styles(read(f))
+  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'panel.html', 'rail.html', 'toast.html', 'cover.html']) files[f + ' <style>'] = styles(read(f))
   for (const [f, css] of Object.entries(files)) {
     css.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').forEach((line, i) => assert.doesNotMatch(line, LITERAL, f + ':' + (i + 1) + ': ' + line.trim()))
   }
@@ -173,7 +173,7 @@ test('one theme system: no literal colours in Sonata\'s own CSS outside theme.cs
     src.replace(/\/\/.*$/gm, '').split('\n').forEach((line, i) => assert.doesNotMatch(line, LITERAL, f + ':' + (i + 1)))
   }
   // every Sonata page loads the tokens first
-  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'panel.html', 'rail.html', 'toast.html']) assert.match(read(f), /href="theme\.css"/, f)
+  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'panel.html', 'rail.html', 'toast.html', 'cover.html']) assert.match(read(f), /href="theme\.css"/, f)
 })
 
 test('theme-apply: writes the tokens once per change, crossfades the backdrop, follows the scheme', () => {

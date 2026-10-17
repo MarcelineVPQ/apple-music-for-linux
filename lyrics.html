@@ -41,6 +41,8 @@
     perspective: 200px;
   }
   #art.shown { display: block; }
+  #art:focus { outline: none; }
+  #art:focus-visible #spin { outline: 2px solid var(--s-ring); outline-offset: 2px; }
   #ring { position: absolute; inset: 0; width: 62px; height: 62px; transform: rotate(-90deg); }
   #ring circle { fill: none; stroke-width: 1.2; }
   #ring .track { stroke: var(--s-edge); }
@@ -85,6 +87,16 @@
     background: var(--s-vinyl-hole);
     box-shadow: 0 0 0 0.5px var(--s-vinyl-sheen);
   }
+  /* the tonearm, seen from above (only while the record spins, Settings → "Spin album art like a
+     record"): drawn once (SVG), pivoting at the record's top right corner. Its angle follows the song
+     as one linear Web Animation per play / seek / track (transform only, on the compositor), frozen
+     on pause; it lifts off its shadow on pause, song end and while swinging back for a new song. */
+  #tonearm { display: none; position: absolute; inset: 0; pointer-events: none; }
+  body.spin #art.shown #tonearm { display: block; }
+  #tonearm svg { position: absolute; left: 0; top: 0; width: 62px; height: 62px; overflow: visible; }
+  #arm, #lift { position: absolute; inset: 0; transform-origin: 58px 4px; }
+  #lift { transition: transform 0.3s ease; }
+  #tonearm.lifted #lift { transform: translate(-0.7px, -1px) scale(1.04); }
   #header {
     flex-shrink: 0;
     display: flex;
@@ -157,6 +169,14 @@
   .line.active .w { opacity: 1; }
   .line.active > :where(.ly-main) .w { color: var(--s-upcoming); transition: transform 0.18s ease-out; }
   .line.active > :where(.ly-main) .w.sung { color: var(--sing); }
+  /* the songwriter credit after the last line (lyrics-view.js writtenBy): quiet, like a booklet's credit */
+  #credits {
+    padding: 22px 0 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--s-soft);
+    text-align: center;
+  }
   #source {
     padding: 18px 0 6px;
     font-size: 11px;
@@ -174,9 +194,16 @@
 <body>
   <div id="card">
     <div id="header">
-      <div id="art" title="Show album">
+      <div id="art" title="Show album (right-click: View Album Cover)" role="button" tabindex="0" aria-label="Show album" aria-haspopup="menu">
         <svg id="ring" viewBox="0 0 34 34"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" cx="17" cy="17" r="16"/></svg>
         <div id="spin"><img id="thumb" alt=""></div>
+        <div id="tonearm" class="lifted" aria-hidden="true">
+          <div id="arm">
+            <svg viewBox="0 0 62 62"><g transform="translate(1.1 1.5)"><line x1="58" y1="0" x2="58" y2="30" stroke="var(--s-tonearm-shadow)" stroke-width="2.2" stroke-linecap="round"/><rect x="55.4" y="29.5" width="3.6" height="6.5" rx="0.9" fill="var(--s-tonearm-shadow)" transform="rotate(10 57.2 32.75)"/></g></svg>
+            <div id="lift"><svg viewBox="0 0 62 62"><rect x="55.5" y="-5" width="5" height="5.5" rx="1.2" fill="var(--s-tonearm-head)" stroke="var(--s-tonearm)" stroke-width="0.5"/><line x1="58" y1="0" x2="58" y2="30.5" stroke="var(--s-tonearm-edge)" stroke-width="2.4" stroke-linecap="round"/><line x1="58" y1="0" x2="58" y2="30.5" stroke="var(--s-tonearm)" stroke-width="1.5" stroke-linecap="round"/><rect x="55.4" y="29.5" width="3.6" height="6.5" rx="0.9" fill="var(--s-tonearm-head)" stroke="var(--s-tonearm)" stroke-width="0.5" transform="rotate(10 57.2 32.75)"/></svg></div>
+          </div>
+          <svg viewBox="0 0 62 62"><circle cx="58" cy="4" r="3.8" fill="var(--s-tonearm-head)" stroke="var(--s-tonearm)" stroke-width="0.8"/><circle cx="58" cy="4" r="1.3" fill="var(--s-tonearm)"/></svg>
+        </div>
       </div>
       <div id="song"><span class="t">Lyrics</span><span class="a"></span></div>
       <button id="close" title="Close">
@@ -244,6 +271,11 @@
   })
   // lifetime: OK — one click handler on the header art, released with the window
   artEl.onclick = () => ipcRenderer.send('lyrics-command', 'show-album')
+  // lifetime: OK — one keydown and one contextmenu listener on the header art, released with the window.
+  // A button for the keyboard (Enter / Space shows the album); its menu (View Album Cover, Show Album)
+  // opens on right-click, the Menu key or Shift+F10
+  artEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ipcRenderer.send('lyrics-command', 'show-album') } })
+  artEl.addEventListener('contextmenu', (e) => { e.preventDefault(); if (artUrl) ipcRenderer.send('lyrics-command', 'art-menu') })
 
   // progress ring: song position / duration, written at most 4×/s and only when it moved
   let duration = 0
@@ -281,6 +313,69 @@
   })
   function updateStill() {
     document.body.classList.toggle('still', document.visibilityState !== 'visible' || !view.playing)
+    syncArm()
+  }
+
+  // the tonearm (see its CSS): one Web Animation from where the arm is to the record's last groove,
+  // timed to the song's remaining length, rebuilt only on play, seek (> 1.5 s off), a new song or the
+  // window showing again; paused (frozen, lifted) on pause, when hidden or with the spin off.
+  // loop: NOT-WORTH — no loop of its own: a compositor animation (transform only) while the record
+  // spins, playing and shown, where the spin already redraws the record every frame; nothing paused or hidden
+  // lifetime: OK — one Animation at a time (the old one cancelled before a new one), one swing timer at a time
+  const ARM_REST = -8, ARM_OUT = 1.5, ARM_IN = 10.5   // degrees: off the record, the first groove, the last
+  const SWING = 0.6                                   // s: back to the first groove for a new song
+  const tonearm = document.getElementById('tonearm')
+  const armEl = document.getElementById('arm')
+  let arm = null              // { anim, at: song time it started from, perf: when, playing }
+  let armAngle = ARM_REST     // where the arm is when no animation moves it
+  let armSong = 0             // bumps on each new song: the arm swings back first
+  let armSwung = -1
+  let swingTimer = 0
+  const armFor = (t) => duration > 0 ? ARM_OUT + (ARM_IN - ARM_OUT) * Math.min(1, Math.max(0, t / duration)) : ARM_REST
+  function armNow() {
+    if (!arm) return armAngle
+    const el = arm.anim.effect && arm.anim.effect.getComputedTiming()
+    const p = el && el.progress !== null ? el.progress : 1
+    if (p < arm.f) return arm.from + (arm.to - arm.from) * (p / arm.f)
+    return arm.to + (ARM_IN - arm.to) * (arm.f < 1 ? (p - arm.f) / (1 - arm.f) : 1)
+  }
+  function stopArm() {
+    if (!arm) return
+    armAngle = armNow()
+    arm.anim.cancel()
+    arm = null
+    armEl.style.transform = 'rotate(' + armAngle.toFixed(2) + 'deg)'
+  }
+  function syncArm() {
+    const live = spin && artEl.classList.contains('shown') && document.visibilityState === 'visible' && duration > 0
+    const playing = live && view.playing
+    const t = view.time()
+    const ended = t >= duration - 0.25
+    tonearm.classList.toggle('lifted', !playing || ended || swingTimer !== 0)
+    if (!playing || ended) { stopArm(); return }
+    const newSong = armSwung !== armSong
+    if (arm && !newSong) {
+      const expected = arm.at + (performance.now() - arm.perf) / 1000
+      if (Math.abs(expected - t) < 1.5) return          // still in step
+    }
+    // from where the arm is: a quick swing (a new song or a seek) to the song's groove, then linear to the end
+    const from = armNow()
+    stopArm()
+    const target = armFor(t)
+    const swing = newSong ? SWING : Math.abs(target - from) > 0.3 ? 0.35 : 0
+    const remaining = Math.max(0.1, duration - t)
+    const total = swing + remaining
+    const f = swing / total
+    const rot = (a) => 'rotate(' + a.toFixed(2) + 'deg)'
+    const anim = armEl.animate([{ transform: rot(from), offset: 0, easing: 'ease-in-out' }, { transform: rot(target), offset: f, easing: 'linear' }, { transform: rot(ARM_IN), offset: 1 }], { duration: total * 1000, fill: 'forwards' })
+    arm = { anim, at: t, perf: performance.now(), from, to: target, f }
+    if (newSong) {
+      armSwung = armSong
+      clearTimeout(swingTimer)
+      // loop: NOT-WORTH — one-shot, once per new song: sets the arm down when the swing ends
+      swingTimer = setTimeout(() => { swingTimer = 0; tonearm.classList.toggle('lifted', !view.playing) }, swing * 1000)
+      tonearm.classList.add('lifted')
+    }
   }
 
   // lifetime: OK — one click handler, released with the window
@@ -292,6 +387,7 @@
     container: linesEl,
     layout: 'scroll',
     notes: true,
+    credits: true,
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
     onFrame: (time) => updateRing(time),
     emptyText: (data) => !data.title ? 'Play a song to see its lyrics'
@@ -308,6 +404,8 @@
     applyTurn()
     duration = Number(data.duration) || 0
     updateRing(0, true)
+    armSong++
+    stopArm()
     const songEl = document.getElementById('song')
     songEl.querySelector('.t').textContent = data.title || 'Lyrics'
     songEl.querySelector('.a').textContent = data.title ? (data.artist || '') : ''

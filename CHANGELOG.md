@@ -7,10 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **View the album cover.** Right-click the cover in the lyrics window or the mini player (or press the Menu key on it), or choose View Album Cover in the mini player's More menu, and the song's cover opens large in the middle of your screen, as sharp as your screen can show it. Esc, a click anywhere or Close puts it away.
+- **A tonearm on the spinning record.** With "Spin album art like a record" on, a small tonearm rests on the lyrics window's record and moves inward as the song plays, like the real thing. It lifts when you pause, at the end of the song, and swings back for the next one.
+- **Songwriter credits.** The lyrics window ends with "Written by …" when Apple has the song's writers, from Apple's lyrics or its catalog.
+
 ### Changed
 
 - **Newer engine: Electron 45 (castlabs 45.0.0-alpha.14, Chromium 156), an alpha for the Development channel only.** Sonata still uses castlabs' Electron, so Apple Music's protected (Widevine) playback keeps working; Stable stays on its current engine until castlabs ships 45 as a stable release. Startup time is the same and Sonata uses about 7 % less memory (about 800 instead of 860 MB on a test copy). The Copy Link menu item, the mini player, the lyrics window and the visualizer were adjusted for the new engine's changes (Linux windows without a frame would otherwise get rounded corners), so they look and work as before.
 - **The visualizer's bars scene is lighter.** It used to make two new colour gradients for every bar on every frame; it now makes them once and reuses them. That is about 13 % less drawing work for the visualizer page at the same frame rate, and the bars look the same. The visualizer's colours now come from Sonata's one theme system, like the rest of the app. Nothing changes in the picture.
+- **About → Credits lists each hyphenation pattern's exact licence and version**, after a check of every file.
 
 ### Fixed
 

@@ -148,3 +148,13 @@ test('nextChange wakes at syllable boundaries inside a word', () => {
   assert.ok(Math.abs(T.nextChange(lines, 1.1) - 0.2) < 1e-9)
   assert.ok(Math.abs(T.nextChange(lines.map((l) => ({ ...l, words: l.words.map(({ syl, ...w }) => w) })), 1.1) - 1.3) < 1e-9)
 })
+
+test('writtenBy: the songwriter credit lists Apple\'s names as given; nothing without names', () => {
+  assert.equal(V.writtenBy(['Rob Thomas']), 'Written by Rob Thomas')
+  assert.equal(V.writtenBy(['David Austin', 'George Michael']), 'Written by David Austin & George Michael')
+  assert.equal(V.writtenBy(['Chappell Roan', 'Daniel Nigro', 'Justin Tranter']), 'Written by Chappell Roan, Daniel Nigro & Justin Tranter')
+  assert.equal(V.writtenBy(['Bill Berry, Peter Buck, Mike Mills & Michael Stipe']), 'Written by Bill Berry, Peter Buck, Mike Mills & Michael Stipe')   // the catalog's composerName, one string
+  assert.equal(V.writtenBy([]), '')
+  assert.equal(V.writtenBy(undefined), '')
+  assert.equal(V.writtenBy(['', '  ']), '')
+})

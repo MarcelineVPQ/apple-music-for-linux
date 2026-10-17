@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<style>
+  /* The album cover, large: a lightbox over the screen (main.js openCover). The screen dims behind it
+     (--s-lightbox-scrim, the same in every theme), the cover sits in the middle at the size main
+     worked out (cover-model.js), its caption on Sonata's card underneath. A click anywhere, Esc,
+     Enter on Close or leaving the window closes it. Nothing animates. */
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { height: 100%; background: transparent; }
+  body {
+    font-family: -apple-system, 'SF Pro Text', 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+    background: var(--s-lightbox-scrim);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    cursor: zoom-out;
+    overflow: hidden;
+  }
+  #cover {
+    display: block;
+    border-radius: 10px;
+    box-shadow: 0 12px 48px var(--s-art-shadow), 0 0 0 1px var(--s-edge);
+    background: var(--s-surface);
+  }
+  #card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: 86vw;
+    padding: 8px 8px 8px 18px;
+    background: var(--s-over-page);
+    border: 1px solid var(--s-edge);
+    border-radius: 999px;
+    color: var(--s-text);
+    overflow: hidden;
+  }
+  #caption { min-width: 0; font-size: 13px; line-height: 1.3; }
+  #caption .t, #caption .a { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #caption .t { font-weight: 700; color: var(--s-text); }
+  #caption .a { font-weight: 600; color: var(--s-soft); }
+  #close {
+    flex-shrink: 0;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    min-height: 28px;
+    padding: 4px 14px;
+    border: none;
+    border-radius: 999px;
+    background: var(--s-field);
+    color: var(--s-text);
+    cursor: pointer;
+  }
+  #close:hover { background: var(--s-hover); }
+  #close:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+</style>
+</head>
+<body role="dialog" aria-modal="true" aria-label="Album cover">
+  <img id="cover" alt="">
+  <div id="card">
+    <div id="caption"><span class="t"></span><span class="a"></span></div>
+    <button id="close" title="Close (Esc)">Close</button>
+  </div>
+<script>
+  const { ipcRenderer } = require('electron')
+  // loop: none — this page draws once per open (one image) and reacts to a click or a key
+  // lifetime: OK — the ipcRenderer.on listeners ('theme', 'cover') and the click / keydown
+  // listeners are added once at load and die with the window (closed after each look)
+  const theme = require('./theme-apply').attach({ surfaces: [document.getElementById('card')] })
+  ipcRenderer.on('theme', (event, t) => theme.set(t))
+
+  const close = () => ipcRenderer.send('cover-command', 'close')
+  const img = document.getElementById('cover')
+  ipcRenderer.on('cover', (event, c) => {
+    img.width = c.w
+    img.height = c.h
+    img.style.width = c.w + 'px'
+    img.style.height = c.h + 'px'
+    // decoded at the size it shows (main asked Apple for exactly these pixels)
+    img.decoding = 'async'
+    img.src = c.url
+    img.alt = 'Album cover' + (c.album ? ': ' + c.album : '')
+    const cap = document.getElementById('caption')
+    cap.querySelector('.t').textContent = c.album || ''
+    cap.querySelector('.a').textContent = c.artist || ''
+    document.getElementById('close').focus()
+  })
+  // lifetime: OK — the click and keydown listeners, added once at load, die with the window
+  document.addEventListener('click', close)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close() }
+  })
+</script>
+</body>
+</html>

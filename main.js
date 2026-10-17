@@ -21,6 +21,7 @@ const updaterLib = require('./updater');
 const aboutDataLib = require('./about-data');
 const themeLib = require('./theme');
 const miniModel = require('./mini-model');
+const coverModel = require('./cover-model');
 const relaunch = require('./relaunch');
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
@@ -324,6 +325,7 @@ const nowPlayingScript = `(() => {
       title: attrs ? (attrs.name || '') : '',
       artist: attrs ? (attrs.artistName || '') : '',
       album: attrs ? (attrs.albumName || '') : '',
+      composer: attrs ? (attrs.composerName || '') : '',
       duration: attrs && attrs.durationInMillis ? attrs.durationInMillis / 1000 : 0,
       // precise time from the playing media element (fractional seconds); MusicKit's own value
       // can be whole seconds. Used only when the two agree, so a stray element never wins.
@@ -743,7 +745,10 @@ async function lyricsTick() {
       if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
     } else if (listenSession) listenSession.stop()
     alignNote = alignNoteNow()
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
+    // "Written by …" at the end of the lyrics: the TTML's songwriters (Apple lyrics), else the catalog's
+    // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
+    const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -830,6 +835,15 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     appleWC().executeJavaScript(showAlbumScript)
       .catch((e) => console.error('show album failed:', e.message)) // error: LOGGED-OK — page mid-load: the window is shown, the album isn't opened
   }
+  else if (command === 'art-menu') {
+    // the header cover's menu (right-click, the Menu key or Shift+F10 on it): its two actions
+    if (!lyricsWindow || lyricsWindow.isDestroyed()) return
+    // lifetime: a fresh Menu per right-click; nothing keeps it after the popup closes, so it is garbage-collected
+    Menu.buildFromTemplate([
+      { label: 'View Album Cover', click: () => openCover(lyricsWindow) },
+      { label: 'Show Album', click: () => ipcMain.emit('lyrics-command', event, 'show-album') }
+    ]).popup({ window: lyricsWindow })
+  }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainWindow) {
@@ -837,6 +851,80 @@ ipcMain.on('lyrics-command', (event, command, value) => {
         .catch((e) => console.error('lyrics seek failed:', e.message)) // error: LOGGED-OK — page mid-load: that seek is lost (the next click works)
     }
   }
+})
+
+// --- the album cover, large (cover.html): from the lyrics header cover's menu and the mini player ---
+// A lightbox over the screen the window it was opened from is on: the playing song's cover at the
+// size it shows (cover-model.js: the lightbox's pixels, never more than Apple's original), closed with
+// Esc, a click, or by leaving it. Nothing animates; one image per open.
+let coverWindow = null
+const coverArtScript = `(() => {
+  try {
+    const item = MusicKit.getInstance().nowPlayingItem;
+    const a = item ? item.attributes : null;
+    const w = a && a.artwork;
+    return w && w.url ? { ok: true, url: w.url, width: w.width || 0, height: w.height || 0, album: a.albumName || '', artist: a.artistName || '' } : { ok: false };
+  } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page loading): no cover to show, the menu item does nothing that time */
+    return { ok: false };
+  }
+})()`
+async function coverArt() {
+  let art = null
+  try {
+    art = mainAlive() ? await appleWC().executeJavaScript(coverArtScript) : null
+  } catch (e) { console.error('cover lookup failed:', e.message) }   // error: LOGGED-OK — page mid-load: no lightbox this time
+  if (art && art.ok) return art
+  // UI checks only (logged out, nothing plays): SONATA_TEST_ARTWORK stands in, as for the album tint
+  const f = process.env.SONATA_TEST_ARTWORK
+  if (!f) return null
+  const img = nativeImage.createFromPath(f)
+  if (img.isEmpty()) return null
+  const size = img.getSize()
+  return { ok: true, url: require('url').pathToFileURL(path.resolve(f)).href, width: size.width, height: size.height, album: 'Test artwork', artist: path.basename(f) }
+}
+async function openCover(from) {
+  if (coverWindow && !coverWindow.isDestroyed()) { coverWindow.focus(); return }
+  const art = await coverArt()
+  if (!art || (coverWindow && !coverWindow.isDestroyed())) return
+  const near = from && !from.isDestroyed() ? from.getBounds() : screen.getCursorScreenPoint()
+  const display = from && !from.isDestroyed() ? screen.getDisplayMatching(near) : screen.getDisplayNearestPoint(near)
+  const area = display.workArea
+  const fit = coverModel.coverLayout(area, display.scaleFactor, art.width, art.height)
+  const url = art.url.startsWith('file:') ? art.url : coverModel.coverUrl(art.url, fit.pxW, fit.pxH)
+  // lifetime: OK — one lightbox at a time; 'closed' nulls it (it closes on Esc, a click or losing the focus)
+  coverWindow = new BrowserWindow({
+    x: area.x, y: area.y, width: area.width, height: area.height,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    title: appName + ' — Album cover',
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  })
+  coverWindow.loadFile('cover.html')
+  lockDownLocalWindow(coverWindow)
+  const win = coverWindow
+  // lifetime: OK — fires once per load
+  win.webContents.once('did-finish-load', () => {
+    if (win.isDestroyed()) return
+    win.webContents.send('theme', themeState())
+    win.webContents.send('cover', { url, w: fit.w, h: fit.h, album: art.album, artist: art.artist })
+    win.show()
+    win.focus()
+  })
+  // lifetime: OK — 'blur' and 'closed' die with the window; leaving the lightbox closes it
+  win.on('blur', () => { if (!win.isDestroyed()) win.close() })
+  win.on('closed', () => { if (coverWindow === win) coverWindow = null })
+}
+// lifetime: OK — registered once at module load (see the note at ipcMain 'lyrics-command')
+ipcMain.on('cover-command', (event, command) => {
+  // only the lightbox's own page, its top frame, and only 'close'
+  if (!coverWindow || coverWindow.isDestroyed() || event.sender !== coverWindow.webContents) return
+  if (event.senderFrame && event.senderFrame.parent) return
+  if (command === 'close') coverWindow.close()
 })
 
 // --- audio-reactive visualizer / ambient mode ---
@@ -1053,6 +1141,7 @@ async function showMoreMenu() {
     // Electron 44+: clipboard.writeText returns a Promise
     // error: LOGGED-OK — a refused write (no clipboard owner) is logged; the menu just closes
     { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url).catch((e) => console.error('copy link failed:', e.message)) },
+    { label: 'View Album Cover', enabled: !!info.title, click: () => openCover(miniWindow) },
     { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
     { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },
@@ -1260,6 +1349,15 @@ ipcMain.on('mini-command', (event, command, value) => {
   }
   else if (command === 'moreMenu') {
     showMoreMenu()
+  }
+  else if (command === 'artMenu') {
+    // the artwork's menu (right-click, the Menu key or Shift+F10 on it)
+    if (!miniWindow || miniWindow.isDestroyed()) return
+    // lifetime: a fresh Menu per right-click; nothing keeps it after the popup closes, so it is garbage-collected
+    Menu.buildFromTemplate([
+      { label: 'View Album Cover', click: () => openCover(miniWindow) },
+      { label: 'Open Full Player', click: toggleMiniPlayer }
+    ]).popup({ window: miniWindow })
   }
   else if (command === 'toggleFavorite') {
     if (mainAlive()) {

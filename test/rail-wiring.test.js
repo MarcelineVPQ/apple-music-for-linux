@@ -189,10 +189,10 @@ test('packaging: every rail file ships in the AppImage', () => {
   for (const f of ['preload-apple.js', 'preload-rail-view.js', 'apple-focus.js', 'rail.html', 'rail-model.js', 'rail-ui.js', 'rail.css']) assert.ok(files.includes(f), f)
   assert.ok(!files.includes('preload-rail.js'))
   // every local file a Sonata page loads ships too (scripts, styles)
-  for (const page of ['rail.html', 'panel.html', 'toast.html', 'lyrics.html', 'miniplayer.html', 'visualizer.html']) {
+  for (const page of ['rail.html', 'panel.html', 'toast.html', 'lyrics.html', 'miniplayer.html', 'visualizer.html', 'cover.html']) {
     for (const m of read(page).matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)) assert.ok(files.includes(m[1]), page + ' loads ' + m[1])
   }
-  for (const f of ['CHANGELOG.md', 'BACKLOG.md', 'preload-panel.js', 'theme-apply.js', 'settings-store.js', 'json-salvage.js', 'updater.js', 'about-data.js', 'notices-model.js']) assert.ok(files.includes(f), f)
+  for (const f of ['CHANGELOG.md', 'BACKLOG.md', 'preload-panel.js', 'theme-apply.js', 'settings-store.js', 'json-salvage.js', 'updater.js', 'about-data.js', 'notices-model.js', 'cover.html', 'cover-model.js']) assert.ok(files.includes(f), f)
   assert.ok(!files.includes('settings.html'), 'the floating Settings window is retired')
 })
 

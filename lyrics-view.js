@@ -9,7 +9,7 @@
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
 //   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
-// The pure helpers (prepare, refinedLine, alignedLines, timingNote, wordState, stageNext) are tested
+// The pure helpers (prepare, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext) are tested
 // in test/lyrics-view.test.js.
 //
 // Karaoke: the word being sung is lit as a whole (.w.now). Apple words timed in several spans carry
@@ -92,6 +92,17 @@ function alignedLines(lines, msg, key) {
     changed.push(i)
   }
   return changed.length ? { lines: next, changed } : null
+}
+
+/**
+ * The songwriter credit at the end of the lyrics: ['A'] -> 'Written by A', ['A', 'B'] -> 'Written by A & B',
+ * ['A', 'B', 'C'] -> 'Written by A, B & C'; '' when there are none (only real data is shown: main sends
+ * Apple's TTML songwriters or the catalog's composerName, else nothing).
+ */
+function writtenBy(writers) {
+  const names = (Array.isArray(writers) ? writers : []).map((w) => String(w || '').trim()).filter(Boolean)
+  if (!names.length) return ''
+  return 'Written by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' & ' + names[names.length - 1])
 }
 
 /** The word timing note: aligned beats refined beats estimated; some lines left estimated says so. */
@@ -181,7 +192,7 @@ function slideFrom(before, after, centre) {
 
 /**
  * createLyricsView({ container, layout: 'scroll' | 'stage', onSeek(t)?, onFrame(time)?,
- *   emptyText(data)? -> string|null, notes: bool }) -> { setData, setTime, refine, align, time, playing }
+ *   emptyText(data)? -> string|null, notes: bool, credits: bool }) -> { setData, setTime, refine, align, time, playing }
  */
 function createLyricsView(opts) {
   const container = opts.container
@@ -342,6 +353,14 @@ function createLyricsView(opts) {
       container.appendChild(el)
       lineEls.push(entry)
     })
+    // "Written by …" after the last line (the lyrics window; the visualizer's stage has no end to show it at)
+    const by = opts.credits ? writtenBy(data.writers) : ''
+    if (by) {
+      const credits = doc.createElement('div')
+      credits.id = 'credits'
+      credits.textContent = by
+      container.appendChild(credits)
+    }
     notes = []
     if (opts.notes) {
       if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '') + (data.appleFailed ? ", as Apple Music's didn't load" : ''))
@@ -626,4 +645,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }

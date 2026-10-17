@@ -23,6 +23,8 @@
       "main.js",
       "miniplayer.html",
       "lyrics.html",
+      "cover.html",
+      "cover-model.js",
       "visualizer.html",
       "lastfm.js",
       "discord.js",

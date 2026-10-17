@@ -27,6 +27,20 @@ function ttmlLang(ttml) {
   return m ? (tagAttrs(m[0])['xml:lang'] || '') : ''
 }
 
+/**
+ * The song's writers from Apple's TTML head (<iTunesMetadata><songwriters><songwriter>Name</songwriter>…),
+ * in Apple's order; [] when the document has none. Checked against 291 real Apple TTML responses
+ * (2026-10-17): 290 carry the list, one has an empty <iTunesMetadata> (no songwriters element).
+ */
+function ttmlSongwriters(ttml) {
+  const head = /<songwriters\b[^>]*>([\s\S]*?)<\/songwriters>/.exec(ttml || '')
+  if (!head) return []
+  // loop: NOT-WORTH — the song's writers (1-10), once per song
+  return [...head[1].matchAll(/<songwriter\b[^>]*>([\s\S]*?)<\/songwriter>/g)]
+    .map((m) => decodeEntities(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+}
+
 // <ttm:agent xml:id="v1" type="person"/> -> { v1: 'person' }
 function ttmlAgents(ttml) {
   const agents = {}
@@ -289,13 +303,20 @@ async function fetchLrclib(state, deps) {
  * store, so the next play asks Apple again. Neither: error 'apple' (main.js retries a few times).
  */
 // Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25),
-// 3 = the lyrics language (xml:lang) is stored too (0.15.26). A stored Apple entry from an older parser
-// is fetched again once (served as is when that fails).
-const TTML_PARSE = 3
+// 3 = the lyrics language (xml:lang) is stored too (0.15.26), 4 = the songwriters (<songwriters>) too.
+// A stored Apple entry from an older parser is fetched again once (served as is when that fails).
+const TTML_PARSE = 4
 // the waits before the 2nd and 3rd Apple attempt of one lookup
 const APPLE_RETRY_MS = [1000, 3000]
 // lifetime: OK — a one-shot wait inside one lookup, settled after ms (nothing holds it)
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// what a result carries beyond its lines: the language and the writers, only when there are some
+function withExtras(result, lang, writers) {
+  if (lang) result.lang = lang
+  if (writers && writers.length) result.writers = writers
+  return result
+}
 
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
@@ -310,7 +331,7 @@ function createLyricsResolver(deps) {
       const stored = deps.store ? deps.store.get(key) : null
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
-      if (usable && !stale) return stored.lang ? { lines: stored.lines, source: stored.source, lang: stored.lang } : { lines: stored.lines, source: stored.source }
+      if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers)
       const remember = (result) => {
         if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source })
         return result
@@ -323,8 +344,7 @@ function createLyricsResolver(deps) {
           const ttml = await deps.fetchApple(state)
           appleFailed = ''
           const lines = ttml ? parseTtml(ttml) : []
-          const lang = ttml ? ttmlLang(ttml) : ''
-          if (lines.length) return remember(lang ? { lines, source: 'apple', lang } : { lines, source: 'apple' })
+          if (lines.length) return remember(withExtras({ lines, source: 'apple' }, ttmlLang(ttml), ttmlSongwriters(ttml)))
           break
         } catch (e) {
           // error: SHOWN — a failed Apple lookup (page mid-navigation, Apple's API erring) is tried again; then
@@ -335,7 +355,7 @@ function createLyricsResolver(deps) {
         }
       }
       if (appleFailed && deps.log) deps.log('apple lyrics lookup failed: ' + appleFailed)
-      if (stale) return { lines: stored.lines, source: 'apple' }   // Apple unreachable now: the older parse
+      if (stale) return withExtras({ lines: stored.lines, source: 'apple' }, stored.lang, stored.writers)   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
@@ -359,4 +379,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }

@@ -48,6 +48,13 @@
   --s-vinyl-hole: rgba(11,11,11,1);
   --s-vinyl-rim: rgba(255,255,255,0.06);
   --s-art-shadow: rgba(0,0,0,0.45);
+  /* the tonearm over the spinning record (lyrics header): brushed metal, a dark headshell */
+  --s-tonearm: rgba(206,208,212,1);
+  --s-tonearm-edge: rgba(0,0,0,0.55);
+  --s-tonearm-head: rgba(46,47,50,1);
+  --s-tonearm-shadow: rgba(0,0,0,0.38);
+  /* the album cover lightbox dims the screen behind it the same in every theme (cover.html) */
+  --s-lightbox-scrim: rgba(0,0,0,0.62);
   --s-stage: rgba(0,0,0,1);
   --s-stage-text: rgba(255,255,255,1);
   --s-stage-shade: rgba(0,0,0,0.8);

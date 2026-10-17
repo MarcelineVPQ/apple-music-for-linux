@@ -52,30 +52,32 @@ function comingSoon(md) {
 
 const LRCLIB = 'https://lrclib.net'
 // hyphenation patterns Sonata ships (package.json build.files; lyrics-syllables.js), with the licence
-// each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16.
+// each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16,
+// versions confirmed 2026-10-17 against tex-hyphen master (BACKLOG "Hyphenation pattern licences":
+// ro states no licence and id is GPL-2.0 without "or later", both flagged before a stable release).
 const PATTERNS = [
   ['en-us', 'English (US)', 'Gerard D. C. Kuiken', 'Permissive (copy and use with the copyright notice kept)'],
   ['en-gb', 'English (UK)', 'Dominik Wujastyk, Graham Toal', 'MIT'],
   ['de-1996', 'German', 'Stephan Hennig, Werner Lemberg, Günter Milde and others', 'MIT'],
   ['fr', 'French', 'Daniel Flipo, Bernard Gaulle, Arthur Reutenauer', 'MIT'],
   ['es', 'Spanish', 'Javier Bezos, CervanTeX', 'MIT'],
-  ['it', 'Italian', 'Claudio Beccari', 'LPPL or MIT'],
+  ['it', 'Italian', 'Claudio Beccari', 'LPPL 1.3 or later, or MIT'],
   ['pt', 'Portuguese', 'Pedro J. de Rezende, J. Joao Dias Almeida, Leonardo Araujo, Aline Benevides', 'BSD 3-clause'],
   ['nl', 'Dutch', 'Piet Tutelaers', 'MIT'],
-  ['sv', 'Swedish', 'Jan Michael Rynning', 'LPPL'],
-  ['da', 'Danish', 'Frank Jensen', 'LPPL or MIT'],
+  ['sv', 'Swedish', 'Jan Michael Rynning', 'LPPL 1.2 or later'],
+  ['da', 'Danish', 'Frank Jensen', 'LPPL 1.3 or later, or MIT'],
   ['nb', 'Norwegian Bokmål', 'Rune Kleveland, Ole Michael Selberg, Karl Ove Hufthammer', 'Permissive (copy and use with the copyright notice kept)'],
   ['fi', 'Finnish', 'Kauko Saarinen', '"Patterns may be freely distributed"'],
   ['pl', 'Polish', 'Hanna Kołodziejska, Bogusław Jackowski, Marek Ryćko', 'MIT (or others)'],
-  ['cs', 'Czech', 'Pavel Ševeček', 'GPL'],
+  ['cs', 'Czech', 'Pavel Ševeček', 'GPL 2.0 or later'],
   ['sk', 'Slovak', 'Jana Chlebíková', 'MIT'],
-  ['hu', 'Hungarian', 'Bence Nagy', 'MPL 1.1 or GPL 2.0 (or LGPL)'],
+  ['hu', 'Hungarian', 'Bence Nagy', 'MPL 1.1, GPL 2.0 or LGPL 2.1, at your option'],
   ['ro', 'Romanian', 'Adrian Rezus', 'none stated in the file'],
-  ['tr', 'Turkish', 'Pierre A. MacKay, TUG', 'LPPL'],
-  ['id', 'Indonesian', 'Jörg Knappen, Terry Mart', 'GPL 2.0'],
-  ['ca', 'Catalan', 'Gonçal Badenes', 'LPPL'],
-  ['hr', 'Croatian', 'Igor Marinović', 'LPPL or MIT'],
-  ['sl', 'Slovenian', 'Matjaž Vrečko', 'LPPL or MIT']
+  ['tr', 'Turkish', 'Pierre A. MacKay, TUG', 'LPPL 1.0 or later'],
+  ['id', 'Indonesian', 'Jörg Knappen, Terry Mart', 'GPL 2.0 ("or later" not stated)'],
+  ['ca', 'Catalan', 'Gonçal Badenes', 'LPPL 1.0 or later'],
+  ['hr', 'Croatian', 'Igor Marinović', 'LPPL 1.0 or later, or a permissive licence'],
+  ['sl', 'Slovenian', 'Matjaž Vrečko', 'LPPL 1.0 or later, or MIT']
 ]
 
 // [title, rows: [what, by / licence, url?]]

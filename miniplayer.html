@@ -51,7 +51,7 @@
   }
   button:hover { background: var(--s-hover); }
   button:focus { outline: none; }
-  button:focus-visible, #seek:focus-visible, #volume:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+  button:focus-visible, #seek:focus-visible, #volume:focus-visible, #art:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
   button svg { width: 20px; height: 20px; fill: currentColor; }
   #playpause svg { width: 23px; height: 23px; }
   button.small { color: var(--s-soft); }
@@ -171,7 +171,7 @@
     </div>
 
     <div id="center" class="idle">
-      <img id="art" title="Open full player" alt="" role="button" tabindex="0" aria-label="Open full player">
+      <img id="art" title="Open full player (right-click: View Album Cover)" alt="" role="button" tabindex="0" aria-label="Open full player" aria-haspopup="menu">
       <div id="mid">
         <div id="np">
           <div class="title-row">
@@ -242,6 +242,9 @@
   document.getElementById('art').onclick = () => send('expand')
   // lifetime: OK — one keydown listener on the artwork, released with the window (a button for the keyboard: Enter / Space)
   document.getElementById('art').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send('expand') } })
+  // lifetime: OK — one contextmenu listener on the artwork, released with the window: its menu (View Album
+  // Cover, Open Full Player) on right-click, the Menu key or Shift+F10
+  document.getElementById('art').addEventListener('contextmenu', (e) => { e.preventDefault(); if (document.getElementById('art').getAttribute('src')) send('artMenu') })
   document.getElementById('fav').onclick = () => send('toggleFavorite')
 
   function setFavorite(rating) {

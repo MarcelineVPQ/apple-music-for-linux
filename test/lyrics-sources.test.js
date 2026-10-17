@@ -247,7 +247,7 @@ test('resolver + store: good results are stored, and served from the store next 
   const mk = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">x</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   await mk()(song)
   assert.equal(apple, 1)
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple', parse: 3 })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'x' }], source: 'apple', parse: 4 })
   assert.deepEqual(await mk()(song), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
   assert.equal(apple, 1)
 })
@@ -268,7 +268,7 @@ test('resolver + store: an Apple entry from the older parser is fetched again on
   let apple = 0
   const fresh = L.createLyricsResolver({ fetchApple: async () => { apple++; return '<p begin="1">new</p>' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
   assert.deepEqual(await fresh(song), { lines: [{ t: 1, text: 'new' }], source: 'apple' })
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'new' }], source: 'apple', parse: 3 })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'new' }], source: 'apple', parse: 4 })
   await L.createLyricsResolver({ fetchApple: async () => { apple++; return '' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
   assert.equal(apple, 1)                                    // current parse: served from the store
   store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple' })
@@ -285,7 +285,7 @@ test('ttmlLang + resolver: the lyrics language is read from <tt xml:lang>, store
   let apple = 0
   const get = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return ttml }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
   assert.deepEqual(await get(), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de' })
-  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de', parse: 3 })
+  assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de', parse: 4 })
   assert.deepEqual(await get(), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de' })
   assert.equal(apple, 1)
 })
@@ -349,4 +349,24 @@ test('apple failure: the views say so truthfully (lyrics.html words, LRCLIB note
   assert.match(html, /status === 'apple-failed' \? "Apple Music's lyrics didn't load\./)
   const view = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.js'), 'utf8')
   assert.match(view, /data\.appleFailed \? ", as Apple Music's didn't load"/)
+})
+
+test('ttmlSongwriters + resolver: the writers from Apple\'s TTML head are stored and served; none, none shown', async () => {
+  // the head of a real Apple TTML response (syllable-lyrics), names as Apple gives them
+  const ttml = '<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en"><head><metadata><ttm:agent type="person" xml:id="v1"/>' +
+    '<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal" leadingSilence="0.360"><translations/><songwriters>' +
+    '<songwriter>Chappell Roan</songwriter><songwriter>Daniel Nigro</songwriter><songwriter>Simon &amp; Garfunkel</songwriter></songwriters>' +
+    '</iTunesMetadata></metadata></head><body><div><p begin="1">Hey</p></div></body></tt>'
+  assert.deepEqual(L.ttmlSongwriters(ttml), ['Chappell Roan', 'Daniel Nigro', 'Simon & Garfunkel'])
+  assert.deepEqual(L.ttmlSongwriters('<head><metadata><iTunesMetadata leadingSilence="0.000"><translations/></iTunesMetadata></metadata></head>'), [])
+  assert.deepEqual(L.ttmlSongwriters(''), [])
+  const store = memStore()
+  store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple', lang: 'en', parse: 3 })   // 0.15.26 entry: fetched again once for the writers
+  let apple = 0
+  const get = () => L.createLyricsResolver({ fetchApple: async () => { apple++; return ttml }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
+  const want = { lines: [{ t: 1, text: 'Hey' }], source: 'apple', lang: 'en', writers: ['Chappell Roan', 'Daniel Nigro', 'Simon & Garfunkel'] }
+  assert.deepEqual(await get(), want)
+  assert.deepEqual(store.m.get('T|A'), Object.assign({}, want, { parse: 4 }))
+  assert.deepEqual(await get(), want)
+  assert.equal(apple, 1)
 })
