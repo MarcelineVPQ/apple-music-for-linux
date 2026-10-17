@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.35-dev.1",
-  "file": "sonata-0.15.35-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.35-dev.1/sonata-0.15.35-dev.1-x86_64.AppImage",
-  "sha512": "cc4616fde3b36953736510440551ef7247242613712664164c517108d5eb28814c66ec8a3e04aad1199e9da43e57bf11118bdb784a68b1b130c3ad741d870298",
-  "size": 127122080,
-  "date": "2026-10-17T02:51:10Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.35-dev.1",
-  "notes": "### Fixed\n\n- **\"Hey-hey-ay-ay-ay\" bounces syllable by syllable.** A word made of hyphenated parts was one block to the syllable pop, so it lit up without any bounce. Each hyphen is now a syllable boundary (\"(Hey-\", \"hey-\", \"ay-\", \"ay-\", \"ay)\"), and the brackets stay on the outer parts. It is still one word, so the word highlight, saved precise timing and repeated lines work as before.\n- **Estimated lines no longer start early on songs whose singer comes in late.** On some songs, live recordings especially, the lyrics' line times come up to about a second before the voice. With precise word timing or Refine timing by listening on, Sonata now learns how far behind the line times the singer comes in (from at least three lines it has heard), and the lines it still has to estimate start their words that much later. The line itself still lights at its usual time.\n\nMeasured on a first listen with precise word timing: on \"So Alive (Live)\" (The Goo Goo Dolls) the estimated words went from 0.66 s early on average to 0.38 s, and words within 0.3 s from 19 % to 39 %. Across the seven live songs in the library cache the median error went from 0.58 s to 0.37 s (words within 0.3 s from 26 % to 43 %), on the 26 studio songs it stayed at 0.17 s (69 % within 0.3 s, was 67 %), and the 79-song benchmark is unchanged. Details in docs/LYRIC-TIMING.md.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
+  "version": "0.15.36-dev.1",
+  "file": "sonata-0.15.36-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.36-dev.1/sonata-0.15.36-dev.1-x86_64.AppImage",
+  "sha512": "02b01d67e390e1bfc644170bbe2f14722a8ea465b3272b52414f4d46492f1cb4b98c6e76fd1590cc32ddafd8ab613d902246afc7af2de4079f352e667e58a239",
+  "size": 127126345,
+  "date": "2026-10-17T04:29:28Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.36-dev.1",
+  "notes": "### Fixed\n\n- **Sonata comes back after \"Restart now\".** After an update, the restarted Sonata could keep running without a window or a tray icon, and opening it from the menu did nothing (seen going from 0.15.34 to 0.15.35-dev.1). The restart handed on a path into the previous version's AppImage, which is gone once that version quits; looking up a helper program through it failed, and that failure stopped Sonata's startup before the window. The restart now hands on only your desktop session's settings, Sonata ignores such leftover paths when it starts (so updating from an affected version works too), a failing helper only costs the light/dark detection, and opening Sonata again always brings up its window.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
 }
