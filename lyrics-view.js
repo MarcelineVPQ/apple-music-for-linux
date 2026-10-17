@@ -198,6 +198,18 @@ function slideFrom(before, after, centre) {
 function createLyricsView(opts) {
   const container = opts.container
   const doc = container.ownerDocument
+  // Vertical only: scrollIntoView and a focus() that scrolls also scroll sideways (inline 'nearest') when
+  // a line is wider than the list (a popped word at the edge), which pushed every line's start past
+  // the card's left edge (0.15.39-dev.1). So the list scrolls by its scrollTop alone, always back at left 0.
+  function scrollToLine(el, block) {
+    const box = container.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    let top = container.scrollTop + r.top - box.top
+    if (block === 'center') top -= (box.height - r.height) / 2
+    else if (r.top >= box.top && r.bottom <= box.bottom) top = container.scrollTop   // 'nearest': already in view
+    else if (r.bottom > box.bottom) top -= box.height - r.height
+    container.scrollTo({ top: Math.max(0, top), left: 0, behavior: still() ? 'auto' : 'smooth' })
+  }
   const stage = opts.layout === 'stage'
   let lines = []
   let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }; a word span
@@ -552,7 +564,7 @@ function createLyricsView(opts) {
       // the target changes (per line, not per word)
       if (target !== scrollTarget && !(keys && container.querySelector('.line:focus-visible'))) {
         scrollTarget = target
-        if (target) target.scrollIntoView({ block: 'center', behavior: still() ? 'auto' : 'smooth' })
+        if (target) scrollToLine(target, 'center')
       }
       // Tab into the list lands on the sung line, unless the keyboard is already in it
       if (keys && latest >= 0 && !container.contains(doc.activeElement)) setRoving(lineEls[latest])
@@ -682,8 +694,8 @@ function createLyricsView(opts) {
       else return
       e.preventDefault()
       setRoving(timed[to])
-      timed[to].el.focus({ focusVisible: true })
-      timed[to].el.scrollIntoView({ block: 'nearest', behavior: still() ? 'auto' : 'smooth' })
+      timed[to].el.focus({ focusVisible: true, preventScroll: true })
+      scrollToLine(timed[to].el, 'nearest')
     })
   }
 
