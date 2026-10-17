@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.18",
-  "file": "sonata-0.15.18-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.18/sonata-0.15.18-x86_64.AppImage",
-  "sha512": "d525b79bb6ac2c6bec89a9f38d06bfa58f969efce34c7f6c1513e4a97d7ec9aac3bf74c5c7e7c3dbb4646ed7c34c4ecf8f91bee18b5f3039c4d2e08e84f56ef0",
-  "size": 125818424,
-  "date": "2026-10-16T06:14:12Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.18",
-  "notes": "### Added\n\n- **Lyrics remembered on disk:** songs you've played before show their lyrics instantly, even offline (up to about 2,000 songs / 20 MB, oldest dropped first).\n- **Next song prefetched:** while a song plays with the lyrics window open, Sonata quietly looks up the next song's lyrics, so they're ready when it starts."
+  "version": "0.15.34-dev.1",
+  "file": "sonata-0.15.34-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.34-dev.1/sonata-0.15.34-dev.1-x86_64.AppImage",
+  "sha512": "5cc5480e95603b411e2d0b18a0c6cd4579385f960537f8befaf34c4b8761df4136d3ab04166e24db32c27078559f98e60a1b3cdb0b510e2a154455fda40eb739",
+  "size": 127117946,
+  "date": "2026-10-17T02:31:27Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.34-dev.1",
+  "notes": "### Fixed\n\n- **A held note stays lit for the whole hold.** When a singer holds a word (the \"home\" in \"Come take me home\"), its highlight now lasts until the voice stops, even after the next line has begun: the next line becomes current and the held word keeps glowing beside it, then lets go. It works from every kind of timing:\n  - **Precise word timing:** the aligner now follows the voice on the separated vocals past where a word's letters end, so a held vowel isn't cut off after a fraction of a second. Songs aligned before are aligned again the next time they play with the lyrics window or the visualizer open.\n  - **Estimated timing:** the last word of a line may hold for up to 3 seconds (it was 1), until just before the next line, to Apple's line end when it has one, and over the next line when Apple's line runs past it.\n  - **Refine timing by listening:** the held notes it already finds now stay held through everything else.\n- **The bounce stays on the held syllable.** The held note's last syllable carries the hold, and after the first pop it settles into a gentle lift for as long as the note lasts, instead of popping again. In the lyrics window and the visualizer.\n\nMeasured on 79 songs with hand-marked word ends: held notes whose highlight ended early went from 58 % to 35 % (lyrics with line starts only), from 78 % to 26 % (with line ends), and from 50 % to 20 % with precise word timing. Details in docs/LYRIC-TIMING.md.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
 }
