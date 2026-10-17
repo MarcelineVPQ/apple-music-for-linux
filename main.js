@@ -2177,6 +2177,7 @@ function setSetting(key, value) {
     showAlignRepair()
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
+  else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
   if (key === 'sungNotesLog' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
     // the only download: when Sung notes becomes active (switch on, Development, Precise word timing on)
     if (sungNotesOn()) getNotesSwitch().turnedOn()
@@ -2279,6 +2280,14 @@ const appUrl = 'https://music.apple.com/'
 
 // Our CSS for Apple's page: the native-app upsell hidden.
 const customCss = '.web-navigation__native-upsell {display: none !important;}'
+// Apple's page's CSS: ours, plus the cover-glow dither while Settings → Experimental has it on (glow-dither.js;
+// built once, ~6 KB with its noise tile)
+let glowDitherCss = ''
+function appleCss() {
+  if (!settings.expGlowDither) return customCss
+  if (!glowDitherCss) glowDitherCss = require('./glow-dither').css()
+  return customCss + '\n' + glowDitherCss
+}
 let applyCustomCss = () => {}
 
 // --- the main window: Apple's page, the side panel, the navigation rail (and toasts) ---
@@ -2907,7 +2916,7 @@ function createWindow() {
 
   // lifetime: OK — FIXED: this used to call insertCSS directly, which adds a new stylesheet every time;
   // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
-  applyCustomCss = createCssReplacer(appleWC(), customCss)
+  applyCustomCss = createCssReplacer(appleWC(), appleCss)
   appleWC().on('did-navigate', () => {
     applyCustomCss()
   });

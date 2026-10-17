@@ -59,7 +59,8 @@ const SCHEMA = {
   setlistfmKey: ['', (v) => typeof v === 'string' && /^[A-Za-z0-9-]{0,64}$/.test(v), 'setlist.fm API key'],
   lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run'],
   // Settings → Experimental (gfx-model.js EXPERIMENTS): all off until the user turns them on
-  expTrueVideoColours: [false, bool, 'True video colours (experimental)']
+  expTrueVideoColours: [false, bool, 'True video colours (experimental)'],
+  expGlowDither: [false, bool, 'Dithered cover glow (experimental)']
 }
 
 function defaults() {

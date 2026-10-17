@@ -399,3 +399,25 @@ The video matches the still within 2 codes with the switch on (the BT.601 signat
 within noise: the page decodes a little less (−1.5), the graphics process uploads a little more (+0.5).
 Software decoding only (hardware-decoded frames keep the error, research §1.4): with Hardware video
 decoding on, this switch is not used and the row says so.
+
+### Dithered cover glow (`expGlowDither`: CSS in Apple's page, glow-dither.js)
+
+Apple's album header for Dave Matthews Band, *Before These Crowded Streets* (Marcy's screenshot album),
+dark, logged out, 1× scale, read back with `capturePage` 130 px around the cover; the 270 columns under the
+cover, 0–46 px below it:
+
+| | Longest flat run (value > 0) | Median | Mean value 0 / 16 / 32 / 36 px below | Black page pixels lifted |
+|---|---|---|---|---|
+| Off (Apple's glow) | 20 px | 9 px | 7.5 / 4.3 / 0.7 / 0.2 | – |
+| On (the shipped tile) | **8 px** | **3 px** | 8.2 / 5.1 / 1.2 / 0.7 | 4,330 of 93,488 (4.6 %), all within the glow's tail, by 1 code (147 by 2) |
+| On, plain white noise (not shipped) | 14 px | 4 px | – | – |
+
+- The steps: Apple's tail falls 8, 7, 6, 4, 3, 2, 1, 0 over ~38 px here (her 4K TV at 1.2 scale and 1000-nit
+  SDR white read 7, 6, 4, 3, 2, 1, 0 beside the cover and 16, 16, 6 … 0 below it in her screenshot: the same
+  shape, brighter). The noise covers that tail and ends with it: nothing changes 40 px or more from the cover,
+  and nothing on the cover.
+- Strength: the smallest there is, +1 code at half the pixels (white at alpha 1/255; Apple's cover wrapper is
+  its own stacking context, so an opaque tile would cover the page). Mean +0.6–0.8 code where it lies.
+- Run-limited tile: no value three times in a row or column (white noise left a 14 px run).
+- Cost: one static layer per album header, no animation, no script (not measurable apart from noise).
+- Waits for her eyes on her TV: whether the steps are gone at 1000-nit SDR white, and whether the grain shows.

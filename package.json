@@ -92,6 +92,7 @@
       "panel-model.js",
       "gfx-model.js",
       "gfx-runtime.js",
+      "glow-dither.js",
       "preload-panel.js",
       "toast.html",
       "toast-ui.js",

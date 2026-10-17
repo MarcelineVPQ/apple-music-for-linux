@@ -41,6 +41,20 @@
           : st.inactive.expTrueVideoColours ? reasonText(st.inactive.expTrueVideoColours)
             : i.x11 ? 'Right under X11' : 'Chromium\'s default on Wayland: reds and magentas in video a little off (BT.601 matrix)'
       })
+    },
+    // Apple's glow around an album cover fades in flat 8-bit rings (research §1–2.4); Marcy's Phase 0 pick:
+    // noise added with plus-lighter (glow-dither.js). CSS in Apple's page, so it applies at once.
+    {
+      key: 'expGlowDither',
+      name: 'Dithered cover glow',
+      label: 'Dithered cover glow (experimental)',
+      desc: 'Adds the finest grain to the soft glow around an album\'s cover on Apple\'s page, so it fades smoothly instead of in visible steps (they show most on HDR screens). Applies at once.',
+      restart: false,
+      readout: (i) => ({
+        id: 'glow',
+        label: 'Cover glow',
+        value: i.settings && i.settings.expGlowDither ? 'Dithered: one code value of grain over the glow\'s fade, plus-lighter' : 'Apple\'s own: fades in 8-bit steps'
+      })
     }
   ]
 

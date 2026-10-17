@@ -282,3 +282,70 @@ test('True video colours: --disable-gpu-memory-buffer-video-frames on Wayland on
   assert.equal(rows(G.startFlags({}, X11), true), 'Right under X11')
   assert.ok(G.EXPERIMENTS.find((e) => e.key === 'expTrueVideoColours').desc.endsWith('Applies at restart.'))
 })
+
+test('Dithered cover glow: the tile is the smallest step (alpha 0 or 1 of 255, white), half the pixels, no long runs, the same every run', () => {
+  const D = require('../glow-dither')
+  const a = D.noiseAlpha(D.TILE, 20261017, 0.5)
+  assert.ok(a.every((v) => v === 0 || v === 1))
+  const density = a.reduce((s, v) => s + v, 0) / a.length
+  assert.ok(density > 0.48 && density < 0.52, density)
+  assert.ok(D.longestRun(a, D.TILE) <= 5, 'no flat run of the tile longer than 5 px, across its wrap too')
+  assert.deepEqual(D.noiseAlpha(D.TILE, 20261017, 0.5), a, 'deterministic')
+  const png = D.whitePng(a, D.TILE)
+  assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
+  assert.equal(png.readUInt32BE(16), 64)
+  assert.equal(png.readUInt32BE(20), 64)
+  // every chunk's CRC is right (a bad one and Chromium drops the image: the dither would silently vanish)
+  for (let o = 8; o < png.length;) {
+    const len = png.readUInt32BE(o)
+    assert.equal(png.readUInt32BE(o + 8 + len), D.crc32(png.subarray(o + 4, o + 8 + len)))
+    o += 12 + len
+  }
+  const raw = require('zlib').inflateSync(png.subarray(41, 41 + png.readUInt32BE(33)))
+  assert.equal(raw.length, 64 * (1 + 64 * 4))
+  assert.deepEqual([...raw.subarray(1, 5)], [255, 255, 255, a[0]], 'white at the tile\'s alpha')
+})
+
+test('Dithered cover glow: the CSS sits on the glow\'s falloff only, over Apple\'s glow, never over the cover', () => {
+  const D = require('../glow-dither')
+  const css = D.css()
+  assert.match(css, /^\.container-detail-header:not\(\.container-detail-header--tall-artwork\) \.artwork-wrapper:has\(> \.artwork__radiosity\)::after \{/)
+  assert.match(css, /mix-blend-mode: plus-lighter/)
+  assert.match(css, /inset: -70px/)
+  assert.match(css, /background: url\(data:image\/png;base64,[A-Za-z0-9+/=]+\) 0 0 \/ 64px 64px repeat/)
+  // the cover's rect is cut out of the band, the band is cut to the glow box plus its tail
+  assert.match(css, /mask-size: 100% 100%, 100% 100%, calc\(100% - 140px\) calc\(100% - 140px\)/)
+  assert.match(css, /mask-position: 0 0, 0 0, 70px 70px/)
+  assert.match(css, /mask-composite: intersect, subtract, add/)
+  const s = D.maskStops()
+  // the glow box (cover × .88 from its bottom centre) plus REACH, fading over FADE
+  assert.deepEqual(s.bottom, ['calc(100% - 40px)', 'calc(100% - 24px)'])
+  assert.deepEqual(s.left, ['calc(6% + 15.6px)', 'calc(6% + 31.6px)'])
+  assert.deepEqual(s.top, ['calc(12% + 7.2px)', 'calc(12% + 23.2px)'])
+  assert.ok(css.length < 4000, 'small: ' + css.length)
+})
+
+test('Dithered cover glow: main adds it to Apple\'s CSS through the one css-replacer while the switch is on, and re-applies on a change', async () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /applyCustomCss = createCssReplacer\(appleWC\(\), appleCss\)/)
+  assert.match(main, /function appleCss\(\) \{\s*if \(!settings\.expGlowDither\) return customCss/)
+  assert.match(main, /else if \(key === 'expGlowDither'\) \{ if \(applyCustomCss\) applyCustomCss\(\) \}/)
+  assert.equal(settingsStore.defaults().expGlowDither, false)
+  // the replacer reads the CSS at each apply and keeps one sheet
+  const { createCssReplacer } = require('../css-replacer')
+  const live = new Map()
+  let n = 0
+  const wc = { insertCSS: async (t) => { const k = 'k' + (++n); live.set(k, t); return k }, removeInsertedCSS: async (k) => { live.delete(k) } }
+  let on = false
+  const apply = createCssReplacer(wc, () => 'x{}' + (on ? require('../glow-dither').css() : ''))
+  await apply()
+  assert.equal(live.size, 1)
+  assert.ok(![...live.values()][0].includes('radiosity'))
+  on = true
+  await apply()
+  assert.equal(live.size, 1)
+  assert.ok([...live.values()][0].includes('.artwork__radiosity'))
+  const e = G.EXPERIMENTS.find((x) => x.key === 'expGlowDither')
+  assert.equal(e.restart, false, 'CSS: applies at once, no flag, no restart')
+  assert.match(G.graphicsRows({ settings: { expGlowDither: true }, start: G.startFlags({}, WAYLAND) }).find((r) => r.id === 'glow').value, /^Dithered/)
+})
