@@ -13,7 +13,7 @@
     "dist:snap": "electron-builder --linux snap"
   },
   "build": {
-    "electronVersion": "42.3.3+wvcus",
+    "electronVersion": "45.0.0-alpha.14+wvcus",
     "electronDownload": {
       "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
@@ -136,7 +136,7 @@
   "repository": "https://github.com/MarcelineVPQ/apple-music-for-linux",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "https://github.com/castlabs/electron-releases#v42.3.3+wvcus",
+    "electron": "https://github.com/castlabs/electron-releases#v45.0.0-alpha.14+wvcus",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {

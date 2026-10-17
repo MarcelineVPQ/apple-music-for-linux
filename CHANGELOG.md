@@ -5,6 +5,12 @@ section named after its version (`## [X.Y.Z] — Short title`; the title after
 the dash becomes the release title), or from `[Unreleased]` when there is none.
 See docs/RELEASING.md.
 
+## [Unreleased]
+
+### Changed
+
+- **Newer engine: Electron 45 (castlabs 45.0.0-alpha.14, Chromium 156), an alpha for the Development channel only.** Sonata still uses castlabs' Electron, so Apple Music's protected (Widevine) playback keeps working; Stable stays on its current engine until castlabs ships 45 as a stable release. Startup time is the same and Sonata uses about 7 % less memory (about 800 instead of 860 MB on a test copy). The Copy Link menu item, the mini player, the lyrics window and the visualizer were adjusted for the new engine's changes (Linux windows without a frame would otherwise get rounded corners), so they look and work as before.
+
 ## [0.15.38-dev.1] — Leaner lyrics, precise timing pauses while you game
 
 ### Added

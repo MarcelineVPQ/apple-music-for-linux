@@ -354,6 +354,7 @@ function createMiniWindow() {
     width: 680,
     height: 72,
     frame: false,
+    roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the pill draws its own shape
     transparent: true,
     hasShadow: false,
     resizable: false,
@@ -757,6 +758,7 @@ function createLyricsWindow() {
     minWidth: 260,
     minHeight: 300,
     frame: false,
+    roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the card draws its own corners
     transparent: true,
     hasShadow: false,
     alwaysOnTop: true,
@@ -828,6 +830,7 @@ function createVizWindow() {
   vizWindow = new BrowserWindow({
     fullscreen: true,
     frame: false,
+    roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the stage fills the screen edge to edge
     backgroundColor: '#000000',
     title: appName + ' — Visualizer',
     webPreferences: { nodeIntegration: true, contextIsolation: false }
@@ -1013,7 +1016,9 @@ async function showMoreMenu() {
       : { label: 'Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(1), 'favorite') },
     { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'add to library') },
     { type: 'separator' },
-    { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url) },
+    // Electron 44+: clipboard.writeText returns a Promise
+    // error: LOGGED-OK — a refused write (no clipboard owner) is logged; the menu just closes
+    { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url).catch((e) => console.error('copy link failed:', e.message)) },
     { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
     { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },
