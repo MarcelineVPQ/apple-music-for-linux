@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.38-dev.1" date="2026-10-17" type="development">
+      <description>
+        <p>Lyrics and the visualizer draw far less (the visualizer rests while paused), and precise word timing uses less of your PC and pauses while you play a game.</p>
+      </description>
+    </release>
     <release version="0.15.37-dev.1" date="2026-10-16" type="development">
       <description>
         <p>Your desktop's media controls show the song's length and progress under the name Sonata, and the words still to come in the sung line stay readable in light mode.</p>

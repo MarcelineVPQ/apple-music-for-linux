@@ -5,7 +5,7 @@ section named after its version (`## [X.Y.Z] — Short title`; the title after
 the dash becomes the release title), or from `[Unreleased]` when there is none.
 See docs/RELEASING.md.
 
-## [Unreleased]
+## [0.15.38-dev.1] — Leaner lyrics, precise timing pauses while you game
 
 ### Added
 

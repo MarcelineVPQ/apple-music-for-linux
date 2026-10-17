@@ -34,7 +34,7 @@ const ENTRY_VERSION = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
 const FRAME = 0.02             // the aligner's frame hop: section slices start on it, so the helper can stitch
-                               // the kept sections into the whole-song pass without moving a frame (0.15.37)
+                               // the kept sections into the whole-song pass without moving a frame (0.15.38)
 
 function alignedKey(title, artist) { return 'aligned|' + title + '|' + artist }
 
@@ -213,7 +213,7 @@ function * alignMessages(id, raw, pcm, opts = {}) {
   const step = size - (size % FRAME_BYTES)
   const head = { cmd: 'align', id, lines: requestLines(raw), audio: { stream: true, format: 's16le', rate: opts.rate || RATE, channels: CHANNELS } }
   if (opts.language) head.language = opts.language
-  // separate once per song (0.15.37): the helper keeps a section's stem under its song id and offset
+  // separate once per song (0.15.38): the helper keeps a section's stem under its song id and offset
   if (opts.song != null) { head.song = opts.song; head.offset = opts.offset || 0 }
   if (opts.final) head.final = true
   yield head

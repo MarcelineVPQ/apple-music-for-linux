@@ -144,7 +144,7 @@ loaded between songs; the alignment model is swapped per language and the separa
 ← {"type":"error","id":"a1","message":"...","code":"no-model"|"no-cache"|"low-vram"?}
 ```
 
-**Separate once per song (0.15.37).** A section job with `song` and `offset` (where its slice starts,
+**Separate once per song (0.15.38).** A section job with `song` and `offset` (where its slice starts,
 on the 20 ms frame grid) keeps its vocal stem on the CPU (`SongCache`: float32 at 16 kHz, one song,
 at most 20 min of audio). The `final` job without audio stitches the stems (overlaps cut at their
 middle, unheard gaps silent and blank), runs wav2vec2 once more on the stitched stem, then the
@@ -155,7 +155,7 @@ Reusing each section's own emissions instead was 2 ms worse in median, so the em
 song 5.74 → 3.41 s, the same words' error unchanged (median 42 → 41 ms, mean 75 → 77 ms, ≤ 0.1 s
 81 % → 81 %).
 
-**GPU budget (0.15.37).** In GPU mode torch uses at most 4 CPU threads (`SONATA_ALIGN_THREADS`, 0 =
+**GPU budget (0.15.38).** In GPU mode torch uses at most 4 CPU threads (`SONATA_ALIGN_THREADS`, 0 =
 torch's default; the CPU path is unchanged): its default (one thread per core) only spins while
 Demucs waits for the GPU. After each job the allocator's cache goes back to the driver
 (`torch.cuda.empty_cache`). Before each GPU job the free VRAM (`torch.cuda.mem_get_info`) must cover
@@ -165,7 +165,7 @@ align/bench.py, 6 English songs, before → after: CPU 66–71 → 31 s, wall th
 VRAM 3184 → 3100 MB reserved, at rest 3184 → 1402 MB reserved (the helper process 3.5 → 1.7 GB in
 nvidia-smi), accuracy identical.
 
-**Gaming guard (0.15.37, game-guard.js).** Settings → *Pause word timing while gaming* (on by
+**Gaming guard (0.15.38, game-guard.js).** Settings → *Pause word timing while gaming* (on by
 default). While Feral GameMode has clients, a Steam game runs (`reaper SteamLaunch AppId=`), or
 other processes keep the NVIDIA card > 30 % busy (`nvidia-smi pmon`; AMD: `gpu_busy_percent` > 50 %,
 only without NVIDIA) for two checks in a row, Sonata records nothing for alignment, starts no job,
@@ -197,7 +197,7 @@ Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overr
 `$XDG_DATA_HOME/sonata-align` only when XDG_DATA_HOME is not inside another app's sandbox). Nothing
 is installed system-wide.
 
-**The venv's Python (0.15.37).** A venv's `bin/python` is a link to the interpreter it was made
+**The venv's Python (0.15.38).** A venv's `bin/python` is a link to the interpreter it was made
 from. install.sh builds it from a system Python 3.10–3.13 (3.12 first; `SONATA_ALIGN_PYTHON`
 overrides), never one under `~/snap`, `/snap`, `~/.var/app` or an AppImage mount, and never lets uv
 download one (except `--uv-python`, into `<home>/python`). The first install came from the Codium
@@ -218,7 +218,7 @@ Settings → Precise timing and the rail says "Helper needs a rebuild". The fix 
 | **Typical user** (venv + Demucs + English + one more language) | **≈ 9.7 GB** |
 | uv's wheel cache (`~/.cache/uv`, can be cleared after install) | ~6.5 GB |
 
-Runtime: 3.1 GB VRAM peak while aligning, 1.7 GB at rest with the models loaded (0.15.37); the GPU is idle between songs. The helper should exit
+Runtime: 3.1 GB VRAM peak while aligning, 1.7 GB at rest with the models loaded (0.15.38); the GPU is idle between songs. The helper should exit
 when idle (see the integration plan) so the VRAM is freed.
 
 ## Licences

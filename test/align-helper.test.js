@@ -146,7 +146,7 @@ test('lifetime: stop() during a job fails it and ends the process', async () => 
   await waitFor(() => !h.running)
 })
 
-// --- the Codium snap venv (0.15.37): never decide the install's place from another app's sandbox ---
+// --- the Codium snap venv (0.15.38): never decide the install's place from another app's sandbox ---
 
 test('paths: a sandboxed XDG_DATA_HOME is never the home; an install found only there is "stray"', () => {
   const none = () => false

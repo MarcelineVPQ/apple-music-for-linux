@@ -1,5 +1,5 @@
 // align/install.sh and align/sonata-align: where the install goes and which Python builds the venv
-// (0.15.37, the Codium snap venv). Run in a throwaway HOME with fake interpreters on a private PATH;
+// (0.15.38, the Codium snap venv). Run in a throwaway HOME with fake interpreters on a private PATH;
 // --dry-run changes nothing.
 const test = require('node:test')
 const assert = require('node:assert/strict')

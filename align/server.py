@@ -17,7 +17,7 @@ Requests (stdin):
   {"cmd":"forget", "song":"s3"}       drop that song's kept sections (queued behind its jobs, no reply)
   {"cmd":"quit"}
 
-Separate once per song (0.15.37): an align job with "song":"<id>" and "offset":<s> (where its audio
+Separate once per song (0.15.38): an align job with "song":"<id>" and "offset":<s> (where its audio
 slice starts in the song, a multiple of 0.02 s) keeps its vocal stem and emissions on the CPU
 (SongCache). {"cmd":"align","id":"f1","song":"<id>","final":true,"lines":[...song times...]} without
 "audio" runs the whole-song pass from those pieces (Viterbi + held notes only); if they are gone

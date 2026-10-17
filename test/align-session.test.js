@@ -507,7 +507,7 @@ test('shared listener: one real listener for two users, stopped when the last st
   assert.equal(a.state, 'idle')
 })
 
-// --- separate once per song (0.15.37) ---
+// --- separate once per song (0.15.38) ---
 
 // echoHelper that keeps sections like align/server.py (stats.kept) and can forget them
 function keepingHelper(state = { lost: false }) {

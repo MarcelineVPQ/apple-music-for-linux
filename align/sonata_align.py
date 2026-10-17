@@ -762,7 +762,7 @@ class Cancelled(Exception):
 
 
 # ---------------------------------------------------------------------------------------------
-# Separate once per song (0.15.37): each section job's vocal stem is kept, so the final whole-song
+# Separate once per song (0.15.38): each section job's vocal stem is kept, so the final whole-song
 # pass doesn't separate the song a second time (Demucs is ~85 % of a job's GPU time).
 
 class SongCache:

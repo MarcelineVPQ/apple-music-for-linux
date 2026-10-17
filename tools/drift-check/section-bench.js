@@ -2,7 +2,7 @@
 // Progressive alignment bench (docs/LYRIC-TIMING.md): the real sonata-align helper on JamendoLyrics
 // songs, aligned the way align-session.js does it while a song plays (sections(), one job per
 // section with its own audio slice) versus one job for the whole song. Reports the word-start
-// error of both against the hand annotations and the helper's time per section job. Since 0.15.37
+// error of both against the hand annotations and the helper's time per section job. Since 0.15.38
 // also the final pass built from the sections the helper kept (separate once per song: no audio,
 // only the Viterbi again), its accuracy against the whole-song job, and the helper time per song
 // for both flows (before: sections + whole song; after: sections + kept final).
@@ -84,7 +84,7 @@ async function main() {
       Object.assign(merged, A.entryFromResult(A.sectionResult(res, sec, req.offset), raw, null).lines)
     }
     peakVram = Math.max(peakVram, helperVram() || 0)
-    // the final pass from the kept sections (this flow since 0.15.37)
+    // the final pass from the kept sections (this flow since 0.15.38)
     let eKept = null
     let keptS = null
     if (kept && secs.length > 1) {

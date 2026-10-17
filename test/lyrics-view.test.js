@@ -111,7 +111,7 @@ test('timingNote: aligned beats refined beats estimated', () => {
   assert.equal(V.timingNote(est, false, false), 'Word timing estimated')
 })
 
-test('timingNote: the gaming guard\'s state follows the timing words (0.15.37)', () => {
+test('timingNote: the gaming guard\'s state follows the timing words (0.15.38)', () => {
   const est = V.prepare({ lines: lrc, estimate: true }).lines
   assert.equal(V.timingNote(est, false, false, 'Precise timing paused while you play'), 'Word timing estimated · Precise timing paused while you play')
   assert.equal(V.timingNote(est, false, false, ''), 'Word timing estimated')
