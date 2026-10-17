@@ -88,10 +88,15 @@ function fromJamendo(dir, opts = {}) {
       song.aligned = {}
       for (const [i, r] of Object.entries(a)) {
         if (!(r.conf >= 0.2) || !truth[i] || r.err.length !== truth[i].length) continue
-        // bench.py stores aligned − annotated starts; ends follow the next word (the aligner's own
-        // ends aren't in the results file)
+        // bench.py stores aligned − annotated starts, and (since 0.15.34) the aligner's own word ends
+        // and holds; older result files have no ends: they follow the next word
         const starts = r.err.map((e, j) => truth[i][j].t + e)
-        song.aligned[i] = starts.map((t, j) => ({ t, end: j + 1 < starts.length ? Math.max(t + 0.05, starts[j + 1]) : t + 0.4, text: truth[i][j].text }))
+        const ends = Array.isArray(r.ends) && r.ends.length === starts.length ? r.ends : null
+        song.aligned[i] = starts.map((t, j) => {
+          const w = { t, end: ends && Number.isFinite(ends[j]) && ends[j] > t ? ends[j] : (j + 1 < starts.length ? Math.max(t + 0.05, starts[j + 1]) : t + 0.4), text: truth[i][j].text }
+          if (r.held && r.held[j]) w.held = true
+          return w
+        })
       }
     }
     songs.push(song)

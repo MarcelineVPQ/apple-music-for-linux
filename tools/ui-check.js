@@ -538,6 +538,20 @@ async function lyrics() {
     if (process.env.SONATA_TEST_ARTWORK || LABEL.includes('artwork')) {
       check(tag + ' duet: three different colours for singer 1, singer 2 and together', new Set(Object.values(seen).map((x) => x && x.color)).size === 3, seen)
     }
+    // a held note (0.15.34): "home" held over the next line's start stays the lit word (settled into
+    // the sustain) while the next line is current, and lets go when the voice does
+    const held = Object.assign({}, data, { title: 'Held note check', lines: [
+      { t: 0, end: 7, text: 'Come take me home', aligned: true, words: [{ t: 0.5, end: 0.8, text: 'Come' }, { t: 0.9, end: 1.2, text: 'take' }, { t: 1.3, end: 1.5, text: 'me' }, { t: 1.6, end: 7, text: 'home', held: true, holdFrom: 2.1 }] },
+      { t: 6, end: 9, text: 'Oh I need you now' }, { t: 12, end: 14, text: 'Later on' }] })
+    await send('lyrics-data', held); await sleep(400)
+    const look = async (t) => { await send('lyrics-time', t, false); await sleep(350); return page.ev(`(() => { const ls = [...document.querySelectorAll('.line')]; const home = ls[0].querySelectorAll('.w')[3]; return { active: ls.map((l) => l.classList.contains('active')), homeNow: home.classList.contains('now'), homeHold: home.classList.contains('hold') } })()`) }
+    const atHold = await look(6.3)
+    if (!dark) xshot(path.join(OUT, 'held-' + LABEL + '.png'), b.width, b.height)
+    check(tag + ' held note: at 6.3 s the next line is current AND "home" (held over its start) is still the lit word, in its sustain', atHold.active[0] && atHold.active[1] && atHold.homeNow && atHold.homeHold, atHold)
+    const early = await look(1.8)
+    check(tag + ' held note: the pop first (no sustain yet at the start of the word)', early.homeNow && !early.homeHold, early)
+    const after = await look(7.4)
+    check(tag + ' held note: when the voice stops (bounded to 0.6 s past the next line\'s start) "home" lets go', !(after.active[0] && after.homeNow) && !after.active[0] && after.active[1], after)   // lit = .now inside an .active line
     await send('lyrics-data', data); await sleep(300)
   }
   mp.c.close(); page.c.close()

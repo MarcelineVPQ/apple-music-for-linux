@@ -28,7 +28,9 @@ const MIN_COVERAGE = 0.9       // share of a section's lyric span that must have
 const GAP_TOLERANCE = 0.25     // s; a bigger jump between chunks is a seek: start a new covered span
 const TAIL_PAD = 3             // s of audio after the last line's end sent along
 const STREAM_CHUNK = 256 * 1024  // PCM bytes per `chunk` message (base64 ≈ 342 KB per line)
-const ENTRY_VERSION = 1
+// 2 (0.15.34): word ends follow held notes (sonata_align extend_holds) and carry held / holdFrom;
+// version-1 entries are aligned again the next time their song plays with a lyric view open
+const ENTRY_VERSION = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
 
@@ -81,7 +83,7 @@ function applyAligned(lines, entry) {
     const parts = splitWords(line.text)
     if (!Array.isArray(a.words) || a.words.length !== parts.length || a.words.some((w, k) => w.text !== parts[k])) return line
     used = true
-    const next = Object.assign({}, line, { words: a.words.map((w) => ({ t: w.t, end: w.end, text: w.text })), aligned: true })
+    const next = Object.assign({}, line, { words: a.words.map((w) => T.copyWord(w)), aligned: true })
     delete next.estimated
     return next
   })
@@ -238,7 +240,11 @@ function entryFromResult(result, raw, heard, meta = {}) {
       if (!Number.isFinite(t) || t < prev) ok = false
       if (!Number.isFinite(end) || end <= t) end = t + 0.05
       prev = t
-      return { t: Math.round(t * 1000) / 1000, end: Math.round(end * 1000) / 1000, text: w.text }
+      const out = { t: Math.round(t * 1000) / 1000, end: Math.round(end * 1000) / 1000, text: w.text }
+      // a held note: the aligner followed the voice past the sung word (holdFrom: where the hold starts)
+      const from = Number(w.hold_from)
+      if (w.held && Number.isFinite(from) && from > t && from < end) { out.held = true; out.holdFrom = Math.round(from * 1000) / 1000 }
+      return out
     })
     if (!ok) continue
     lines[i] = { text: line.text, words }
@@ -517,7 +523,7 @@ function createAlignSession(deps) {
 }
 
 module.exports = {
-  RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES,
+  RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
   alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, sectionResult, mergeEntry, mergeWhole,
   createSongBuffer, requestLines, alignMessages, entryFromResult, createAlignSession
 }

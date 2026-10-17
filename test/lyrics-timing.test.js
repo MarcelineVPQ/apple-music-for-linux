@@ -162,7 +162,9 @@ test('estimateWords: a real line end is spread over (0.9 of it minus a 0.2 s tai
   assert.equal(out[0].estimated, true)
   assert.deepEqual(w.map((x) => x.text), ['Hold', 'on', 'forever'])
   assert.equal(w[0].t, 10)
-  assert.ok(Math.abs(w[2].end - (10 + 3 * 0.9 - 0.2)) < 1e-9)
+  // the words fill 0.9 of it minus the tail; 0.15.34: the last one then holds to the end minus the tail
+  assert.ok(Math.abs(w[2].holdFrom - (10 + 3 * 0.9 - 0.2)) < 1e-9)
+  assert.ok(Math.abs(w[2].end - (13 - 0.2)) < 1e-9)
   for (let i = 1; i < w.length; i++) assert.equal(w[i].t, w[i - 1].end)
   assert.ok(w[2].end - w[2].t > w[1].end - w[1].t) // longer word, longer time
 })
@@ -175,7 +177,9 @@ test('estimateWords: a line that runs on to the next start is sung at the pace, 
     const out = T.estimateWords([first, { t: 15, text: 'next line' }], { pace: 0.25 })
     const w = out[0].words
     assert.ok(Math.abs(w[w.length - 2].end - (10 + 0.25 * (weight - T.wordWeight('old')))) < 1e-9, 'paced, not stretched to 15')
-    assert.ok(w[w.length - 1].end <= w[w.length - 1].t + 1 + 1e-9, 'the last word holds at most 1 s')
+    // 0.15.34: the last word holds on (a held note) for up to 3 s, until 0.1 s before the next line
+    assert.ok(Math.abs(w[w.length - 1].end - Math.min(w[w.length - 1].t + T.LAST_HOLD, 15 - T.HOLD_GAP)) < 1e-9, 'held: ' + w[w.length - 1].end)
+    assert.ok(w[w.length - 1].holdFrom < w[w.length - 1].end, 'where the hold starts is kept (for the syllables)')
     assert.equal(out[0].pace, 0.25)
   }
   // a line too long for its time is squeezed into 0.9 of it
@@ -185,8 +189,20 @@ test('estimateWords: a line that runs on to the next start is sung at the pace, 
 
 test('estimateWords: no end and no next line -> paced, never the old 0.6 s per word', () => {
   const out = T.estimateWords([{ t: 0, text: 'a b' }, { t: 60, text: 'c' }])
-  assert.ok(out[0].words[1].end < 2)
-  assert.ok(out[1].words[0].end - out[1].words[0].t <= 1 + 1e-9)
+  assert.ok(out[0].words[1].t < 1, 'paced: the words start close together')
+  assert.ok(out[0].words[1].holdFrom < 2, 'sung at the pace; the rest is a hold')
+  assert.ok(out[1].words[0].end - out[1].words[0].t <= T.LAST_HOLD + 1e-9)
+  assert.ok(out[0].words[1].end <= out[0].words[1].t + T.LAST_HOLD + 1e-9, 'a 60 s gap never means a 60 s hold')
+})
+
+test('estimateWords (0.15.34): Apple\'s end after the next line\'s start -> the last word holds over the next line', () => {
+  const out = T.estimateWords([{ t: 74.7, end: 81.47, text: 'Come take me home' }, { t: 81.08, end: 84, text: 'Oh I need you now' }], { pace: 0.25 })
+  const home = out[0].words[3]
+  assert.ok(Math.abs(home.end - (81.47 - 0.2)) < 1e-9, String(home.end))
+  assert.ok(home.end > 81.08, 'still lit when the next line starts')
+  // a real end before the next line is filled as before (no extra hold)
+  const tight = T.estimateWords([{ t: 10, end: 13, text: 'Hold on forever' }, { t: 20, text: 'Go' }])[0].words
+  assert.ok(Math.abs(tight[2].end - 12.8) < 1e-9, 'a real end: held to it minus the tail, not past it')
 })
 
 test('songPace: the lines sung back to back set it, blended with the default; few lines -> default', () => {

@@ -123,6 +123,15 @@ DEFAULTS = {
     'post': 1.5,         # s after the next line's anchor the window ends
     'star': -2.0,        # log score per frame of the garbage token at both window ends
     'min_conf': 0.2,     # lines below this mean token probability stay unaligned
+    # held notes (0.15.34): a CTC word ends on its last emitted frame, but a held vowel is mostly
+    # emitted as blank, so "home" sung for 3 s came out 0.3 s long. After the alignment each word's
+    # end follows the separated vocal stem while it stays loud (within hold_db of the song's loud
+    # singing, dips up to hold_gap frames allowed), never past the next word's start - 0.04 s or
+    # hold_max s; an extension of 0.2 s or more marks the word held.
+    'hold': 1,           # 0 turns it off (the bench's "before")
+    'hold_db': 24.0,
+    'hold_gap': 4,       # frames (20 ms each)
+    'hold_max': 8.0,
 }
 
 
@@ -512,6 +521,8 @@ class Aligner:
         t = time.time()
         self.progress('align', 0.0)
         res = self.align_lines(em, lines, duration)
+        if self.params.get('hold', 1):
+            st['held'] = extend_holds(mono, res, self.params)
         st['align_s'] = round(time.time() - t, 2)
         self.progress('align', 1.0)
         st['duration_s'] = round(duration, 2)
@@ -628,6 +639,59 @@ def _HFWrap(hf):
 
 class Cancelled(Exception):
     pass
+
+
+def vocal_db(mono16):
+    """Loudness of the separated vocals per 20 ms frame (dB, numpy)."""
+    import numpy as np
+    x = mono16.float().cpu().numpy() if hasattr(mono16, 'cpu') else np.asarray(mono16, dtype=np.float32)
+    hop = 320
+    n = len(x) // hop
+    if n <= 0:
+        return np.zeros(0, dtype=np.float32)
+    rms = np.sqrt(np.mean(x[:n * hop].reshape(n, hop) ** 2, axis=1)) + 1e-9
+    return 20.0 * np.log10(rms)
+
+
+def extend_holds(mono16, results, p, db=None):
+    """Held notes: each aligned word's end follows the voice while it stays loud (see DEFAULTS).
+    Changes `results` in place; returns how many words were extended into a hold."""
+    import numpy as np
+    db = vocal_db(mono16) if db is None else db
+    n = len(db)
+    if n == 0:
+        return 0
+    # within hold_db of the loud singing, and clearly above the stem's quiet frames (bleed, breaths)
+    thr = max(float(np.percentile(db, 95)) - float(p.get('hold_db', 24.0)), float(np.percentile(db, 10)) + 15.0)
+    gap_max = int(p.get('hold_gap', 4))
+    hold_max = float(p.get('hold_max', 8.0))
+    words = [w for r in results for w in r.get('words', []) if w.get('t') is not None and w.get('end') is not None]
+    words.sort(key=lambda w: w['t'])
+    held = 0
+    # loop: one pass over the song's words, each walking at most hold_max s of frames
+    for k, w in enumerate(words):
+        limit = min(words[k + 1]['t'] - 0.04 if k + 1 < len(words) else float('inf'), w['end'] + hold_max)
+        f = int(w['end'] / FRAME)
+        last = None
+        gap = 0
+        while f < n and (f + 1) * FRAME <= limit:
+            if db[f] >= thr:
+                last = f
+                gap = 0
+            else:
+                gap += 1
+                if gap > gap_max:
+                    break
+            f += 1
+        if last is None:
+            continue
+        end = round((last + 1) * FRAME, 3)
+        if end - w['end'] >= 0.2:
+            w['hold_from'] = w['end']      # where the sung word ends and the held note begins
+            w['end'] = end
+            w['held'] = True
+            held += 1
+    return held
 
 
 def fill_gaps(words):

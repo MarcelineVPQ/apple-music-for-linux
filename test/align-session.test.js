@@ -19,7 +19,7 @@ const ALIGNED_WORDS = {
 function entry(raw = RAW, words = ALIGNED_WORDS) {
   const lines = {}
   for (const [i, w] of Object.entries(words)) lines[i] = { text: raw[i].text, words: w }
-  return { version: 1, model: 'en', lyricsHash: A.lyricsHash(raw), duration: 25, lines }
+  return { version: A.ENTRY_VERSION, model: 'en', lyricsHash: A.lyricsHash(raw), duration: 25, lines }
 }
 
 test('key: aligned|title|artist, separate from the lyrics and refined keys', () => {
@@ -83,7 +83,7 @@ test('priority: no entry, a stale entry, or estimation off', () => {
   assert.equal(off.lines[1].words, undefined)
   assert.deepEqual(off.lines[0].words, ALIGNED_WORDS[0])
   // a remembered refusal (no model for the language) applies nothing
-  const refused = { version: 1, lyricsHash: A.lyricsHash(RAW), failed: 'no-model', lines: null }
+  const refused = { version: A.ENTRY_VERSION, lyricsHash: A.lyricsHash(RAW), failed: 'no-model', lines: null }
   assert.equal(A.prepareLines(RAW, { estimate: true, entry: refused }).aligned, false)
 })
 
@@ -176,7 +176,7 @@ const RESULT = {
 
 test('entry: only aligned lines with matching words, times rounded, conf dropped', () => {
   const e = A.entryFromResult(RESULT, RAW, null, { duration: 25 })
-  assert.equal(e.version, 1)
+  assert.equal(e.version, A.ENTRY_VERSION)
   assert.equal(e.model, 'en')
   assert.equal(e.lyricsHash, A.lyricsHash(RAW))
   assert.equal(e.aligned, 2)

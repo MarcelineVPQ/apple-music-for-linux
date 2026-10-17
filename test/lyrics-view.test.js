@@ -116,19 +116,19 @@ test('wordState: the whole word is current, the syllable being sung is marked; w
     { t: 1, end: 2.4, text: 'Karaoke', syl: [{ t: 1, end: 1.3, text: 'Ka' }, { t: 1.3, end: 1.6, text: 'ra' }, { t: 1.6, end: 2, text: 'o' }, { t: 2.1, end: 2.4, text: 'ke' }] },
     { t: 2.5, end: 3, text: 'night' }
   ]
-  assert.deepEqual(V.wordState(words, 0.5), { k: 0, now: -1, syl: -1 })
-  assert.deepEqual(V.wordState(words, 1.1), { k: 1, now: 0, syl: 0 })
-  assert.deepEqual(V.wordState(words, 1.45), { k: 1, now: 0, syl: 1 })
-  assert.deepEqual(V.wordState(words, 1.8), { k: 1, now: 0, syl: 2 })
-  assert.deepEqual(V.wordState(words, 2.05), { k: 1, now: 0, syl: -1 })   // between two syllables: none pops
-  assert.deepEqual(V.wordState(words, 2.2), { k: 1, now: 0, syl: 3 })
-  assert.deepEqual(V.wordState(words, 2.7), { k: 2, now: 1, syl: -1 })    // no syl: the word pops as a whole
-  assert.deepEqual(V.wordState(words, 3.5), { k: 2, now: -1, syl: -1 })
+  assert.deepEqual(V.wordState(words, 0.5), { k: 0, now: -1, syl: -1, hold: false })
+  assert.deepEqual(V.wordState(words, 1.1), { k: 1, now: 0, syl: 0, hold: false })
+  assert.deepEqual(V.wordState(words, 1.45), { k: 1, now: 0, syl: 1, hold: false })
+  assert.deepEqual(V.wordState(words, 1.8), { k: 1, now: 0, syl: 2, hold: false })
+  assert.deepEqual(V.wordState(words, 2.05), { k: 1, now: 0, syl: -1, hold: false })   // between two syllables: none pops
+  assert.deepEqual(V.wordState(words, 2.2), { k: 1, now: 0, syl: 3, hold: false })
+  assert.deepEqual(V.wordState(words, 2.7), { k: 2, now: 1, syl: -1, hold: false })    // no syl: the word pops as a whole
+  assert.deepEqual(V.wordState(words, 3.5), { k: 2, now: -1, syl: -1, hold: false })
   const T = require('../lyrics-timing')
   const plain = words.map(({ syl, ...w }) => w)
   for (const t of [0.5, 1.45, 2.7, 3.5]) {
     const p = T.wordPos(plain, t)
-    assert.deepEqual(V.wordState(plain, t), { k: p.k, now: p.now, syl: -1 })
+    assert.deepEqual(V.wordState(plain, t), { k: p.k, now: p.now, syl: -1, hold: false })
   }
 })
 

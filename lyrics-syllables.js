@@ -84,6 +84,16 @@ function spread(t, end, parts) {
  * Words with estimated syllables added where they split (Apple's syl kept, untimed or zero-length
  * words left alone). Returns the same array when nothing changes.
  */
+// Where a held word's hold starts: holdFrom (the aligner's sung end, the estimator's paced end), or
+// for a word only marked held (Level 1) its sung part guessed at ~0.3 s per syllable-ish, at most
+// 40 % of the word. null: not held.
+function holdStart(w) {
+  if (w.holdFrom != null && w.holdFrom > w.t && w.holdFrom < w.end) return w.holdFrom
+  if (!w.held) return null
+  const from = w.t + Math.min((w.end - w.t) * 0.4, 0.3 * Math.max(1, (w.text.match(/[aeiouyà-ÿ]+/gi) || []).length))
+  return from > w.t && from < w.end ? from : null
+}
+
 function withSyllables(words, hyphenate) {
   if (!hyphenate || !Array.isArray(words)) return words
   let changed = false
@@ -93,6 +103,14 @@ function withSyllables(words, hyphenate) {
     const parts = splitWord(w.text, hyphenate)
     if (!parts) return w
     changed = true
+    // a held note (0.15.34): the syllables are sung over [t, holdFrom] and the last one carries the
+    // hold to the word's end (to-night: "to" quick, "night" held), not spread evenly over the hold
+    const from = holdStart(w)
+    if (from != null) {
+      const syl = spread(w.t, from, parts)
+      syl[syl.length - 1].end = w.end
+      return Object.assign({}, w, { syl })
+    }
     return Object.assign({}, w, { syl: spread(w.t, w.end, parts) })
   })
   return changed ? out : words
@@ -110,4 +128,4 @@ function lineWithSyllables(line, hyphenate) {
   return out
 }
 
-module.exports = { MIN_WORD, patternFor, hyphenatorFor, splitWord, spread, withSyllables, lineWithSyllables }
+module.exports = { holdStart, MIN_WORD, patternFor, hyphenatorFor, splitWord, spread, withSyllables, lineWithSyllables }

@@ -166,16 +166,50 @@ function frameCheck(lines, truth, opts = {}) {
   return { frames, hit, early, late, none, hitRate: frames ? hit / frames : NaN }
 }
 
-/** One song through one method -> { starts: startErrors, frames: frameCheck } */
+// --- held notes (0.15.34) ---
+const HELD_MIN = 0.8    // s: a truth word at least this long is a held note
+const EARLY = 0.25      // s: the highlight ending this much before the voice is "dropped early"
+
+/**
+ * Held notes: for every truth word sung HELD_MIN s or longer, when does the view stop lighting it
+ * (the word's end in `lines`, the end wordState uses) against when the voice stops (truth end)?
+ * -> { endErr: [signed s, + = lit after the voice stopped], early: n, n, frames: { frames, hit } }
+ * plus the frame check inside the held words only (is the held word the lit one).
+ */
+function heldNotes(lines, truth, opts = {}) {
+  const out = { endErr: [], early: 0, n: 0, frames: 0, hit: 0 }
+  const gaps = opts.gaps || T.findInterludes(lines)
+  for (const [k, words] of Object.entries(truth)) {
+    const i = Number(k)
+    const line = lines[i]
+    words.forEach((g, j) => {
+      if (!(g.end - g.t >= HELD_MIN) || !line || !line.words || line.words.length !== words.length) return
+      const w = line.words[j]
+      out.n++
+      const e = (w.end - V.WORD_LEAD) - g.end
+      out.endErr.push(e)
+      if (e < -EARLY) out.early++
+      for (let time = g.t + 0.1; time < g.end; time += FRAME) {
+        out.frames++
+        if (highlightAt(lines, time, gaps).has(i + ':' + j)) out.hit++
+      }
+    })
+  }
+  return out
+}
+
+/** One song through one method -> { starts: startErrors, frames: frameCheck, held: heldNotes } */
 function evaluate(song, lines) {
-  return { starts: startErrors(lines, song.truth, song.raw), frames: frameCheck(lines, song.truth) }
+  return { starts: startErrors(lines, song.truth, song.raw), frames: frameCheck(lines, song.truth), held: heldNotes(lines, song.truth) }
 }
 
 /** Merge per-song results of one method. */
 function combine(results) {
   const all = { errs: [], byRel: Array.from({ length: 10 }, () => []), byIdx: {}, slopes: [], lineEnd: [], verseEnd: [], verseLines: { first: [], middle: [], last: [] } }
   const fr = { frames: 0, hit: 0, early: 0, late: 0, none: 0 }
+  const held = { endErr: [], early: 0, n: 0, frames: 0, hit: 0 }
   for (const r of results) {
+    if (r.held) { held.endErr.push(...r.held.endErr); for (const k of ['early', 'n', 'frames', 'hit']) held[k] += r.held[k] }
     const s = r.starts
     all.errs.push(...s.errs); all.slopes.push(...s.slopes); all.lineEnd.push(...s.lineEnd); all.verseEnd.push(...s.verseEnd)
     s.byRel.forEach((v, i) => all.byRel[i].push(...v))
@@ -184,7 +218,7 @@ function combine(results) {
     for (const k of Object.keys(fr)) fr[k] += r.frames[k]
   }
   fr.hitRate = fr.frames ? fr.hit / fr.frames : NaN
-  return { starts: all, frames: fr }
+  return { starts: all, frames: fr, held }
 }
 
 /** Summary numbers of a combined result (seconds; hit rate 0..1). */
@@ -198,8 +232,9 @@ function summarize(c) {
     verseEnd: stats(c.starts.verseEnd),
     byRel: c.starts.byRel.map((v) => stats(v)),
     verseLines: { first: stats(c.starts.verseLines.first), middle: stats(c.starts.verseLines.middle), last: stats(c.starts.verseLines.last) },
-    frames: c.frames
+    frames: c.frames,
+    held: c.held ? { n: c.held.n, end: stats(c.held.endErr), earlyRate: c.held.n ? c.held.early / c.held.n : NaN, hitRate: c.held.frames ? c.held.hit / c.held.frames : NaN } : null
   }
 }
 
-module.exports = { FRAME, estimateV0, stats, slope, verses, startErrors, highlightAt, frameCheck, evaluate, combine, summarize, quantile }
+module.exports = { FRAME, HELD_MIN, EARLY, heldNotes, estimateV0, stats, slope, verses, startErrors, highlightAt, frameCheck, evaluate, combine, summarize, quantile }

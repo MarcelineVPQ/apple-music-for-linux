@@ -100,3 +100,38 @@ class Protocol(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Holds(unittest.TestCase):
+    """Held notes (0.15.34): the word end follows the voice, never past the next word."""
+
+    def db(self, spans, n=600, loud=-10.0, quiet=-70.0):
+        import numpy as np
+        d = np.full(n, quiet, dtype=np.float32)
+        for a, b in spans:
+            d[int(a / SA.FRAME):int(b / SA.FRAME)] = loud
+        return d
+
+    def test_held_vowel_extends_to_where_the_voice_stops(self):
+        res = [{'words': [{'t': 1.0, 'end': 1.3, 'text': 'home'}, {'t': 6.0, 'end': 6.3, 'text': 'now'}]}]
+        n = SA.extend_holds(None, res, SA.DEFAULTS, db=self.db([(1.0, 4.5), (6.0, 6.3)]))
+        self.assertEqual(n, 1)
+        self.assertAlmostEqual(res[0]['words'][0]['end'], 4.5, delta=0.03)
+        self.assertTrue(res[0]['words'][0]['held'])
+        self.assertNotIn('held', res[0]['words'][1])
+
+    def test_never_past_the_next_word(self):
+        res = [{'words': [{'t': 1.0, 'end': 1.3, 'text': 'come'}]}, {'words': [{'t': 2.0, 'end': 2.4, 'text': 'home'}]}]
+        SA.extend_holds(None, res, SA.DEFAULTS, db=self.db([(1.0, 5.0)]))
+        self.assertLessEqual(res[0]['words'][0]['end'], 2.0 - 0.04 + 1e-6)
+
+    def test_short_dips_kept_long_silence_ends_it(self):
+        res = [{'words': [{'t': 1.0, 'end': 1.2, 'text': 'oh'}]}]
+        SA.extend_holds(None, res, SA.DEFAULTS, db=self.db([(1.0, 2.0), (2.06, 3.0), (3.5, 4.0)]))
+        self.assertAlmostEqual(res[0]['words'][0]['end'], 3.0, delta=0.03)
+
+    def test_off_and_quiet(self):
+        res = [{'words': [{'t': 1.0, 'end': 1.3, 'text': 'x'}]}]
+        self.assertEqual(SA.extend_holds(None, res, SA.DEFAULTS, db=self.db([(1.0, 1.3)])), 0)
+        self.assertEqual(res[0]['words'][0]['end'], 1.3)
+

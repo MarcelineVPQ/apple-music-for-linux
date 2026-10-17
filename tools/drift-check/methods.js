@@ -74,7 +74,7 @@ function run(method, song) {
   const aligned = alignedOf(song)
   if (method === 'aligned') {
     if (!aligned || song.source.startsWith('cache')) return null   // cache: aligned IS the truth
-    const entry = { version: 1, lyricsHash: A.lyricsHash(raw), lines: {} }
+    const entry = { version: A.ENTRY_VERSION, lyricsHash: A.lyricsHash(raw), lines: {} }
     for (const [i, w] of Object.entries(aligned)) entry.lines[i] = { text: raw[i].text, words: w }
     return A.prepareLines(raw, { estimate: true, entry }).lines
   }

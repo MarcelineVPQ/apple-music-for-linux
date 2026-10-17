@@ -160,6 +160,9 @@ def main():
             if r['words']:
                 line_rows.append({'song': row['Filepath'], 'line': r['line'], 'conf': r['confidence'],
                                   'err': [round(w['t'] - x, 3) for w, x in zip(r['words'], g)],
+                                  # the aligner's own word ends (absolute s) and holds, for the held-note check
+                                  'ends': [w.get('end') for w in r['words']],
+                                  'held': [bool(w.get('held')) for w in r['words']],
                                   'est_err': None})
         # aligned where accepted, else keep the estimate (what Sonata would show)
         merged = []

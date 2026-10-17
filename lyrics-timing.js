@@ -108,6 +108,7 @@ function nextChange(lines, time, lead = 0) {
       if (!list) continue
       for (const w of list) {
         consider(w.t - lead); consider(w.end - lead)
+        if (w.held || w.holdFrom != null) consider((w.holdFrom != null ? w.holdFrom : w.t) + SUSTAIN_AFTER - lead)
         // loop: a word's syllables (a handful) · only Apple words timed in several spans
         if (w.syl) for (const y of w.syl) { consider(y.t - lead); consider(y.end - lead) }
       }
@@ -165,7 +166,11 @@ function wordWeight(word) {
 // - The pace: PACE blended with the song's own (the SONG_PACE_Q quantile of time-per-weight over
 //   its lines: the lines sung back to back), or the pace learned from lines already aligned or
 //   refined in this song (learnedPace), which beats both.
-// - A line sung faster than its time: the last word holds on for at most LAST_HOLD s, like a sung note.
+// - A line sung faster than its time: the last word holds on, like a sung note, for at most LAST_HOLD
+//   s and until HOLD_GAP before the next line (0.15.34: was 1 s and 90 % of the time to the next line,
+//   which ended 61 % of her held notes early; measured in docs/LYRIC-TIMING.md "Held notes").
+// - Apple's line end after the next line's start: the singer still holds when the next line comes
+//   in, so the last word holds to that end minus TIGHT_TAIL, overlapping the next line.
 const PACE = 0.25             // s per weight unit (JamendoLyrics median 0.22–0.24)
 const PACE_MIN = 0.15
 const PACE_MAX = 0.6
@@ -175,7 +180,8 @@ const EST_FILL = 0.9          // at most this share of the time to the next line
 const TIGHT_TAIL = 0.2        // s: a real [t, end] loses this much more tail than EST_FILL (Apple's ends
                               // run ~0.3 s past the last sung word)
 const TIGHT_GAP = 0.05        // s: an end this much before the next start is a real end
-const LAST_HOLD = 1.0         // s the last word may hold
+const LAST_HOLD = 3.0         // s the last word may hold
+const HOLD_GAP = 0.1          // s before the next line a held last word lets go
 
 function lineParts(line) { return String((line && line.text) || '').split(/\s+/).filter(Boolean) }
 function lineWeight(parts) { return parts.reduce((a, p) => a + wordWeight(p), 0) }
@@ -227,8 +233,9 @@ function learnedPace(lines) {
   return clampPace(r[Math.floor(r.length / 2)])
 }
 
-/** One line's estimated words at `pace` (null when it has no words). */
-function estimateLine(line, next, pace) {
+/** One line's estimated words at `pace` (null when it has no words). h: hold options, for the drift
+ * check's comparisons only (lastHold s, toNext, overlap: the defaults are the shipped rules) */
+function estimateLine(line, next, pace, h = {}) {
   const parts = lineParts(line)
   if (!parts.length) return null
   const time = lineTime(line, next)
@@ -245,7 +252,16 @@ function estimateLine(line, next, pace) {
   })
   // sung faster than the line's time: the last word holds into the tail (at most LAST_HOLD s)
   const last = words[words.length - 1]
-  if (span < cap) last.end = Math.max(last.end, Math.min(line.t + cap, last.t + LAST_HOLD))
+  const sung = last.end
+  const lastHold = h.lastHold != null ? h.lastHold : LAST_HOLD
+  // the hold may run to a real end minus Apple's tail, else to just before the next line
+  const holdCap = h.toNext === false ? cap : Math.max(cap, time - (tight ? TIGHT_TAIL : HOLD_GAP))
+  // (a line squeezed into its time has no room left to hold)
+  if ((tight || span < cap) && last.end < line.t + holdCap) last.end = Math.max(last.end, Math.min(line.t + holdCap, last.t + lastHold))
+  // Apple's line end AFTER the next line's start: the singer is still holding when the next line
+  // comes in, so the last word holds to that end (minus Apple's usual tail)
+  if (h.overlap !== false && line.end != null && next && next.t != null && line.end > next.t + TIGHT_GAP) last.end = Math.max(last.end, line.end - TIGHT_TAIL)
+  if (last.end - sung >= 0.2) last.holdFrom = sung
   return words
 }
 
@@ -258,7 +274,7 @@ function estimateWords(lines, opts = {}) {
   if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
   const pace = opts.pace || songPace(lines)
   return lines.map((line, i) => {
-    const words = estimateLine(line, lines[i + 1], pace)
+    const words = estimateLine(line, lines[i + 1], pace, opts.hold)
     return words ? Object.assign({}, line, { words, estimated: true, pace }) : line
   })
 }
@@ -299,6 +315,51 @@ function repeatKey(text) {
  * Marks mapped lines `repeat: 'aligned' | 'refined'` (they stay `estimated`). Same array when nothing
  * changes.
  */
+// A word's timing, copied (shifted by `shift` s, ends capped at `limit`), held notes included:
+// held (the voice holds the word past its sung part) and holdFrom (where the hold starts), which the
+// syllables (lyrics-syllables.js: the hold belongs to the last syllable) and the sustain use.
+function copyWord(w, shift = 0, text = w.text, limit = Infinity) {
+  const out = { t: +w.t + shift, end: Math.min(+w.end + shift, limit), text }
+  if (w.held) out.held = true
+  if (w.holdFrom != null && +w.holdFrom + shift < out.end) out.holdFrom = +w.holdFrom + shift
+  return out
+}
+
+// The sustain (0.15.34): this long after a held note's hold begins, its pop settles into a gentle
+// sustained lift (the .hold class), instead of staying at full pop or popping again
+const SUSTAIN_AFTER = 0.25
+
+// How far a held word may run into the next line when that line's start is only an anchor (Apple/LRC
+// line time, not a sung word): line starts often come a little before the voice does.
+const HOLD_OVER = 0.6
+
+/**
+ * Held notes against the next line (0.15.34): a word the aligner or the listener found held keeps its
+ * hold over the next line's start (the overlap: the new line is current while the old word still
+ * sings), but never past the next line's first REAL word (aligned or refined) - 0.04 s, and at most
+ * HOLD_OVER past a next line that's only an anchor. Same array when nothing changes.
+ */
+function boundHolds(lines) {
+  if (!lines || !lines.length) return lines
+  let out = lines
+  // loop: one pass over the song's lines · per lyrics data / alignment / refine message
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i]
+    const next = lines[i + 1]
+    if (!line.words || !line.words.length || next.t == null) continue
+    const last = line.words[line.words.length - 1]
+    if (!last.held) continue
+    const real = (next.aligned || next.refined) && next.words && next.words.length
+    const limit = real ? next.words[0].t - 0.04 : next.t + HOLD_OVER
+    if (!(last.end > limit) || limit <= last.t + 0.05) continue
+    if (out === lines) out = lines.slice()
+    const words = line.words.slice()
+    words[words.length - 1] = copyWord(last, 0, last.text, limit)
+    out[i] = Object.assign({}, line, { words })
+  }
+  return out
+}
+
 function reuseRepeats(lines) {
   if (!lines || !lines.length) return lines
   const src = new Map()   // key -> { line, kind }
@@ -320,7 +381,7 @@ function reuseRepeats(lines) {
     const shift = line.t - s.line.t
     const next = lines[i + 1]
     const limit = next && next.t != null ? next.t : Infinity
-    const words = s.line.words.map((w, k) => ({ t: w.t + shift, end: Math.min(w.end + shift, limit), text: line.words[k].text }))
+    const words = s.line.words.map((w, k) => copyWord(w, shift, line.words[k].text, limit))
     if (words[words.length - 1].t >= limit - 0.05) return line
     for (const w of words) if (w.end <= w.t) w.end = w.t + 0.05
     changed = true
@@ -372,7 +433,7 @@ function clockTime(clock, nowMs) {
 }
 
 module.exports = {
-  INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD,
+  INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
   lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime,
   PACE, songPace, learnedPace, estimateLine, repace, repeatKey, reuseRepeats

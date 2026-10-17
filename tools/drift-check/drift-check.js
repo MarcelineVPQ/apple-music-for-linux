@@ -72,6 +72,14 @@ for (const set of sets) {
     console.log('| ' + [m, s.start.n, ms(s.start.median), ms(s.start.mean), ms(s.start.p90), ms(s.start.bias), pc(s.start.within01), pc(s.start.within03),
       ms(s.slopeMedian), ms(s.lineEnd.mean) + ' (' + ms(s.lineEnd.bias) + ')', ms(s.verseEnd.mean) + ' (' + ms(s.verseEnd.bias) + ')', pc(s.frames.hitRate)].join(' | ') + ' |')
   }
+  console.log('\nheld notes (truth words sung ≥ ' + L.HELD_MIN + ' s): when the highlight ends vs when the voice stops')
+  console.log('| method | held words | end error mean | end bias (+ late) | ended ≥ ' + (L.EARLY * 1000) + ' ms early | held frames lit right |')
+  console.log('|---|--:|--:|--:|--:|--:|')
+  for (const m of methods) {
+    const s = report[set.label][m]
+    if (!s || !s.held) continue
+    console.log('| ' + [m, s.held.n, ms(s.held.end.mean), ms(s.held.end.bias), pc(s.held.earlyRate), pc(s.held.hitRate)].join(' | ') + ' |')
+  }
   if (flag('deciles')) {
     console.log('\nsigned start error (ms) by position in the line (deciles of word index):')
     for (const m of methods) if (report[set.label][m]) console.log('  ' + m.padEnd(16) + report[set.label][m].byRel.map((x) => ms(x.bias).padStart(5)).join(' '))

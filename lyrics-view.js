@@ -40,7 +40,7 @@ function prepare(data) {
  * its timing (reuseRepeats). Same array when nothing changes.
  */
 function learnFrom(lines) {
-  return T.reuseRepeats(T.repace(lines))
+  return T.boundHolds(T.reuseRepeats(T.repace(lines)))
 }
 
 /**
@@ -54,7 +54,7 @@ function refinedLine(lines, msg, key) {
   // a repeat mapped from an aligned line keeps that (aligned beats refined)
   if (!line || !line.estimated || line.repeat === 'aligned' || !Array.isArray(words) || !line.words ||
       words.length !== line.words.length || words.some((w, i) => !w || w.text !== line.words[i].text)) return null
-  const out = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), refined: true })
+  const out = Object.assign({}, line, { words: words.map((w) => T.copyWord(w)), refined: true })
   delete out.repeat
   delete out.repeatOf
   return out
@@ -77,7 +77,7 @@ function alignedLines(lines, msg, key) {
     const words = a && a.words
     if (!line || line.aligned || !line.words || !Array.isArray(words) || a.text !== line.text ||
         words.length !== line.words.length || words.some((w, j) => !w || w.text !== line.words[j].text)) continue
-    const out = Object.assign({}, line, { words: words.map((w) => ({ t: +w.t, end: +w.end, text: w.text })), aligned: true })
+    const out = Object.assign({}, line, { words: words.map((w) => T.copyWord(w)), aligned: true })
     delete out.estimated
     delete out.repeat
     delete out.repeatOf
@@ -101,7 +101,9 @@ function timingNote(lines, aligned, refined) {
 function wordState(words, time) {
   const pos = T.wordPos(words, time)
   const w = pos.now >= 0 ? words[pos.now] : null
-  return { k: pos.k, now: pos.now, syl: w && w.syl ? T.wordPos(w.syl, time).now : -1 }
+  // a held note that has sung SUSTAIN_AFTER s into its hold settles into the sustain (hold: true)
+  const from = w && (w.held || w.holdFrom != null) ? (w.holdFrom != null ? w.holdFrom : w.t) : null
+  return { k: pos.k, now: pos.now, syl: w && w.syl ? T.wordPos(w.syl, time).now : -1, hold: from != null && time >= from + T.SUSTAIN_AFTER }
 }
 
 /**
@@ -322,7 +324,7 @@ function createLyricsView(opts) {
   // word and syllable classes for one line's words; only touches the DOM when the position changed
   function paintWords(spans, words, time, last, side) {
     const pos = wordState(words, time)
-    if (last && last.k === pos.k && last.now === pos.now && last.syl === pos.syl) return last
+    if (last && last.k === pos.k && last.now === pos.now && last.syl === pos.syl && last.hold === pos.hold) return last
     // loop: syllables to reset · the previous word's (a handful) per word/syllable change; the whole
     // line's only when it (re)lights (last null: a seek may have left one marked)
     if (!last) {
@@ -344,6 +346,7 @@ function createLyricsView(opts) {
     for (let i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('sung', i < pos.k && i !== pos.now)
       spans[i].classList.toggle('now', i === pos.now)
+      spans[i].classList.toggle('hold', i === pos.now && pos.hold)
     }
     return pos
   }
@@ -453,4 +456,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }

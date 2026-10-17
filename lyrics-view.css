@@ -58,6 +58,10 @@
   transition: transform 0.12s cubic-bezier(.3,1.6,.5,1), filter 0.12s ease-out;
 }
 .line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
+/* a held note (0.15.34): after the pop, the word (or its held last syllable) settles into a gentle
+   sustained lift for as long as the voice holds; it stays lit and glowing, one ease, no repeat */
+.line.active .w.now.hold:not(.hs) { transform: scale(1.05); transition: transform 0.6s ease-out, opacity 0.25s ease; }
+.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(1.05); filter: brightness(1.25) drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out, filter 0.6s ease-out; }
 .line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: brightness(1.5) drop-shadow(0 0.1em 0.12em var(--sing)); }
 .line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: brightness(1.35); }
 
