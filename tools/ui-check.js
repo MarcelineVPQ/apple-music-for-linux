@@ -13,7 +13,8 @@
 //           the ⋮ menu), loops (50 panel show/hide, 50 pin cycles, 50 navigations: counts flat),
 //           perf (idle repaints and CPU), mini (the mini player, run with --mini), lyrics (the lyrics
 //           window's words over a dark and a light album, both schemes; the sung line's every word >= 4.5:1 in
-//           light/dark x album colour on/off x Glass on/off)
+//           light/dark x album colour on/off x Glass on/off), a11y (Sonata's own windows: an offline
+//           axe-style rule set, focus order and keyboard reach with the theme's focus ring, reduced motion)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -31,7 +32,7 @@ const OUT = opt('out', '.')
 const LABEL = opt('label', '')
 const { sleep, x, xshot, target, mainProc, waitFor } = createKit({ cdp: CDP, insp: INSP, display: DISPLAY })
 const results = []
-function check(name, ok, detail) { results.push({ name, ok: !!ok, detail }); return ok }
+function check(name, ok, detail) { results.push({ name, ok: !!ok, detail }); if (process.env.UI_CHECK_TRACE) console.error((ok ? 'ok   ' : 'FAIL ') + name + (ok ? '' : ' ' + JSON.stringify(detail).slice(0, 700))); return ok }
 const E = "process.mainModule.require('electron')"
 
 // --- the main window's views, from the main process ---
@@ -597,9 +598,239 @@ async function lyrics() {
   mp.c.close(); page.c.close()
 }
 
+// --- a11y: Sonata's own windows (the rail, the Settings/About panel, the lyrics window, the visualizer,
+// the mini player; never Apple's page). Three parts per window:
+//   - an offline rule set in the style of axe-core (no dependency: axe isn't in node_modules and would
+//     be the checker's first heavy one): valid roles and aria-* attributes and values, the attributes a
+//     role needs, id references that resolve, unique ids, no positive tabindex, nothing focusable under
+//     aria-hidden, no control inside another, images with alt, the page's language, every control named;
+//   - the keyboard: Tab (and the arrows of a roving group) reach every visible control, in DOM order,
+//     and each shows the theme's focus ring (outline >= 2 px in --s-ring) on keyboard focus;
+//   - prefers-reduced-motion, emulated through DevTools: no pop, bounce, slide or fast travel left.
+const A11Y_RULES = (rootSel) => `(() => {
+  const root = document.querySelector(${JSON.stringify(rootSel)}) || document.body
+  const out = []
+  const bad = (rule, el, why) => out.push(rule + ': ' + (el.id ? '#' + el.id : el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : '')) + (why ? ' (' + why + ')' : ''))
+  const ROLES = 'alert alertdialog application article banner button cell checkbox columnheader combobox complementary contentinfo definition dialog directory document feed figure form grid gridcell group heading img link list listbox listitem log main marquee math menu menubar menuitem menuitemcheckbox menuitemradio meter navigation none note option presentation progressbar radio radiogroup region row rowgroup rowheader scrollbar search searchbox separator slider spinbutton status switch tab table tablist tabpanel term textbox timer toolbar tooltip tree treegrid treeitem'.split(' ')
+  const ATTRS = 'activedescendant atomic autocomplete braillelabel brailleroledescription busy checked colcount colindex colindextext colspan controls current describedby description details disabled dropeffect errormessage expanded flowto grabbed haspopup hidden invalid keyshortcuts label labelledby level live modal multiline multiselectable orientation owns placeholder posinset pressed readonly relevant required roledescription rowcount rowindex rowindextext rowspan selected setsize sort valuemax valuemin valuenow valuetext'.split(' ')
+  const TOKENS = { pressed: ['true', 'false', 'mixed'], checked: ['true', 'false', 'mixed'], expanded: ['true', 'false'], hidden: ['true', 'false'], disabled: ['true', 'false'], selected: ['true', 'false'], atomic: ['true', 'false'], modal: ['true', 'false'], current: ['true', 'false', 'page', 'step', 'location', 'date', 'time'], live: ['off', 'polite', 'assertive'], haspopup: ['true', 'false', 'menu', 'listbox', 'tree', 'grid', 'dialog'], orientation: ['horizontal', 'vertical', 'undefined'] }
+  const IDREFS = ['labelledby', 'describedby', 'controls', 'owns', 'activedescendant', 'flowto', 'errormessage', 'details']
+  const NEEDS = { slider: ['valuenow'], switch: ['checked'], checkbox: ['checked'], menuitemcheckbox: ['checked'], menuitemradio: ['checked'], radio: ['checked'], scrollbar: ['valuenow', 'controls'], combobox: ['expanded'], heading: ['level'] }
+  const all = [root, ...root.querySelectorAll('*')]
+  if (!document.documentElement.lang) out.push('html-has-lang: <html> has no lang')
+  const ids = {}
+  for (const el of document.querySelectorAll('[id]')) ids[el.id] = (ids[el.id] || 0) + 1   /* loop: NOT-WORTH — test only */
+  for (const [id, n] of Object.entries(ids)) if (n > 1) out.push('duplicate-id: #' + id + ' x' + n)
+  const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex], [contenteditable=""], [contenteditable="true"]'
+  const focusable = (el) => el.matches(FOCUSABLE) && !el.disabled && el.tabIndex >= 0
+  const INTERACTIVE = 'button, input, select, textarea, a[href], [role=button], [role=switch], [role=slider], [role=checkbox], [role=link], [role=menuitem], [role=tab], [role=option]'
+  const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden]') }
+  const nameOf = (el) => {
+    let n = el.getAttribute('aria-label') || ''
+    if (!n && el.getAttribute('aria-labelledby')) n = el.getAttribute('aria-labelledby').split(/\\s+/).map((id) => (document.getElementById(id) || {}).textContent || '').join(' ')
+    if (!n && el.id) { const l = document.querySelector('label[for="' + el.id + '"]'); if (l) n = l.textContent }
+    if (!n && el.tagName !== 'INPUT') n = el.textContent || ''
+    if (!n) n = el.getAttribute('title') || el.getAttribute('alt') || ''
+    return n.trim()
+  }
+  for (const el of all) {   /* loop: NOT-WORTH — the page's elements, once per check */
+    const role = el.getAttribute('role')
+    if (role && !role.split(/\\s+/).every((r) => ROLES.includes(r))) bad('aria-roles', el, role)
+    for (const a of el.getAttributeNames()) {
+      if (!a.startsWith('aria-')) continue
+      const k = a.slice(5)
+      const v = el.getAttribute(a)
+      if (!ATTRS.includes(k)) { bad('aria-valid-attr', el, a); continue }
+      if (TOKENS[k] && !TOKENS[k].includes(v)) bad('aria-valid-attr-value', el, a + '=' + v)
+      if (IDREFS.includes(k) && v && !v.split(/\\s+/).every((id) => document.getElementById(id))) bad('aria-valid-attr-value', el, a + ' -> missing #' + v)
+    }
+    if (role && NEEDS[role]) for (const k of NEEDS[role]) if (!el.hasAttribute('aria-' + k)) bad('aria-required-attr', el, role + ' needs aria-' + k)
+    if (el.tabIndex > 0) bad('tabindex', el, 'tabindex ' + el.tabIndex)
+    if (el.closest('[aria-hidden="true"]') && focusable(el)) bad('aria-hidden-focus', el)
+    if (el.tagName === 'IMG' && !el.hasAttribute('alt') && el.getAttribute('aria-hidden') !== 'true' && !['presentation', 'none'].includes(role)) bad('image-alt', el)
+    if (el.matches(INTERACTIVE) && el.parentElement && el.parentElement.closest(INTERACTIVE) && !el.parentElement.closest('[role=menu], [role=listbox], [role=group]')) bad('nested-interactive', el, 'inside ' + (el.parentElement.closest(INTERACTIVE).id || el.parentElement.closest(INTERACTIVE).tagName))
+    if (el.matches(INTERACTIVE) && vis(el) && !el.closest('[aria-hidden="true"]') && !nameOf(el)) bad('control-name', el)
+  }
+  return out
+})()`
+
+// the element that has the keyboard: a short descriptor, whether it shows the theme's focus ring, and
+// whether it is one of `rootSel`'s visible, tabbable controls (DOM order index)
+const FOCUS_NOW = `(() => {
+  const el = document.activeElement
+  if (!document.hasFocus() || !el || el === document.body) return null
+  const probe = document.createElement('span'); probe.style.color = 'var(--s-ring)'; document.body.appendChild(probe)
+  const ringColor = getComputedStyle(probe).color; probe.remove()
+  const cs = getComputedStyle(el)
+  const ring = el.matches(':focus-visible') && cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) >= 2 && cs.outlineColor === ringColor
+  return { n: [...document.querySelectorAll('*')].indexOf(el), id: el.id || el.dataset.rail || el.dataset.key || (el.className && String(el.className).split(' ')[0]) || el.tagName, ring, outline: cs.outlineStyle + ' ' + cs.outlineWidth + ' ' + cs.outlineColor, want: ringColor, current: el.getAttribute('aria-current'), label: el.getAttribute('aria-label') }
+})()`
+// the controls Tab should reach, in DOM order (visible, enabled, tabindex >= 0, not under aria-hidden)
+const TABBABLES = (rootSel) => `[...(document.querySelector(${JSON.stringify(rootSel)}) || document.body).querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+  .filter((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return !el.disabled && el.tabIndex >= 0 && r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden], [aria-hidden="true"]') })
+  .map((el) => el.id || el.dataset.rail || el.dataset.key || (el.className && String(el.className).split(' ')[0]) || el.tagName)`
+const emulateReduce = (page, on) => page.c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }] })
+const focusWin = (mp, title) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes(${JSON.stringify(title)})); if (!w) return false; w.focus(); w.webContents.focus(); return true })()`)
+const focusView = (mp, part) => mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes(${JSON.stringify(part)})).webContents.focus(), true)`)
+const winOpen = (mp, title) => mp.ev(`${E}.BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.getTitle().includes(${JSON.stringify(title)}))`)
+
+// press `key` up to n times, collecting each stop until focus leaves the page, stays put or comes back
+// to a stop already seen (that last press is undone with `back`, so the keyboard ends on the last stop)
+async function walkKeys(page, key, n, { from = [], back = null } = {}) {
+  const stops = from.filter(Boolean)
+  for (let i = 0; i < n; i++) {
+    x('key', key); await sleep(180)
+    const f = await page.ev(FOCUS_NOW)
+    if (!f) break
+    if (stops.some((s) => s.n === f.n)) { if (back) { x('key', back); await sleep(180) } break }
+    stops.push(f)
+  }
+  return stops
+}
+function judgeStops(tag, stops, want) {
+  check(tag + ' keyboard reaches every control, in DOM order', stops.map((s) => s.id).join('|') === want.join('|'), { reached: stops.map((s) => s.id), want })
+  const noRing = stops.filter((s) => !s.ring)
+  check(tag + ' every keyboard stop shows the theme\'s focus ring (>= 2 px, --s-ring)', stops.length && !noRing.length, noRing.map((s) => s.id + ': ' + s.outline + ' want ' + s.want))
+}
+
+async function a11y() {
+  const mp = await mainProc()
+  // --- the rail and the panel (Settings and About, every section open) ---
+  const rail = await target('rail.html')
+  const rv = await rail.ev(A11Y_RULES('body'))
+  check('rail: offline rule set (roles, aria-*, names, ids, tabindex, aria-hidden, nesting, lang)', !rv.length, rv)
+  await rail.ev('(document.querySelector("button[data-rail]").focus({ focusVisible: true }), true)')
+  await focusView(mp, 'rail.html'); await sleep(300)
+  const railWant = await rail.ev(`[...document.querySelectorAll('button[data-rail]')].filter((b) => b.getClientRects().length && getComputedStyle(b).visibility !== 'hidden').map((b) => b.dataset.rail)`)
+  const railStops = await walkKeys(rail, 'down', railWant.length + 1, { from: [await rail.ev(FOCUS_NOW)] })
+  judgeStops('rail (↓ through the roving group)', railStops, railWant)
+  x('key', 'esc'); await sleep(300)
+  for (const page of ['settings', 'about']) {
+    await setPanel(mp, true, page); await openAll(mp, page)
+    const panel = await target('panel.html'); await sleep(400)
+    const pv = await panel.ev(A11Y_RULES('.panel'))
+    check('panel ' + page + ': offline rule set', !pv.length, pv)
+    const want = await panel.ev(TABBABLES('.panel'))
+    await panel.ev(`(document.querySelector('.panel').querySelector('button, select, a[href], [tabindex="0"]').focus({ focusVisible: true }), true)`)
+    await focusView(mp, 'panel.html'); await sleep(300)
+    const stops = await walkKeys(panel, 'tab', want.length + 2, { from: [await panel.ev(FOCUS_NOW)] })
+    judgeStops('panel ' + page + ' (Tab)', stops, want)
+    // reduced motion: the accordion's chevron and the switches don't animate
+    await emulateReduce(panel, true); await sleep(200)
+    const d = await panel.ev(`[...document.querySelectorAll('.sec-chev, .switch .knob')].map((e) => getComputedStyle(e).transitionDuration).filter((t) => t.split(',').some((x) => parseFloat(x) > 0))`)
+    check('panel ' + page + ' reduced motion: no chevron or switch animation', !d.length, d)
+    await emulateReduce(panel, false)
+    panel.c.close()
+  }
+  await setPanel(mp, false)
+  await emulateReduce(rail, true); await sleep(200)
+  const rd = await rail.ev(`getComputedStyle(document.querySelector('.panel')).transitionDuration`)
+  check('rail reduced motion: the rail opens without a slide', rd.split(',').every((t) => parseFloat(t) === 0), rd)
+  await emulateReduce(rail, false)
+  rail.c.close()
+
+  // --- the lyrics window: test lyrics as the feed would send them (its own pushes held back) ---
+  if (!(await winOpen(mp, 'Lyrics'))) { await mp.ev(viewCommand('rail', 'lyrics')); await sleep(2500) }
+  let page = await target('lyrics.html')
+  const holdLyrics = () => mp.ev(`(() => { const wc = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')).webContents
+    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if (/^lyrics-(time|data)$/.test(ch) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
+    return true })()`)
+  await holdLyrics()
+  const send = (ch, ...a) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'); return true })()`)
+  await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return true })()`)
+  const words = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.8, end: t + i * 0.8 + 0.7, text: w }))
+  const LYR = { title: 'Keyboard check', artist: 'Sonata', album: 'Test', duration: 120, source: 'apple', status: '', estimate: false, refined: false, aligned: false, lang: 'en',
+    lines: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => ({ t: i * 6, end: i * 6 + 5, text: 'Remembering beautiful yesterday number ' + (i + 1), words: words(i * 6, 'Remembering beautiful yesterday number ' + (i + 1)) })) }
+  await send('lyrics-data', LYR); await send('lyrics-time', 13.1, false); await sleep(800)
+  const lv = await page.ev(A11Y_RULES('#card'))
+  check('lyrics: offline rule set', !lv.length, lv)
+  const lyWant = await page.ev(TABBABLES('#card'))
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  await focusWin(mp, 'Lyrics'); await sleep(300)
+  const lyStops = await walkKeys(page, 'tab', lyWant.length + 2, { back: 'shift+tab' })
+  judgeStops('lyrics (Tab)', lyStops, lyWant)
+  check('lyrics: Tab into the list lands on the sung line (aria-current), named by its words', lyStops.length >= 2 && lyStops[lyStops.length - 1].current === 'true' && /number 3$/.test(lyStops[lyStops.length - 1].label || ''), lyStops)
+  // the arrows move between lines; the list doesn't scroll away from the keyboard while it chooses
+  const lineStops = await walkKeys(page, 'down', 3)
+  check('lyrics: ↓ moves line by line, with the focus ring', lineStops.length === 3 && lineStops.every((s) => s.ring) && /number 6$/.test(lineStops[2].label || ''), lineStops.map((s) => s.label))
+  const top0 = await page.ev('document.getElementById("lines").scrollTop')
+  await send('lyrics-time', 55, false); await sleep(900)
+  const top1 = await page.ev('document.getElementById("lines").scrollTop')
+  check('lyrics: while the keyboard chooses a line, the list stays put (the sung line moved on)', Math.abs(top1 - top0) < 2, { top0, top1 })
+  x('key', 'home'); await sleep(200)
+  const home = await page.ev(FOCUS_NOW)
+  x('key', 'end'); await sleep(200)
+  const end = await page.ev(FOCUS_NOW)
+  check('lyrics: Home / End go to the first / last line', /number 1$/.test(home.label || '') && /number 10$/.test(end.label || ''), [home.label, end.label])
+  x('key', 'up'); await sleep(200); x('key', 'Return'); await sleep(500)
+  const played = await page.ev(`(() => { const a = document.querySelector('.line[aria-current="true"]'); return a && a.getAttribute('aria-label') })()`)
+  check('lyrics: Enter plays from the chosen line (it becomes the sung line)', /number 9$/.test(played || ''), played)
+  // a mouse click on a line seeks but shows no ring (the look with a mouse is unchanged)
+  const r2 = await page.ev(`(() => { const l = [...document.querySelectorAll('.line')][1]; l.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = l.getBoundingClientRect(); return [Math.round(r.left + 30), Math.round(r.top + r.height / 2)] })()`)
+  await sleep(300); x('click', r2[0], r2[1]); await sleep(400)
+  const clicked = await page.ev(FOCUS_NOW)
+  check('lyrics: a click on a line plays from it and shows no focus ring', clicked && /number 2$/.test(clicked.label || '') && clicked.current === 'true' && !clicked.ring && /none/.test(clicked.outline), clicked)
+  // reduced motion: the sung word lights without the pop, no syllable bounce, no smooth scroll
+  await send('lyrics-time', 12.9, true); await sleep(500)
+  const pop = await page.ev(`(() => { const w = document.querySelector('.line.active > .ly-main .w.now'); const s = w && w.querySelector('.s.now'); return { w: w && getComputedStyle(w).transform, s: s && getComputedStyle(s).transform } })()`)
+  await emulateReduce(page, true); await sleep(500)
+  const still = await page.ev(`(() => { const w = document.querySelector('.line.active > .ly-main .w.now'); const s = w && w.querySelector('.s.now'); return { w: w && getComputedStyle(w).transform, s: s && getComputedStyle(s).transform, scroll: getComputedStyle(document.getElementById('lines')).scrollBehavior } })()`)
+  check('lyrics reduced motion: the sung word lights without the pop or the syllable bounce', ((pop.w && pop.w !== 'none') || (pop.s && pop.s !== 'none')) && still.w === 'none' && (!still.s || still.s === 'none') && still.scroll === 'auto', { normal: pop, reduced: still })
+  await emulateReduce(page, false)
+  // Esc closes the window; Ctrl+Shift+L in it closes it too
+  await focusWin(mp, 'Lyrics'); await sleep(200); x('key', 'Escape'); await sleep(800)
+  check('lyrics: Esc closes the window', !(await winOpen(mp, 'Lyrics')))
+  page.c.close()
+  await mp.ev(viewCommand('rail', 'lyrics')); await sleep(2500)
+  await focusWin(mp, 'Lyrics'); await sleep(300); x('key', 'ctrl+shift+l'); await sleep(800)
+  check('lyrics: Ctrl+Shift+L in the lyrics window closes it', !(await winOpen(mp, 'Lyrics')))
+
+  // --- the visualizer: no controls, the keys change the scene (said by its status), Esc leaves ---
+  await mp.ev(viewCommand('rail', 'visualizer')); await sleep(2500)
+  page = await target('visualizer.html')
+  const vv = await page.ev(A11Y_RULES('body'))
+  check('visualizer: offline rule set', !vv.length, vv)
+  await focusWin(mp, 'Visualizer'); await sleep(300)
+  const m0 = await page.ev('window.__mode()')
+  x('key', 'Right'); await sleep(300)
+  const m1 = await page.ev('[window.__mode(), document.getElementById("mode-label").textContent, document.getElementById("mode-label").getAttribute("role")]')
+  check('visualizer: → changes the scene, said by its status line', m1[0] !== m0 && m1[1] === m1[0] && m1[2] === 'status', { m0, m1 })
+  x('key', 'Left'); await sleep(300)
+  check('visualizer: ← goes back', (await page.ev('window.__mode()')) === m0)
+  await emulateReduce(page, true); await sleep(300)
+  const pr = await page.ev('window.__pace()')
+  await emulateReduce(page, false); await sleep(300)
+  const pn = await page.ev('window.__pace()')
+  check('visualizer reduced motion: the scenes that travel slow to 0.3 (and back to 1 without it)', pr === 0.3 && pn === 1, { reduced: pr, normal: pn })
+  await focusWin(mp, 'Visualizer'); await sleep(200); x('key', 'Escape'); await sleep(1000)
+  check('visualizer: Esc closes it', !(await winOpen(mp, 'Visualizer')))
+  page.c.close()
+
+  // --- the mini player (last: opening it hides the main window) ---
+  await mp.ev(viewCommand('rail', 'mini')); await sleep(2500)
+  page = await target('miniplayer.html')
+  await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Mini')); w.setPosition(0, 0); return true })()`)
+  x('move', 700, 300); await sleep(600)
+  const mv = await page.ev(A11Y_RULES('#pill'))
+  check('mini: offline rule set', !mv.length, mv)
+  const miniWant = await page.ev(TABBABLES('#pill'))
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  await focusWin(mp, 'Mini'); await sleep(300)
+  const miniStops = await walkKeys(page, 'tab', miniWant.length + 2)
+  judgeStops('mini (Tab, nothing playing)', miniStops, miniWant)
+  const states = await page.ev(`['shuffle', 'repeat', 'lyrics', 'mute'].map((id) => document.getElementById(id).getAttribute('aria-pressed'))`)
+  check('mini: the toggles say their state (aria-pressed)', states.every((s) => s === 'true' || s === 'false'), states)
+  await emulateReduce(page, true); await sleep(200)
+  const md = await page.ev(`['np', 'scrub', 'seek-knob'].map((id) => getComputedStyle(document.getElementById(id)).transitionDuration)`)
+  check('mini reduced motion: the scrubber crossfade and knob are instant', md.every((t) => parseFloat(t) === 0), md)
+  await emulateReduce(page, false)
+  await mp.ev(viewCommand('rail', 'mini')); await sleep(800)
+  page.c.close(); mp.c.close()
+}
+
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)
