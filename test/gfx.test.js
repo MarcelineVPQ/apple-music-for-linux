@@ -445,3 +445,43 @@ test('HDR glow: rgba16float in extended tone mapping (the DS5 path Marcy saw bri
   const files = require('../package.json').build.files
   assert.ok(files.includes('hdr-glow.js') && files.includes('hdr-screens.js'))
 })
+
+test('Hardware video decoding: both Linux decode features, joined with any given; first to go after a crash; the colour fix waits', () => {
+  assert.equal(settingsStore.defaults().expHwVideoDecode, false)
+  const f = G.startFlags({ expHwVideoDecode: true }, WAYLAND)
+  assert.deepEqual(f.switches, [['enable-features', 'VaapiOnNvidiaGPUs,AcceleratedVideoDecodeLinuxGL']])
+  assert.deepEqual(G.startFlags({ expHwVideoDecode: true }, withArgs(WAYLAND, '--enable-features=WaylandWindowDecorations')).switches,
+    [['enable-features', 'WaylandWindowDecorations,VaapiOnNvidiaGPUs,AcceleratedVideoDecodeLinuxGL']])
+  assert.deepEqual(G.startFlags({ expHwVideoDecode: true }, X11).active, ['expHwVideoDecode'], 'X11 too (its colours are right there)')
+  // with True video colours also on, the colour switch isn't used (it covers software decoding only)
+  const both = G.startFlags({ expHwVideoDecode: true, expTrueVideoColours: true }, WAYLAND)
+  assert.deepEqual(both.active, ['expHwVideoDecode'])
+  assert.equal(both.inactive.expTrueVideoColours, 'hw-decode')
+  // decoding blocked (safe start): the colour switch isn't held back by it
+  assert.deepEqual(G.startFlags({ expHwVideoDecode: true, expTrueVideoColours: true }, withArgs(WAYLAND, '--disable-gpu')).inactive, { expHwVideoDecode: 'gpu-off', expTrueVideoColours: 'gpu-off' })
+  const all = { expHwVideoDecode: true, expHdrOutput: true, expTrueVideoColours: true }
+  const st = G.startFlags(all, WAYLAND)
+  const crash = { type: 'GPU', reason: 'crashed' }
+  assert.equal(G.crashTurnOff(crash, st.active, all).key, 'expHwVideoDecode', 'hardware decoding first')
+  assert.equal(G.crashTurnOff(crash, st.active, Object.assign({}, all, { expHwVideoDecode: false })).key, 'expHdrOutput', 'then HDR')
+  assert.equal(G.crashTurnOff(crash, st.active, { expHwVideoDecode: false, expHdrOutput: false, expTrueVideoColours: true }), null, 'the colour switch wasn\'t active this start')
+  assert.match(G.EXPERIMENTS.find((e) => e.key === 'expHwVideoDecode').desc, /video colours are currently a little off/)
+})
+
+test('Hardware video decoding: About → Graphics says hardware or software from the page and the loaded VA-API driver', () => {
+  assert.equal(G.decodeLabel({ powerEfficient: true, hevc: true, drivers: ['nvidia_drv_video.so'] }), 'Hardware (VA-API, NVIDIA); HEVC too')
+  assert.equal(G.decodeLabel({ powerEfficient: true, hevc: false, drivers: ['radeonsi_drv_video.so'] }), 'Hardware (VA-API, radeonsi)')
+  assert.equal(G.decodeLabel({ powerEfficient: false, drivers: [] }), 'Software (the processor)')
+  assert.equal(G.decodeLabel(null), '')
+  const row = (st, decode) => G.graphicsRows({ start: st, decode }).find((r) => r.id === 'decode').value
+  assert.equal(row(G.startFlags({}, WAYLAND), 'Software (the processor)'), 'Software (the processor)')
+  assert.equal(row(G.startFlags({ expHwVideoDecode: true }, withArgs(WAYLAND, '--safe-gpu')), ''), 'checking… · Off for this start: Sonata was started with --safe-gpu')
+  // every switch has a readout row, a name, a truthful one-line description and the Experimental label
+  for (const e of G.EXPERIMENTS) {
+    assert.match(e.label, / \(experimental\)$/, e.key)
+    assert.match(e.desc, e.restart ? /Applies at restart\.$/ : /Applies at once\.$/, e.key)
+    assert.equal(typeof e.readout, 'function', e.key)
+    assert.equal(settingsStore.defaults()[e.key], false, e.key + ' off by default')
+  }
+  assert.deepEqual(G.EXPERIMENTS.map((e) => e.key), ['expTrueVideoColours', 'expGlowDither', 'expHdrOutput', 'expHwVideoDecode'])
+})

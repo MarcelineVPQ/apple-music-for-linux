@@ -433,9 +433,41 @@ cover, 0–46 px below it:
   (10 s each, the same within noise). Told "off": the device is destroyed and the canvas removed.
   Light theme: the sung word is dark there (4.5:1 over a light card), so it isn't boosted (a first run
   boosted it and washed it out on lavender; hdr-glow.js `glows`).
+- **Apple's page with HDR output on** (the load clip, 20 s): 12.25 / 11.65 % of a core vs 12.0 / 11.9 off, 0 dropped;
+  the colour patches and greys read back the same as off (the scRGB profile changes the output space, not the
+  video matrix: research §1.5).
 - **Wayland colour tags**: on the isolated KWin's SDR virtual output, 2 "Unable to set image transfer function
   … transfer:SRGB" lines at start with scRGB on (0 without). Phase 0 on DP-5 (Marcy's TV) logged none with
   scRGB in any window, and Chromium sent ABGR16161616F buffers tagged st2084_pq there with or without it.
   Whether her journal still logs the line with Sonata itself: to read on her desktop once she turns it on.
 - **Waits for her eyes on DP-5**: how bright the sung word reads (1.8× her SDR white, the TV tone-maps
   above ~330 nits), whether the letters sit exactly on the text, and Apple's page/art/video the same as off.
+
+### Hardware video decoding (`expHwVideoDecode`: `--enable-features=VaapiOnNvidiaGPUs,AcceleratedVideoDecodeLinuxGL`)
+
+| Run | Page | Graphics process | Browser | Total | NVDEC (mean / max) | Dropped | Decoder |
+|---|---|---|---|---|---|---|---|
+| Off (software), runs 1 and 2 | 9.2 / 9.35 | 2.3 / 2.15 | 0.45 / 0.4 | **12.0 / 11.9** | 0 % | 0 / 600 | – |
+| On, run 1 | 1.95 | 3.45 | 0.55 | **5.95** | 0.22 / 1 % | 0 / 600 | `nvidia_drv_video.so` loaded; `powerEfficient: true` for H.264; HEVC Main10 supported (false off) |
+| On, run 2 | 0.7 | 3.85 | 0.65 | **5.2** | 0.22 / 1 % | 0 / 601 | the same |
+| On with True video colours also on | 1.65 | 3.05 | 0.5 | 5.2 | 0.5 / 1 % | 0 / 600 | the colour switch not used (the `[gpu]` line says so) |
+
+- Saves **about 6–7 % of a core** while a 1080p animated cover plays; the graphics process does a little more
+  (+1 to +1.5) importing the frames. With HEVC now supported, Apple's player may pick its HEVC Main10 artwork.
+- The colours stay off with it on Wayland (234,0,2 for red), as the description says; True video colours
+  can't fix hardware frames, so it steps aside.
+- Crash risks (research §3.4) are what the safety net is for; no crash in these runs (0 coredumps). Every
+  switch on at once (HDR, hardware decoding, colours, dither): starts and plays, 0 coredumps.
+
+### The safety net, end to end (isolated copy, real GPU)
+
+- **A start that never got healthy**: settings with Hardware video decoding and HDR output on, and a start
+  marker naming Hardware video decoding. That start used only HDR output (`[gpu] experimental: expHdrOutput`),
+  saved Hardware video decoding off, showed one notice at the top of the panel ("Sonata turned off Hardware
+  video decoding: the last start with it on didn't finish. You can turn it back on in Settings →
+  Experimental." with Open Experimental), wrote a new marker naming HDR output and removed it 20 s later
+  ("healthy for 20 s").
+- **`--safe-gpu`** with three switches on: no flags, settings unchanged, no marker, each row says "Not used
+  this start: Sonata was started with --safe-gpu."
+- **A graphics crash while running** is covered by test/gfx.test.js only: forcing one on the isolated copy
+  would leave a core dump (and a crash notice on Marcy's desktop).

@@ -61,7 +61,8 @@ const SCHEMA = {
   // Settings → Experimental (gfx-model.js EXPERIMENTS): all off until the user turns them on
   expTrueVideoColours: [false, bool, 'True video colours (experimental)'],
   expGlowDither: [false, bool, 'Dithered cover glow (experimental)'],
-  expHdrOutput: [false, bool, 'HDR output (experimental)']
+  expHdrOutput: [false, bool, 'HDR output (experimental)'],
+  expHwVideoDecode: [false, bool, 'Hardware video decoding (experimental)']
 }
 
 function defaults() {

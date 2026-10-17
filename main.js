@@ -53,7 +53,7 @@ const appName = 'Sonata'
 // Settings → Experimental (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
 // are decided here, before 'ready', from the settings file; a start marker turns them off again when a
 // start with them never got healthy. --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
-const gfx = require('./gfx-runtime').createGfx({ app, fs, path, settingsStore })
+const gfx = require('./gfx-runtime').createGfx({ app, fs, path, settingsStore, extra: { decode: decodeProbe() } })
 gfx.beforeReady()
 
 // NOTE on sandboxing: recent Ubuntu restricts unprivileged user namespaces via
@@ -2555,6 +2555,23 @@ function startGfx() {
     screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
   })
   watchScreens()
+}
+// About → Graphics' "Video decoding" line, read when the section opens: Apple's page asks MediaCapabilities
+// about Apple's top artwork stream, and the graphics process's /proc maps say which VA-API driver it loaded
+function decodeProbe() {
+  let last = null
+  return {
+    readout: () => require('./gfx-model').decodeLabel(last),
+    probe(done) {
+      if (!appleView || appleWC().isDestroyed()) return
+      const gpu = app.getAppMetrics().find((m) => m.type === 'GPU')
+      let drivers = []
+      try { drivers = [...new Set(fs.readFileSync('/proc/' + gpu.pid + '/maps', 'utf8').match(/[\w-]+_drv_video\.so/g) || [])] } catch (e) { drivers = [] }   // error: NOT-WORTH — no graphics process or no /proc: the line says software or hardware from the page alone
+      const ask = `(async () => { const q = (c) => navigator.mediaCapabilities.decodingInfo({ type: 'media-source', video: { contentType: 'video/mp4; codecs="' + c + '"', width: 1080, height: 1080, bitrate: 4e6, framerate: 30 } }); const a = await q('avc1.640020'); return { powerEfficient: !!a.powerEfficient, hevc: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.20000000.L123.B0"') } })()`
+      appleWC().executeJavaScript(ask).then((r) => { last = Object.assign({ drivers }, r); done() })
+        .catch((e) => console.error('graphics readout: decoding check failed:', e.message))   // error: LOGGED-OK — the line keeps saying "checking…"; reopening About → Graphics asks again
+    }
+  }
 }
 // HDR output (Settings → Experimental, active this start): each lyric window is told whether it sits on an
 // HDR screen and with what headroom ('lyrics-hdr', hdr-glow.js), when it loads, after it moves (300 ms after

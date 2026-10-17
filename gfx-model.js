@@ -76,6 +76,25 @@
         value: st.active.includes('expHdrOutput') ? 'On (scRGB): ' + (i.screensLine || 'reading the screens…')
           : st.inactive.expHdrOutput ? reasonText(st.inactive.expHdrOutput) : 'Off' + (i.screensLine ? ' · ' + i.screensLine : '')
       })
+    },
+    // Chromium 156 skips NVIDIA for VA-API on purpose ("Should skip nVidia device named: nvidia-drm");
+    // VaapiOnNvidiaGPUs turns it on, AcceleratedVideoDecodeLinuxGL is the Linux GL decode feature, named too
+    // so a changed default can't silently turn decoding off (research §3). The riskiest switch: community
+    // driver code Chromium doesn't support on NVIDIA, and hardware frames on Wayland keep the BT.601 colours.
+    // First to go after a graphics crash.
+    {
+      key: 'expHwVideoDecode',
+      name: 'Hardware video decoding',
+      label: 'Hardware video decoding (experimental)',
+      desc: 'Decodes animated covers on the graphics card instead of the processor (about 7 % of a CPU core less while one plays). On Wayland, video colours are currently a little off with this on. Applies at restart.',
+      restart: true,
+      crashRank: 1,
+      features: ['VaapiOnNvidiaGPUs', 'AcceleratedVideoDecodeLinuxGL'],
+      readout: (i, st) => ({
+        id: 'decode',
+        label: 'Video decoding',
+        value: (i.decode ? i.decode : 'checking…') + (st.active.includes('expHwVideoDecode') ? '' : st.inactive.expHwVideoDecode ? ' · ' + reasonText(st.inactive.expHwVideoDecode) : '')
+      })
     }
   ]
 
@@ -241,6 +260,17 @@
     return older.length ? [older[older.length - 1]].concat(keep) : keep
   }
 
+  // About → Graphics' decoding line: Apple's page asks MediaCapabilities about Apple's top artwork stream
+  // (H.264 High 1080², "powerEfficient" = a hardware decoder) and the graphics process's /proc maps say which
+  // VA-API driver it loaded. p: { powerEfficient, hevc, drivers: ['nvidia_drv_video.so', …] } or null
+  function decodeLabel(p) {
+    if (!p) return ''
+    const drv = (p.drivers || []).map((d) => d.replace(/_drv_video\.so$/, ''))
+    const who = drv.includes('nvidia') ? 'NVIDIA' : drv.length ? drv.join(', ') : ''
+    if (p.powerEfficient) return 'Hardware (VA-API' + (who ? ', ' + who : '') + ')' + (p.hevc ? '; HEVC too' : '')
+    return 'Software (the processor)' + (who ? '; VA-API driver ' + who + ' loaded' : '')
+  }
+
   // --- About → Graphics (read-only) ---
   // info: { gpu (app.getGPUFeatureStatus()), start (startFlags), settings, decode, hdr, cpu }
   // -> [{ id, label, value }]
@@ -266,7 +296,7 @@
   }
   const pct = (x) => (Math.round(x * 10) / 10).toFixed(1) + ' %'
 
-  const api = { EXPERIMENTS, REASONS, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, crashTurnOff, pendingRestart, cpuOver, statTicks, trimSamples, graphicsRows }
+  const api = { EXPERIMENTS, REASONS, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, crashTurnOff, pendingRestart, cpuOver, statTicks, trimSamples, decodeLabel, graphicsRows }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataGfxModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)
