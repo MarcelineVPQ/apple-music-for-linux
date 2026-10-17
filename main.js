@@ -857,15 +857,15 @@ function createVizWindow() {
 
   // lifetime: OK — one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
   // see getSharedListener) per visualizer window; both stopped and dropped on 'closed'
-  visualizer = new Visualizer((bands) => {
-    if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
-  })
+  const toViz = (channel, value) => { if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send(channel, value) }
+  visualizer = new Visualizer((bands) => toViz('viz-bands', bands), { onState: (state) => toViz('viz-audio-state', state) })
   vizListener = getSharedListener()({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
 
   // the lyrics feed drives the overlay's lyrics, its now-playing and its audio (vizAudioTick)
   vizWindow.webContents.once('did-finish-load', () => {
     startLyricsFeed()
     if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
+    if (visualizer && visualizer.audioState) toViz('viz-audio-state', visualizer.audioState)   // a capture problem already known
   })
 
   // lifetime: OK — 'closed' stops the listener handle (the parec ends when no other user listens) and the
@@ -887,7 +887,7 @@ function createVizWindow() {
 // plays (fallback: while the visualizer exists) · stops on pause (listener) and on viz 'closed' ·
 // cost one 1024-point FFT + one IPC send per frame
 function vizAudioTick(isPlaying) {
-  if (!vizListener || !visualizer || visualizer.proc) return   // proc: on the system-monitor fallback
+  if (!vizListener || !visualizer || visualizer.fallback) return   // on the system-monitor fallback (it restarts itself)
   if (vizListener.state === 'unavailable') {
     console.log('visualizer: own audio stream not found, showing the whole system mix')
     vizListener.stop()

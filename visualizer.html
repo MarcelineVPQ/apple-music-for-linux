@@ -75,6 +75,13 @@
   @keyframes lv-in { from { opacity: 0; transform: translateY(0.25em); } }
   @keyframes lv-next { from { opacity: 0; } }
   #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
+  /* the sound capture's state, when it isn't fine (visualizer.js fallback parec): plain words, top right */
+  #audio-note {
+    position: fixed; top: 40px; right: 40px; max-width: 460px; text-align: right;
+    font-size: 15px; font-weight: 600; line-height: 1.4; text-shadow: 0 2px 16px var(--s-stage-shade);
+    pointer-events: none;
+  }
+  #audio-note:empty { display: none; }
   #mode-label {
     position: fixed; bottom: 20px; left: 24px; font-size: 13px; font-weight: 600;
     letter-spacing: 0.14em; text-transform: uppercase; opacity: 0;
@@ -93,6 +100,7 @@
   <div id="lyrics"></div>
   <div id="mode-label"></div>
   <div id="hint">Click to change scene · Esc to exit</div>
+  <div id="audio-note" role="status" aria-live="polite"></div>
 <script>
   const { ipcRenderer } = require('electron')
   const canvas = document.getElementById('c')
@@ -141,6 +149,15 @@
       beat.last = now; beat.hit = true
     }
   }
+
+  // --- the sound capture's state (main.js 'viz-audio-state', from visualizer.js's fallback parec) ---
+  const AUDIO_NOTES = {
+    restarting: 'The system sound capture stopped. Restarting it…',
+    lost: 'No sound for the visualizer: the system sound capture (parec) keeps stopping. Close and reopen the visualizer to try again.',
+    missing: 'No sound for the visualizer: parec is not installed (it comes with the PulseAudio utilities, e.g. pulseaudio-utils).'
+  }
+  // lifetime: OK — added once at load, released with the window
+  ipcRenderer.on('viz-audio-state', (e, state) => { document.getElementById('audio-note').textContent = AUDIO_NOTES[state] || '' })
 
   // --- now playing + synced lyrics ---
   // lifetime: OK — added once at load, released with the window
@@ -229,19 +246,25 @@
   document.onclick = () => setMode(modeIdx + 1)   // click cycles scenes; Esc exits
   showLabel()
 
+  // --- the stage's colours and gradients (viz-paint.js) ---
+  // The colours are theme.css's fixed --s-stage-* tokens (the night stage is art: the same in every theme),
+  // read once at load; the scenes sweep and shift hue around them. The bars' gradients are made once and
+  // reused (unit gradients mapped with the transform); the glows make theirs per fill (measured cheaper).
+  const PAINT = require('./viz-paint')
+  const STAGE = PAINT.readStage((name) => getComputedStyle(document.documentElement).getPropertyValue(name))
+  if (STAGE.missing.length) console.error('visualizer: stage colours missing from theme.css:', STAGE.missing.join(' '))
+  const glow = (x, y, radius, c, hue) => PAINT.glow(ctx, x, y, radius, c, hue)
+  // lifetime: OK — 2 gradients per band, rebuilt only when the band count changes; kept for the window's life
+  let barPaint = null
+
   // --- helpers ---
+  // the bar's outline in canvas pixels (filled by the caller, through the gradient's transform)
   function roundBar(x, y, w, h) {
     const r = Math.min(w / 2, 6 * dpr)
     ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x, y + r)
     ctx.arcTo(x, y, x + r, y, r); ctx.lineTo(x + w - r, y)
     ctx.arcTo(x + w, y, x + w, y + r, r); ctx.lineTo(x + w, y + h)
-    ctx.closePath(); ctx.fill()
-  }
-  function glow(x, y, radius, color) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, radius)
-    g.addColorStop(0, color); g.addColorStop(1, 'transparent')
-    ctx.fillStyle = g
-    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill()
+    ctx.closePath()
   }
 
   // --- MODE 1: bars (clean modern spectrum) ---
@@ -249,19 +272,24 @@
     ctx.clearRect(0, 0, W, H)
     ctx.globalCompositeOperation = 'source-over'
     const n = a.n; if (!n) return
+    if (!barPaint || barPaint.n !== n) barPaint = PAINT.barGradients(ctx, STAGE, n)
     const gap = W * 0.004, bw = (W - gap * (n - 1)) / n
     const baseY = H * 0.82, maxH = H * 0.6
-    // loop: FIX-HOT-PATH — one pass over the bands (n ≈ 48) per frame, but it makes two canvas gradients per bar per frame (~96 allocations/frame)
+    // loop: HOT-PATH-OK — one pass over the bands (n ≈ 48) per frame; the two gradients per bar are cached
+    // (barPaint), each fill maps its unit gradient onto the bar with the transform; no allocation
     for (let i = 0; i < n; i++) {
       const v = shown[i], h = Math.max(2 * dpr, v * maxH), x = i * (bw + gap)
-      const hue = 320 - (i / n) * 70
-      const grad = ctx.createLinearGradient(0, baseY - h, 0, baseY)
-      grad.addColorStop(0, `hsla(${hue},90%,68%,0.98)`); grad.addColorStop(1, `hsla(${hue},85%,45%,0.85)`)
-      ctx.fillStyle = grad; roundBar(x, baseY - h, bw, h)
+      roundBar(x, baseY - h, bw, h)
+      ctx.setTransform(1, 0, 0, h, 0, baseY - h)          // unit gradient 0..1 -> the bar's top..base
+      ctx.fillStyle = barPaint.body[i]; ctx.fill()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
       ctx.globalAlpha = 0.18
-      const rg = ctx.createLinearGradient(0, baseY, 0, baseY + h * 0.6)
-      rg.addColorStop(0, `hsla(${hue},85%,55%,0.6)`); rg.addColorStop(1, 'transparent')
-      ctx.fillStyle = rg; ctx.fillRect(x, baseY, bw, h * 0.6); ctx.globalAlpha = 1
+      const mh = h * 0.6
+      ctx.beginPath(); ctx.rect(x, baseY, bw, mh)
+      ctx.setTransform(1, 0, 0, mh, 0, baseY)             // the mirror: the base down to 60 % of the bar
+      ctx.fillStyle = barPaint.mirror[i]; ctx.fill()
+      ctx.setTransform(1, 0, 0, 1, 0, 0)
+      ctx.globalAlpha = 1
     }
   }
 
@@ -269,14 +297,14 @@
   const aurora = { streamers: null, t: 0 }
   function renderAurora(a) {
     ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = 'rgba(0,0,0,0.09)'; ctx.fillRect(0, 0, W, H)   // gentle trails
+    ctx.fillStyle = STAGE.trail; ctx.fillRect(0, 0, W, H)   // gentle trails
     if (!aurora.streamers) {
       aurora.streamers = []
       // loop: NOT-WORTH — 6 streamers, once per scene entry
       for (let i = 0; i < 6; i++) aurora.streamers.push({
         px: Math.random() * 6.28, py: Math.random() * 6.28,
         sx: 0.06 + Math.random() * 0.05, sy: 0.05 + Math.random() * 0.05,
-        sy2: 0.02 + Math.random() * 0.03, hue: 300 + i * 14
+        sy2: 0.02 + Math.random() * 0.03, hue: STAGE.aurora.h + i * 14
       })
     }
     aurora.t += 0.016 * (0.6 + a.energy * 2.4)     // music quickens the drift
@@ -287,8 +315,8 @@
       const x = W * (0.5 + 0.44 * Math.sin(t * s.sx + s.px))
       const y = H * (0.5 + 0.4 * Math.sin(t * s.sy + s.py) * Math.cos(t * s.sy2))
       const r = (70 + a.bass * 420) * dpr
-      glow(x, y, r, `hsla(${s.hue + a.energy * 40},92%,66%,0.5)`)
-      glow(x, y, r * 0.4, `hsla(${s.hue + 20},95%,78%,0.6)`)
+      glow(x, y, r, STAGE.aurora, s.hue + a.energy * 40)
+      glow(x, y, r * 0.4, STAGE.auroraCore, s.hue + (STAGE.auroraCore.h - STAGE.aurora.h))
     }
     ctx.globalCompositeOperation = 'source-over'
   }
@@ -297,7 +325,7 @@
   const nebula = { parts: null, rot: 0, pulse: 0 }
   function renderNebula(a) {
     ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(0, 0, W, H)
+    ctx.fillStyle = STAGE.trailShort; ctx.fillRect(0, 0, W, H)
     if (!nebula.parts) {
       nebula.parts = []
       // loop: NOT-WORTH — 240 particles, once per scene entry
@@ -315,7 +343,8 @@
     // always a substantial cloud; bass/beat make it breathe outward
     const base = Math.min(W, H) * (0.30 + a.bass * 0.32 + nebula.pulse * 0.12)
     ctx.globalCompositeOperation = 'lighter'
-    // loop: FIX-HOT-PATH — 240 particles per frame, each a new radial gradient (glow): 240 gradient allocations per frame
+    // loop: HOT-PATH-OK — 240 particles per frame, a radial gradient each: measured, caching them (per hue, mapped
+    // with the transform) made frames dearer to rasterise than making them (docs/PERFORMANCE.md "Visualizer paint")
     for (const p of nebula.parts) {
       p.ang += p.spd * (1 + a.energy * 2); p.wob += 0.03
       const bandV = shown[p.band] || 0
@@ -323,11 +352,11 @@
       const x = cx + Math.cos(p.ang + nebula.rot) * rad
       const y = cy + Math.sin(p.ang + nebula.rot) * rad * 0.8
       const size = (2.4 + bandV * 7) * dpr        // reacts to its band, visible baseline
-      const hue = 300 - p.rad * 60 + bandV * 40   // fuchsia core -> violet edges
-      glow(x, y, size * 2.6, `hsla(${hue},88%,66%,0.34)`)
+      const hue = STAGE.nebula.h - p.rad * 60 + bandV * 40   // fuchsia core -> violet edges
+      glow(x, y, size * 2.6, STAGE.nebula, hue)
     }
     // soft core, not a white sun
-    glow(cx, cy, (30 + nebula.pulse * 60 + a.bass * 120) * dpr, `hsla(318,92%,70%,0.20)`)
+    glow(cx, cy, (30 + nebula.pulse * 60 + a.bass * 120) * dpr, STAGE.nebulaCore, STAGE.nebulaCore.h)
     ctx.globalCompositeOperation = 'source-over'
   }
 
@@ -368,7 +397,7 @@
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
     ctx.clearRect(0, 0, W, H)
-    ctx.fillStyle = 'rgba(6,5,12,0.84)'; ctx.fillRect(0, 0, W, H)    // night sky, the album glow faint behind
+    ctx.fillStyle = STAGE.sky; ctx.fillRect(0, 0, W, H)    // night sky, the album glow faint behind
     // the music nudges everyone's speed (±15 %), smoothed so it never jerks
     toast.speed += ((0.9 + 0.35 * Math.min(1, a.energy * 1.6)) - toast.speed) * Math.min(1, dt * 1.5)
     // wings flap at the tempo, quicker when the track is busy (one cycle = the 8 frames)

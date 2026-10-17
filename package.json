@@ -28,6 +28,7 @@
       "discord.js",
       "visualizer.js",
       "viz-frames.js",
+      "viz-paint.js",
       "palette.js",
       "css-replacer.js",
       "preload-apple.js",

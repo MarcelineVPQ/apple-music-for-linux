@@ -28,7 +28,7 @@ Discord update. None of these objects is stored.
 | main.js `startNowPlayingLoop` | now-playing poll | 5 s | always (the tray always exists) | app exit | 1 `executeJavaScript`/5 s, 0.02–0.07 % main CPU. Needed, left as is. Since the rail it also refreshes the palette while the main window is shown (one artwork fetch per track change) and calls `pushRail` (one small JSON compare; an IPC send only when the rail's state changed) |
 | main.js `createMiniWindow` | mini poll | 1 s | mini window exists, including minimized/paused | mini `closed`, main `close` | 1 read/s, 0.05 % main CPU. Left as is |
 | main.js `startLyricsFeed` (0.15.22) | lyrics feed poll, for the lyrics window and the visualizer | 500 ms | lyrics window or visualizer exists, including minimized/paused | last of them `closed`, main `close` | 2 reads/s plus one lyrics lookup per track (cached), 1 IPC send per view per tick. Replaces the lyrics poll and the visualizer's own 300 ms poll |
-| main.js `vizAudioTick` + visualizer.js | own-stream parec (audio-listen.js; since 0.15.24 the one shared parec that also feeds refine and precise timing) → 1024-point FFT → IPC | ~43 frames/s | visualizer exists and the song plays (system-monitor fallback: visualizer exists) | pause, viz `closed` | 1 FFT + 1 IPC send per frame; FFT buffers reused (no per-frame garbage) |
+| main.js `vizAudioTick` + visualizer.js | own-stream parec (audio-listen.js; since 0.15.24 the one shared parec that also feeds refine and precise timing) → 1024-point FFT → IPC | ~43 frames/s | visualizer exists and the song plays (system-monitor fallback: visualizer exists) | pause, viz `closed` | 1 FFT + 1 IPC send per frame; FFT buffers reused (no per-frame garbage). The fallback parec, if it ends on its own, is restarted after 1, 2, 4, 8 and 16 s (the count starts over after 30 s of audio), with silence shown meanwhile; after the fifth the visualizer says it has no sound (`viz-audio-state`) |
 | visualizer.html `frame` | requestAnimationFrame through the frame gate (viz-frames.js, 0.15.38) | display rate | window visible (Chromium pauses rAF when hidden) **and** the music plays, plus a 0.5 s settle after a pause, a scene change or a resize | pause (after the settle), `lyrics-time` pushes stopping for 1.5 s, window close | one canvas frame while playing; **0 frames while paused** (Marcy 2026-10-16; before, the ambient modes kept drawing at 60 frames/s). Measured in "Lean lyrics" below |
 | visualizer.html lyrics (0.15.22) | lyrics-view.js word/dot loop (the lyrics window's) | per word change | visible, playing, word timing | as the lyrics window | DOM class writes per word change |
 | visualizer.html `showLabel` | label fade | 1.4 s one-shot | after a mode switch | fires; cleared before re-arm | ~0 |
@@ -176,6 +176,46 @@ absolute values. Before = 0.15.37-dev.1 (39d8016); after = lean lyrics.
 - **Lyrics frames while singing stay ~60/s.** The pop, the syllable bounce and the crossfades overlap in a dense song, as designed, but they are now compositor frames: style recalcs ≈ word and syllable changes, and layout ≈ line changes.
 - **The visualizer's playing rows are unchanged:** its canvas draws every frame on the main thread, by design until phase 5 (WebGL).
 - **0.15.36 (e7b45c8) for reference:** lyrics singing 436 % / 59.5 style/s; interlude 410 %; the visualizer paused 526 % at 60 frames/s.
+
+## Visualizer paint: cached bar gradients, stage tokens, fallback parec (Unreleased, branch w1-visualizer)
+
+BACKLOG "Visualizer: per-frame gradients and the fallback parec". Measured with the gpu-render-hdr harness
+(`measure-render.js` from the research branch, plus aurora and nebula scenarios), each run on its own
+`tools/isolated.sh` copy (Xvfb, private D-Bus, throwaway HOME, SwiftShader GL), 1920×1080, mock bands at
+43/s, 4 s settle, CPU over 20 s, 6 s trace. Before = 0.15.38-dev.1 (ff32984); runs alternated
+(before, after, before, after). "SW GPU" is the main process with the in-process software GPU: compare
+rows, not absolute values.
+
+| Scene | Renderer % before (4 runs) | Renderer % after (4 runs) | rAF/s before → after |
+|---|---|---|---|
+| bars | 6.35, 6.25, 6.75, 6.0 (mean 6.34) | 5.4, 5.85, 5.35, 5.5 (mean **5.53, −13 %**) | 42–46 → 42–47 |
+| aurora | 6.1, 6.15 | 6.15, 6.0 | 57–60 → 60 |
+| nebula | 7.95, 8.3 | 8.0, 8.15 | 54–56 → 54–56 |
+| toasters | 6.85, 6.75 | 7.0, 7.25 | 60 → 60 |
+| paused (bars) | 0.05 | 0–0.1 | 0 → 0 (the freeze is kept) |
+
+- **Bars:** the 96 gradients a frame are now 96 made once per band count (`viz-paint.js` `barGradients`): unit
+  gradients mapped onto each bar with the transform at fill time, so a resize needs no rebuild. Same frame
+  rate, about 13 % less renderer CPU.
+- **Aurora and nebula keep a gradient per glow.** Cached per 0.1° of hue and mapped with the transform the
+  same way, the renderer CPU fell (nebula 8.6 → 5.2 %), but only because the frame rate halved
+  (nebula 51 → 26 rAF/s, aurora 55 → 37): rasterising a radial gradient through a scaled transform costs the
+  software GPU more than making the gradient costs the script. A run with the transform and no cache
+  (27.7 rAF/s) showed the transform is the cause. Per frame the renderer was not cheaper either
+  (0.167 → 0.196 % per frame/s), so the glows were left as they were and only their colours moved to tokens.
+  Not checked on a real GPU (none under Xvfb).
+- **Pixels:** the canvas read back (`getImageData`) after 30, 90 and 180 frames, with seeded `Math.random`, a manual clock and
+  the same bands, compared premultiplied: aurora, nebula and toasters are **bit-identical**. The bars differ by
+  at most 2/255 on at most 0.12 % of pixels (1,118 of 921,600 at frame 180; 6 and 3 at frames 30 and 90): the GPU
+  evaluates the gradient through the transform at a slightly different precision. The harness itself is deterministic (a second
+  before run matched it exactly).
+- **Theme tokens:** the canvas's literal colours are `--s-stage-*` tokens in theme.css (fixed art, like the
+  vinyl), read once at load by `viz-paint.js` `readStage`; test/theme.test.js now checks visualizer.html's
+  scripts for literal colours too.
+- **Fallback parec:** restarted after 1, 2, 4, 8 and 16 s when it ends on its own (silence shown meanwhile, the
+  count starts over after 30 s of audio); after the fifth, or at once when parec isn't installed, the
+  visualizer shows a status line instead of a frozen spectrum. test/visualizer-monitor.test.js. No cost while
+  it runs: one state check per audio chunk.
 
 ## Navigation rail (0.15.29+; its own view since 0.15.31)
 

@@ -54,6 +54,22 @@
   --s-stage-shade-soft: rgba(0,0,0,0.6);
   --s-stage-scrim: rgba(0,0,0,0.5);
   --s-stage-vignette: rgba(0,0,0,0.78);
+  /* the visualizer's canvas scenes (viz-paint.js reads them once): the trails' fades, the toasters'
+     night sky, and the HSL colours the scenes sweep and shift in hue (bars: band 0 -> the -end colour;
+     aurora and nebula: around these hues, moved by the music) */
+  --s-stage-trail: rgba(0,0,0,0.09);
+  --s-stage-trail-short: rgba(0,0,0,0.2);
+  --s-stage-sky: rgba(6,5,12,0.84);
+  --s-stage-bar-top: hsla(320,90%,68%,0.98);
+  --s-stage-bar-top-end: hsla(250,90%,68%,0.98);
+  --s-stage-bar-base: hsla(320,85%,45%,0.85);
+  --s-stage-bar-base-end: hsla(250,85%,45%,0.85);
+  --s-stage-bar-mirror: hsla(320,85%,55%,0.6);
+  --s-stage-bar-mirror-end: hsla(250,85%,55%,0.6);
+  --s-stage-aurora: hsla(300,92%,66%,0.5);
+  --s-stage-aurora-core: hsla(320,95%,78%,0.6);
+  --s-stage-nebula: hsla(300,88%,66%,0.34);
+  --s-stage-nebula-core: hsla(318,92%,70%,0.2);
   /* a fine static grain over the Glass material (no animation) */
   --s-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
 }

@@ -15,6 +15,10 @@ const BANDS = 48
 const LOW = 35
 const HIGH = 10500       // just under Nyquist (11025 Hz)
 const GAIN = 2048 / N    // keeps band levels where they were with the old 2048-point window
+// the fallback parec: when it ends on its own it is restarted after these waits; a run that delivered
+// audio for HEALTHY_MS starts the count again. After the last one the visualizer says it has no sound.
+const RESTART_MS = [1000, 2000, 4000, 8000, 16000]
+const HEALTHY_MS = 30000
 
 // iterative radix-2 FFT (in place), no dependencies
 // loop: HOT-PATH-OK — a 1024-point FFT (bit reversal, then log2(n) = 10 butterfly passes), once per
@@ -65,9 +69,23 @@ function defaultMonitor() {
 }
 
 class Visualizer {
-  constructor(onBands) {
+  // onBands(levels) per spectrum frame. opts (all optional): onState(state) when the fallback capture's
+  // state changes ('' = fine, 'restarting', 'lost' = gave up, 'missing' = no parec); spawn, monitor,
+  // setTimeout, clearTimeout, now: stand-ins for tests.
+  constructor(onBands, opts) {
+    const o = opts || {}
     this.onBands = onBands
+    this.onState = o.onState || (() => {})
+    this.spawn = o.spawn || spawn
+    this.monitor = o.monitor || defaultMonitor
+    this.setTimeout = o.setTimeout || setTimeout
+    this.clearTimeout = o.clearTimeout || clearTimeout
+    this.now = o.now || Date.now
     this.proc = null
+    this.fallback = false     // on the whole-system monitor (main.js's vizAudioTick leaves the audio to us)
+    this.restarts = 0         // restarts since the last healthy run
+    this.restartTimer = null
+    this.audioState = ''
     this.buf = Buffer.alloc(0)
     this.ring = new Float64Array(N)
     this.head = 0             // next write position in the circular ring
@@ -97,23 +115,69 @@ class Visualizer {
 
   /** Fallback: capture the default sink's monitor (whole system) with our own parec. */
   startMonitor() {
-    if (this.proc) return
-    const monitor = defaultMonitor()
-    // lifetime: OK — the fallback parec (whole-system monitor), killed by stop() on the visualizer's 'closed'
-    // error: LOGGED-OK — spawn throwing (e.g. a dead PATH entry) is logged; the visualizer shows no spectrum
+    this.fallback = true
+    if (this.proc || this.restartTimer) return
+    this.spawnMonitor()
+  }
+
+  spawnMonitor() {
+    const monitor = this.monitor()
+    let proc
+    // lifetime: OK — the fallback parec (whole-system monitor): restarted with a backoff if it ends on its own
+    // (monitorEnded), killed by stop() on the visualizer's 'closed'
+    // error: SHOWN — spawn throwing (e.g. a dead PATH entry) is logged and handled as a capture that ended:
+    // retried with the backoff, then the visualizer says it has no sound
     try {
       // --latency-msec keeps parec's buffer tiny so audio arrives continuously
       // (its default buffers ~1s, which makes the spectrum update once a second)
-      this.proc = spawn('parec', ['-d', monitor, '--format=s16le', '--rate=' + RATE,
+      proc = this.spawn('parec', ['-d', monitor, '--format=s16le', '--rate=' + RATE,
         '--channels=1', '--raw', '--latency-msec=20', '--process-time-msec=10'])
     } catch (e) {
       console.error('visualizer: parec not available:', e.message)
+      this.monitorEnded(true)
       return
     }
-    // error: LOGGED-OK — a missing parec (ENOENT) lands here; the visualizer just shows no spectrum
-    // lifetime: OK — 'error' and 'data' listeners on the child, gone with it (stop() kills it)
-    this.proc.on('error', (e) => console.error('visualizer capture error:', e.message))
-    this.proc.stdout.on('data', (chunk) => this.onData(chunk))
+    this.proc = proc
+    const started = this.now()
+    // the capture ended (once per child, whichever of 'error' / 'exit' comes first): show silence, not the
+    // last frame frozen, and restart (or say it can't)
+    const ended = (canRetry) => {
+      if (this.proc !== proc) return       // stopped by us, or already handled
+      this.proc = null
+      this.buf = Buffer.alloc(0)
+      this.silence()
+      this.monitorEnded(canRetry)
+    }
+    // error: SHOWN — a missing parec (ENOENT) ends the capture for good ('missing'); other errors are retried
+    // lifetime: OK — 'error', 'exit' and 'data' listeners on the child, gone with it (stop() kills it)
+    proc.on('error', (e) => { console.error('visualizer capture error:', e.message); ended(e.code !== 'ENOENT') })
+    proc.on('exit', (code, signal) => { console.error('visualizer: the system capture (parec) ended:', signal || code); ended(true) })
+    proc.stdout.on('data', (chunk) => {
+      if (this.proc !== proc) return
+      if (this.restarts && this.now() - started >= HEALTHY_MS) this.restarts = 0
+      this.setState('')
+      this.onData(chunk)
+    })
+  }
+
+  // the fallback capture ended on its own: restart it after the next wait, or give up and say so
+  monitorEnded(canRetry) {
+    if (!this.fallback) return
+    if (!canRetry) { this.setState('missing'); return }
+    if (this.restarts >= RESTART_MS.length) { console.error('visualizer: the system capture keeps ending; no sound'); this.setState('lost'); return }
+    const wait = RESTART_MS[this.restarts++]
+    this.setState('restarting')
+    // lifetime: OK — one restart timer at a time, cleared by stop(); the backoff ends after RESTART_MS.length tries
+    this.restartTimer = this.setTimeout(() => {
+      this.restartTimer = null
+      if (this.fallback && !this.proc) this.spawnMonitor()
+    }, wait)
+  }
+
+  setState(state) {
+    if (state === this.audioState) return
+    this.audioState = state
+    this.onState(state)
   }
 
   onData(chunk) {
@@ -149,14 +213,18 @@ class Visualizer {
     this.onBands(new Array(BANDS).fill(0))
   }
 
-  // lifetime: OK — stop() kills the fallback parec (if any) and resets buffers; main.js calls it on
-  // visualizer 'closed'
+  // lifetime: OK — stop() kills the fallback parec (if any), cancels a pending restart and resets buffers;
+  // main.js calls it on visualizer 'closed'
   stop() {
-    if (this.proc) { this.proc.kill(); this.proc = null }
+    this.fallback = false
+    if (this.restartTimer) { this.clearTimeout(this.restartTimer); this.restartTimer = null }
+    const proc = this.proc
+    this.proc = null
+    if (proc) proc.kill()
     this.buf = Buffer.alloc(0)
     this.filled = this.pending = 0
     this.smooth.fill(0)
   }
 }
 
-module.exports = { Visualizer, BANDS, RATE }
+module.exports = { Visualizer, BANDS, RATE, RESTART_MS, HEALTHY_MS }

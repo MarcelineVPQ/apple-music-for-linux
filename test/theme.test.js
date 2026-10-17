@@ -164,9 +164,13 @@ test('one theme system: no literal colours in Sonata\'s own CSS outside theme.cs
   for (const [f, css] of Object.entries(files)) {
     css.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').forEach((line, i) => assert.doesNotMatch(line, LITERAL, f + ':' + (i + 1) + ': ' + line.trim()))
   }
-  // the UI scripts set no colours of their own either (the visualizer's canvas drawing is art, not chrome)
-  for (const f of ['rail-ui.js', 'panel-ui.js', 'toast-ui.js', 'theme-apply.js']) {
-    read(f).replace(/\/\/.*$/gm, '').split('\n').forEach((line, i) => assert.doesNotMatch(line, LITERAL, f + ':' + (i + 1)))
+  // the UI scripts set no colours of their own either; the visualizer's canvas paints only with
+  // theme.css's --s-stage-* tokens (viz-paint.js formats them, as theme.js does the rest)
+  const scripts = (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join('\n')
+  const code = { 'visualizer.html <script>': scripts(read('visualizer.html')) }
+  for (const f of ['rail-ui.js', 'panel-ui.js', 'toast-ui.js', 'theme-apply.js']) code[f] = read(f)
+  for (const [f, src] of Object.entries(code)) {
+    src.replace(/\/\/.*$/gm, '').split('\n').forEach((line, i) => assert.doesNotMatch(line, LITERAL, f + ':' + (i + 1)))
   }
   // every Sonata page loads the tokens first
   for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'panel.html', 'rail.html', 'toast.html']) assert.match(read(f), /href="theme\.css"/, f)
