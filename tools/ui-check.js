@@ -13,7 +13,11 @@
 //           the ⋮ menu), loops (50 panel show/hide, 50 pin cycles, 50 navigations: counts flat),
 //           perf (idle repaints and CPU), mini (the mini player, run with --mini), lyrics (the lyrics
 //           window's words over a dark and a light album, both schemes; the sung line's every word >= 4.5:1 in
-//           light/dark x album colour on/off x Glass on/off)
+//           light/dark x album colour on/off x Glass on/off), every (every Sonata window and view, light and
+//           dark, a song playing through tools/stand-in.js: the rail, Settings and About with every section open,
+//           notices, a toast, the lyrics window, the mini player, all four visualizer scenes; on top of the
+//           contrast/names/hit-target/label checks: dead controls, theme tokens, overflow and clipping, from
+//           tools/ui-audits.js)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -596,9 +600,126 @@ async function lyrics() {
   mp.c.close(); page.c.close()
 }
 
+// --- every: each Sonata window and view, light and dark, with a song playing (tools/stand-in.js) ---
+// The rules that hold for every page (tools/ui-audits.js), on top of judge()'s contrast, names, hit
+// targets and labels: no dead controls, every colour a theme token, no overflow or clipped text.
+// Kept apart from the phases above (their own checks stay where they are).
+const AUDIT = require('./ui-audits')
+const STAND_IN = require('./stand-in')
+// what the theme rule exempts (CLAUDE.md "One theme system": physical things drawn as they look)
+const TOKEN_EXCEPT = {}
+// colours a page computes with theme.js itself rather than a --s-* token (the stage's sung words: theme.js stageText)
+const TOKEN_EXTRA = { visualizer: ['--active', '--active-2', '--active-mix'] }
+// what may sit outside the window or be cut on purpose: lyric lines scrolled away
+const OVERFLOW_ALLOW = { lyrics: ['.line', '.dots'], visualizer: ['#lyrics .line'] }
+
+async function audit(tag, page, root, kind, { minHit = 32, shot } = {}) {
+  if (shot) xshot(path.join(OUT, tag + '.png'), shot.width, shot.height)
+  const before = results.length
+  judge(tag, await page.ev(PAGE_AUDIT(root)), { minHit })
+  // judge()'s contrast assumes a surface colour or white/black under the text; two pages have neither:
+  const row = results.slice(before).find((r) => r.name.startsWith(tag + ' text contrast'))
+  if (kind === 'rail' && row) {   // the rail's Glass over Apple's page: tools/rail-check.js judges it with its own model
+    Object.assign(row, { name: tag + ' text contrast: judged by tools/rail-check.js matrix (the rail\'s Glass over Apple\'s page; INFO here)', ok: true })
+  }
+  if (kind === 'visualizer' && row) {   // the night stage: over the real pixels behind each text
+    const rows = await AUDIT.stageContrast(page, root)
+    const low = rows.filter((r) => r.ratio < (r.dim ? 3 : 4.5))
+    Object.assign(row, { name: tag + ' text contrast >= 4.5:1 (dim lines >= 3) over the darkest and lightest pixel actually behind each text', ok: !low.length, detail: low.length ? low.slice(0, 8) : Math.min(...rows.map((r) => r.ratio)) })
+  }
+  const ctl = await AUDIT.deadControls(page, root)
+  const dead = ctl.filter((c) => c.dead && !c.disabled)
+  check(tag + ' no dead controls: every control has a handler (own or delegated) — ' + ctl.length + ' checked', !dead.length, dead.map((c) => c.tag + '#' + c.id + ' "' + c.name + '"'))
+  const off = ctl.filter((c) => c.disabled)
+  if (off.length) results.push({ name: tag + ' disabled controls (INFO: greyed out in this state)', ok: true, detail: off.map((c) => c.tag + '#' + c.id + ' "' + c.name + '"') })
+  // (the visualizer's canvas is the night stage, drawn as it looks: canvases aren't read; its chrome is checked)
+  const tk = await page.ev(AUDIT.TOKENS(root, TOKEN_EXCEPT[kind] || [], TOKEN_EXTRA[kind] || []))
+  check(tag + ' one theme system: every painted colour is a --s-* token (' + tk.tokens + ' token values, ' + tk.checked + ' elements)', !tk.bad.length, tk.bad.slice(0, 10))
+  const ov = await page.ev(AUDIT.OVERFLOW(root, OVERFLOW_ALLOW[kind] || []))
+  check(tag + ' no sideways scroll, nothing outside the window (' + ov.vw + 'x' + ov.vh + ')', !ov.hScroll && !ov.outside.length, { hScroll: ov.hScroll, outside: ov.outside.slice(0, 8) })
+  check(tag + ' no text cut by a box that hides overflow', !ov.clipped.length, ov.clipped.slice(0, 8))
+}
+
+const floatingWin = (part) => `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('${part}'))`
+async function openFloating(mp, command, part, open) {
+  const isOpen = async () => mp.ev(`!!${floatingWin(part)}`)
+  if ((await isOpen()) !== open) await mp.ev(viewCommand('rail', command))
+  await waitFor(async () => (await isOpen()) === open, 6000)
+  await sleep(open ? 1500 : 500)
+}
+
+async function every() {
+  const mp = await mainProc()
+  let apple = await target('music.apple.com')
+  const standIn = async (o) => { try { return await apple.ev(STAND_IN.installScript(o)) } catch (e) { apple = await target('music.apple.com'); return apple.ev(STAND_IN.installScript(o)) } }
+  check('stand-in player installed and playing', (await standIn({ playing: true, seek: 20 })).playing)
+  // notices and a toast to look at: Discord and Last.fm "set up" notices in Integrations (a fresh HOME has
+  // neither configured: no network, no Discord), and "Check now" from source says so in a toast
+  // (track notifications off: the copy's private D-Bus has no notification server, and libnotify then
+  // blocks the main process ~25 s per track change while D-Bus tries to start one)
+  await setPanel(mp, true, 'settings')
+  await mp.ev(`(() => { const v = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes('panel.html')); const send = (...a) => ${E}.ipcMain.emit('panel:command', { sender: v.webContents, senderFrame: { parent: null } }, ...a); send('set', 'notifications', false); for (const a of ['discord', 'lastfm']) send('action', a); return true })()`)
+  await sleep(1200)
+  const L0 = await mp.ev(LAYOUT)
+  const W = L0.content.width; const H = L0.content.height
+  for (const dark of [false, true]) {
+    const t = (dark ? 'dark' : 'light') + (LABEL ? '-' + LABEL : '')
+    await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+    // the main window: the rail closed and open, the panel's two pages with every section open (the
+    // notices sit in Integrations), and a toast
+    await setPanel(mp, false); await sleep(400)
+    const rail = await target('rail.html')
+    await audit('every-' + t + '-rail', rail, '.panel', 'rail', { shot: { width: W, height: H } })
+    await mp.ev(viewCommand('rail', 'expand')); await sleep(600)
+    await audit('every-' + t + '-rail-open', rail, '.panel', 'rail', { shot: { width: W, height: H } })
+    await mp.ev(viewCommand('rail', 'collapse')); await sleep(400)
+    for (const page of ['settings', 'about']) {
+      await setPanel(mp, true, page); await openAll(mp, page)
+      const panel = await target('panel.html'); await sleep(400)
+      check('every-' + t + '-' + page + ' notices shown (Discord, Last.fm set-up)', page !== 'settings' || (await panel.ev('document.querySelectorAll(".notice").length')) >= 2)
+      await audit('every-' + t + '-' + page, panel, '.panel', 'panel', { shot: { width: W, height: H } })
+      panel.c.close()
+    }
+    await mp.ev(`(() => { const v = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes('panel.html')); ${E}.ipcMain.emit('panel:command', { sender: v.webContents, senderFrame: { parent: null } }, 'action', 'check-now'); return true })()`)
+    const toastUp = await waitFor(async () => (await mp.ev(LAYOUT)).toast, 4000)
+    check('every-' + t + ' a toast shows ("Check now" from source)', !!toastUp)
+    if (toastUp) { const toast = await target('toast.html'); await sleep(500); await audit('every-' + t + '-toast', toast, 'body', 'toast', { minHit: 24, shot: { width: W, height: H } }); toast.c.close() }
+    await setPanel(mp, false)
+    rail.c.close()
+    // the lyrics window, playing the stand-in song (real lyrics engine)
+    await openFloating(mp, 'lyrics', 'Lyrics', true)
+    const lb = await mp.ev(`(() => { const w = ${floatingWin('Lyrics')}; w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return w.getBounds() })()`); await sleep(800)
+    const ly = await target('lyrics.html')
+    check('every-' + t + '-lyrics the stand-in song\'s lyrics are shown', (await ly.ev('document.querySelectorAll(".line").length')) > 5)
+    await audit('every-' + t + '-lyrics', ly, '#card', 'lyrics', { minHit: 24, shot: lb })
+    ly.c.close()
+    await openFloating(mp, 'lyrics', 'Lyrics', false)
+    // the mini player (the main window comes back when it closes)
+    await openFloating(mp, 'mini', 'Mini', true)
+    const mb = await mp.ev(`(() => { const w = ${floatingWin('Mini')}; w.setPosition(0, 0); return w.getBounds() })()`); await sleep(1200)
+    const mini = await target('miniplayer.html')
+    await audit('every-' + t + '-mini', mini, '#pill', 'mini', { minHit: 24, shot: mb })
+    mini.c.close()
+    await openFloating(mp, 'mini', 'Mini', false)
+    // the visualizer, every scene (fullscreen on the test display)
+    await openFloating(mp, 'visualizer', 'Visualizer', true)
+    const viz = await target('visualizer.html')
+    for (const scene of ['bars', 'aurora', 'nebula', 'toast']) {
+      await viz.ev(`(() => { for (let i = 0; i < 4 && window.__mode() !== '${scene}'; i++) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' })); return window.__mode() })()`)
+      await sleep(1600)   // the scene name fades after 1.4 s
+      await audit('every-' + t + '-visualizer-' + scene, viz, 'body', 'visualizer', { shot: { width: 1920, height: 1080 } })
+    }
+    viz.c.close()
+    await openFloating(mp, 'visualizer', 'Visualizer', false)
+  }
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
+  await standIn({ playing: false })
+  apple.c.close(); mp.c.close()
+}
+
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, every }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)
