@@ -1,0 +1,32 @@
+name: CI
+
+# Every push and pull request: the unit tests, the verdict gate and the version check (42PS Standard:
+# "pushed is not done": check this run after every push, gh run list --branch <branch>).
+# Runs on ubuntu-latest: it needs only Node (setup-node), git and the network for npm ci, and the
+# tests are pure Node (no Electron, display, D-Bus or audio), so the move of ubuntu-latest to
+# Ubuntu 26.04 (2026-10-19) doesn't touch it.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run gates
