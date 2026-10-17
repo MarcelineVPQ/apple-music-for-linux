@@ -81,7 +81,7 @@ test('reduced motion: the countdown dots only fill (opacity), never scale; the f
 })
 
 test('names: every button in the floating windows is named; every page says its language', () => {
-  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'rail.html', 'panel.html']) {
+  for (const f of ['lyrics.html', 'miniplayer.html', 'visualizer.html', 'rail.html', 'panel.html', 'liner-notes.html']) {
     const html = read(f)
     assert.match(html, /<html lang="en">/, f + ' has lang')
     // loop: the page's buttons · test only
@@ -92,7 +92,7 @@ test('names: every button in the floating windows is named; every page says its 
 })
 
 test('focus: the lyrics window\'s and the mini player\'s controls show the theme\'s ring on keyboard focus', () => {
-  const want = { 'lyrics.html': ['#close', '#art', '#lines', '.line'], 'miniplayer.html': ['button', '#art', '#seek', '#volume'] }
+  const want = { 'lyrics.html': ['#close', '#art', '#lines', '.line'], 'miniplayer.html': ['button', '#art', '#seek', '#volume'], 'liner-notes.html': ['#close', '.navbtn', '#sections button', '#status button', 'a'] }
   for (const [f, sels] of Object.entries(want)) {
     const r = rules(styles(read(f)))
     for (const s of sels) {
@@ -111,4 +111,14 @@ test('no colour-only signals: the mini player\'s on toggles get a dot as well as
   assert.ok(lv.some((x) => x.selectors.includes('.line.left') && x.decls['text-align'] === 'left'))
   assert.ok(lv.some((x) => x.selectors.includes('.line.right') && x.decls['text-align'] === 'right'))
   assert.ok(lv.some((x) => x.selectors.includes('.line.center') && x.decls['text-align'] === 'center'))
+})
+
+test('liner notes: reduced motion stops the disc and the pulse; the sung line is marked by a dot as well as the colour', () => {
+  const r = rules(styles(read('liner-notes.html')))
+  assert.ok(r.some((x) => REDUCE.test(x.media) && x.selectors.includes('.disc.spin') && x.decls.animation === 'none'))
+  assert.ok(r.some((x) => REDUCE.test(x.media) && x.selectors.includes('.page.pulse::before') && x.decls.animation === 'none'))
+  assert.ok(r.some((x) => !x.media && x.selectors.includes('.stz span.now::before') && x.decls.opacity === '1'))
+  const html = read('liner-notes.html')
+  assert.match(html, /<div id="say" class="sr-only" role="status" aria-live="polite">/, 'page turns are said to screen readers')
+  assert.match(html, /if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); send\('close'\)/, 'Esc closes')
 })

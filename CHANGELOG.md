@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Liner notes.** The album as a CD booklet you page through: the cover and the disc, Apple Music's notes on the album, where and when it was recorded (with the set for live albums), the album's Wikipedia article, who played and who wrote each song, the lyrics of the songs you have played (the line being sung is marked), the real booklet and back-cover scans where the Cover Art Archive has them, and a Sources page. Every block says where it comes from: Apple Music, MusicBrainz, the Cover Art Archive, Wikidata, Wikipedia (CC BY-SA, linked) and, for live albums, setlist.fm with your own free key (Settings → Integrations). Open it with Liner Notes… in the lyrics window cover's menu or the mini player's menus. Turn pages with the arrows, the section buttons or ← →; Esc or ✕ closes it. A booklet you opened before also opens offline, and a source that didn't load says so on its page.
+
 ## [0.15.40-dev.1] — The lyrics window drags again
 
 ### Fixed

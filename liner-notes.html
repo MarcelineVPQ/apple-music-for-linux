@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="theme.css">
+<style>
+  /* The liner notes: the album's CD booklet (main.js openLinerNotes; the pages come from
+     liner-notes-model.js buildBooklet). Square pages, an open spread at a time, the page turning on
+     the spine. Colours: theme tokens only (paper = the theme's surface, the card = the Glass
+     material); the only literal values are sizes. Motion: the turn is transform + opacity (one
+     leaf, two faces, rotateY about the spine), a cross-fade under Reduce motion; nothing moves at
+     rest (the disc spins only with "Spin album art like a record" on, while this album plays). */
+  :root {
+    --font: -apple-system, 'SF Pro Display', 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+    --font-text: 'SF Pro Text', -apple-system, 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+    --serif: 'Noto Serif Display', 'Noto Serif', 'Iowan Old Style', Georgia, serif;
+    --pg: 480px;
+    --fs: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; }
+  body { font-family: var(--font); padding: 4px; -webkit-font-smoothing: antialiased; overflow: hidden; }
+  button { font: inherit; color: inherit; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  #card {
+    position: relative; height: 100%; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--s-over-page); border: 1px solid var(--s-edge); border-radius: 16px; color: var(--s-text);
+  }
+  #card > :not(.s-bd):not(.s-tint) { position: relative; z-index: 1; }
+
+  /* header: the album, the page count and the close button; the whole bar drags the window */
+  #head { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 10px 10px 6px 14px; -webkit-app-region: drag; }
+  #mini { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; flex-shrink: 0; box-shadow: 0 2px 8px var(--s-shadow); background: var(--s-field); }
+  #mini:not([src]) { visibility: hidden; }
+  #song { flex: 1; min-width: 0; }
+  #song .t, #song .a { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #song .t { font-size: 16px; font-weight: 800; line-height: 1.25; }
+  #song .a { font-size: 12.5px; font-weight: 600; color: var(--s-soft); line-height: 1.35; }
+  #pages { font: 600 12px var(--font-text); color: var(--s-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #close {
+    -webkit-app-region: no-drag; flex-shrink: 0; border: 0; background: none; border-radius: 8px; color: var(--s-soft);
+    width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer;
+  }
+  #close:hover { background: var(--s-hover); color: var(--s-text); }
+  #close svg { width: 12px; height: 12px; fill: currentColor; }
+
+  /* what is still being looked up, or what didn't load */
+  #status { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 0; padding: 0 14px; font: 600 12px/1.35 var(--font-text); color: var(--s-soft); }
+  #status:empty { display: none; }
+  #status:not(:empty) { padding-bottom: 4px; }
+
+  /* the booklet: an open spread of two square pages */
+  #stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; }
+  /* perspective on the leaf's parent, so the turning page has depth; the pages' shadow is static */
+  #spread { position: relative; display: grid; grid-template-columns: var(--pg) var(--pg); perspective: 2600px; }
+  #empty { font: 600 13px var(--font-text); color: var(--s-soft); }
+  .page {
+    position: relative; width: var(--pg); height: var(--pg); overflow: hidden;
+    background: var(--s-surface); color: var(--s-text); font-size: var(--fs);
+    box-shadow: 0 16px 30px var(--s-shadow);
+  }
+  .page.l { border-radius: 6px 0 0 6px; }
+  .page.r { border-radius: 0 6px 6px 0; }
+  /* the fold: a soft shade into the spine on both pages */
+  .page::after { content: ''; position: absolute; top: 0; bottom: 0; width: 8%; pointer-events: none; z-index: 5; opacity: .5; }
+  .page.l::after { right: 0; background: linear-gradient(90deg, transparent, var(--s-shadow)); }
+  .page.r::after { left: 0; background: linear-gradient(270deg, transparent, var(--s-shadow)); }
+  .page.blank { background: var(--s-material); }
+  /* a section button pressed while its page is already open: the page answers with a short pulse */
+  .page::before { content: ''; position: absolute; inset: 0; z-index: 6; pointer-events: none; box-shadow: inset 0 0 0 3px var(--s-ring); opacity: 0; }
+  .page.pulse::before { animation: pulse .9s ease; }
+  @keyframes pulse { 0%, 100% { opacity: 0; } 25% { opacity: 1; } }
+
+  .pg { position: absolute; inset: 0; padding: 2.7em 3em 2.9em; display: flex; flex-direction: column; }
+  .pg .body { flex: 1; min-height: 0; overflow: hidden; }
+  .kicker { font: 800 max(10.5px, .72em)/1.2 var(--font-text); letter-spacing: .16em; text-transform: uppercase; color: var(--s-accent-text); margin: 0 0 .6em; }
+  .pg h2 { margin: 0 0 .7em; font: 600 1.95em/1.12 var(--serif); letter-spacing: -.01em; overflow-wrap: anywhere; }
+  .pg h2.dekline { font-size: 1.55em; font-style: italic; }
+  .pg h3 { margin: .9em 0 .35em; font: 700 .95em/1.3 var(--font); }
+  .pg p { margin: 0 0 .75em; font: 1em/1.58 var(--serif); }
+  .pg p.dek { font-size: 1.1em; line-height: 1.5; font-style: italic; color: var(--s-soft); }
+  .pg .note { margin: .4em 0 .8em; padding: .6em .8em; border-radius: 8px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); font: .9em/1.45 var(--font-text); color: var(--s-text); }
+  .foot { flex-shrink: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: .7em; }
+  .folio { position: absolute; bottom: 1.1em; font: 600 max(10.5px, .7em) var(--font-text); color: var(--s-soft); letter-spacing: .1em; }
+  .page.l .folio { left: 3.1em; } .page.r .folio { right: 3.1em; }
+
+  /* source chips: who it's from, what, the licence; a link where the source has a page */
+  .src {
+    display: inline-flex; align-items: center; gap: 5px; min-height: 24px;
+    font: 600 max(11px, .75em)/1.1 var(--font-text); letter-spacing: .02em;
+    color: var(--s-soft); padding: 4px 8px; border-radius: 999px;
+    background: var(--s-field); border: 1px solid var(--s-edge); text-decoration: none;
+  }
+  .src b { color: var(--s-text); font-weight: 700; }
+  a.src { cursor: pointer; }
+  a.src:hover { color: var(--s-text); background: var(--s-hover); }
+
+  /* front cover and the disc in its tray */
+  .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tray { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2em; background: var(--s-material); }
+  .disc { position: relative; width: 74%; aspect-ratio: 1; border-radius: 50%; overflow: hidden; box-shadow: 0 10px 30px var(--s-shadow), 0 0 0 1px var(--s-edge); background: var(--s-field); }
+  .disc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .disc.label::before { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: 50%; background: conic-gradient(from 30deg, var(--s-specular), transparent 12%, var(--s-specular) 25%, transparent 40%, var(--s-specular) 55%, transparent 70%, var(--s-specular) 85%, transparent); }
+  .disc.label::after { content: ''; position: absolute; inset: 42%; z-index: 2; border-radius: 50%; background: var(--s-surface); box-shadow: inset 0 0 0 5px var(--s-field), 0 0 0 1px var(--s-edge); }
+  .disc.spin { animation: spin 14s linear infinite; }
+  .disc.spin.still { animation-play-state: paused; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tray .cap, .scan .cap { font: 600 max(10.5px, .72em) var(--font-text); color: var(--s-soft); letter-spacing: .08em; text-transform: uppercase; text-align: center; }
+  .tray .foot, .scan .foot { justify-content: center; padding: 0; }
+
+  /* scans (booklet pages, the back cover): the whole scan on the paper, its source underneath */
+  .scan { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: .7em; padding: 1.4em 1.4em 1.2em; }
+  .scan .frame { flex: 1; min-height: 0; width: 100%; display: grid; place-items: center; }
+  .scan .frame img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 16px var(--s-shadow); background: var(--s-field); }
+
+  /* the recording: facts, then the set */
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: .4em 1.1em; margin: 0 0 .8em; font: .93em/1.4 var(--font-text); }
+  .facts dt { color: var(--s-soft); font-weight: 700; font-size: .78em; letter-spacing: .1em; text-transform: uppercase; padding-top: .2em; }
+  .facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .setlist { margin: 0; padding: 0; list-style: none; font: .88em/1.55 var(--font-text); color: var(--s-soft); }
+  .setlist li { display: flex; gap: .6em; white-space: nowrap; }
+  .setlist li > b { min-width: 1.6em; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .setlist li > span { overflow: hidden; text-overflow: ellipsis; }
+  .setlist li > i { font-style: normal; font-weight: 600; }
+  .setlist li.cur { color: var(--s-accent-text); font-weight: 800; }
+
+  /* credits */
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: .55em 1.4em; margin-bottom: .6em; }
+  .people div { font: .93em/1.35 var(--font-text); min-width: 0; }
+  .people b { display: block; font-weight: 700; }
+  .people span { color: var(--s-soft); font-size: .92em; }
+  .prod { margin: .5em 0 .4em; font: .9em/1.6 var(--font-text); color: var(--s-soft); }
+  .prod b { color: var(--s-text); font-weight: 700; }
+  .tracks { font: .86em/1.35 var(--font-text); }
+  .tr { display: grid; grid-template-columns: 1.7em 1fr auto; gap: 0 .6em; padding: .32em 0; border-bottom: 1px solid var(--s-edge); }
+  .tr > b { color: var(--s-soft); font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .tr > i { font-style: normal; color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  .tr span { font-weight: 700; }
+  .tr small { display: block; color: var(--s-soft); font-size: .92em; font-weight: 500; }
+  .tr.cur { background: var(--s-active); border-radius: 6px; border-bottom-color: transparent; }
+  .tr.cur > b { color: var(--s-text); }
+
+  /* lyrics as booklet pages; the line being sung is marked (colour and a dot: not colour alone) */
+  .by { font: 600 .82em var(--font-text); color: var(--s-soft); margin: -.3em 0 1em; }
+  .stz { margin: 0 0 .9em; font: 1.05em/1.5 var(--serif); }
+  .stz { padding-left: 1.05em; }
+  .stz span { display: block; position: relative; }
+  .stz span.now { color: var(--s-accent-text); font-weight: 600; }
+  .stz span::before { content: ''; position: absolute; left: -.95em; top: .62em; width: .4em; height: .4em; border-radius: 50%; background: var(--s-accent-text); opacity: 0; }
+  .stz span.now::before { opacity: 1; }
+
+  /* the generated back cover (no scan): the track list and the fine print, on paper */
+  .backcov { position: absolute; inset: 0; padding: 2.4em 2.6em 2.2em; display: flex; flex-direction: column; gap: 1em; }
+  .backcov .list { flex: 1; min-height: 0; overflow: hidden; columns: 2; column-gap: 1.6em; font: var(--bfs, .86em)/1.6 var(--font-text); }
+  .backcov .list div { break-inside: avoid; display: flex; gap: .6em; }
+  .backcov .list b { min-width: 1.4em; text-align: right; color: var(--s-soft); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .backcov .list .cur { color: var(--s-accent-text); font-weight: 800; }
+  .backcov .fine { font: 600 max(10.5px, .7em)/1.45 var(--font-text); color: var(--s-soft); letter-spacing: .04em; }
+
+  /* sources */
+  .srcs { display: grid; gap: .55em; margin: 0; font: .86em/1.4 var(--font-text); }
+  .srcs div { display: grid; grid-template-columns: 8.4em 1fr; gap: .8em; align-items: baseline; }
+  .srcs dt { font-weight: 700; }
+  .srcs dd { margin: 0; color: var(--s-soft); }
+  .srcs .failed dd { color: var(--s-text); }
+  .srcs a { color: var(--s-accent-text); }
+  .srcs .mark { display: inline-block; margin-right: .35em; font-weight: 800; }
+
+  /* the page turn: one leaf, two faces, rotateY about the spine; a shade layer darkens the lifting
+     face (opacity). Reduce motion: the new spread fades in instead. */
+  .leaf { position: absolute; top: 0; width: var(--pg); height: var(--pg); transform-style: preserve-3d; z-index: 20; pointer-events: none; }
+  .leaf.fwd { left: var(--pg); transform-origin: left center; }
+  .leaf.bwd { left: 0; transform-origin: right center; }
+  .leaf .face { position: absolute; inset: 0; backface-visibility: hidden; overflow: hidden; }
+  .leaf .face.b { transform: rotateY(180deg); }
+  .leaf .shade { position: absolute; inset: 0; z-index: 9; background: var(--s-shadow); opacity: 0; }
+  .fade { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-columns: var(--pg) var(--pg); pointer-events: none; }
+
+  /* navigation: previous / the sections / next */
+  #nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px 12px; }
+  #sections { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  #sections button {
+    min-height: 32px; border: 1px solid var(--s-edge); background: var(--s-field); border-radius: 8px; cursor: pointer;
+    padding: 0 12px; font: 700 12px var(--font-text); color: var(--s-soft);
+  }
+  #sections button:hover { color: var(--s-text); background: var(--s-hover); }
+  #sections button[aria-current="true"] { background: var(--s-active); color: var(--s-text); border-color: var(--s-ring); }
+  .navbtn { flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--s-edge); background: var(--s-field); color: var(--s-text); display: grid; place-items: center; cursor: pointer; }
+  .navbtn:hover:not(:disabled) { background: var(--s-hover); }
+  .navbtn:disabled { opacity: .45; cursor: default; }
+  .navbtn svg { width: 16px; height: 16px; fill: currentColor; }
+  #status button { min-height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-field); color: var(--s-text); font: 700 12px var(--font-text); cursor: pointer; }
+  #status button:hover { background: var(--s-hover); }
+
+  /* the keyboard's ring, in the theme's colour, everywhere */
+  button:focus { outline: none; }
+  a:focus { outline: none; }
+  #close:focus-visible, .navbtn:focus-visible, #sections button:focus-visible, #status button:focus-visible, a:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+
+  #measure { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .disc.spin { animation: none; }
+    .page.pulse::before { animation: none; opacity: 1; }
+  }
+</style>
+</head>
+<body>
+  <div id="card">
+    <div id="head">
+      <img id="mini" alt="">
+      <div id="song"><span class="t" id="title">Liner notes</span><span class="a" id="sub"></span></div>
+      <span id="pages"></span>
+      <button id="close" title="Close (Esc)" aria-label="Close the liner notes">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.28 2.22a.75.75 0 0 0-1.06 1.06L6.94 8l-4.72 4.72a.75.75 0 1 0 1.06 1.06L8 9.06l4.72 4.72a.75.75 0 1 0 1.06-1.06L9.06 8l4.72-4.72a.75.75 0 0 0-1.06-1.06L8 6.94 3.28 2.22z"/></svg>
+      </button>
+    </div>
+    <div id="status" role="status"></div>
+    <div id="stage"><div id="spread" role="group" aria-label="Booklet"><div id="empty">Opening the booklet…</div></div></div>
+    <div id="nav" role="navigation" aria-label="Pages">
+      <button class="navbtn" id="prev" title="Previous pages (←)" aria-label="Previous pages">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.3 2.3a.75.75 0 0 1 0 1.06L5.66 8l4.64 4.64a.75.75 0 1 1-1.06 1.06L4.07 8.53a.75.75 0 0 1 0-1.06L9.24 2.3a.75.75 0 0 1 1.06 0z"/></svg>
+      </button>
+      <div id="sections" role="group" aria-label="Sections"></div>
+      <button class="navbtn" id="next" title="Next pages (→)" aria-label="Next pages">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 2.3a.75.75 0 0 0 0 1.06L10.34 8 5.7 12.64a.75.75 0 1 0 1.06 1.06l5.17-5.17a.75.75 0 0 0 0-1.06L6.76 2.3a.75.75 0 0 0-1.06 0z"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="measure" aria-hidden="true"></div>
+  <div id="say" class="sr-only" role="status" aria-live="polite"></div>
+<script>
+  const { ipcRenderer } = require('electron')
+  // loop: none at rest — this page lays the booklet out once per data push or window resize (pagination:
+  // one measuring pass over the blocks), turns pages on a click or key (one Web Animation each), and marks
+  // the sung lyric line on main's 'liner-time' pushes, which main sends only while a lyrics page of the
+  // playing song is open here (the page says so: 'follow').
+  // lifetime: OK — the ipcRenderer.on listeners, the keydown / click / resize listeners and the
+  // ResizeObserver below are added once at load and die with the window (closed by ✕, Esc or its frame)
+  const send = (cmd, arg) => ipcRenderer.send('liner-command', cmd, arg)
+  const $ = (id) => document.getElementById(id)
+  const card = $('card'); const spreadEl = $('spread'); const measure = $('measure'); const stage = $('stage')
+  const theme = require('./theme-apply').attach({ surfaces: [card] })
+  ipcRenderer.on('theme', (event, t) => theme.set(t))
+
+  let book = null          // buildBooklet's { head, sections, status }
+  let pending = false      // sources still being asked
+  let opts = { spin: false }
+  let playing = { song: '', playing: false, album: false }
+  let pages = []           // [{ el, section, kind, songs: [ids] }] laid out for the current page size
+  let spreads = []         // [[leftIndex, rightIndex]]
+  let cur = 0              // the spread shown
+  let L = null; let R = null
+  let busy = false
+  let pg = 0
+  let following = false
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)')
+
+  // --- small DOM helpers (every text from outside goes in as text, never as HTML) ---
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e }
+  function link(text, href, cls) {
+    const a = el('a', cls || '', text)
+    a.href = href
+    a.title = href
+    return a
+  }
+  function chipEl(c) {
+    const e = c.href ? link('', c.href, 'src') : el('span', 'src')
+    e.append(el('b', '', c.who))
+    if (c.what) e.append(document.createTextNode(' · ' + c.what))
+    if (c.href) e.setAttribute('aria-label', c.who + (c.what ? ', ' + c.what : '') + ' (opens in your browser)')
+    return e
+  }
+  // links open in the browser, through main (https only); the page itself never navigates
+  // lifetime: OK — one delegated click listener for the whole page
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href]')
+    if (!a) return
+    e.preventDefault()
+    if (e.isTrusted && /^https:\/\//.test(a.href)) send('open-link', a.href)
+  })
+
+  // --- images at the size they show (Apple's artwork template; the Cover Art Archive's thumbnails) ---
+  const px = () => Math.ceil(pg * (window.devicePixelRatio || 1))
+  function appleArt(art, want) {
+    if (!art || !art.url) return ''
+    let w = Math.ceil(want / 50) * 50
+    if (art.width) w = Math.min(w, art.width)
+    const h = art.width && art.height ? Math.round(w * art.height / art.width) : w
+    return art.url.replace('{w}', String(w)).replace('{h}', String(h)).replace('{c}', 'bb').replace('{f}', 'jpg')
+  }
+  function caaArt(thumbs, want) {
+    if (!thumbs) return ''
+    const sizes = [250, 500, 1200].filter((s) => thumbs[s])
+    const s = sizes.find((x) => x >= want) || sizes[sizes.length - 1]
+    return s ? thumbs[s] : ''
+  }
+  // an image waits for its page to come near (data-src) and is decoded off the main thread
+  function lazyImg(src, alt, cls) {
+    const i = el('img', cls || '')
+    i.alt = alt || ''
+    i.decoding = 'async'
+    i.dataset.src = src
+    return i
+  }
+  function wake(pageEl) {
+    if (!pageEl) return
+    // loop: NOT-WORTH — the 0-2 images of one page, when it comes near
+    for (const i of pageEl.querySelectorAll('img[data-src]')) { i.src = i.dataset.src; delete i.dataset.src }
+  }
+
+  // --- the blocks of a flow page ---
+  const GROUPS = { setlist: () => el('ol', 'setlist'), people: () => el('div', 'people'), guests: () => el('div', 'people'), tracks: () => el('div', 'tracks') }
+  function blockEl(b) {
+    switch (b.t) {
+      case 'p': return el('p', '', b.text)
+      case 'dek': return el('p', 'dek', b.text)
+      case 'h3': return el('h3', '', b.text)
+      case 'by': return el('div', 'by', b.text)
+      case 'note': return el('p', 'note', b.text)
+      case 'facts': {
+        const dl = el('dl', 'facts')
+        // loop: NOT-WORTH — ≤ 12 facts
+        for (const [k, v] of b.rows) dl.append(el('dt', '', k), el('dd', '', v))
+        return dl
+      }
+      case 'li': {
+        const li = el('li')
+        li.append(el('b', '', String(b.n)), el('span', '', b.text))
+        if (b.enc) li.append(el('i', '', '· ' + b.enc))
+        if (b.song) li.dataset.song = b.song
+        return li
+      }
+      case 'person': { const d = el('div'); d.append(el('b', '', b.name), el('span', '', b.roles)); return d }
+      case 'prod': {
+        const d = el('div', 'prod')
+        b.items.forEach(([role, names], i) => {   // loop: NOT-WORTH — ≤ 12 credits
+          if (i) d.append(document.createTextNode(' · '))
+          d.append(el('b', '', role.charAt(0).toUpperCase() + role.slice(1)), document.createTextNode(' ' + names))
+        })
+        return d
+      }
+      case 'track': {
+        const d = el('div', 'tr')
+        d.dataset.song = b.song || ''
+        const mid = el('div')
+        mid.append(el('span', '', b.title))
+        if (b.sub) mid.append(el('small', '', b.sub))
+        if (b.with) mid.append(el('small', '', b.with))
+        d.append(el('b', '', (b.disc ? b.disc + '.' : '') + b.n), mid, el('i', '', b.len || ''))
+        return d
+      }
+      case 'stanza': {
+        const d = el('div', 'stz')
+        d.dataset.song = b.song
+        // loop: NOT-WORTH — one stanza's lines
+        for (const l of b.lines) { const s = el('span', '', l.text); s.dataset.i = String(l.i); d.append(s) }
+        return d
+      }
+      case 'src': {
+        const d = el('div', b.state)
+        const name = el('dt')
+        name.append(el('span', 'mark', b.state === 'ok' ? '✓' : b.state === 'failed' ? '!' : '–'), document.createTextNode(b.name))
+        name.firstChild.setAttribute('aria-hidden', 'true')
+        const t = el('dd', '', b.text)
+        if (b.href) { t.append(document.createTextNode(' ')); t.append(link(b.state === 'ok' && b.name === 'Wikipedia' ? 'Article and history' : 'Open', b.href)) }
+        if (b.name === 'Wikipedia' && b.history) { t.append(document.createTextNode(' · ')); t.append(link('Authors', b.history)) }
+        d.append(name, t)
+        return d
+      }
+    }
+    return el('div')
+  }
+
+  // --- pagination: a flow is poured into as many square pages as it needs ---
+  function flowPage(p, first, folio) {
+    const page = el('div', 'page')
+    if (p.lang) page.lang = p.lang
+    const pgEl = el('div', 'pg')
+    const kick = el('div', 'kicker', p.kicker + (first ? '' : ' (continued)'))
+    pgEl.append(kick)
+    if (first && p.title) pgEl.append(el('h2', p.titleIsDek ? 'dekline' : '', p.title))
+    const body = el('div', 'body')
+    pgEl.append(body)
+    const foot = el('div', 'foot')
+    // loop: NOT-WORTH — ≤ 4 chips per page
+    for (const c of p.chips || []) foot.append(chipEl(c))
+    pgEl.append(foot)
+    page.append(pgEl)
+    if (folio) page.append(el('div', 'folio', String(folio)))
+    return { page, body }
+  }
+  const overflows = (body) => body.scrollHeight > body.clientHeight + 1
+  // the part of a paragraph (or stanza) that fits: whole sentences (or lines), else words
+  function splitFit(b, host, body) {
+    if (b.t === 'stanza') {
+      let n = 0
+      // loop: NOT-WORTH — one stanza's lines, while measuring
+      for (let k = 1; k < b.lines.length; k++) {
+        const e = blockEl(Object.assign({}, b, { lines: b.lines.slice(0, k) })); host.append(e)
+        const over = overflows(body); e.remove()
+        if (over) break
+        n = k
+      }
+      return n ? [Object.assign({}, b, { lines: b.lines.slice(0, n) }), Object.assign({}, b, { lines: b.lines.slice(n) })] : null
+    }
+    if (b.t !== 'p' && b.t !== 'dek') return null
+    // words (a binary search over how many fit), then back to a sentence's end when one is near
+    const units = b.text.split(/(?<=\s)/)
+    let lo = 0; let hi = units.length - 1
+    // loop: NOT-WORTH — a binary search over the words (≤ log2 of a paragraph's words)
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2)
+      const e = blockEl(Object.assign({}, b, { text: units.slice(0, mid).join('').trim() })); host.append(e)
+      const over = overflows(body); e.remove()
+      if (over) hi = mid - 1; else lo = mid
+    }
+    if (lo < 4) return null
+    let cut = lo
+    // loop: NOT-WORTH — back over the last few words, looking for a sentence's end
+    for (let k = lo; k > Math.floor(lo * 0.6); k--) if (/[.!?…]["”’)\]]*\s*$/.test(units[k - 1])) { cut = k; break }
+    return [Object.assign({}, b, { text: units.slice(0, cut).join('').trim() }), Object.assign({}, b, { text: units.slice(cut).join('').trim() })]
+  }
+  function pour(p, folioStart) {
+    const out = []
+    let first = true
+    let cur = flowPage(p, true, folioStart)
+    measure.append(cur.page)
+    let group = null; let groupName = ''
+    const blocks = p.blocks.slice()
+    let guard = 0
+    // loop: NOT-WORTH — the flow's blocks, once per layout (≤ a few hundred; each block placed once,
+    // a block that doesn't fit is split once or moved to the next page)
+    while (blocks.length && guard++ < 2000) {
+      const b = blocks.shift()
+      let host = cur.body
+      if (b.group) {
+        if (!group || groupName !== b.group) { group = GROUPS[b.group](); groupName = b.group; cur.body.append(group) }
+        host = group
+      } else { group = null; groupName = '' }
+      const e = blockEl(b)
+      host.append(e)
+      if (!overflows(cur.body)) continue
+      e.remove()
+      if (group && !group.children.length) { group.remove() }
+      const hasContent = cur.body.children.length > 0
+      const split = splitFit(b, host, cur.body)
+      if (split) { host.append(blockEl(split[0])); blocks.unshift(split[1]) }
+      else if (!hasContent) { host.append(e); continue }   // one block taller than a page: it is cut at the page's edge
+      else {
+        blocks.unshift(b)
+        // a heading stays with what follows it: it moves to the next page too
+        const last = cur.body.lastElementChild
+        if (last && last.tagName === 'H3' && cur.body.children.length > 1) { last.remove(); blocks.unshift({ t: 'h3', text: last.textContent }) }
+      }
+      out.push(cur.page)
+      cur.page.remove()
+      first = false
+      cur = flowPage(p, false, folioStart + out.length)
+      measure.append(cur.page)
+      group = null; groupName = ''
+    }
+    cur.page.remove()
+    out.push(cur.page)
+    return out
+  }
+
+  function pictPage(p) {
+    const page = el('div', 'page')
+    const want = px()
+    if (p.kind === 'front') {
+      page.append(lazyImg(appleArt(p.art, want), p.alt, 'art'))
+    } else if (p.kind === 'tray') {
+      const tray = el('div', 'tray')
+      const disc = el('div', 'disc' + (p.scan ? '' : ' label'))
+      disc.append(lazyImg(p.scan ? caaArt(p.scan, want * 0.74) : appleArt(p.art, want * 0.74), p.alt))
+      tray.append(disc, el('div', 'cap', p.caption))
+      const foot = el('div', 'foot')
+      // loop: NOT-WORTH — ≤ 2 chips
+      for (const c of p.chips || []) foot.append(chipEl(c))
+      tray.append(foot)
+      page.append(tray)
+    } else if (p.kind === 'scan') {
+      const sc = el('div', 'scan')
+      const frame = el('div', 'frame')
+      frame.append(lazyImg(caaArt(p.img, want), p.alt))
+      const foot = el('div', 'foot')
+      // loop: NOT-WORTH — ≤ 2 chips
+      for (const c of p.chips || []) foot.append(chipEl(c))
+      sc.append(frame, foot)
+      page.append(sc)
+    } else if (p.kind === 'back') {
+      const bc = el('div', 'backcov')
+      const list = el('div', 'list')
+      // loop: NOT-WORTH — the album's tracks
+      for (const t of p.list) { const d = el('div'); d.dataset.song = t.song; d.append(el('b', '', String(t.n)), el('span', '', t.title)); list.append(d) }
+      const fine = el('div', 'fine')
+      // loop: NOT-WORTH — ≤ 3 lines
+      p.fine.forEach((f, i) => { if (i) fine.append(el('br')); fine.append(document.createTextNode(f)) })
+      const foot = el('div', 'foot')
+      // loop: NOT-WORTH — ≤ 2 chips
+      for (const c of p.chips || []) foot.append(chipEl(c))
+      bc.append(list, fine, foot)
+      page.append(bc)
+      // a long track list gets a smaller type until it fits (≤ 6 steps)
+      measure.append(page)
+      // loop: NOT-WORTH — ≤ 6 measuring steps, once per layout
+      for (let s = 0.86; s > 0.55 && list.scrollHeight > list.clientHeight + 1; s -= 0.06) list.style.setProperty('--bfs', s.toFixed(2) + 'em')
+      page.remove()
+    }
+    return page
+  }
+
+  // the booklet for this page size: every page, then the spreads (cover first, sources beside the back cover)
+  function layout() {
+    measure.style.setProperty('--pg', pg + 'px')
+    measure.style.setProperty('--fs', fsFor(pg) + 'px')
+    const flat = []
+    let folio = 2
+    // loop: NOT-WORTH — the booklet's sections (≤ 8) and their pages, once per layout
+    for (const s of book.sections) {
+      const songs = new Set()
+      for (const p of s.pages) {
+        const made = p.kind === 'flow' ? pour(p, folio) : (p.kind === 'sources' ? pour(sourcesFlow(p), folio) : [pictPage(p)])
+        for (const m of made) { flat.push({ el: m, section: s.id, name: s.name, kind: p.kind, back: !!p.back || p.kind === 'back' }); folio++ }
+        if (p.song) songs.add(p.song)
+      }
+    }
+    // the back cover is the last right page; the sources sit beside it (a blank page before them if needed)
+    const back = flat.length && flat[flat.length - 1].back ? flat.pop() : null
+    if (back) {
+      const srcAt = flat.findIndex((f) => f.section === 'back')
+      if ((flat.length - 2) % 2 === 0) {
+        const at = srcAt >= 0 ? srcAt : flat.length
+        const blank = { el: el('div', 'page blank'), section: (flat[at - 1] || {}).section, name: (flat[at - 1] || {}).name || '', kind: 'blank' }
+        flat.splice(at, 0, blank)
+      }
+      flat.push(back)
+    } else if (flat.length % 2) flat.push({ el: el('div', 'page blank'), section: (flat[flat.length - 1] || {}).section, name: '', kind: 'blank' })
+    // folios follow the final order (the cover pages carry none)
+    flat.forEach((f, i) => { const fo = f.el.querySelector('.folio'); if (fo) fo.textContent = String(i) })   // loop: NOT-WORTH — the pages, once per layout
+    flat.forEach((f, i) => { f.el.classList.add(i % 2 ? 'r' : 'l'); f.el.setAttribute('role', 'region'); f.el.setAttribute('aria-label', 'Page ' + (i + 1) + ': ' + (f.name || '')) })   // loop: NOT-WORTH — once per layout
+    pages = flat
+    spreads = []
+    // loop: NOT-WORTH — the spreads, once per layout
+    for (let i = 0; i < pages.length; i += 2) spreads.push([i, i + 1])
+  }
+  function sourcesFlow(p) {
+    const status = p.rows.map((r) => ({ t: 'src', name: r.name, state: r.state, text: r.text, href: r.href, history: r.name === 'Wikipedia' && r.href ? r.href + '?action=history' : '' }))
+    return { kind: 'flow', kicker: 'Sources', title: 'Where these pages come from', blocks: status.map((s) => Object.assign(s, { group: 'srcs' })), chips: p.chips }
+  }
+  GROUPS.srcs = () => el('dl', 'srcs')
+  const fsFor = (size) => Math.max(12, Math.min(17, Math.round(size * 0.0285 * 10) / 10))
+
+  // --- showing a spread ---
+  function attach(i) {
+    const [a, b] = spreads[i]
+    const pa = pages[a].el; const pb = pages[b] ? pages[b].el : el('div', 'page r blank')
+    wake(pa); wake(pb)
+    // the next and previous spreads' images start loading now, so a turn shows them ready
+    // loop: NOT-WORTH — ≤ 4 pages
+    for (const j of [i - 1, i + 1]) if (spreads[j]) spreads[j].forEach((k) => pages[k] && wake(pages[k].el))
+    return [pa, pb]
+  }
+  function show(i) {
+    const [pa, pb] = attach(i)
+    spreadEl.replaceChildren(pa, pb)
+    L = pa; R = pb
+    cur = i
+    chrome()
+  }
+  function chrome() {
+    const [a, b] = spreads[cur] || [0, 1]
+    const here = new Set([pages[a] && pages[a].section, pages[b] && pages[b].section].filter(Boolean))
+    // loop: NOT-WORTH — ≤ 8 section buttons
+    for (const btn of $('sections').children) btn.setAttribute('aria-current', here.has(btn.dataset.section) ? 'true' : 'false')
+    $('prev').disabled = cur === 0
+    $('next').disabled = cur >= spreads.length - 1
+    const words = cur === 0 ? 'Cover' : 'Pages ' + a + '–' + b
+    $('pages').textContent = words + ' of ' + (pages.length - 1)
+    const names = [...new Set([pages[a], pages[b]].filter((p) => p && p.name).map((p) => p.name))].join(' and ')
+    spreadEl.setAttribute('aria-label', words + (names ? ': ' + names : ''))
+    marks()
+  }
+  function say(t) { $('say').textContent = ''; requestAnimationFrame(() => { $('say').textContent = t }) }   // lifetime: OK — one frame, then done
+
+  function go(to, why) {
+    if (busy || !spreads.length) return
+    if (to < 0 || to >= spreads.length) return
+    if (to === cur) return
+    const fwd = to > cur
+    const [na, nb] = attach(to)
+    const done = () => {
+      spreadEl.replaceChildren(na, nb)
+      L = na; R = nb; cur = to; busy = false
+      chrome()
+      say(spreadEl.getAttribute('aria-label'))
+    }
+    busy = true
+    if (reduce.matches) {
+      // Reduce motion: the new spread fades in over the old one (opacity only)
+      const fade = el('div', 'fade')
+      fade.append(na, nb)
+      spreadEl.append(fade)
+      const anim = fade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' })
+      anim.onfinish = () => { fade.remove(); done() }   // lifetime: OK — once per turn
+      return
+    }
+    // the turn: the leaving page lifts on the spine and lands as the arriving page's other side
+    const leaf = el('div', 'leaf ' + (fwd ? 'fwd' : 'bwd'))
+    const fa = el('div', 'face a'); const fb = el('div', 'face b')
+    const shade = el('div', 'shade')
+    fa.append((fwd ? R : L).cloneNode(true), shade)
+    fb.append(fwd ? na.cloneNode(true) : nb.cloneNode(true))
+    leaf.append(fa, fb)
+    // under the leaf: the arriving spread's far page, and the near page stays until the leaf lands
+    if (fwd) { spreadEl.replaceChildren(L, nb, leaf) } else { spreadEl.replaceChildren(na, R, leaf) }
+    const ms = 700
+    const anim = leaf.animate(fwd ? [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(-180deg)' }] : [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(180deg)' }], { duration: ms, easing: 'cubic-bezier(.45,.05,.25,1)' })
+    shade.animate([{ opacity: 0 }, { opacity: 0.45 }], { duration: ms / 2, fill: 'forwards' })
+    anim.onfinish = () => { leaf.remove(); done() }   // lifetime: OK — once per turn
+  }
+  const spreadOf = (section) => { const i = pages.findIndex((p) => p.section === section); return i < 0 ? -1 : Math.floor(i / 2) }
+  function goSection(id) {
+    const i = spreadOf(id)
+    if (i < 0) return
+    if (i === cur) {
+      // already open: the section's page answers with a short pulse (the button never does nothing)
+      const [a, b] = spreads[cur]
+      const p = pages[a].section === id ? L : R
+      p.classList.remove('pulse'); void p.offsetWidth; p.classList.add('pulse')
+      say((pages[a].section === id ? pages[a] : pages[b]).name + ' is open')
+      return
+    }
+    go(i)
+  }
+  $('prev').addEventListener('click', () => go(cur - 1))   // lifetime: OK — once at load
+  $('next').addEventListener('click', () => go(cur + 1))   // lifetime: OK — once at load
+  $('close').addEventListener('click', () => send('close'))   // lifetime: OK — once at load
+  // lifetime: OK — one keydown listener for the page
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); send('close'); return }
+    if (e.ctrlKey || e.altKey || e.metaKey) return
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); go(cur + 1) }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(cur - 1) }
+    else if (e.key === 'Home' && !e.target.closest('#sections')) { e.preventDefault(); go(0) }
+    else if (e.key === 'End' && !e.target.closest('#sections')) { e.preventDefault(); go(spreads.length - 1) }
+  })
+
+  function buildNav() {
+    const box = $('sections')
+    box.replaceChildren()
+    const seen = new Set()
+    // loop: NOT-WORTH — ≤ 8 sections
+    for (const p of pages) {
+      if (seen.has(p.section) || !p.name || p.kind === 'blank') continue
+      seen.add(p.section)
+      const b = el('button', '', p.name)
+      b.type = 'button'
+      b.dataset.section = p.section
+      b.setAttribute('aria-label', 'Go to ' + p.name)
+      b.addEventListener('click', () => goSection(p.section))   // lifetime: OK — rebuilt with the nav (old buttons and listeners are dropped)
+      box.append(b)
+    }
+  }
+
+  // --- the playing song: its track marked, its sung line marked, the disc turning ---
+  function marks() {
+    const live = [L, R].filter(Boolean)
+    // loop: NOT-WORTH — the two open pages' track rows (≤ ~60)
+    for (const p of live) for (const e of p.querySelectorAll('[data-song]:not(.stz)')) e.classList.toggle('cur', !!playing.song && e.dataset.song === playing.song)
+    const spin = opts.spin && playing.album
+    // loop: NOT-WORTH — the one disc on the cover spread
+    for (const p of live) for (const d of p.querySelectorAll('.disc')) { d.classList.toggle('spin', spin); d.classList.toggle('still', spin && !playing.playing) }
+    const want = !!playing.song && live.some((p) => p.querySelector('.stz[data-song="' + CSS.escape(playing.song) + '"]'))
+    if (!want) clearSung()
+    if (want !== following) { following = want; send('follow', want) }
+  }
+  let sungAt = null
+  function clearSung() { if (sungAt) { sungAt.classList.remove('now'); sungAt = null } }
+  function markSung(song, idx) {
+    const live = [L, R].filter(Boolean)
+    let hit = null
+    // loop: NOT-WORTH — the two open pages, one lookup each
+    for (const p of live) { hit = hit || p.querySelector('.stz[data-song="' + CSS.escape(song) + '"] span[data-i="' + idx + '"]') }
+    if (hit === sungAt) return
+    clearSung()
+    if (hit) { hit.classList.add('now'); sungAt = hit }
+  }
+
+  // --- from main ---
+  ipcRenderer.on('liner-data', (event, d) => {
+    const keep = book && pages[spreads[cur] ? spreads[cur][0] : 0] ? pages[spreads[cur][0]].section : null
+    book = d.booklet
+    pending = !!d.pending
+    opts = Object.assign(opts, d.opts || {})
+    $('title').textContent = book.head.title || 'Liner notes'
+    $('sub').textContent = [book.head.line, 'liner notes'].filter(Boolean).join(' · ')
+    document.title = 'Liner notes — ' + (book.head.title || '')
+    if (book.head.art) { $('mini').src = appleArt(book.head.art, 40 * (window.devicePixelRatio || 1)); $('mini').alt = '' }
+    status()
+    relayout(keep)
+  })
+  // lifetime: OK — the three listeners below, added once at load, die with the window
+  ipcRenderer.on('liner-playing', (event, p) => { playing = Object.assign({ song: '', playing: false, album: false }, p); if (spreads.length) marks() })
+  ipcRenderer.on('liner-time', (event, s) => { if (s && s.song === playing.song && Number.isInteger(s.line)) markSung(s.song, s.line) })
+  ipcRenderer.on('liner-opts', (event, o) => { opts = Object.assign(opts, o || {}); if (spreads.length) marks() })
+
+  function status() {
+    const box = $('status')
+    box.replaceChildren()
+    if (pending) { box.append(el('span', '', 'Looking up the credits, the background and the booklet scans…')); return }
+    const failed = (book.status || []).filter((s) => s.state === 'failed').map((s) => s.name)
+    if (failed.length) {
+      box.append(el('span', '', (failed.length === 1 ? failed[0] + ' didn\'t load.' : failed.slice(0, -1).join(', ') + ' and ' + failed[failed.length - 1] + ' didn\'t load.')))
+      const b = el('button', '', 'Sources')
+      b.type = 'button'
+      b.setAttribute('aria-label', 'Show the Sources page')
+      b.addEventListener('click', () => go(spreads.length - 1))   // lifetime: OK — rebuilt with the status line
+      box.append(b)
+    }
+  }
+
+  function sizeFor() {
+    const r = stage.getBoundingClientRect()
+    return Math.max(220, Math.floor(Math.min(r.height - 20, (r.width - 48) / 2, 680)))
+  }
+  function relayout(keepSection) {
+    if (!book) return
+    const keep = keepSection || null
+    pg = sizeFor()
+    spreadEl.style.setProperty('--pg', pg + 'px')
+    spreadEl.style.setProperty('--fs', fsFor(pg) + 'px')
+    layout()
+    buildNav()
+    const i = keep ? spreadOf(keep) : 0
+    busy = false
+    show(Math.max(0, Math.min(spreads.length - 1, i < 0 ? 0 : i)))
+  }
+  // a resize lays the pages out again for the new size (once it settles), keeping the open section
+  let resizeTimer = null
+  let lastSize = 0
+  // lifetime: OK — one observer on the stage for the page's life
+  new ResizeObserver(() => {
+    if (!book) return
+    clearTimeout(resizeTimer)
+    // loop: NOT-WORTH — one-shot 160 ms debounce per resize burst · cost one layout
+    resizeTimer = setTimeout(() => {
+      const s = sizeFor()
+      if (Math.abs(s - lastSize) < 6) return
+      lastSize = s
+      relayout(pages[spreads[cur] ? spreads[cur][0] : 0] ? pages[spreads[cur][0]].section : null)
+    }, 160)
+  }).observe(stage)
+
+  // test hooks for the UI checker (tools/ui-check.js liner): read-only state
+  window.__liner = () => ({ cur, spreads: spreads.length, pages: pages.length, busy, pg, following, sections: [...$('sections').children].map((b) => b.dataset.section) })
+  send('ready')
+</script>
+</body>
+</html>

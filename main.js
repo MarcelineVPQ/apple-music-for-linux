@@ -893,6 +893,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     // lifetime: a fresh Menu per right-click; nothing keeps it after the popup closes, so it is garbage-collected
     Menu.buildFromTemplate([
       { label: 'View Album Cover', click: () => openCover(lyricsWindow) },
+      { label: 'Liner Notes…', click: () => openLinerNotes(null, lyricsWindow) },
       { label: 'Show Album', click: () => ipcMain.emit('lyrics-command', event, 'show-album') }
     ]).popup({ window: lyricsWindow })
   }
@@ -977,6 +978,239 @@ ipcMain.on('cover-command', (event, command) => {
   if (!coverWindow || coverWindow.isDestroyed() || event.sender !== coverWindow.webContents) return
   if (event.senderFrame && event.senderFrame.parent) return
   if (command === 'close') coverWindow.close()
+})
+
+// --- the liner notes (liner-notes.html): the album's booklet ---
+// The album as a CD booklet: the cover and disc, Apple's editorial notes, the recording, Wikipedia's
+// background, the credits, the lyrics of the songs played before, the real booklet scans, the sources.
+// Opened from the lyrics window cover's menu and the mini player's menus ("Liner Notes…"), and by the
+// stage view through openLinerNotes(album). One booklet window at a time; the data comes from Apple's
+// catalog (through the page's MusicKit) and the outside sources (liner-notes-sources.js, matched by
+// identifiers only), cached per album on disk (liner-notes-model.js, liner-notes-cache.json), so a
+// booklet opened before also opens offline. Idle cost: nothing at rest; while a lyrics page of the
+// playing song is open (and the window shown), a 500 ms now-playing poll marks the sung line.
+const linerSources = require('./liner-notes-sources')
+const linerModel = require('./liner-notes-model')
+let linerWindow = null
+let linerReady = false     // the booklet page said 'ready'
+let linerStore = null      // created in app 'ready' (userData)
+let linerNotes = null
+let linerAlbum = null      // the open booklet's album: { id, tracks: Set of song ids }
+let linerData = null       // the last 'liner-data' (resent when the page reloads)
+let linerFollow = false    // the page shows a lyrics page of the playing song
+let linerPoll = null
+let linerPlayingKey = ''
+let linerSung = null       // { key, times: [line start times] } of the playing song, while following
+let linerSungLine = -2
+const linerAlbumScript = (albumId, byName) => `(async () => {
+  const mk = (() => { try { return MusicKit.getInstance(); } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page loading): reported below as not ready */ return null; } })();
+  if (!mk) return { ok: false, why: 'not-ready', online: navigator.onLine };
+  const item = mk.nowPlayingItem;
+  const na = item ? item.attributes : null;
+  const fromSong = String((na && na.playParams && na.playParams.catalogId) || (item && item.id) || '');
+  try {
+    const sf = mk.storefrontId || 'us';
+    let id = ${JSON.stringify(String(albumId || ''))};
+    const want = ${JSON.stringify(byName || null)};
+    const norm = (x) => String(x || '').toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, '');
+    if (!id && want) {
+      /* by name: the playing song's album when it is that album, else the catalog's album with exactly that name and artist (never a near match) */
+      const same = na && norm(na.albumName) === norm(want.album) && (!want.artist || norm(na.artistName) === norm(want.artist));
+      if (!same) {
+        const q = await mk.api.music('/v1/catalog/' + sf + '/search', { term: (want.album + ' ' + (want.artist || '')).slice(0, 200), types: 'albums', limit: 15 });
+        const list = (q && q.data && q.data.results && q.data.results.albums && q.data.results.albums.data) || [];
+        const hit = list.find((x) => x.attributes && norm(x.attributes.name) === norm(want.album) && (!want.artist || norm(x.attributes.artistName) === norm(want.artist)));
+        if (!hit) return { ok: false, why: 'no-album', fromSong: '', online: navigator.onLine };
+        id = String(hit.id);
+      }
+    }
+    if (!id) {
+      if (!/^\\d+$/.test(fromSong)) return { ok: false, why: 'nothing', online: navigator.onLine };
+      const s = await mk.api.music('/v1/catalog/' + sf + '/songs/' + fromSong, { include: 'albums' });
+      const d = s && s.data && s.data.data && s.data.data[0];
+      const al = d && d.relationships && d.relationships.albums && d.relationships.albums.data;
+      id = al && al[0] ? String(al[0].id) : '';
+      if (!id) return { ok: false, why: 'no-album', fromSong, online: navigator.onLine };
+    }
+    const r = await mk.api.music('/v1/catalog/' + sf + '/albums/' + id, { include: 'tracks', extend: 'editorialNotes' });
+    const a = r.data.data[0];
+    const at = a.attributes;
+    const rel = a.relationships && a.relationships.tracks;
+    let tracks = (rel && rel.data) || [];
+    let next = rel && rel.next;
+    for (let i = 0; next && i < 3; i++) { /* loop: SERIAL-REQUIRED — ≤ 3 more pages of a long album's track list, each after the last */
+      const more = await mk.api.music(next);
+      tracks = tracks.concat((more.data && more.data.data) || []);
+      next = more.data && more.data.next;
+    }
+    return { ok: true, fromSong, album: {
+      id: a.id, storefront: sf, name: at.name, artistName: at.artistName, releaseDate: at.releaseDate, recordLabel: at.recordLabel,
+      copyright: at.copyright, upc: at.upc, genreNames: at.genreNames, url: at.url, artwork: at.artwork, editorialNotes: at.editorialNotes,
+      tracks: tracks.filter((t) => t.type === 'songs' || t.type === 'music-videos').map((t) => ({ id: t.id, name: t.attributes.name, artistName: t.attributes.artistName,
+        trackNumber: t.attributes.trackNumber, discNumber: t.attributes.discNumber, durationInMillis: t.attributes.durationInMillis,
+        composerName: t.attributes.composerName, hasLyrics: t.attributes.hasLyrics }))
+    } };
+  } catch (e) { /* error: PASSES-ON — offline or Apple refused: main opens the cached booklet, or its page saying Apple didn't load */
+    return { ok: false, why: 'failed', fromSong, albumId: ${JSON.stringify(String(albumId || ''))}, message: String((e && e.message) || e).slice(0, 200), online: navigator.onLine };
+  }
+})()`
+function getLinerNotes() {
+  if (linerNotes) return linerNotes
+  linerNotes = linerModel.createLinerNotes({
+    getJson: linerSources.createGetJson({ fetch: (url, opts) => net.fetch(url, opts), ua: linerSources.userAgent(app.getVersion()) }),
+    store: { get: (k) => (linerStore ? linerStore.get(k) : null), set: (k, v) => { if (linerStore) linerStore.set(k, v) } },
+    lang: linerSources.wikiLang(app.getLocale()),
+    setlistKey: () => settings.setlistfmKey || '',
+    log: (m) => console.error(m)
+  })
+  return linerNotes
+}
+// the lyrics of this album's songs that are on this computer (the lyrics cache: songs played before)
+function linerLyricsFor(apple) {
+  const out = {}
+  if (!apple || !lyricsStore) return out
+  // loop: NOT-WORTH — the album's tracks (≤ ~100), once per booklet push; in-memory cache lookups
+  for (const t of apple.tracks) {
+    const got = lyricsStore.get(t.name + '|' + t.artist)
+    if (!got || !Array.isArray(got.lines) || !got.lines.length) continue
+    if (got.source === 'lrclib' && !settings.lrclibFallback) continue
+    out[t.id] = { lines: got.lines.map((l) => ({ t: l.t, end: l.end, text: l.text || '', gap: !!l.gap })), source: got.source, writers: got.writers || [] }
+  }
+  return out
+}
+function sendLinerData(entry, pending) {
+  const apple = entry.parts.apple && entry.parts.apple.data
+  if (apple) linerAlbum = { id: apple.id, tracks: new Set(apple.tracks.map((t) => t.id)), byKey: new Map(apple.tracks.map((t) => [t.name + '|' + t.artist, t.id])) }
+  linerData = { booklet: linerModel.buildBooklet(entry, { lyrics: linerLyricsFor(apple) }), pending: !!pending, opts: { spin: !!settings.lyricsArtSpin } }
+  if (linerReady && linerWindow && !linerWindow.isDestroyed()) linerWindow.webContents.send('liner-data', linerData)
+}
+// the playing song as the booklet shows it (its track marked, the disc turning); sent on change only
+function linerPlaying(state) {
+  if (!linerReady || !linerWindow || linerWindow.isDestroyed() || !state || !state.ok) return
+  const song = linerAlbum ? (linerAlbum.tracks.has(state.appleId) ? state.appleId : (linerAlbum.byKey.get(state.title + '|' + state.artist) || '')) : ''
+  const p = { song, playing: !!state.isPlaying, album: !!song }
+  const key = JSON.stringify(p)
+  if (key === linerPlayingKey) return
+  linerPlayingKey = key
+  linerWindow.webContents.send('liner-playing', p)
+}
+// the sung line, while a lyrics page of the playing song is open and the window shows
+// error: NOT-WORTH — a failing executeJavaScript returns until the next tick; at 2/s that can't hammer
+async function linerTick() {
+  if (!mainAlive() || !linerWindow || linerWindow.isDestroyed()) return
+  let state
+  try { state = await appleWC().executeJavaScript(nowPlayingScript) } catch (e) { return }   // error: NOT-WORTH — page mid-load: the next tick asks again
+  if (!state || !state.ok || !linerWindow || linerWindow.isDestroyed()) return
+  linerPlaying(state)
+  const key = state.title + '|' + state.artist
+  if (!linerSung || linerSung.key !== key) {
+    const got = lyricsStore ? lyricsStore.get(key) : null
+    linerSung = { key, times: got && Array.isArray(got.lines) ? got.lines.map((l) => (l && !l.gap && l.text && Number.isFinite(l.t) ? l.t : null)) : [] }
+    linerSungLine = -2
+  }
+  let line = -1
+  // loop: HOT-PATH-OK — one song's line starts (≤ ~150) per 500 ms tick, only while following
+  for (let i = 0; i < linerSung.times.length; i++) { const t = linerSung.times[i]; if (t !== null && t <= state.playbackTime) line = i }
+  const song = linerAlbum && linerAlbum.byKey.get(key)
+  if (line !== linerSungLine && song) { linerSungLine = line; linerWindow.webContents.send('liner-time', { song, line }) }
+}
+function syncLinerPoll() {
+  const want = linerFollow && linerWindow && !linerWindow.isDestroyed() && linerWindow.isVisible() && !linerWindow.isMinimized()
+  if (want && !linerPoll) {
+    linerSungLine = -2
+    // loop: HOT-PATH-OK — the booklet's sung-line poll · 500 ms · only while a lyrics page of the playing song is open in a shown booklet · stops when the page turns away, the window hides or minimizes, or closes · cost 2 executeJavaScript/s + an IPC send per line change
+    linerPoll = setInterval(linerTick, 500)
+  } else if (!want && linerPoll) { clearInterval(linerPoll); linerPoll = null }
+}
+/**
+ * openLinerNotes(album, from): the album's booklet. album: { appleId } (an Apple Music catalog album ID),
+ * { album, artist } (the album's and the artist's names as Apple writes them, e.g. from the stage view:
+ * the playing song's album when the names match, else the catalog album with exactly that name and
+ * artist), or null for the playing song's album; from: the window it was opened from (the booklet opens
+ * on its screen). -> true when a booklet opened (or was brought to the front), false when there was
+ * nothing to open (nothing playing, or no album with that name).
+ */
+async function openLinerNotes(album, from) {
+  const want = album && /^\d{1,20}$/.test(String(album.appleId || '')) ? String(album.appleId) : ''
+  const byName = !want && album && typeof album.album === 'string' && album.album.trim()
+    ? { album: album.album.trim().slice(0, 300), artist: typeof album.artist === 'string' ? album.artist.trim().slice(0, 300) : '' } : null
+  let res = null
+  try { res = mainAlive() ? await appleWC().executeJavaScript(linerAlbumScript(want, byName)) : null } catch (e) { console.error('liner notes: album lookup failed:', e.message) }   // error: LOGGED-OK — page mid-load: handled below as "Apple didn't answer"
+  const raw = res && res.ok ? res.album : null
+  // offline, from the playing song: the album it belonged to the last time (remembered with the booklet)
+  const fromSong = res && /^\d+$/.test(res.fromSong || '') ? res.fromSong : ''
+  let idHint = ''
+  if (!raw) {
+    const nameKey = byName ? 'name:' + (byName.album + '|' + byName.artist).toLowerCase() : ''
+    idHint = want || (linerStore ? (byName ? linerStore.get(nameKey) : (fromSong ? linerStore.get('song:' + fromSong) : '')) || '' : '')
+    if (!idHint && (!res || res.why === 'nothing' || res.why === 'not-ready' || (byName && res.why === 'no-album'))) return false   // nothing playing, no such album, or no page yet: nothing to open
+  } else if (linerStore && byName) linerStore.set('name:' + (byName.album + '|' + byName.artist).toLowerCase(), String(raw.id))   // offline next time: the album this name found
+  else if (linerStore && fromSong && !want) linerStore.set('song:' + fromSong, String(raw.id))
+  const err = raw ? null : linerSources.failure(res && res.online === false ? 'offline' : 'apple', (res && res.message) || 'Apple Music didn\'t answer')
+  if (!linerWindow || linerWindow.isDestroyed()) createLinerWindow(from)
+  else { if (linerWindow.isMinimized()) linerWindow.restore(); linerWindow.show(); linerWindow.focus() }
+  linerPlayingKey = ''
+  getLinerNotes().load(raw, err, (entry, pending) => sendLinerData(entry, pending), idHint)
+  return true
+}
+// the entry point for other parts of Sonata (the stage view) and the UI checker (process.mainModule.exports)
+module.exports.openLinerNotes = openLinerNotes
+function createLinerWindow(from) {
+  linerReady = false
+  linerData = null
+  const opts = { width: 1120, height: 780, minWidth: 700, minHeight: 520 }
+  const fromWin = from && !from.isDestroyed() ? from : null
+  const area = (fromWin ? screen.getDisplayMatching(fromWin.getBounds()) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())).workArea
+  opts.width = Math.min(opts.width, area.width); opts.height = Math.min(opts.height, area.height)
+  opts.x = area.x + Math.round((area.width - opts.width) / 2); opts.y = area.y + Math.round((area.height - opts.height) / 2)
+  // lifetime: OK — one booklet at a time; 'closed' stops its poll and nulls it
+  linerWindow = new BrowserWindow(applySavedBounds(Object.assign(opts, {
+    frame: false,
+    roundedCorners: false,   // the card draws its own corners (as the lyrics window)
+    transparent: true,
+    hasShadow: false,
+    show: false,
+    title: appName + ' — Liner Notes',
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
+  }), 'linerBounds'))
+  const win = linerWindow
+  win.loadFile('liner-notes.html')
+  persistBounds(win, 'linerBounds')
+  lockDownLocalWindow(win)
+  // lifetime: OK — fires once per load
+  win.webContents.once('did-finish-load', () => {
+    if (win.isDestroyed()) return
+    win.webContents.send('theme', themeState())
+    win.show()
+    win.focus()
+  })
+  // lifetime: OK — these die with the window; hidden or minimized, the sung-line poll stops
+  win.on('minimize', syncLinerPoll); win.on('restore', syncLinerPoll); win.on('hide', syncLinerPoll); win.on('show', syncLinerPoll)
+  win.on('closed', () => {
+    if (linerWindow !== win) return
+    linerWindow = null; linerReady = false; linerFollow = false; linerAlbum = null; linerData = null; linerSung = null
+    syncLinerPoll()
+  })
+}
+// lifetime: OK — registered once at module load (see the note at ipcMain 'lyrics-command')
+// error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
+ipcMain.on('liner-command', (event, command, arg) => {
+  // only the booklet's own page, its top frame, each argument checked
+  if (!linerWindow || linerWindow.isDestroyed() || event.sender !== linerWindow.webContents) return
+  if (event.senderFrame && event.senderFrame.parent) return
+  if (command === 'close') linerWindow.close()
+  else if (command === 'ready') {
+    linerReady = true
+    linerPlayingKey = ''
+    linerWindow.webContents.send('theme', themeState())
+    if (linerData) linerWindow.webContents.send('liner-data', linerData)
+    if (mainAlive()) {
+      appleWC().executeJavaScript(nowPlayingScript).then(linerPlaying)
+        .catch((e) => console.error('liner notes: now playing failed:', e.message))   // error: LOGGED-OK — page mid-load: the next poll tells the booklet
+    }
+  }
+  else if (command === 'open-link' && typeof arg === 'string' && arg.length < 2048 && /^https:\/\/[^\s]+$/.test(arg)) openExternalSafe(arg)
+  else if (command === 'follow' && typeof arg === 'boolean') { linerFollow = arg; syncLinerPoll() }
 })
 
 // --- audio-reactive visualizer / ambient mode ---
@@ -1197,6 +1431,7 @@ async function showMoreMenu() {
     // error: LOGGED-OK — a refused write (no clipboard owner) is logged; the menu just closes
     { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url).catch((e) => console.error('copy link failed:', e.message)) },
     { label: 'View Album Cover', enabled: !!info.title, click: () => openCover(miniWindow) },
+    { label: 'Liner Notes…', enabled: !!info.title, click: () => openLinerNotes(null, miniWindow) },
     { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
     { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },
@@ -1317,12 +1552,13 @@ function cleanupWindowPositionMemory() {
 let lastBackdrop = null    // { dark: { url, lumMin, lumMax }, light: {...} } for the current track
 function broadcastPalette(p) {
   const t = themeState()
-  // loop: NOT-WORTH — 3 windows, once per palette change
+  // loop: NOT-WORTH — 3 windows (and the booklet), once per palette change
   for (const w of [miniWindow, lyricsWindow, vizWindow]) {
     if (!w || w.isDestroyed()) continue
     w.webContents.send('palette', p)
     if (w !== vizWindow) w.webContents.send('theme', t)   // the visualizer's stage is always dark (theme.css --s-stage-*)
   }
+  if (linerWindow && !linerWindow.isDestroyed()) linerWindow.webContents.send('theme', t)   // the booklet: its card and paper
   pushRail()   // the rail's surface takes the accent (and the Glass) too
   pushPanel()
   syncToasts()
@@ -1411,6 +1647,7 @@ ipcMain.on('mini-command', (event, command, value) => {
     // lifetime: a fresh Menu per right-click; nothing keeps it after the popup closes, so it is garbage-collected
     Menu.buildFromTemplate([
       { label: 'View Album Cover', click: () => openCover(miniWindow) },
+      { label: 'Liner Notes…', click: () => openLinerNotes(null, miniWindow) },
       { label: 'Open Full Player', click: toggleMiniPlayer }
     ]).popup({ window: miniWindow })
   }
@@ -1485,6 +1722,7 @@ function startNowPlayingLoop() {
     if (!state || !state.ok) return
     setPlaying(!!state.isPlaying)
     if (tray) updateTrayTooltip(state)
+    if (linerWindow) linerPlaying(state)   // the booklet's playing track (sent on change only)
     // the rail's album tint (one artwork fetch per track change, while the main window shows) and
     // its status dots (Discord reconnecting, the align helper starting/stopping): sent on change only
     if ((railMounted || panelMounted) && mainWindow.isVisible()) refreshPalette(state)
@@ -1724,6 +1962,15 @@ function noticeAction(id, action) {
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
   'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
 function setSetting(key, value) {
+  // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
+  if (key === 'setlistfmKey') {
+    const v = typeof value === 'string' ? value.trim() : value
+    if (!settingsStore.validSetting(key, v) || settings[key] === v) return
+    settings[key] = v
+    saveSettings()
+    pushPanel()
+    return
+  }
   if (key === 'theme') {
     if (!['system', 'light', 'dark'].includes(value)) return
     setThemePref(value)
@@ -1751,6 +1998,7 @@ function setSetting(key, value) {
   else if (key === 'checkForUpdates') startUpdateChecks()
   else if (key === 'lyricsArtSpin' || key === 'lyricsArtSpinSpeed') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
+    if (linerWindow && !linerWindow.isDestroyed() && linerReady) linerWindow.webContents.send('liner-opts', { spin: !!settings.lyricsArtSpin })
   }
   else if (key === 'estimatedWordTiming' || key === 'lyricsListenRefine') {
     lyricsKey = null  // re-send the current song's lyrics with the new setting
@@ -2097,6 +2345,7 @@ function panelSnapshot() {
     lastfmConnected: !!(lastfm && lastfm.connected),
     lastfmUser: lastfm && lastfm.connected ? (lastfm.username || '') : '',
     discordEnabled: !!discordConfig.enabled,
+    setlistfmKeySet: !!settings.setlistfmKey,
     discordState: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     updateLine: updaterLib.statusLine(u, app.getVersion(), settings.updateChannel),
     updateBusy: ['checking', 'downloading', 'installing'].includes(u.phase),
@@ -2863,6 +3112,14 @@ app.whenReady().then(async () => {
         (r.aside ? 'A copy of the damaged file: ' + r.aside : 'No copy of the damaged file could be kept.'), r.aside)
     }
   })
+  // the liner notes' cache: one entry per album (bounded like the lyrics cache, liner-notes-model.js CACHE);
+  // a damaged file keeps what reads (it is only a cache: the rest is fetched again when a booklet opens)
+  linerStore = require('./lyrics-store').createLyricsStore({
+    file: path.join(app.getPath('userData'), 'liner-notes-cache.json'),
+    maxEntries: linerModel.CACHE.maxEntries,
+    maxBytes: linerModel.CACHE.maxBytes,
+    onRecovered: (r) => console.error('liner notes cache: damaged file repaired: ' + JSON.stringify(r))   // error: LOGGED-OK — a cache: what didn't read is fetched again
+  })
   // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
     stopDesktopScheme()
@@ -2871,6 +3128,7 @@ app.whenReady().then(async () => {
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
     if (lyricsStore) lyricsStore.flush()
+    if (linerStore) linerStore.flush()
   })
   startupStep('settings', loadSettings)
   startupStep('notices', () => notices.setDismissed(settings.dismissedNotices))
