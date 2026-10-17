@@ -205,7 +205,7 @@ function fakeStore() {
   return { get: (k) => (m.has(k) ? m.get(k) : null), set: (k, v) => m.set(k, v), map: m }
 }
 
-function setup(helperImpl) {
+function setup(helperImpl, extra = {}) {
   let nowMs = 0
   const listeners = []
   const sent = []
@@ -226,7 +226,7 @@ function setup(helperImpl) {
       listeners.push(l)
       return l
     },
-    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0
+    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused
   })
   return { s, listeners, sent, logs, store, calls, setNow: (v) => { nowMs = v } }
 }
@@ -574,4 +574,40 @@ test('session: a song not heard to the end: the helper is told to forget its kep
   await new Promise((r) => setImmediate(r))
   const last = env.calls[env.calls.length - 1][0]
   assert.deepEqual(last, { cmd: 'forget', song: env.calls[0][0].song })
+})
+
+test('session: gaming guard: nothing recorded and no new jobs while paused; later sections go on after', async () => {
+  let gaming = false
+  const env = setup(keepingHelper(), { paused: () => gaming })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, 5)
+  gaming = true
+  assert.equal(play(env, 5, secs[0].at + 1), null)
+  assert.equal(env.s.recording, false)
+  assert.equal(env.calls.length, 0)
+  gaming = false                                      // the game ended: the second verse is recorded and aligned
+  const e = await play(env, 25, secs[1].at + 1)
+  assert.equal(env.calls.length, 1)
+  assert.deepEqual(Object.keys(e.lines), ['2', '3'])
+  assert.equal(e.partial, true)                       // the first verse fills in on a later play
+})
+
+test('session: gaming guard: a queued job not started yet is skipped (one log line), not failed', async () => {
+  let gaming = false
+  let release
+  const gate = new Promise((r) => { release = r })
+  const helperImpl = keepingHelper()
+  const env = setup(async (id, msgs) => { await gate; return helperImpl(id, msgs) }, { paused: () => gaming })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  const j1 = play(env, 0, secs[0].at + 1)
+  await new Promise((r) => setImmediate(r))                 // the first verse's job has started
+  const j2 = play(env, secs[0].at + 1, secs[1].at + 1)     // the second verse queued behind it
+  gaming = true
+  release()
+  await j1
+  assert.equal(await j2, null)
+  assert.equal(env.calls.length, 1)
+  assert.ok(env.logs.some((l) => /paused while gaming/.test(l)))
 })

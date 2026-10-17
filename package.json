@@ -62,6 +62,7 @@
       "timing-refine.js",
       "align-session.js",
       "align-helper.js",
+      "game-guard.js",
       "align/server.py",
       "align/sonata_align.py",
       "align/sonata-align",

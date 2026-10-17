@@ -93,6 +93,7 @@ function createAlignHelper(opts, deps = {}) {
   let idle = null
   let crashes = 0
   let quitting = null         // the child we asked to quit
+  let releasing = false       // release(): quit as soon as the current job is done (gaming guard)
   let stderrTail = []
 
   function fail(id, err) {
@@ -128,6 +129,7 @@ function createAlignHelper(opts, deps = {}) {
   function armIdle() {
     if (idle) { clearT(idle); idle = null }
     if (!child || pending.size) return
+    if (releasing) { releasing = false; quit(); return }
     // loop: none · one-shot idle timer · re-armed after each job · fires once: quit the helper
     idle = setT(() => { idle = null; if (!pending.size) quit() }, idleMs)
     if (idle && idle.unref) idle.unref()
@@ -155,6 +157,7 @@ function createAlignHelper(opts, deps = {}) {
     const c = doSpawn(p.python, ['-u', p.server], { stdio: ['pipe', 'pipe', 'pipe'], env: helperEnv(opts.env || process.env, p.home) })
     // lifetime: OK — one helper child · ends on quit (idle), stop(), a timeout kill, its own crash, or process exit (live)
     child = c
+    releasing = false
     live.add(c)
     stderrTail = []
     c.stdout.setEncoding('utf8')
@@ -259,6 +262,15 @@ function createAlignHelper(opts, deps = {}) {
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
     align(id, messages) { return request(id, messages, jobTimeoutMs) },
+    /**
+     * Gaming guard: the helper quits once its current job is done (now if it has none), which frees
+     * its 1.8–3 GB of graphics memory. The next job spawns it again.
+     */
+    release() {
+      if (!child) return
+      if (pending.size) releasing = true
+      else { if (idle) { clearT(idle); idle = null } quit() }
+    },
     /** Separate once per song: drop that song's kept sections in the helper (queued behind its jobs; no reply). */
     forget(song) {
       if (!child || quitting === child) return

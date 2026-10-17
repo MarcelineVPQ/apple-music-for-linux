@@ -145,3 +145,20 @@ test('lifetime: stop() during a job fails it and ends the process', async () => 
   await assert.rejects(job, /helper exited/)
   await waitFor(() => !h.running)
 })
+
+test('release(): the helper quits right after its current job (gaming guard); idle: at once', async () => {
+  const { h, logs } = helper('')
+  await h.ping()
+  h.release()                                  // no job: quits now
+  await waitFor(() => !h.running, 2000)
+  const job = h.align('r1', A.alignMessages('r1', [{ t: 0, text: 'a b' }], Buffer.alloc(8)))
+  await waitFor(() => h.running)
+  h.release()                                  // a job: finishes first
+  const res = await job
+  assert.equal(res.type, 'result')
+  await waitFor(() => !h.running, 2000)
+  assert.equal(logs.length, 0)
+  // forget() on a stopped helper is a no-op; pid is 0
+  h.forget('s1')
+  assert.equal(h.pid, 0)
+})

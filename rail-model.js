@@ -175,6 +175,8 @@
       ? line('precise', 'Precise word timing', 'ok', 'Helper ready', 'precise word timing on, helper installed and ready')
       : st.precise === 'busy'
         ? line('precise', 'Precise word timing', 'ok', 'Helper working', 'precise word timing on, the helper is running')
+        : st.precise === 'paused'
+          ? line('precise', 'Precise word timing', 'wait', 'Paused while gaming', 'precise word timing paused while a game runs or the graphics card is busy; it goes on afterwards')
         : st.precise === 'missing'
           ? line('precise', 'Precise word timing', 'warn', 'Helper not installed', 'precise word timing is on but the sonata-align helper is not installed (align/install.sh)')
           : line('precise', 'Precise word timing', 'off', 'Off', 'precise word timing off'))

@@ -111,6 +111,16 @@ test('timingNote: aligned beats refined beats estimated', () => {
   assert.equal(V.timingNote(est, false, false), 'Word timing estimated')
 })
 
+test('timingNote: the gaming guard\'s state follows the timing words (0.15.37)', () => {
+  const est = V.prepare({ lines: lrc, estimate: true }).lines
+  assert.equal(V.timingNote(est, false, false, 'Precise timing paused while you play'), 'Word timing estimated · Precise timing paused while you play')
+  assert.equal(V.timingNote(est, false, false, ''), 'Word timing estimated')
+})
+
+test('settings: Pause word timing while gaming is on by default', () => {
+  assert.equal(require('../settings-store').defaults().alignGamingPause, true)
+})
+
 test('wordState: the whole word is current, the syllable being sung is marked; words without syl as before', () => {
   const words = [
     { t: 1, end: 2.4, text: 'Karaoke', syl: [{ t: 1, end: 1.3, text: 'Ka' }, { t: 1.3, end: 1.6, text: 'ra' }, { t: 1.6, end: 2, text: 'o' }, { t: 2.1, end: 2.4, text: 'ke' }] },

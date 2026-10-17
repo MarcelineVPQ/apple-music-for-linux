@@ -382,6 +382,7 @@ function createAlignSession(deps) {
   let expectNext = null
   let jobs = 0
   let songs = 0
+  const paused = deps.paused || (() => false)    // gaming guard (main.js): no recording, no new jobs
   // lifetime: one promise chain of helper jobs (each holds one section's PCM until it is sent)
   let queue = Promise.resolve()
 
@@ -449,6 +450,8 @@ function createAlignSession(deps) {
     const fromKept = () => !sec && s.secs.every((x) => s.kept.has(x.from))
     const run = () => {
       if (s.failed) { pcm = null; return null }
+      // gaming guard: a job not started yet is skipped; its lines fill in on a later play
+      if (paused()) { pcm = null; log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
       const started = deps.now()
       const audio = () => { const m = alignMessages(id, req.lines, pcm, sec ? { rate, song: s.id, offset: req.offset } : { rate, song: s.id, final: true }); pcm = null; return m }
       const kept = fromKept()
@@ -549,6 +552,9 @@ function createAlignSession(deps) {
       const now = deps.now()
       clock = T.syncClock(clock, playbackTime, isPlaying, now)
       if (!clock.playing) { stopCapture(); expectNext = null; return null }
+      // gaming guard: nothing is recorded while a game runs, so the sections it covers are not
+      // heard (skipped) and fill in on a later play (a partial entry); recording resumes after
+      if (paused()) { stopCapture(); expectNext = null; return null }
       startCapture()
       return due(song, T.clockTime(clock, now), false)
     },
@@ -558,6 +564,8 @@ function createAlignSession(deps) {
      */
     stop(submitIfHeard) { return finish(!!submitIfHeard) },
     get recording() { return !!listener },
+    /** A song on screen still needs alignment work (the gaming guard only polls then). */
+    get active() { return !!(song && !song.sent) },
     get bufferBytes() { return song ? song.buf.bytes : 0 },
     _onChunk: onChunk       // tests
   }

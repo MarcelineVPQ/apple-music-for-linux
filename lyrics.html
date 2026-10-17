@@ -315,6 +315,7 @@
   // lifetime: OK — see 'lyrics-data' above
   ipcRenderer.on('lyrics-refined', (event, msg) => view.refine(msg))
   ipcRenderer.on('lyrics-aligned', (event, msg) => view.align(msg))
+  ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
 
   ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying) => {
     view.setTime(playbackTime, isPlaying)

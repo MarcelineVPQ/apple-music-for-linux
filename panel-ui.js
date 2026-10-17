@@ -234,6 +234,8 @@
           { disabled: (v) => !v.estimatedWordTiming, why: 'Needs Estimated word timing (Playback & lyrics) on' }),
         switchRow('lyricsPreciseTiming', 'Precise word timing (GPU, experimental)', 'Separates the vocals and lines up each word with the singing, on this computer, after a song has played once with a lyric view open. Audio stays in memory; only the word times are kept.',
           { hidden: (v) => !v.alignInstalled }),
+        switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
+          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on' }),
         textBlock('note', (v) => (!v.alignInstalled
           ? 'Precise word timing needs the sonata-align helper (about 10 GB). Install it with align/install.sh from the Sonata source; this section notices it.'
           : v.lyricsPreciseTiming ? (v.alignStatus || 'Asking the helper…') : ''))

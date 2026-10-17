@@ -8,6 +8,7 @@
 //   'lyrics-time'    -> setTime(t, playing)  2 pushes/s; the smooth clock (lyrics-timing syncClock)
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
+//   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
 // The pure helpers (prepare, refinedLine, alignedLines, timingNote, wordState, stageNext) are tested
 // in test/lyrics-view.test.js.
 //
@@ -94,7 +95,11 @@ function alignedLines(lines, msg, key) {
 }
 
 /** The word timing note: aligned beats refined beats estimated; some lines left estimated says so. */
-function timingNote(lines, aligned, refined) {
+function timingNote(lines, aligned, refined, alignState) {
+  const base = timingNoteBase(lines, aligned, refined)
+  return alignState ? base + ' · ' + alignState : base
+}
+function timingNoteBase(lines, aligned, refined) {
   if (aligned) return lines.some((l) => l.estimated) ? 'Word timing aligned on this PC (some lines estimated)' : 'Word timing aligned on this PC'
   return refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated'
 }
@@ -198,6 +203,7 @@ function createLyricsView(opts) {
   let hyphenate = null      // the song's hyphenator, for syllables of refined/aligned words
   let refined = false       // learned or live-refined word timing in use
   let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
+  let alignState = ''       // e.g. "Precise timing paused while you play" (gaming guard, main.js)
   let notesEl = null
   let notes = []
 
@@ -254,6 +260,7 @@ function createLyricsView(opts) {
     songKey = (data.title || '') + '|' + (data.artist || '')
     refined = !!data.refined
     aligned = !!data.aligned
+    alignState = typeof data.alignState === 'string' ? data.alignState : ''
     notesEl = null
     lineEls = []
     interludes = []
@@ -345,7 +352,7 @@ function createLyricsView(opts) {
   }
 
   function showNotes() {
-    const text = notes.map((n) => n === null ? timingNote(lines, aligned, refined) : n).join(' · ')
+    const text = notes.map((n) => n === null ? timingNote(lines, aligned, refined, alignState) : n).join(' · ')
     if (!text) return
     if (!notesEl) {
       notesEl = doc.createElement('div')
@@ -366,6 +373,14 @@ function createLyricsView(opts) {
     relearn()
     if (!refined) { refined = true; if (opts.notes) showNotes() }
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
+  }
+
+  // gaming guard (main.js): the timing note says when precise timing is paused; '' clears it
+  function setAlignState(text) {
+    const t = typeof text === 'string' ? text : ''
+    if (t === alignState) return
+    alignState = t
+    if (opts.notes && notes.includes(null)) showNotes()
   }
 
   // precise word timing (Settings, experimental): main sends the aligned words when the alignment of
@@ -605,6 +620,7 @@ function createLyricsView(opts) {
     setTime,
     refine,
     align,
+    alignState: setAlignState,
     time: () => T.clockTime(clock, performance.now()),
     get playing() { return !!clock && clock.playing }
   }

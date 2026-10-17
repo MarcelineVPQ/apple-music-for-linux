@@ -10,6 +10,7 @@ const { Visualizer, RATE: VIZ_RATE } = require('./visualizer');
 const { createListenSession } = require('./listen-session')
 const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
+const gameGuardLib = require('./game-guard')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const railModel = require('./rail-model');
@@ -598,10 +599,50 @@ function getAlignSession() {
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
       send: sendLyrics,
       now: () => performance.now(),
-      log: (m) => console.log('align:', m)
+      log: (m) => console.log('align:', m),
+      paused: () => alignPaused()
     })
   }
   return alignSession
+}
+
+// Gaming guard (game-guard.js; Settings → "Pause word timing while gaming", on by default): while a
+// game runs, Precise timing records nothing, starts no job, and the helper quits after its current
+// one. The lyric views' source note and the rail say so.
+// loop: none of its own · one check per 5 s at most, from the lyrics poll, only while precise timing
+// has work (a song still to align, the helper running) or is paused (to see the game end) · cost ~5 ms in main + gdbus and
+// nvidia-smi children (~10 ms each) per check
+let gameGuard = null
+let alignNote = ''
+function alignPaused() { return !!(settings.alignGamingPause && gameGuard && gameGuard.paused) }
+function alignNoteNow() {
+  return alignPaused() && preciseTimingOn() && alignSession && alignSession.active ? gameGuardLib.pauseText(gameGuard.state) : ''
+}
+function sendAlignNote() {
+  const text = alignNoteNow()
+  if (text === alignNote) return
+  alignNote = text
+  sendLyrics('lyrics-align-state', text)
+}
+function alignGuardTick() {
+  const work = (alignSession && alignSession.active) || (alignHelper && alignHelper.running) || (gameGuard && gameGuard.paused)
+  if (!settings.alignGamingPause || !preciseTimingOn() || !work) { sendAlignNote(); return }
+  if (!gameGuard) {
+    gameGuard = gameGuardLib.createGameGuard({
+      probes: gameGuardLib.linuxProbes({
+        execFile, fs, platform: process.platform,
+        ownPids: () => app.getAppMetrics().map((m) => m.pid).concat(alignHelper && alignHelper.pid ? [alignHelper.pid] : [])
+      }),
+      log: (m) => console.log('align:', m),
+      onChange: (st) => {
+        if (st.paused && alignHelper) alignHelper.release()   // frees its graphics memory after the current job
+        sendAlignNote()
+        pushRail()
+      }
+    })
+  }
+  gameGuard.maybeCheck()
+  sendAlignNote()
 }
 
 // --- lyrics feed: one now-playing poll for every lyric view (lyrics window, visualizer overlay) ---
@@ -673,7 +714,8 @@ async function lyricsTick() {
       const session = settings.lyricsListenRefine ? getListenSession() : listenSession
       if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
     } else if (listenSession) listenSession.stop()
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned })
+    alignNote = alignNoteNow()
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -691,6 +733,7 @@ async function lyricsTick() {
   sendLyrics('lyrics-time', state.playbackTime, state.isPlaying)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())
+  alignGuardTick()
   vizAudioTick(state.isPlaying)
   refreshPalette(state)
 }
@@ -1472,7 +1515,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates']
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates']
 function setSetting(key, value) {
   if (key === 'theme') {
     if (!['system', 'light', 'dark'].includes(value)) return
@@ -1513,6 +1556,10 @@ function setSetting(key, value) {
       if (alignHelper) alignHelper.stop()           // and free the GPU now
       alignStatusText = ''
     } else askAlignStatus()
+  }
+  else if (key === 'alignGamingPause') {
+    if (!value && gameGuard) gameGuard.reset()    // off: resume now
+    sendAlignNote()
   }
   else if (key === 'lyricsAlwaysOnTop') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) {
@@ -1641,6 +1688,7 @@ let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
   if (!settings.lyricsPreciseTiming) return 'off'
   if (!alignInstalled()) return 'missing'
+  if (alignPaused()) return 'paused'
   return alignHelper && alignHelper.running ? 'busy' : 'ready'
 }
 function contentSize() {
