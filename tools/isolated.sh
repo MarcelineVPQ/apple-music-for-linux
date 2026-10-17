@@ -40,7 +40,7 @@ case "$cmd" in
     [ -x "$bin" ] || { echo "start: <sonata binary> missing or not executable: $bin" >&2; exit 2; }
     case "$(readlink -f "$bin")" in "$HOME/Downloads"/*) echo "start: never from ~/Downloads" >&2; exit 2 ;; esac
     # the private bus may have started the document portal, whose FUSE mount sits in the runtime dir
-    fusermount3 -uz "$root/run/doc" 2>/dev/null || true
+    { fusermount3 -u "$root/run/doc" || fusermount3 -uz "$root/run/doc"; } 2>/dev/null || true
     rm -rf "$root"; mkdir -p "$root/home" "$root/run"; chmod 700 "$root/run"
     bin="$(readlink -f "$bin")"
     xa=""; [ ${#extra[@]} -gt 0 ] && xa="$(printf '%q ' "${extra[@]}")"
@@ -82,7 +82,7 @@ EOF
       })().catch((e) => { console.error("stop: inspector not reachable: " + e.message); process.exit(1) })' "$insp"
     for i in $(seq 100); do systemctl --user is-active --quiet "$unit" 2>/dev/null || break; sleep 0.2; done
     if systemctl --user is-active --quiet "$unit" 2>/dev/null; then echo "stop: still running after 20 s; last resort: systemctl --user kill -s KILL $unit" >&2; exit 1; fi
-    fusermount3 -uz "$root/run/doc" 2>/dev/null || true
+    { fusermount3 -u "$root/run/doc" || fusermount3 -uz "$root/run/doc"; } 2>/dev/null || true
     tail -1 "$root/app.log" 2>/dev/null || true
     # every dump since the start (of this copy's binary, and of anything else, as a warning)
     since="$(cat "$root/started" 2>/dev/null || echo '-10min')"
