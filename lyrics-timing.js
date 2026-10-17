@@ -149,7 +149,7 @@ function hasWordTiming(lines) {
 }
 
 // How long a word takes to sing, in rough units: syllables (vowel groups; a silent final "e"
-// doesn't count), a small base per word, and a short breath after , ; : . ! ? —
+// doesn't count), a small base per word, and a short breath after , ; : . ! ? — and a lone dash
 // Scripts without Latin vowels fall back to characters / 2.
 function syllables(word) {
   const w = word.toLowerCase().replace(/[^\p{L}]/gu, '')
@@ -158,8 +158,9 @@ function syllables(word) {
   const groups = w.replace(/(?<!l)e$/, '').match(/[aeiouyà-ÿ]+/g)
   return Math.max(1, groups ? groups.length : 1)
 }
+// (a hyphen right after a letter is a hyphen-run piece, "hey-" in "hey-hey", or a cut-off word: no breath)
 function wordWeight(word) {
-  return syllables(word) + 0.35 + (/[,;:.!?…—-]$/.test(word) ? 0.6 : 0)
+  return syllables(word) + 0.35 + (/[,;:.!?…—]$|(?<!\p{L})-$/u.test(word) ? 0.6 : 0)
 }
 
 // Estimated word timing (line-only lyrics), tuned with tools/drift-check (docs/LYRIC-TIMING.md).
@@ -191,7 +192,47 @@ const TIGHT_GAP = 0.05        // s: an end this much before the next start is a 
 const LAST_HOLD = 3.0         // s the last word may hold
 const HOLD_GAP = 0.1          // s before the next line a held last word lets go
 
-function lineParts(line) { return String((line && line.text) || '').split(/\s+/).filter(Boolean) }
+// A line's words (0.15.39): split at white space and at every hyphen between two letters, the hyphen
+// staying on the piece before it: "(Hey-hey-ay-ay-ay)" -> "(Hey-", "hey-", "ay-", "ay-", "ay)". A hyphen
+// run is sung as words, so each piece gets its own time from the estimate and the aligner. The same
+// split in align-session.js (it is this function) and align/sonata_align.py split_words: the alignment
+// cache, its matching and the repeats key on these words (test/fixtures/split-words.json checks both).
+// wordGlue tells the views which pieces are written together (no space between them).
+const INNER_HYPHEN = /(?<=\p{L})-(?=\p{L})/u
+function splitWords(text) {
+  const out = []
+  // loop: NOT-WORTH — a line's words and their hyphen pieces · once per line per estimate / alignment / match
+  for (const w of String(text || '').split(/\s+/)) {
+    if (!w) continue
+    if (!INNER_HYPHEN.test(w)) { out.push(w); continue }
+    const pieces = w.split(INNER_HYPHEN)
+    pieces.forEach((p, i) => out.push(i < pieces.length - 1 ? p + '-' : p))
+  }
+  return out
+}
+
+/**
+ * Per word: true when it is written straight after the previous word in `text` (a hyphen piece, see
+ * splitWords), false when a space comes first. null when the words aren't the text's (the views then
+ * put a space between all words, as before).
+ */
+function wordGlue(text, words) {
+  const s = String(text || '')
+  if (!Array.isArray(words) || !words.length) return null
+  const out = []
+  let at = 0
+  // loop: NOT-WORTH — one line's words · once per line per track (setData)
+  for (let i = 0; i < words.length; i++) {
+    const w = String((words[i] && words[i].text) || '')
+    const k = w ? s.indexOf(w, at) : -1
+    if (k < 0) return null
+    out.push(i > 0 && k === at)
+    at = k + w.length
+  }
+  return out
+}
+
+function lineParts(line) { return splitWords(line && line.text) }
 function lineWeight(parts) { return parts.reduce((a, p) => a + wordWeight(p), 0) }
 
 // time from the line's start to its end, else to the next line's start (Infinity: none)
@@ -489,6 +530,6 @@ function clockTime(clock, nowMs) {
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime,
+  lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime,
   PACE, songPace, learnedPace, learnedOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }

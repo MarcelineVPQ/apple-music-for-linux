@@ -248,3 +248,13 @@ class ProtocolCache(unittest.TestCase):
                 p.kill()
         self.assertEqual((first['id'], first['type'], first['code']), ('f1', 'error', 'no-cache'))
         self.assertIn('song-cache', pong['features'])
+
+
+class SplitWords(unittest.TestCase):
+    def test_same_words_as_sonata(self):
+        """lyrics-timing.js splitWords gives the same words (test/fixtures/split-words.json)."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, '..', 'test', 'fixtures', 'split-words.json')) as f:
+            cases = json.load(f)['cases']
+        for text, words in cases:
+            self.assertEqual(SA.split_words(text), words, text)

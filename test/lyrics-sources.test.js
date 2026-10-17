@@ -43,6 +43,43 @@ test('pickHit: within 5 s, synced first, unknown durations allowed', () => {
   assert.equal(L.pickHit(undefined, 184), null)
 })
 
+test('isLive: "(Live)", "[Live at …]", " - Live", a live album; not "Live Forever" or "Alive"', () => {
+  assert.equal(L.isLive('So Alive (Live)'), true)
+  assert.equal(L.isLive('Slide [Live at Buffalo]'), true)
+  assert.equal(L.isLive('Iris - Live'), true)
+  assert.equal(L.isLive('Ants Marching', 'Live at the Gorge'), true)
+  assert.equal(L.isLive('Live Forever'), false)
+  assert.equal(L.isLive('So Alive', 'Dizzy Up the Girl'), false)
+  assert.equal(L.isLive('We Live in Fear'), false)
+})
+
+test('pickHit: a live cut takes a live hit; a studio-timed LRC only as plain lyrics (0.15.39)', () => {
+  const studio = { trackName: 'So Alive', albumName: 'Boy Named Goo', duration: 0, syncedLyrics: '[00:10.00] So alive\n[00:12.00] Hey', plainLyrics: 'So alive\nHey' }
+  const live = { trackName: 'So Alive (Live)', duration: 0, syncedLyrics: '[00:20.00] So alive' }
+  // both: the live one, synced
+  assert.equal(L.pickHit([studio, live], 0, 'So Alive (Live)').syncedLyrics, '[00:20.00] So alive')
+  // only the studio record: its words, not its timing
+  const p = L.pickHit([studio], 0, 'So Alive (Live)')
+  assert.equal(p.syncedLyrics, null)
+  assert.equal(p.plainLyrics, 'So alive\nHey')
+  assert.deepEqual(L.lrclibLines(p), [{ t: null, text: 'So alive' }, { t: null, text: 'Hey' }])
+  // a synced-only studio record: plain text from its lines
+  assert.equal(L.pickHit([{ trackName: 'So Alive', syncedLyrics: '[00:01.00] a\n[00:02.00] b' }], 0, 'So Alive (Live)').plainLyrics, 'a\nb')
+  // a studio cut prefers the studio record over a live one listed first
+  assert.equal(L.pickHit([live, studio], 0, 'So Alive').trackName, 'So Alive')
+  // a live album counts as live on both sides
+  assert.equal(L.pickHit([studio, Object.assign({}, live, { trackName: 'So Alive', albumName: 'Live in Buffalo' })], 0, 'So Alive', 'Live in Buffalo').syncedLyrics, '[00:20.00] So alive')
+  // the length still comes first: a live hit 30 s off is not taken
+  assert.equal(L.pickHit([Object.assign({}, live, { duration: 300 })], 270, 'So Alive (Live)'), null)
+})
+
+test('fetchLrclib: search passes the title, so a live cut gets the live record', async () => {
+  const fetch = async (url) => url.includes('/api/get-cached')
+    ? res(404, {})
+    : res(200, [{ trackName: 'Home', duration: 200, syncedLyrics: '[00:01.00] studio' }, { trackName: 'Home (Live)', duration: 203, syncedLyrics: '[00:05.00] live' }])
+  assert.deepEqual(await L.fetchLrclib({ title: 'Home (Live)', artist: 'A', duration: 202 }, { fetch }), [{ t: 5, text: 'live' }])
+})
+
 test('fetchLrclib: exact match used; query carries cleaned album and rounded duration', async () => {
   const urls = []
   const fetch = async (url, opts) => {

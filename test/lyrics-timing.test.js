@@ -332,3 +332,30 @@ test('syllables: vowel groups, silent final e, minimum one', () => {
 test('wordWeight: punctuation adds a short breath', () => {
   assert.ok(T.wordWeight('young,') > T.wordWeight('young'))
 })
+
+// --- hyphen runs as words (0.15.39) ---
+const SPLIT = require('./fixtures/split-words.json')
+
+test('splitWords: white space and hyphen runs, the same cases as align/sonata_align.py split_words', () => {
+  for (const [text, words] of SPLIT.cases) assert.deepEqual(T.splitWords(text), words, text)
+})
+
+test('wordGlue: hyphen pieces are written together, other words with a space; null for foreign words', () => {
+  const text = 'So (Hey-hey-ay) now'
+  const words = T.splitWords(text).map((w) => ({ text: w }))
+  assert.deepEqual(T.wordGlue(text, words), [false, false, true, true, false])
+  assert.deepEqual(T.wordGlue('gonna- go', T.splitWords('gonna- go').map((w) => ({ text: w }))), [false, false])
+  assert.equal(T.wordGlue('a b', [{ text: 'x' }]), null)
+  assert.equal(T.wordGlue('a b', []), null)
+})
+
+test('estimateWords: a hyphen run is timed as words, without a breath after each piece', () => {
+  const [line] = T.estimateWords([{ t: 10, text: '(Hey-hey-ay-ay-ay)' }, { t: 30, text: 'next' }])
+  assert.deepEqual(line.words.map((w) => w.text), ['(Hey-', 'hey-', 'ay-', 'ay-', 'ay)'])
+  // five vocables of one syllable each: equal shares, back to back, at the song's pace
+  const d = line.words.slice(0, 4).map((w) => w.end - w.t)
+  assert.ok(d.every((x) => Math.abs(x - d[0]) < 1e-9), d.join(' '))
+  for (let k = 1; k < 5; k++) assert.equal(line.words[k].t, line.words[k - 1].end)
+  assert.equal(T.wordWeight('hey-'), T.wordWeight('hey'))
+  assert.equal(T.wordWeight('-'), T.wordWeight('x') + 0.6)
+})

@@ -9,6 +9,7 @@
 'use strict'
 const T = require('../../lyrics-timing')
 const V = require('../../lyrics-view')
+const SYL = require('../../lyrics-syllables')
 
 const FRAME = 0.05   // s between sampled frames (20 fps is finer than any word)
 
@@ -32,6 +33,79 @@ function estimateV0(lines) {
     })
     return Object.assign({}, line, { words, estimated: true })
   })
+}
+
+// --- hyphen runs (0.15.39) ---
+// The views and the aligner split a hyphen run into words ("Hey-", "hey-", "ay"); the truth (the
+// hand annotations, and aligned entries before version 3) has white-space words. Both are scored per
+// white-space word: a run's pieces count as one word from the first piece's start to the last's end.
+const spaceWords = (text) => String(text || '').split(/\s+/).filter(Boolean)
+
+/** A line's words at white-space granularity (the same array when they already are), or null. */
+function toSpaceWords(text, words) {
+  if (!Array.isArray(words)) return null
+  const n = spaceWords(text).length
+  if (words.length === n) return words
+  const glue = T.wordGlue(text, words)
+  if (!glue || words.length !== T.splitWords(text).length) return null
+  const out = []
+  words.forEach((w, k) => {
+    if (k && glue[k]) {
+      const prev = out[out.length - 1]
+      const merged = Object.assign({}, prev, { end: w.end, text: prev.text + w.text })
+      delete merged.held; delete merged.holdFrom
+      if (w.held) merged.held = true
+      if (w.holdFrom != null) merged.holdFrom = w.holdFrom
+      out[out.length - 1] = merged
+    } else out.push(Object.assign({}, w))
+  })
+  return out.length === n ? out : null
+}
+
+/**
+ * The other way (for the aligned methods): white-space words -> the words the app's aligner gives
+ * since version 3, a hyphen run's time spread over its pieces (lyrics-syllables spread). The truth is
+ * scored per white-space word, so only repeats and the frame check see the pieces.
+ */
+function toPieces(text, words) {
+  const pieces = T.splitWords(text)
+  if (!Array.isArray(words) || words.length === pieces.length) return words
+  if (words.length !== spaceWords(text).length) return words
+  const out = []
+  words.forEach((w) => {
+    const parts = T.splitWords(w.text)
+    if (parts.length < 2) { out.push(w); return }
+    const syl = SYL.spread(w.t, w.end, parts)
+    syl.forEach((y, k) => {
+      const p = { t: y.t, end: y.end, text: y.text }
+      if (k === syl.length - 1 && w.held) p.held = true
+      out.push(p)
+    })
+  })
+  return out.length === pieces.length ? out : words
+}
+
+/** Method output with every line's words at white-space granularity (lines it can't map keep theirs). */
+function spaceLines(lines) {
+  let changed = false
+  const out = (lines || []).map((line) => {
+    if (!line || !line.words || !line.words.length) return line
+    const words = toSpaceWords(line.text, line.words)
+    if (!words || words === line.words) return line
+    changed = true
+    return Object.assign({}, line, { words })
+  })
+  return changed ? out : lines
+}
+
+// --- short vocable lines (0.15.39, docs/LYRIC-TIMING.md "Rejected lines") ---
+// Lines made only of vocables ("Oh, oh", "(Hey-hey-ay-ay-ay)", "Na na na"), at most `max` words: the
+// lines the aligner rejects most (wav2vec2 was trained on speech). The benches try keeping them from a
+// lower confidence than the helper's min_conf (--vocable-conf, section-bench --vocable).
+const VOCABLE = /^(?:o+h*|a+h*|u+h*|e+h*|h?m+|he+y+|hey(?:ey)+|a+y+|e+y+|yea+h*|ye+a*h+|wh?oa+h*|wo+h*|w?oo+h*|uh+|huh|(la|na|da|ha|ba|di|du|doo|sha|yo|ho|wo)\1*h*)$/
+function vocableLine(text, max = 8) {
+  const ws = T.splitWords(text).map((w) => w.toLowerCase().replace(/[^\p{L}]/gu, '')).filter(Boolean)
+  return ws.length > 0 && ws.length <= max && ws.every((w) => VOCABLE.test(w))
 }
 
 // --- statistics ---
@@ -200,6 +274,7 @@ function heldNotes(lines, truth, opts = {}) {
 
 /** One song through one method -> { starts: startErrors, frames: frameCheck, held: heldNotes } */
 function evaluate(song, lines) {
+  lines = spaceLines(lines)
   return { starts: startErrors(lines, song.truth, song.raw), frames: frameCheck(lines, song.truth), held: heldNotes(lines, song.truth) }
 }
 
@@ -237,4 +312,4 @@ function summarize(c) {
   }
 }
 
-module.exports = { FRAME, HELD_MIN, EARLY, heldNotes, estimateV0, stats, slope, verses, startErrors, highlightAt, frameCheck, evaluate, combine, summarize, quantile }
+module.exports = { vocableLine, toSpaceWords, toPieces, spaceLines, FRAME, HELD_MIN, EARLY, heldNotes, estimateV0, stats, slope, verses, startErrors, highlightAt, frameCheck, evaluate, combine, summarize, quantile }

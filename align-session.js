@@ -29,8 +29,11 @@ const GAP_TOLERANCE = 0.25     // s; a bigger jump between chunks is a seek: sta
 const TAIL_PAD = 3             // s of audio after the last line's end sent along
 const STREAM_CHUNK = 256 * 1024  // PCM bytes per `chunk` message (base64 ≈ 342 KB per line)
 // 2 (0.15.34): word ends follow held notes (sonata_align extend_holds) and carry held / holdFrom;
-// version-1 entries are aligned again the next time their song plays with a lyric view open
-const ENTRY_VERSION = 2
+// version-1 entries are aligned again the next time their song plays with a lyric view open.
+// 3 (0.15.39): hyphen runs are words (splitWords). A version-2 entry is still used for lyrics without a
+// hyphen run (its words are the same), so only the songs whose words changed are aligned again.
+const ENTRY_VERSION = 3
+const SAME_WORDS_SINCE = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
 const FRAME = 0.02             // the aligner's frame hop: section slices start on it, so the helper can stitch
@@ -38,7 +41,9 @@ const FRAME = 0.02             // the aligner's frame hop: section slices start 
 
 function alignedKey(title, artist) { return 'aligned|' + title + '|' + artist }
 
-function splitWords(text) { return String(text || '').split(/\s+/).filter(Boolean) }
+// a line's words: white space and hyphen runs ("Hey-", "hey-", "ay"), the same split as the estimate
+// (lyrics-timing.js) and the helper (align/sonata_align.py split_words)
+const splitWords = T.splitWords
 
 /** FNV-1a 32 over the lyric texts: the cache entry is only used for the same lyrics. */
 function lyricsHash(lines) {
@@ -67,9 +72,16 @@ function lyricSpan(lines) {
   return { start: synced[0].t, end: Math.max(T.lineEnd(last, undefined), last.t + 0.6 * splitWords(last.text).length + 3) }
 }
 
-/** A stored entry that fits these lyrics, or null. */
-function validEntry(entry, hash) {
-  return entry && entry.version === ENTRY_VERSION && entry.lyricsHash === hash ? entry : null
+// lyrics whose words are the same under the version-2 split (white space only)
+function noHyphenRuns(lines) {
+  return (lines || []).every((l) => splitWords(l && l.text).length === String((l && l.text) || '').split(/\s+/).filter(Boolean).length)
+}
+
+/** A stored entry that fits these lyrics (raw: the lyric lines, for a version-2 entry), or null. */
+function validEntry(entry, hash, raw) {
+  if (!entry || entry.lyricsHash !== hash) return null
+  if (entry.version === ENTRY_VERSION) return entry
+  return entry.version === SAME_WORDS_SINCE && raw && noHyphenRuns(raw) ? entry : null
 }
 
 /**
@@ -102,7 +114,7 @@ function prepareLines(raw, opts = {}) {
   const lines = raw || []
   if (T.hasWordTiming(lines)) return { lines, wordSynced: true, aligned: false }
   const base = opts.estimate ? T.estimateWords(lines) : lines
-  const entry = opts.entry ? validEntry(opts.entry, lyricsHash(lines)) : null
+  const entry = opts.entry ? validEntry(opts.entry, lyricsHash(lines), lines) : null
   if (!entry || !entry.lines) return { lines: base, wordSynced: false, aligned: false }
   const got = applyAligned(base, entry)
   return { lines: got.lines, wordSynced: false, aligned: got.used }
@@ -225,20 +237,29 @@ function * alignMessages(id, raw, pcm, opts = {}) {
 }
 
 /**
- * The cache entry from a helper result. Only lines the helper aligned, whose words match the
- * lyrics, that were fully heard, and whose times make sense. -> entry (lines may be empty)
+ * The cache entry from a helper result. Only lines the helper aligned, whose words match the lyrics,
+ * that were fully heard, and whose times make sense. -> entry (lines may be empty), with `rejected`:
+ * [{ line, confidence }] for the heard lines the helper didn't trust (under its min_conf; logged, and not
+ * tried again on a later play: the same audio gives the same verdict). Keeping short vocable lines
+ * ("Hey-hey-ay", "whoa oh oh") from a lower confidence was measured and not taken (docs/LYRIC-TIMING.md
+ * "Rejected lines").
  */
 function entryFromResult(result, raw, heard, meta = {}) {
   const lines = {}
+  const rejected = []
   let n = 0
   // loop: NOT-WORTH — the helper's lines (tens), once per alignment result
   for (const r of (result && result.lines) || []) {
     const i = r && r.line
     const line = raw[i]
-    if (!line || !r.aligned || !Array.isArray(r.words)) continue
+    if (!line || !Array.isArray(r.words)) continue
+    if (heard && !heard(line, raw[i + 1])) continue
+    if (!r.aligned) {
+      if (splitWords(line.text).length) rejected.push({ line: i, confidence: Number(r.confidence) || 0 })
+      continue
+    }
     const parts = splitWords(line.text)
     if (r.words.length !== parts.length || r.words.some((w, k) => w.text !== parts[k])) continue
-    if (heard && !heard(line, raw[i + 1])) continue
     let prev = -Infinity
     let ok = true
     const words = r.words.map((w) => {
@@ -264,8 +285,16 @@ function entryFromResult(result, raw, heard, meta = {}) {
     duration: meta.duration || 0,
     aligned: n,
     total: raw.filter((l) => splitWords(l.text).length).length,
-    lines
+    lines,
+    rejected
   }
+}
+
+/** The log text for a result's rejected lines: ' · rejected: line 12 (0.14) "Hey-hey…", …' ('' for none). */
+function rejectedNote(rejected, raw) {
+  if (!rejected || !rejected.length) return ''
+  const text = (i) => { const t = String((raw[i] && raw[i].text) || ''); return t.length > 40 ? t.slice(0, 39) + '…' : t }
+  return ' · rejected: ' + rejected.map((r) => 'line ' + (r.line + 1) + ' (' + r.confidence.toFixed(2) + ') "' + text(r.line) + '"').join(', ')
 }
 
 // --- progressive sections ---
@@ -346,17 +375,61 @@ function sectionResult(result, sec, offset) {
   return Object.assign({}, result, { lines })
 }
 
-/** prev entry + one section's entry -> the merged entry (new object). */
-function mergeEntry(prev, add, sec, total) {
-  const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
+// Gaps (0.15.39): a line can be left out of a job that covered it because part of it wasn't heard (a
+// seek inside a section, a pause the recording missed). Such lines are `missed` in the entry and their
+// section is aligned again on a later play (at most MAX_FILLS plays, so a line that is never fully
+// heard, like a last line whose guessed end runs past the song, can't cost GPU time on every play).
+// Lines the helper heard but didn't trust are `rejected` ([{ line, confidence }]) and not tried again:
+// the same audio gives the same verdict (a new ENTRY_VERSION or rule tries them all again).
+const MAX_FILLS = 2
+
+/** The line indexes from..to that have words (the lines a job over them can align). */
+function wordLines(raw, from, to) {
+  const out = []
+  // loop: NOT-WORTH — one section's lines (≤ ~10) or the song's, once per alignment result
+  for (let i = from; i <= to; i++) if (raw[i] && raw[i].t != null && splitWords(raw[i].text).length) out.push(i)
+  return out
+}
+
+// missed / rejected after a job that covered the line indexes `covered`, given the merged lines
+function gapsAfter(prev, add, covered, lines) {
+  const rejected = new Map()
+  // loop: NOT-WORTH — the song's rejected and missed lines (a handful), once per alignment result
+  for (const r of [...((prev && prev.rejected) || []), ...(add.rejected || [])]) rejected.set(r.line, r)
+  const missed = new Set([...((prev && prev.missed) || []), ...covered])
+  for (const k of Object.keys(lines)) { rejected.delete(+k); missed.delete(+k) }
+  for (const i of rejected.keys()) missed.delete(i)
+  return { rejected: [...rejected.values()].sort((a, b) => a.line - b.line), missed: [...missed].sort((a, b) => a - b) }
+}
+
+/**
+ * prev entry + one section's entry -> the merged entry (new object). Lines aligned before keep their
+ * words (on a later play they may be the whole-song pass's); raw (the lyric lines) tracks the gaps.
+ */
+function mergeEntry(prev, add, sec, total, raw) {
+  const lines = Object.assign({}, add.lines, (prev && prev.lines) || {})
   const done = [...new Set([...((prev && prev.done) || []), sec.from])].sort((a, b) => a - b)
-  return Object.assign({}, add, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total })
+  const gaps = raw ? gapsAfter(prev, add, wordLines(raw, sec.from, sec.to), lines) : {}
+  return Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total, whole: !!(prev && prev.whole) })
 }
 
 /** prev entry (sections) + the whole-song pass -> the complete entry: whole-song words win. */
-function mergeWhole(prev, add, secs) {
+function mergeWhole(prev, add, secs, raw) {
   const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
-  return Object.assign({}, add, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false })
+  const gaps = raw ? gapsAfter(prev, add, wordLines(raw, 0, raw.length - 1), lines) : {}
+  return Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
+}
+
+/** The sections a later play aligns again for an entry's missed lines (none once MAX_FILLS plays tried). */
+function refillSections(entry, secs) {
+  if (!entry || !Array.isArray(entry.missed) || !entry.missed.length || (entry.fills || 0) >= MAX_FILLS) return []
+  const missed = new Set(entry.missed)
+  return secs.filter((sec) => (entry.done || []).includes(sec.from) && missedIn(missed, sec))
+}
+function missedIn(missed, sec) {
+  // loop: NOT-WORTH — one section's line range (≤ ~10), per section once per play
+  for (let i = sec.from; i <= sec.to; i++) if (missed.has(i)) return true
+  return false
 }
 
 // --- the session ---
@@ -392,6 +465,8 @@ function createAlignSession(deps) {
     // chunks follow each other: keep them back to back so the audio stays intact; a jump is a seek
     if (expectNext != null && Math.abs(t0 - expectNext) <= GAP_TOLERANCE) t0 = expectNext
     expectNext = t0 + mid.length / rate
+    // a play that only fills gaps records only the spans of the sections it aligns
+    if (song.need && !song.need.some((sp) => t0 + mid.length / rate >= sp[0] && t0 <= sp[1])) return
     song.buf.write(t0, mid, side)
   }
 
@@ -471,9 +546,10 @@ function createAlignSession(deps) {
           pcm = null
           if (sec && result && result.stats && result.stats.kept) s.kept.add(sec.from)
           const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
-          s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount) : mergeWhole(s.entry, add, s.secs)
+          s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
+          if (s.fills) s.entry.fills = s.fills
           deps.store.set(alignedKey(s.title, s.artist), s.entry)
-          log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+          log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
           if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           return s.entry
         })
@@ -508,7 +584,8 @@ function createAlignSession(deps) {
       job = submit(s, sec)
     }
     if (s.next < s.secs.length && !final) return job
-    if (s.secs.length > 1 && s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE) job = submit(s, null)
+    // (not again on a play that only fills gaps of an entry that had its whole-song pass)
+    if (!s.wholeDone && s.secs.length > 1 && s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE) job = submit(s, null)
     wrapUp(s)
     return job
   }
@@ -527,7 +604,7 @@ function createAlignSession(deps) {
   return {
     /** The cached entry for these lyrics, if any (to apply before rendering). */
     entryFor(title, artist, raw) {
-      return validEntry(deps.store.get(alignedKey(title, artist)), lyricsHash(raw))
+      return validEntry(deps.store.get(alignedKey(title, artist)), lyricsHash(raw), raw)
     },
     /**
      * New lyrics on screen. Sections of the previous song still due are aligned if heard (track
@@ -538,12 +615,19 @@ function createAlignSession(deps) {
       finish(true)
       if (!enabled || !canAlign(raw)) return
       const hash = lyricsHash(raw)
-      const have = validEntry(deps.store.get(alignedKey(title, artist)), hash)
-      if (have && !have.partial) return
+      const have = validEntry(deps.store.get(alignedKey(title, artist)), hash, raw)
       const secs = sections(raw)
-      const skip = new Set(have && have.partial ? have.done || [] : [])
+      // a complete entry with missed lines (0.15.39): their sections once more, on at most MAX_FILLS plays
+      const refill = refillSections(have, secs)
+      if (have && !have.partial && !refill.length) return
+      const skip = new Set(have ? (have.done || []).filter((from) => !refill.some((sec) => sec.from === from)) : [])
       if (!secs.some((sec) => !skip.has(sec.from))) return
-      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false }
+      const fills = refill.length ? (have.fills || 0) + 1 : (have && have.fills) || 0
+      const wholeDone = !!(have && have.whole)
+      // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
+      const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
+      if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
+      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
@@ -574,5 +658,6 @@ function createAlignSession(deps) {
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
   alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
-  createSongBuffer, requestLines, alignMessages, entryFromResult, createAlignSession
+  MAX_FILLS, refillSections,
+  createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

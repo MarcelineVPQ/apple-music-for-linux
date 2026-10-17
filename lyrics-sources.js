@@ -252,11 +252,32 @@ function cleanAlbum(album) {
   return String(album || '').replace(/ - (EP|Single)$/i, '').trim()
 }
 
-// Best search hit: close in length (±5 s when both are known), synced first.
-function pickHit(hits, duration) {
+// A live recording's marker in a title or album: "(Live)", "[Live at …]", " - Live", an album "Live at the
+// Gorge" or "Live" (not a title like "Live Forever" or "We Live in Fear").
+const LIVE = /[([]\s*live\b|\s[-–—]\s*live\b|^live(?:\s+(?:at|in|from|on)\b|\s*$)/i
+function isLive(title, album) { return LIVE.test(String(title || '')) || LIVE.test(String(album || '')) }
+
+// a synced hit's lines as plain text (its timing is for another recording)
+function asPlain(hit) {
+  const text = hit.plainLyrics || parseLrc(hit.syncedLyrics || '').map((l) => l.text).filter(Boolean).join('\n')
+  return text ? Object.assign({}, hit, { syncedLyrics: null, plainLyrics: text }) : null
+}
+
+/**
+ * Best search hit: close in length (±5 s when both are known), then (with the song's `title`/`album`)
+ * the same recording: a live cut takes a hit marked live, a studio cut one that isn't (0.15.39). Synced
+ * lyrics only from a hit of the same kind: a live cut gets plain lyrics rather than a synced LRC timed
+ * for the studio version (and the other way round), since those stamps would be off all song long.
+ */
+function pickHit(hits, duration, title, album) {
   const list = Array.isArray(hits) ? hits : []
-  const near = list.filter((h) => !duration || !h.duration || Math.abs(h.duration - duration) <= 5)
-  return near.find((h) => h.syncedLyrics) || near.find((h) => h.plainLyrics) || null
+  const near = list.filter((h) => h && (!duration || !h.duration || Math.abs(h.duration - duration) <= 5))
+  if (title == null) return near.find((h) => h.syncedLyrics) || near.find((h) => h.plainLyrics) || null
+  const live = isLive(title, album)
+  const same = near.filter((h) => isLive(h.trackName || h.name, h.albumName) === live)
+  const other = near.filter((h) => !same.includes(h))
+  const plain = other.find((h) => h.plainLyrics) || other.find((h) => h.syncedLyrics)
+  return same.find((h) => h.syncedLyrics) || same.find((h) => h.plainLyrics) || (plain ? asPlain(plain) : null)
 }
 
 /**
@@ -286,7 +307,7 @@ async function fetchLrclib(state, deps) {
   } catch (e) { /* error: NOT-WORTH — falls through to search, whose failure throws to the caller */ }
   if (!lines.length) {
     const s = new URLSearchParams({ track_name: state.title, artist_name: state.artist || '' })
-    lines = lrclibLines(pickHit(await get(base + '/api/search?' + s), state.duration))
+    lines = lrclibLines(pickHit(await get(base + '/api/search?' + s), state.duration, state.title || '', state.album))
   }
   return lines
 }
@@ -379,4 +400,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }

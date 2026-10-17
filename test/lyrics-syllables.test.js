@@ -79,7 +79,7 @@ test('hyphens inside a word are syllable boundaries (0.15.35): brackets stay on 
   assert.equal(S.splitWord('(Hey-hey)', null), null)
 })
 
-test('a hyphen run is still ONE word: same t/end/text, its syllables pop in turn (estimated and timed)', () => {
+test('a timed hyphen run (one Apple word) keeps its syllables: same t/end/text, they pop in turn', () => {
   const words = [{ t: 10, end: 12.5, text: '(Hey-hey-ay-ay-ay)' }]
   const out = S.withSyllables(words, en)
   assert.equal(out.length, 1)
@@ -97,10 +97,19 @@ test('a hyphen run is still ONE word: same t/end/text, its syllables pop in turn
     if (seen[seen.length - 1] !== st.syl) seen.push(st.syl)
   }
   assert.deepEqual(seen, [0, 1, 2, 3, 4])
-  // a line-only "(Hey-hey-ay-ay-ay)" line, estimated: one word, five syllables
+})
+
+test('a line-only hyphen run is five words (0.15.39): each piece is timed and pops in turn', () => {
   const p = V.prepare({ lines: [{ t: 37.5, end: 40.4, text: '(Hey-hey-ay-ay-ay)' }, { t: 40.5, text: 'next' }], estimate: true, lang: 'en' })
-  assert.equal(p.lines[0].words.length, 1)
-  assert.equal(p.lines[0].words[0].syl.length, 5)
+  const ws = p.lines[0].words
+  assert.deepEqual(ws.map((w) => w.text), ['(Hey-', 'hey-', 'ay-', 'ay-', 'ay)'])
+  assert.ok(ws.every((w) => !w.syl), 'short pieces stay whole')
+  const seen = []
+  for (let t = 37.51; t < ws[4].end - V.WORD_LEAD; t += 0.05) {
+    const st = V.wordState(ws, t)
+    if (st.now >= 0 && seen[seen.length - 1] !== st.now) seen.push(st.now)
+  }
+  assert.deepEqual(seen, [0, 1, 2, 3, 4])
 })
 
 test('Romanian and Indonesian ship no patterns (no licence to ship them): their words stay whole', () => {

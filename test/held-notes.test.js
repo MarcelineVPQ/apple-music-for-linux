@@ -9,7 +9,7 @@ const S = require('../lyrics-syllables')
 const RAW = [{ t: 74.7, end: 81.47, text: 'Come take me home' }, { t: 81.08, end: 84, text: 'Oh I need you now' }, { t: 90, text: 'Later' }]
 
 test('aligned entries carry the aligner\'s holds (held, holdFrom); old entries are aligned again', () => {
-  assert.equal(A.ENTRY_VERSION, 2)
+  assert.equal(A.ENTRY_VERSION, 3)
   const result = { lines: [{ line: 0, aligned: true, words: [
     { t: 74.79, end: 75.01, text: 'Come' }, { t: 75.07, end: 75.27, text: 'take' }, { t: 75.31, end: 75.41, text: 'me' },
     { t: 75.57, end: 80.95, text: 'home', held: true, hold_from: 75.91 }] }] }

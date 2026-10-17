@@ -611,3 +611,115 @@ test('session: gaming guard: a queued job not started yet is skipped (one log li
   assert.equal(env.calls.length, 1)
   assert.ok(env.logs.some((l) => /paused while gaming/.test(l)))
 })
+
+// --- rejected lines and gaps (0.15.39) ---
+
+test('entryFromResult: lines the helper heard but rejected are listed with their confidence and logged', () => {
+  const result = { lines: [
+    { line: 0, aligned: false, confidence: 0.12, words: [{ t: 10, end: 10.3, text: 'first' }, { t: 10.4, end: 10.7, text: 'verse' }, { t: 10.8, end: 11, text: 'one' }] },
+    { line: 1, aligned: true, confidence: 0.5, words: [{ t: 13, end: 13.3, text: 'first' }, { t: 13.4, end: 13.7, text: 'verse' }, { t: 13.8, end: 14, text: 'two' }] }
+  ] }
+  const e = A.entryFromResult(result, VERSES, null)
+  assert.deepEqual(Object.keys(e.lines), ['1'])
+  assert.deepEqual(e.rejected, [{ line: 0, confidence: 0.12 }])
+  assert.equal(A.rejectedNote(e.rejected, VERSES), ' · rejected: line 1 (0.12) "first verse one"')
+  assert.equal(A.rejectedNote([], VERSES), '')
+})
+
+// plays the song with the half second from `gapAt` not heard (a seek inside the first verse's first
+// line: its section is still 90 % heard, the line isn't)
+function playWithGap(env, gapAt, to) {
+  play(env, 0, gapAt)
+  return play(env, gapAt + 0.5, to)
+}
+
+test('session: a line missed inside a heard section is aligned on a later play; only its section, recorded alone', async () => {
+  const env = setup(echoHelper)
+  const secs = A.sections(VERSES)
+  const end = A.lyricSpan(VERSES).end + 4
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  await playWithGap(env, 11, end)
+  await env.s.stop(true)
+  const e1 = env.store.get('aligned|Song|Artist')
+  assert.equal(e1.whole, true)
+  assert.equal(e1.partial, false)
+  assert.deepEqual(Object.keys(e1.lines), ['1', '2', '3'])
+  assert.deepEqual(e1.missed, [0])
+  const calls = env.calls.length
+  // the next play: the first verse again (only it is recorded), no whole-song pass
+  env.s.setLyrics('x|y', 'x', 'y', [], true)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  assert.match(env.logs[env.logs.length - 1], /filling 1 missed line/)
+  const job = play(env, 0, 25)
+  assert.ok(job, 'the first verse is aligned again')
+  play(env, 25, 40)
+  // only the first verse's span (with its margins) was recorded: blocks 0–2 of 10 s, not the second verse
+  assert.ok(env.s.bufferBytes > 0 && env.s.bufferBytes <= 3 * 10 * 22050 * 4, String(env.s.bufferBytes))
+  play(env, 40, end)
+  await job
+  await env.s.stop(true)
+  const e2 = env.store.get('aligned|Song|Artist')
+  assert.equal(env.calls.length, calls + 1)
+  assert.deepEqual(env.calls[calls][0].lines.map((l) => l.text), ['first verse one', 'first verse two'])
+  assert.deepEqual(Object.keys(e2.lines), ['0', '1', '2', '3'])
+  assert.deepEqual(e2.missed, [])
+  assert.equal(e2.fills, 1)
+  assert.equal(e2.whole, true)
+  // lines aligned before keep their words (the whole-song pass's)
+  assert.deepEqual(e2.lines[2], e1.lines[2])
+  // complete: not recorded again
+  env.s.setLyrics('x|y', 'x', 'y', [], true)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const before = env.listeners.length
+  play(env, 0, 3)
+  assert.equal(env.listeners.length, before)
+  assert.ok(secs.length === 2)
+})
+
+test('session: a line never heard is tried on at most MAX_FILLS later plays; rejected lines never again', async () => {
+  const env = setup(echoHelper)
+  const end = A.lyricSpan(VERSES).end + 4
+  const again = async () => {
+    env.s.setLyrics('x|y', 'x', 'y', [], true)
+    env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+    const before = env.listeners.length
+    await playWithGap(env, 11, end)
+    await env.s.stop(true)
+    return env.listeners.length > before
+  }
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  await playWithGap(env, 11, end)
+  await env.s.stop(true)
+  assert.equal(await again(), true)
+  assert.equal(await again(), true)
+  assert.equal(env.store.get('aligned|Song|Artist').fills, A.MAX_FILLS)
+  assert.equal(await again(), false)
+  assert.deepEqual(env.store.get('aligned|Song|Artist').missed, [0])
+  // a rejected line is not missed: nothing to fill
+  const rej = setup((id, msgs) => {
+    const r = echoHelper(id, msgs)
+    r.lines[0] = Object.assign({}, r.lines[0], { aligned: false, confidence: 0.1 })
+    return r
+  })
+  rej.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  await play(rej, 0, end)
+  await rej.s.stop(true)
+  const e = rej.store.get('aligned|Song|Artist')
+  assert.deepEqual(e.missed, [])
+  assert.deepEqual(e.rejected.map((r) => r.line), [0])
+  assert.ok(rej.logs.some((m) => /rejected: line 1 \(0\.10\) "first verse one"/.test(m)), rej.logs.join('\n'))
+  rej.s.setLyrics('x|y', 'x', 'y', [], true)
+  rej.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const before = rej.listeners.length
+  play(rej, 0, 3)
+  assert.equal(rej.listeners.length, before)
+})
+
+test('validEntry: a version-2 entry still serves lyrics without hyphen runs; with one it is aligned again', () => {
+  const v2 = Object.assign(entry(), { version: 2 })
+  assert.equal(A.prepareLines(RAW, { estimate: true, entry: v2 }).aligned, true)
+  const hy = [{ t: 10, text: 'Hey-hey there world' }, RAW[1], RAW[2]]
+  const v2h = { version: 2, lyricsHash: A.lyricsHash(hy), lines: { 2: { text: 'last one', words: ALIGNED_WORDS[2] } } }
+  assert.equal(A.prepareLines(hy, { estimate: true, entry: v2h }).aligned, false)
+  assert.equal(A.prepareLines(hy, { estimate: true, entry: Object.assign({}, v2h, { version: A.ENTRY_VERSION }) }).aligned, true)
+})

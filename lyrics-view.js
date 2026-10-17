@@ -230,11 +230,13 @@ function createLyricsView(opts) {
   // a word: its regular text (.r) and, stacked on it, the bold copy the sung word shows (.b): the
   // switch is a visibility change, so a word change never lays the line out (lyrics-view.css). With
   // syllables, the bold copy holds them side by side (no spaces) in one row; only it pops them.
-  function wordSpans(parent, words) {
+  // text: the line's text, so the pieces of a hyphen run ("Hey-", "hey-", "ay") are written together
+  function wordSpans(parent, words, text) {
     const spans = []
+    const glue = text != null ? T.wordGlue(text, words) : null
     // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
     words.forEach((w, i) => {
-      if (i) parent.appendChild(doc.createTextNode(' '))
+      if (i && !(glue && glue[i])) parent.appendChild(doc.createTextNode(' '))
       const span = doc.createElement('span')
       span.className = 'w'
       span.dataset.text = w.text
@@ -328,7 +330,7 @@ function createLyricsView(opts) {
       const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null }
       if (line.words && line.words.length) {
         const main = doc.createElement('div')
-        entry.words = wordSpans(main, line.words)
+        entry.words = wordSpans(main, line.words, line.text)
         ly.appendChild(main)
       }
       else ly.textContent = line.text

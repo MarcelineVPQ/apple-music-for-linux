@@ -14,6 +14,7 @@
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
+const L = require('./lib')
 
 const words = (text) => String(text || '').split(/\s+/).filter(Boolean)
 
@@ -28,7 +29,9 @@ function fromCache(file) {
     const truth = {}
     for (const [i, a] of Object.entries(entry.lines)) {
       const line = raw.lines[i]
-      if (line && a.text === line.text && a.words.length === words(line.text).length) truth[i] = a.words
+      // version 3 splits hyphen runs into words: scored per white-space word (lib.js toSpaceWords)
+      const w = line && a.text === line.text ? L.toSpaceWords(line.text, a.words) : null
+      if (w) truth[i] = w
     }
     songs.push({ name: key.slice('aligned|'.length), source: 'cache:' + (raw.source || ''), raw: raw.lines.map((l) => ({ t: l.t, end: l.end, text: l.text })), truth })
   }
@@ -87,7 +90,10 @@ function fromJamendo(dir, opts = {}) {
       const a = aligned.get(row.Filepath)
       song.aligned = {}
       for (const [i, r] of Object.entries(a)) {
-        if (!(r.conf >= 0.2) || !truth[i] || r.err.length !== truth[i].length) continue
+        // the helper's min_conf (0.2); opts.vocableConf (+ vocableMax words) also keeps short vocable lines
+        // from that confidence (lib.js vocableLine: measured, not taken)
+        const ok = r.conf >= 0.2 || (opts.vocableConf != null && r.conf >= opts.vocableConf && L.vocableLine(ls[i] && ls[i].text, opts.vocableMax))
+        if (!ok || !truth[i] || r.err.length !== truth[i].length) continue
         // bench.py stores aligned − annotated starts, and (since 0.15.34) the aligner's own word ends
         // and holds; older result files have no ends: they follow the next word
         const starts = r.err.map((e, j) => truth[i][j].t + e)

@@ -21,10 +21,13 @@ const L = require('./lib')
 const HELPER_DELAY = 8   // s from a section's audio being complete to its words reaching the view (GPU ~1–7 s + IPC)
 
 /** The aligner's words per line for a song (cache: the truth itself, which IS the aligner's output). */
+// (as the app's aligner gives them since version 3: hyphen runs as words, see lib.js toPieces)
 function alignedOf(song) {
-  if (song.aligned) return song.aligned
-  if (song.source.startsWith('cache')) return song.truth
-  return null
+  const a = song.aligned || (song.source.startsWith('cache') ? song.truth : null)
+  if (!a) return null
+  const out = {}
+  for (const [i, w] of Object.entries(a)) out[i] = L.toPieces(song.raw[i].text, w)
+  return out
 }
 
 /** Level 1 refine of every estimated line, as listen-session.js processDue does it after the line. */

@@ -15,6 +15,7 @@ Everything heavy is lazy: torch / demucs / torchaudio are imported on first use 
 import json
 import math
 import os
+import re
 import sys
 import time
 import unicodedata
@@ -274,8 +275,20 @@ def normalise_word(word, labels):
     return ''.join(out)
 
 
+# a hyphen between two letters (str letters: word characters that aren't digits or _)
+INNER_HYPHEN = re.compile(r'(?<=[^\W\d_])-(?=[^\W\d_])')
+
+
 def split_words(text):
-    return [w for w in str(text or '').split() if w]
+    """A line's words: split at white space and at every hyphen between two letters, the hyphen
+    staying on the piece before it ("(Hey-hey-ay)" -> "(Hey-", "hey-", "ay)"), so a hyphen run is
+    aligned as words. Must equal lyrics-timing.js splitWords (Sonata matches the words by text;
+    test/fixtures/split-words.json is checked by both test suites)."""
+    out = []
+    for w in str(text or '').split():
+        pieces = INNER_HYPHEN.split(w)
+        out.extend(p + '-' if i < len(pieces) - 1 else p for i, p in enumerate(pieces))
+    return [w for w in out if w]
 
 
 # ---------------------------------------------------------------------------------------------

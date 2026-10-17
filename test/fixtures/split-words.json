@@ -1,0 +1,15 @@
+{
+  "about": "Line texts and their words: lyrics-timing.js splitWords (test/lyrics-timing.test.js) and align/sonata_align.py split_words (align/test_align.py) must both give these.",
+  "cases": [
+    ["(Hey-hey-ay-ay-ay)", ["(Hey-", "hey-", "ay-", "ay-", "ay)"]],
+    ["Oh-oh, hey-la, hey-la", ["Oh-", "oh,", "hey-", "la,", "hey-", "la"]],
+    ["I was gonna- go  home", ["I", "was", "gonna-", "go", "home"]],
+    ["twenty-one, x-ray -- yes - no", ["twenty-", "one,", "x-", "ray", "--", "yes", "-", "no"]],
+    ["d-don't t-shirt", ["d-", "don't", "t-", "shirt"]],
+    ["Ah-ah-ah-ah-ah, ah-ah", ["Ah-", "ah-", "ah-", "ah-", "ah,", "ah-", "ah"]],
+    ["24-7 a-1 re--do", ["24-7", "a-1", "re--do"]],
+    ["Ça-va déjà-vu", ["Ça-", "va", "déjà-", "vu"]],
+    ["", []],
+    ["  spaced\tout  ", ["spaced", "out"]]
+  ]
+}

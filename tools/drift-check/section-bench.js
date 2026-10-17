@@ -7,7 +7,13 @@
 // only the Viterbi again), its accuracy against the whole-song job, and the helper time per song
 // for both flows (before: sections + whole song; after: sections + kept final).
 //
-//   node tools/drift-check/section-bench.js [--limit 20] [--lang English] [--jamendo DIR] [--align-dir DIR]
+//   node tools/drift-check/section-bench.js [--limit 20] [--offset 0] [--lang English] [--jamendo DIR] [--align-dir DIR]
+//        [--vocable 0.15,0.1,0.05] [--json out.json]
+//
+// --offset/--limit run a slice of the 79 songs (keep one GPU run short); --json writes the raw errors
+// (and the vocable lines) so slices can be added up. --vocable: for each confidence X, the short vocable
+// lines (lib.js vocableLine) keeping them from confidence X would add, from the same helper results,
+// against the hand annotations and against the first-play estimate of those lines (0.15.39).
 //
 // --align-dir runs another checkout's align/ scripts (a before/after comparison); without the
 // song-cache feature the kept final is skipped. SONATA_ALIGN_VRAM_FRACTION caps the helper's VRAM.
@@ -28,7 +34,10 @@ const L = require('./lib')
 const args = process.argv.slice(2)
 const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : def }
 const dir = opt('jamendo', path.join(os.homedir(), '.local/share/sonata-align/bench/src/jamendolyrics'))
-const songs = S.fromJamendo(dir, { mode: 'lrc', lang: opt('lang') }).slice(0, +opt('limit', 20))
+const songs = S.fromJamendo(dir, { mode: 'lrc', lang: opt('lang') }).slice(+opt('offset', 0), +opt('offset', 0) + +opt('limit', 20))
+const vocable = opt('vocable') ? opt('vocable').split(',').map(Number) : []
+const T = require('../../lyrics-timing')
+const fs = require('fs')
 const alignDir = opt('align-dir', null)
 const paths = H.helperPaths(process.env, path.join(__dirname, '../..'))
 if (alignDir) paths.server = path.join(path.resolve(alignDir), 'server.py')
@@ -54,6 +63,8 @@ async function main() {
   // warm-up (model load, first kernels): not timed
   if (songs.length) await helper.align('warm', A.alignMessages('warm', songs[0].raw.slice(0, 1), slice(pcmOf(songs[0]), 0, 12)))
   const errs = { whole: [], sections: [], kept: [], wholeBoth: [], keptBoth: [] }
+  const vocab = {}
+  const rejectedAll = []
   const jobs = []
   const perSong = []
   let peakVram = 0
@@ -72,6 +83,7 @@ async function main() {
     peakVram = Math.max(peakVram, helperVram() || 0)
     const secs = A.sections(raw)
     const merged = {}
+    const secResults = []
     let secS = 0
     for (const [k, sec] of secs.entries()) {
       const req = A.sectionRequest(raw, sec, k === 0)
@@ -81,7 +93,9 @@ async function main() {
       const took = (Date.now() - t1) / 1000
       secS += took
       jobs.push({ s: took, audio: until - req.offset, lines: sec.to - sec.from + 1 })
-      Object.assign(merged, A.entryFromResult(A.sectionResult(res, sec, req.offset), raw, null).lines)
+      const mapped = A.sectionResult(res, sec, req.offset)
+      secResults.push(mapped)
+      Object.assign(merged, A.entryFromResult(mapped, raw, null).lines)
     }
     peakVram = Math.max(peakVram, helperVram() || 0)
     // the final pass from the kept sections (this flow since 0.15.38)
@@ -89,10 +103,33 @@ async function main() {
     let keptS = null
     if (kept && secs.length > 1) {
       const t2 = Date.now()
-      const res = await helper.align('k' + (++id), A.finalMessages('k' + id, raw, songId))
-      keptS = (Date.now() - t2) / 1000
-      eKept = A.entryFromResult(res, raw, null)
+      // error: LOGGED-OK — the helper dropped this song's sections (its cache budget): no kept final for
+      // it (the app sends the audio again then, as the whole-song job above)
+      const res = await helper.align('k' + (++id), A.finalMessages('k' + id, raw, songId)).catch((e) => {
+        if (e && e.code === 'no-cache') { console.error('kept final: the helper no longer has', song.name); return null }
+        throw e
+      })
+      keptS = res ? (Date.now() - t2) / 1000 : null
+      eKept = res ? A.entryFromResult(res, raw, null) : null
     }
+    // the vocable lines each X would add (whole song and sections): their errors, and the estimate's
+    const est = T.estimateWords(raw)
+    const addVocable = (result, which, mapped) => {
+      const before = A.entryFromResult(mapped, raw, null)
+      for (const x of vocable) {
+        const keep = (r) => r.aligned || (Number(r.confidence) >= x && Array.isArray(r.words) && r.words.length > 0 && raw[r.line] && L.vocableLine(raw[r.line].text))
+        const after = A.entryFromResult(Object.assign({}, mapped, { lines: (mapped.lines || []).map((r) => (r && keep(r) ? Object.assign({}, r, { aligned: true }) : r)) }), raw, null)
+        const v = (vocab[which + ':' + x] = vocab[which + ':' + x] || { lines: 0, aligned: [], estimate: [], conf: [] })
+        for (const [i, a] of Object.entries(after.lines)) {
+          if (before.lines[i]) continue
+          v.lines++
+          a.words.forEach((w, j) => { v.aligned.push(w.t - song.truth[i][j].t); v.estimate.push(est[i].words[j].t - song.truth[i][j].t) })
+        }
+      }
+      for (const r of before.rejected) rejectedAll.push({ which, song: song.name, line: r.line, confidence: r.confidence, text: raw[r.line].text, vocable: L.vocableLine(raw[r.line].text) })
+    }
+    addVocable(whole, 'whole', whole)
+    for (const m of secResults) addVocable(m, 'sections', m)
     const score = (lines, out) => {
       for (const [i, a] of Object.entries(lines)) a.words.forEach((w, j) => out.push(w.t - song.truth[i][j].t))
     }
@@ -123,6 +160,10 @@ async function main() {
   console.log('helper s per song: sections + whole song', sum('before').toFixed(2), '| sections + kept final', kept ? sum('after').toFixed(2) : '-')
   await new Promise((r) => setTimeout(r, 300))
   console.log('helper VRAM (nvidia-smi): max between jobs', peakVram || '-', 'MB | resting after the last job', helperVram() || '-', 'MB')
+  for (const [k, v] of Object.entries(vocab)) {
+    console.log('vocable lines added at', k, ':', v.lines, 'lines | aligned', v.aligned.length ? f(L.stats(v.aligned)) : '-', '| estimate', v.estimate.length ? f(L.stats(v.estimate)) : '-')
+  }
+  if (opt('json')) fs.writeFileSync(opt('json'), JSON.stringify({ errs, vocab, rejected: rejectedAll, cover: { whole: coverWhole, sections: coverSec, kept: coverKept, total }, jobs, perSong }))
   const js = jobs.map((j) => j.s).sort((a, b) => a - b)
   console.log('section jobs:', jobs.length, '| helper time median', L.quantile(js, 0.5).toFixed(2), 's, p90', L.quantile(js, 0.9).toFixed(2), 's, max', js[js.length - 1].toFixed(2),
     's | audio per job median', L.quantile(jobs.map((j) => j.audio).sort((a, b) => a - b), 0.5).toFixed(0), 's')

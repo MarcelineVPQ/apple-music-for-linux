@@ -379,3 +379,122 @@ early bias), choruses mapped from an aligned line inherit that instance's delay 
 stamps only), and the "I'm so alive, I'm so alive" lines drift (sung slower than the learned pace). The
 "(Hey-hey-ay-ay-ay)" lines were rejected by the aligner (low confidence) and are estimated; they now bounce
 by syllable (`splitWord`: a hyphen between letters is a boundary) and take the onset too.
+
+## Lyrics fine-tuning (0.15.39, branch w1-lyrics-tuning)
+
+Five backlog rows in one pass. Measured with the drift check (her cache copied 2026-10-17: 51 aligned
+songs, 21 live = titles with "(Live" or "[Live", the Goo Goo Dolls and Dave Matthews Band Live at the
+Gorge; 30 studio), the 79-song JamendoLyrics bench (LRC and line-ends input) and the section bench (the
+real helper, RTX 5080, in eight slices of ten songs, VRAM capped at 40 %).
+
+### Hyphen runs are words
+
+"(Hey-hey-ay-ay-ay)" was one word to all three splitters, so the estimate weighed it as about two
+syllables and the aligner placed it as one token. Now `lyrics-timing.js` `splitWords` (used by
+align-session.js too) and `align/sonata_align.py` `split_words` split at white space and at every hyphen
+between two letters, the hyphen staying on the piece before it ("(Hey-", "hey-", "ay-", "ay-", "ay)").
+One fixture, `test/fixtures/split-words.json`, is checked by both test suites. A hyphen piece gets no
+breath weight (`wordWeight`). The views write the pieces of a run together, without spaces
+(`wordGlue` against the line's text; checked in a real Chromium page). Apple words timed by Apple are
+not split, so a timed "Hey-hey" keeps its 0.15.35 syllable bounce.
+
+Aligned entries move to version 3. A version-2 entry is still used for lyrics without a hyphen run (its
+words are the same), so only 13 of the 51 aligned songs in her cache are aligned again on their next play.
+
+The drift check scores per white-space word (`lib.js` `toSpaceWords`: a run's pieces count as one word
+from the first piece's start to the last piece's end), so the numbers stay comparable with earlier rows.
+Its aligned methods spread a cached version-2 run's time over its pieces (`toPieces`), as a version-3
+entry would carry them.
+
+JamendoLyrics has no hyphen runs (its texts are normalised), so all its rows are identical before and
+after. Her library, the 30 lines (160 words) with a hyphen run that have aligned truth:
+
+| | median | mean | bias | ≤ 0.3 s | frames lit |
+|---|--:|--:|--:|--:|--:|
+| estimate, before → after | 328 → 317 | 441 → 437 | −310 → −299 | 46 → 48 % | 46 → 47 % |
+| progressive, before → after | 215 → 223 | 333 → 334 | −226 → −219 | 59 → 59 % | 52 → 52 % |
+
+The gain that matters can't be measured here: the aligner now places each "hey" on its own, but the
+truth in her cache was aligned as one token per run.
+
+### Rejected lines are logged; a lower min_conf for vocables was not taken
+
+The aligner drops a line whose mean letter probability is under `min_conf` (0.2). Each section's log line
+now names them: `align: aligned 6/8 lines (lines 9–16 of 41) of "…" in 0.9 s · rejected: line 12 (0.14)
+"(Hey-hey-ay-ay-ay)"`, and the entry keeps them (`rejected: [{ line, confidence }]`).
+
+Short vocable lines (only "oh", "hey", "na", "la", "whoa" …, at most 8 words: `tools/drift-check/lib.js`
+`vocableLine`) are the lines it rejects most: 59 of the 313 lines rejected on the section bench. Keeping
+them from a lower confidence, measured on the lines that rule would add:
+
+| kept from | section jobs: lines, aligned vs estimate (median, ≤ 0.3 s) | whole song: lines, aligned vs estimate |
+|---|---|---|
+| 0.15 | 9: 518 vs 125 ms, 41 vs 91 % | 5: 184 vs 232 ms, 57 vs 81 % |
+| 0.10 | 14: 482 vs 116 ms, 38 vs 94 % | 9: 191 vs 215 ms, 61 vs 88 % |
+| 0.05 | 15: 525 vs 94 ms, 35 vs 95 % | 13: 184 vs 213 ms, 60 vs 89 % |
+| 0.02 | 22: 584 vs 185 ms, 34 vs 82 % | 15: 191 vs 210 ms, 58 vs 90 % |
+
+The bench's whole-song results (`auto-j0.json`, 0.10–0.2): 7 lines, aligned median 151 vs estimate
+194 ms, within 0.3 s 74 vs 93 %. The rejected vocable lines are placed worse than the estimate, by far
+in the section jobs the app runs first, so `min_conf` stays. Her live songs may differ (their line stamps
+come early), but her cache has no truth for rejected lines; the new log lines will show their confidence.
+
+### pickHit: the same recording
+
+`lyrics-sources.js` `isLive` ("(Live)", "[Live …]", " - Live", an album "Live at …" or "Live"; not
+"Live Forever") and `pickHit(hits, duration, title, album)`: inside the ±5 s length window a hit of the
+same kind (live or studio) comes first, synced before plain. When only hits of the other kind are left,
+their words are used as plain lyrics, never their timing (a studio LRC's stamps are off all song long on a
+live cut). Her cache has no LRCLIB live songs (25 live, all Apple), so this is covered by tests only.
+
+### Level 2: gaps filled on a later play
+
+0.15.33–0.15.38 already filled whole sections a play skipped (seek, gaming pause, helper failure:
+`partial`). Two gaps were left: a line left out of a section that was otherwise heard (a seek inside it:
+the section needs 90 % coverage, each line all of its own time), and a fully heard song kept its rejected
+lines as "done". Now the entry keeps `missed` lines (heard sections, lines neither aligned nor rejected);
+their sections are aligned again on a later play, at most `MAX_FILLS` (2) plays, so a line that is never
+fully heard can't cost GPU time forever. Such a play records only the spans of those sections and runs no
+second whole-song pass when the entry had one (`whole`); lines aligned before keep their words. Rejected
+lines are not retried: the same audio gives the same verdict.
+
+### Held notes mid-line: measured, no estimator change
+
+JamendoLyrics has 2,603 held words (sung ≥ 0.8 s); 1,144 of them are inside a line. The estimate ends
+60 % of those early (progressive 49 %), against 15 % of held last words. The text barely tells which word
+is held: no punctuation in the bench, 18 stretched spellings ("sooo"), and words of 3+ syllables are held
+41 % of the time but already get the time of their syllables. Extra hold weight for such words:
+
+| variant | estimate median / mean (LRC) | mid-line held: ended early, frames lit |
+|---|--:|--:|
+| none (shipped) | 140 / 282 | 60 %, 44 % |
+| 3+ syllables, +0.5 unit | 141 / 281 | – |
+| 3+ syllables, +1 unit | 142 / 281 | 54 %, 48 % |
+| 2+ syllables, +0.5 unit | 146 / 279 | 51 %, 49 % |
+| 2+ syllables, +1 unit | – | 43 %, 52 % |
+| stretched spellings, +1 unit | 140 / 282 | – |
+
+Every variant that moves held notes costs the 79-song bench median 1–6 ms (≤ 0.1 s 42 → 40–41 %), so
+none is in. The aligner already holds mid-line words (`extend_holds` runs every word to the next word's
+start − 0.04 s), repeats and Level 1 carry `held`, and the view sustains any held word, not only a line's
+last.
+
+### Before / after (nothing regressed)
+
+| set | method | before: median / mean / ≤ 0.3 s / frames | after |
+|---|---|---|---|
+| JamendoLyrics LRC, 79 songs | estimate | 140 / 282 / 72 % / 58 % | same |
+| | progressive | 93 / 243 / 78 % / 59 % | same |
+| | aligned | 32 / 80 / 97 % / 68 % | same |
+| JamendoLyrics with ends | progressive | 91 / 200 / 79 % / 58 % | same |
+| her library, 51 songs | estimate | 295 / 469 / 51 % / 44 % | 294 / 469 / 51 % / 44 % |
+| | progressive | 201 / 355 / 62 % / 49 % | same |
+| live, 21 songs | estimate | 412 / 541 / 39 % / 41 % | same |
+| | progressive | 256 / 393 / 55 % / 47 % | same |
+| studio, 30 songs | progressive | 173 / 326 / 68 % / 51 % | same |
+| section bench, 79 songs | whole song | 31 / 65 / 98 %, 3,226 lines | same (this branch's helper) |
+| | section jobs | 32 / 87 / 96 %, 3,231 lines (0.15.33) | 32 / 89 / 96 %, 3,227 lines |
+
+Seen on the section bench with VRAM capped at 40 %: for 6 of 79 songs the helper had dropped the kept
+sections before the kept-final pass ("no-cache"); the app then sends the audio again, the bench now skips
+that pass and says so. Not investigated further (another branch's area).

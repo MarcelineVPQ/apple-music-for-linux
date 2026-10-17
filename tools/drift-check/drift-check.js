@@ -5,13 +5,17 @@
 //
 //   node tools/drift-check/drift-check.js [--cache COPY.json] [--jamendo DIR] [--mode lrc|ends]
 //        [--jitter 0.3] [--results bench.json] [--audio --work DIR] [--methods v0,estimate,...]
-//        [--json out.json] [--songs]
+//        [--json out.json] [--songs] [--only REGEX] [--skip REGEX]
 //
 //   --cache   a COPY of ~/.config/apple-music-for-linux/lyrics-cache.json (cp it first; this reads it
 //             only, but never point tools at a live app's files)
 //   --jamendo JamendoLyrics folder (default ~/.local/share/sonata-align/bench/src/jamendolyrics if present)
 //   --results bench.py --out JSON with exact anchors (default .../bench/results/auto-j0.json): the
 //             aligned method for JamendoLyrics
+//   --only / --skip  keep / drop the songs whose name matches (case-insensitive), e.g. --only '\(live\)'
+//             for the live group of her library
+//   --vocable-conf X [--vocable-max N]  also keep short vocable lines (lib.js vocableLine, at most N
+//             words, default 8) from confidence X in the JamendoLyrics aligned results (measured, not taken)
 //   --audio   run the Level 1 detector on the JamendoLyrics mp3s (ffmpeg, cached in --work) for the
 //             refine methods
 // loop: none; runs once and exits.
@@ -28,14 +32,18 @@ const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 
 const flag = (name) => args.includes('--' + name)
 const BENCH = path.join(os.homedir(), '.local/share/sonata-align/bench')
 
+const only = opt('only') ? new RegExp(opt('only'), 'i') : null
+const skip = opt('skip') ? new RegExp(opt('skip'), 'i') : null
+const pick = (songs) => songs.filter((s) => (!only || only.test(s.name)) && (!skip || !skip.test(s.name)))
 const sets = []
-if (opt('cache')) sets.push({ label: 'her library (Apple line-timed, truth = aligned)', songs: S.fromCache(opt('cache')) })
+if (opt('cache')) sets.push({ label: 'her library (Apple line-timed, truth = aligned)', songs: pick(S.fromCache(opt('cache'))) })
 const jdir = opt('jamendo', path.join(BENCH, 'src/jamendolyrics'))
 if (!flag('no-jamendo') && fs.existsSync(jdir)) {
   const mode = opt('mode', 'lrc')
   sets.push({
     label: 'JamendoLyrics ' + mode + (opt('jitter') ? ' ±' + opt('jitter') + ' s' : '') + ' (truth = hand annotations)',
-    songs: S.fromJamendo(jdir, { mode, jitter: +opt('jitter', 0), results: opt('results', path.join(BENCH, 'results/auto-j0.json')), lang: opt('lang') })
+    songs: pick(S.fromJamendo(jdir, { mode, jitter: +opt('jitter', 0), results: opt('results', path.join(BENCH, 'results/auto-j0.json')), lang: opt('lang'),
+      vocableConf: opt('vocable-conf') != null ? +opt('vocable-conf') : undefined, vocableMax: opt('vocable-max') != null ? +opt('vocable-max') : 8 }))
   })
 }
 const work = opt('work', path.join(os.tmpdir(), 'sonata-drift-check'))
