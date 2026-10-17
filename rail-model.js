@@ -93,6 +93,9 @@
   // there (an update, a repaired file, what's new) puts a dot on the item while it isn't shown.
   const ITEMS = [
     { id: 'lyrics', label: 'Lyrics', keyName: 'lyrics', kind: 'toggle' },
+    // the lyrics window grown into the now-playing stage (lyrics.html body.stage): pressed while the
+    // stage shows; pressing it then shrinks the stage back to the lyrics window
+    { id: 'stage', label: 'Stage', keyName: 'stage', kind: 'toggle', tipOn: 'Shown · click to shrink it to the lyrics window', tipOff: 'Click to open the lyrics as the stage, with the song and what plays next' },
     { id: 'visualizer', label: 'Visualizer', keyName: 'visualizer', kind: 'toggle' },
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
     { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'panel' },
@@ -101,7 +104,7 @@
   // what the rail view may send: its items, the pin and lock, 'mounted', 'expand'/'collapse' (widen
   // the view over Apple's page while open), 'focus-apple-next'/'focus-apple-prev' (Tab out: to Apple's
   // page, or Shift+Tab to the panel when it shows)
-  const COMMANDS = ['lyrics', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
+  const COMMANDS = ['lyrics', 'stage', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
 
   // Pin and lock exclude each other, as in the DS5 app: keeping it open unlocks it, locking it
   // unpins it. -> the new { pinned, locked } after toggling `which` ('pin' | 'lock')
@@ -125,7 +128,7 @@
       const active = it.kind === 'panel' ? !!panel.shown && panel.page === it.id : !!open[it.id]
       const head = it.label + (key ? ' (' + key + ')' : '')
       const what = it.kind === 'toggle'
-        ? (active ? 'Open · click to close' : 'Click to open')
+        ? (active ? it.tipOn || 'Open · click to close' : it.tipOff || 'Click to open')
         : (active ? 'Shown beside the page · click to hide it' : 'Click to show it beside the page')
       // a task waiting there: the dot, said in the tooltip and to screen readers (not colour alone)
       const task = it.kind === 'panel' && !active && reminders[it.id] ? String(reminders[it.id]) : ''

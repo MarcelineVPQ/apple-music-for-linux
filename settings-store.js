@@ -27,6 +27,8 @@ const SCHEMA = {
   startMinimized: [false, bool, 'Start minimized'],
   windowBounds: [null, bounds, 'Window size'],
   lyricsBounds: [null, bounds, 'Lyrics window size'],
+  lyricsStage: [false, bool, 'Lyrics shown as the stage'],
+  stageBounds: [null, bounds, 'Stage size'],
   miniAlwaysOnTop: [true, bool, 'Keep the mini player on top'],
   lyricsAlwaysOnTop: [true, bool, 'Keep lyrics on top'],
   adaptiveColor: [true, bool, 'Adaptive album color'],

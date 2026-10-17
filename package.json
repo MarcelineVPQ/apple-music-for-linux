@@ -44,6 +44,8 @@
       "lyrics-sources.js",
       "lyrics-timing.js",
       "lyrics-view.js",
+      "stage-model.js",
+      "stage-ui.js",
       "lyrics-view.css",
       "lyrics-syllables.js",
       "!node_modules/hyphen/*/index.js",

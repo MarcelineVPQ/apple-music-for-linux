@@ -17,25 +17,30 @@ const rule = (sel) => {
   return m ? m[1] : ''
 }
 
-test('lyrics: #grip comes after #lines in the card, so its drag rect wins over scrolled lines', () => {
+test('lyrics: #grip comes after both scrolling lists (#lines, #q-list) in the card, so its drag rects win over scrolled rows', () => {
   const card = html.slice(html.indexOf('<div id="card">'), html.indexOf('<div id="say"'))
   const lines = card.indexOf('<div id="lines"')
+  const queue = card.indexOf('<ul id="q-list"')
   const grip = card.indexOf('<div id="grip"')
-  assert.ok(lines > 0 && grip > lines, '#grip after #lines')
-  assert.match(card.slice(grip), /^<div id="grip" aria-hidden="true"><div id="grip-art"><\/div><div id="grip-close"><\/div><\/div>/)
+  assert.ok(lines > 0 && queue > 0 && grip > lines && grip > queue, '#grip after #lines and #q-list')
+  assert.match(card.slice(grip), /^<div id="grip" aria-hidden="true"><\/div>\s*<\/div>\s*$/, '#grip is the card\'s last child')
 })
 
-test('lyrics: #grip drags, its holes don\'t, and it takes no pointer events', () => {
-  assert.match(rule('#grip'), /-webkit-app-region:\s*drag/)
+test('lyrics: #grip\'s patches drag, their holes don\'t, and #grip takes no pointer events and has no region of its own', () => {
+  assert.doesNotMatch(rule('#grip'), /-webkit-app-region/)
   assert.match(rule('#grip'), /pointer-events:\s*none/)
-  assert.match(rule('#grip > div'), /-webkit-app-region:\s*no-drag/)
-  assert.match(html, /new ResizeObserver\(placeGrip\)\.observe\(headerEl\)/)
-  assert.match(html, /new ResizeObserver\(placeGrip\)\.observe\(artEl\)/)
+  assert.match(rule('#grip > .ga'), /-webkit-app-region:\s*drag/)
+  assert.match(rule('#grip > .ga > i'), /-webkit-app-region:\s*no-drag/)
+  // the areas a scrolled list can cover: the header and the band (lyrics), the queue's head (its list)
+  assert.match(html, /for \(const area of \[headerEl, document\.getElementById\('band'\), document\.getElementById\('q-top'\)\]\)/)
+  for (const what of ['headerEl', 'artEl', "document.getElementById('band')", "document.getElementById('q-top')"]) assert.ok(html.includes('new ResizeObserver(placeGrip).observe(' + what + ')'), what)
+  // a hole for every control in an area
+  assert.match(html, /area\.querySelectorAll\(CONTROLS\)/)
 })
 
 test('lyrics: the body still drags and #lines, #art, #close are no-drag', () => {
   assert.match(rule('body'), /-webkit-app-region:\s*drag/)
-  for (const sel of ['#lines', '#art', '#close']) assert.match(rule(sel), /-webkit-app-region:\s*no-drag/, sel)
+  for (const sel of ['#lines', '#art', '#close', '#form', '#q-list', '.bar', '.ib', '.tile', '.seg button']) assert.match(rule(sel), /-webkit-app-region:\s*no-drag/, sel)
 })
 
 test('lyrics: the list never scrolls sideways', () => {

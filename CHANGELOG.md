@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **The stage: the lyrics as the centrepiece.** The lyrics window can grow into a full now-playing stage: the lyrics big in the middle, the cover, the song, "Track 13 of 24", the live venue for live albums and the controls (play, previous, next, shuffle, repeat, position, volume) on the left, and on the right Up Next or the whole album or playlist, with a "Next · in 1:22" countdown and the time left. Click a song in the list to play it. Open it with the new button in the lyrics window's header, the rail's Stage item or Ctrl+Shift+S; the same button or key shrinks it back to the lyrics window. Sonata remembers which one you used last, and the size of each. Everything follows your theme, album colour and Glass; the keyboard and screen readers reach every control, and nothing moves on its own while the music is paused.
+
 ## [0.15.40-dev.1] — The lyrics window drags again
 
 ### Fixed
