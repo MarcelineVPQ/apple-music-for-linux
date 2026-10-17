@@ -155,7 +155,9 @@ function runtime(dir, settings, argv) {
     process.env = saved.env
   }
 }
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'sonata-gfx-'))
+const made = []
+const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'sonata-gfx-')); made.push(d); return d }
+test.after(() => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }) })   // the temp folders go with the run
 const marker = (d) => path.join(d, 'gpu-experiment.json')
 
 test('gfx runtime: before ready the switches are appended and the marker written; a healthy start removes it', (t) => withFake(() => {
