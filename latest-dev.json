@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.36-dev.1",
-  "file": "sonata-0.15.36-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.36-dev.1/sonata-0.15.36-dev.1-x86_64.AppImage",
-  "sha512": "02b01d67e390e1bfc644170bbe2f14722a8ea465b3272b52414f4d46492f1cb4b98c6e76fd1590cc32ddafd8ab613d902246afc7af2de4079f352e667e58a239",
-  "size": 127126345,
-  "date": "2026-10-17T04:29:28Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.36-dev.1",
-  "notes": "### Fixed\n\n- **Sonata comes back after \"Restart now\".** After an update, the restarted Sonata could keep running without a window or a tray icon, and opening it from the menu did nothing (seen going from 0.15.34 to 0.15.35-dev.1). The restart handed on a path into the previous version's AppImage, which is gone once that version quits; looking up a helper program through it failed, and that failure stopped Sonata's startup before the window. The restart now hands on only your desktop session's settings, Sonata ignores such leftover paths when it starts (so updating from an affected version works too), a failing helper only costs the light/dark detection, and opening Sonata again always brings up its window.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
+  "version": "0.15.37-dev.1",
+  "file": "sonata-0.15.37-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.37-dev.1/sonata-0.15.37-dev.1-x86_64.AppImage",
+  "sha512": "f1e0004e2653f56abf163418f4fee15d4df0bc30e38e37fa55e0a6b30abffbff2e1ca23ce0e14b0479fa4882ca5c4e81ba8ca7a202664a4fd11eb9e34945e91f",
+  "size": 127138650,
+  "date": "2026-10-17T05:52:34Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.37-dev.1",
+  "notes": "### Fixed\n\n- **Your desktop's media controls show the song's length and progress, under the name Sonata.** The media widget (KDE's, GNOME's and others that use MPRIS) listed Sonata as \"apple-music-for-linux\" with no track length and no progress bar, because Apple's player doesn't give the length to the browser engine. Sonata now tells it the song's length and position from Apple Music itself, when a song starts, plays, pauses or is moved to another point, so the widget shows the progress bar and follows a seek. Your settings, login and lyrics cache stay where they are.\n- **The words still to come in the sung line are readable in light mode.** They were faded so far that on the light lyrics card they looked nearly white (as low as 1.7:1). They now fade only as far as the theme allows them to stay readable (at least 4.5:1) in light and dark, with or without album colours and Glass; the words already sung keep the singer's colour.\n\n### Changed\n\n- **Built and checked the 42 Pixel Studios way.** Every push is now tested on GitHub. The version is set in one step for every file that carries it, and a release whose tag doesn't match it stops. Every loop, timer, listener and error path in the app carries a written verdict, checked automatically. Nothing changes in use.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
 }
