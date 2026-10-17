@@ -368,3 +368,34 @@ Apple page, worst-case test artwork for the Glass checks unless noted):
 | Glass backdrop per track (pure part, both light and dark) | 0.9 ms; the tokens for one page 0.05 ms |
 | 50 show/hide (real clicks on the rail), 50 pin + open/fold cycles, 50 navigations, at 1600 px (docked) and 1100 px (drawer) | main-process IPC handler, window and view listener counts unchanged; views and web contents unchanged (no toast view left); timers 1; panel page 22 listeners / 215 nodes folded, every time; rail 10 / unchanged; Apple's page unchanged over show/hide and pin cycles (7,379 listeners), growing only with navigations (Apple's own, as before) |
 | progressive alignment while playing (`tools/drift-check/stutter-check.js`, real helper on the RTX 5080, 6 section jobs inside the running app) | media time vs wall clock 1.0006 (quiet 1.0001), longest stall 25 ms = one sample (quiet: same), main-process event-loop lag max 2 ms; the first job 17 s (model load), the others 0.2–0.4 s |
+
+## Graphics experiments: Settings → Experimental (after 0.15.41-dev.1)
+
+docs/research/hdr-hw-accel-apple-music-2026-10.md (research-gpu-render branch) sections 5–7. Every switch is
+measured on and off on an isolated copy on the real GPU: this branch from source with castlabs Electron
+45.0.0-alpha.14, in KWin 6.6 `--virtual` (1920×1200, own Wayland socket, own D-Bus, throwaway HOME,
+`--no-sandbox --password-store=basic`, started with `systemd-run --user`, quit with `app.exit(0)`; nothing on
+Marcy's screen; 0 coredumps after every run), RTX 5080, driver 615. The setting is written into the copy's
+settings.json before it starts, so the flags come from the app's own decision (gfx-model.js `startFlags`).
+The test media sit over Apple's (logged-out) page as blob URLs, the way Apple's player hands it video:
+- **colour**: the still `patches.png` beside the same pattern as H.264 tagged BT.709 limited (make-media.sh),
+  540 px each, read back with `capturePage`;
+- **load**: an H.264 High 1080×1080 30 fps ~4 Mb/s clip (Apple's top motion-artwork stream) at Apple's 316 px;
+  CPU from `/proc/<pid>/stat` over 20 s after a 3 s settle, per process (% of one core), NVDEC from
+  `nvidia-smi dmon`, frames from `getVideoPlaybackQuality`.
+
+Idle cost of the section itself: none. About → Graphics samples `/proc` every 5 s only while it is open.
+
+### True video colours (`expTrueVideoColours`: `--disable-gpu-memory-buffer-video-frames`)
+
+| Run | Red 255,0,0 | Green 0,255,0 | Crimson 200,40,60 | Grey 128 | Page | Graphics process | Total | Dropped |
+|---|---|---|---|---|---|---|---|---|
+| Off, run 1 | 234,0,2 | 20,255,10 | 185,23,60 | 128 | 9.2 | 2.3 | 12.0 | 0 / 600 |
+| Off, run 2 | 234,0,2 | 20,255,10 | 185,23,60 | 128 | 9.35 | 2.15 | 11.9 | 0 / 600 |
+| On, run 1 | **255,1,0** | **0,255,1** | **199,41,58** | 128 | 6.8 | 2.65 | 9.95 | 0 / 601 |
+| On, run 2 | **255,1,0** | **0,255,1** | **199,41,58** | 128 | 7.9 | 2.95 | 11.4 | 0 / 601 |
+
+The video matches the still within 2 codes with the switch on (the BT.601 signature off). CPU the same
+within noise: the page decodes a little less (−1.5), the graphics process uploads a little more (+0.5).
+Software decoding only (hardware-decoded frames keep the error, research §1.4): with Hardware video
+decoding on, this switch is not used and the row says so.

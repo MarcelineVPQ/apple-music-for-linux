@@ -266,3 +266,19 @@ test('gfx: Restart now runs this same Sonata again through relaunch.js, in the f
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /function restartApp\(\) \{[\s\S]*?filter\(\(a\) => a !== '--safe-gpu'\)[\s\S]*?startNewCopy\(installedPath \|\| process\.execPath, args, appImagePath \? '' : process\.cwd\(\)\)/)
 })
+
+// --- the real switches ---
+test('True video colours: --disable-gpu-memory-buffer-video-frames on Wayland only; not needed under X11; off by default', () => {
+  assert.equal(settingsStore.defaults().expTrueVideoColours, false)
+  const f = G.startFlags({ expTrueVideoColours: true }, WAYLAND)
+  assert.deepEqual(f.switches, [['disable-gpu-memory-buffer-video-frames', '']])
+  const x = G.startFlags({ expTrueVideoColours: true }, X11)
+  assert.deepEqual(x.switches, [])
+  assert.equal(x.inactive.expTrueVideoColours, 'x11-colours')
+  assert.deepEqual(G.startFlags({ expTrueVideoColours: true }, withArgs(WAYLAND, '--safe-gpu')).switches, [])
+  const rows = (st, x11) => G.graphicsRows({ gpu: { gpu_compositing: 'enabled' }, start: st, x11 }).find((r) => r.id === 'colours').value
+  assert.match(rows(f), /^True colours/)
+  assert.match(rows(G.startFlags({}, WAYLAND)), /BT\.601 matrix/)
+  assert.equal(rows(G.startFlags({}, X11), true), 'Right under X11')
+  assert.ok(G.EXPERIMENTS.find((e) => e.key === 'expTrueVideoColours').desc.endsWith('Applies at restart.'))
+})

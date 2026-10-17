@@ -18,7 +18,31 @@
   // key: the setting (settings-store.js); restart: a Chromium switch, applies at the next start;
   // crashRank: which goes first after a GPU crash (1 = first); switches/features: what it adds;
   // needs(ctx): why it can't act on this start (null: it can)
-  const EXPERIMENTS = []
+  const EXPERIMENTS = [
+    // Chromium on Wayland draws BT.709 video (Apple's animated covers, music videos) with the BT.601 matrix:
+    // red 255,0,0 comes out 233,0,2 (research §1.4). Frames uploaded as plain textures get the right matrix.
+    // Software-decoded video only: with hardware decoding on it changes nothing, so it waits (late: decided
+    // after the others, knowing what is active).
+    {
+      key: 'expTrueVideoColours',
+      name: 'True video colours',
+      label: 'True video colours (experimental)',
+      desc: 'On Wayland, animated album covers and music videos keep the colours of the still cover: reds and magentas no longer turn orange when the video fades in. Same CPU cost. Applies at restart.',
+      restart: true,
+      crashRank: 3,
+      late: true,
+      switches: () => [['disable-gpu-memory-buffer-video-frames', '']],
+      blocked: (c) => (c.x11 ? 'x11-colours' : null),
+      needs: (c) => (c.x11 ? 'x11-colours' : c.active.has('expHwVideoDecode') ? 'hw-decode' : null),
+      readout: (i, st) => ({
+        id: 'colours',
+        label: 'Video colours',
+        value: st.active.includes('expTrueVideoColours') ? 'True colours: video frames uploaded as textures (--disable-gpu-memory-buffer-video-frames)'
+          : st.inactive.expTrueVideoColours ? reasonText(st.inactive.expTrueVideoColours)
+            : i.x11 ? 'Right under X11' : 'Chromium\'s default on Wayland: reds and magentas in video a little off (BT.601 matrix)'
+      })
+    }
+  ]
 
   const byKey = (k) => EXPERIMENTS.find((e) => e.key === k) || null
   const labelOf = (k) => (byKey(k) ? byKey(k).name : k)
@@ -28,7 +52,9 @@
     safe: 'Off for this start: Sonata was started with --safe-gpu',
     'gpu-off': 'Needs the graphics card: Sonata is drawing in software right now',
     'not-linux': 'Only on Linux',
-    x11: 'Not under X11 (--ozone-platform=x11): it needs Sonata running on Wayland'
+    x11: 'Not under X11 (--ozone-platform=x11): it needs Sonata running on Wayland',
+    'x11-colours': 'Not needed under X11: video colours are already right there',
+    'hw-decode': 'Hardware video decoding is on, and this fix covers software-decoded video only'
   }
   const reasonText = (r) => REASONS[r] || r || ''
 
@@ -53,8 +79,9 @@
   function startFlags(settings, o) {
     const s = settings || {}
     const ctx = startContext(o)
-    const wanted = EXPERIMENTS.filter((e) => e.restart && s[e.key] === true).map((e) => e.key)
-    ctx.wanted = new Set(wanted)
+    // the ones that depend on what else is active (late) are decided last
+    const wanted = EXPERIMENTS.filter((e) => e.restart && s[e.key] === true).sort((a, b) => (a.late ? 1 : 0) - (b.late ? 1 : 0)).map((e) => e.key)
+    ctx.active = new Set()
     const active = []
     const inactive = {}
     const switches = []
@@ -65,6 +92,7 @@
       const why = ctx.safe ? 'safe' : ctx.gpuOff ? 'gpu-off' : !ctx.linux ? 'not-linux' : (e.needs ? e.needs(ctx) : null)
       if (why) { inactive[k] = why; continue }
       active.push(k)
+      ctx.active.add(k)
       if (e.switches) switches.push(...e.switches(ctx))
       if (e.features) features.push(...e.features)
     }
@@ -192,7 +220,7 @@
       value: st.safe ? 'Off for this start (--safe-gpu)' : st.active.length ? st.active.map(labelOf).join(', ') : 'None active'
     })
     // loop: NOT-WORTH — ≤ 4 switches, while About → Graphics is open
-    for (const e of EXPERIMENTS) if (e.readout) rows.push(e.readout(i, st))
+    for (const e of EXPERIMENTS) if (e.readout) rows.push(e.readout(i, st))   // i.x11: Sonata runs under X11
     const c = i.cpu
     rows.push({
       id: 'cpu',

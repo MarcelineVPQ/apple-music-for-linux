@@ -133,7 +133,7 @@ function createGfx(o) {
       pending: M.pendingRestart(s, start),
       blocked,
       note,
-      rows: readoutOpen ? M.graphicsRows(Object.assign({ gpu: gpuStatus, start, settings: s, cpu }, readoutExtra())) : []
+      rows: readoutOpen ? M.graphicsRows(Object.assign({ gpu: gpuStatus, start, settings: s, cpu, x11: ctx.x11 }, readoutExtra())) : []
     }
   }
   function readoutExtra() {
