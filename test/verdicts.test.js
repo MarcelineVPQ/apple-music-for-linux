@@ -12,7 +12,7 @@ const FILES = [
   'panel-ui.js', 'panel-model.js', 'preload-panel.js', 'toast-ui.js',
   'theme.js', 'theme-apply.js', 'icons.js',
   'notices-model.js', 'updater.js', 'settings-store.js', 'json-salvage.js', 'about-data.js', 'markdown-lite.js',
-  'lyrics-store.js', 'update-feed.js', 'wheel-volume.js', 'mini-model.js', 'desktop-scheme.js'
+  'lyrics-store.js', 'update-feed.js', 'wheel-volume.js', 'mini-model.js', 'desktop-scheme.js', 'relaunch.js'
 ]
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
 const isComment = (l) => /^\s*(\/\/|\*|\/\*)/.test(l)

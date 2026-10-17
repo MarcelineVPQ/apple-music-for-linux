@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sonata comes back after "Restart now".** After an update, the restarted Sonata could keep running without a window or a tray icon, and opening it from the menu did nothing (seen going from 0.15.34 to 0.15.35-dev.1). The restart handed on a path into the previous version's AppImage, which is gone once that version quits; looking up a helper program through it failed, and that failure stopped Sonata's startup before the window. The restart now hands on only your desktop session's settings, Sonata ignores such leftover paths when it starts (so updating from an affected version works too), a failing helper only costs the light/dark detection, and opening Sonata again always brings up its window.
+
 ## [0.15.35-dev.1] — Hyphenated syllables bounce, and estimated lines wait for the singer
 
 ### Fixed

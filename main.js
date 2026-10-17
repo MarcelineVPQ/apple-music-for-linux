@@ -20,6 +20,15 @@ const updaterLib = require('./updater');
 const aboutDataLib = require('./about-data');
 const themeLib = require('./theme');
 const miniModel = require('./mini-model');
+const relaunch = require('./relaunch');
+
+// An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
+// FUSE mount in PATH and LD_LIBRARY_PATH. Once that run ends the mount can answer ENOTCONN, and every
+// child process looked up through it (gdbus, parec, the aligner) fails: drop other AppImages' mounts,
+// keep our own ($APPDIR) — relaunch.js
+for (const v of ['PATH', 'LD_LIBRARY_PATH']) {   // loop: NOT-WORTH — two variables, once at start
+  if (process.env[v]) process.env[v] = relaunch.cleanPathList(process.env[v], process.env.APPDIR || '')
+}
 
 const appName = 'Sonata'
 
@@ -142,16 +151,26 @@ function applyThemePref() {
   const want = desktopScheme.effectiveScheme(themePref, portalScheme, kdeScheme, chromiumDark)
   if (nativeTheme.themeSource !== want) nativeTheme.themeSource = want
 }
-// error: NOT-WORTH — no gdbus, no portal or no kdeglobals: that source says nothing, the next one decides
+// error: NOT-WORTH — no gdbus, no portal or no kdeglobals: that source says nothing, the next one decides.
+// execFile/spawn THROW (not call back) on some errors, e.g. ENOTCONN from a dead AppImage mount on PATH
+// (0.15.35-dev.1: that throw stopped startup before the window): caught, said once, the theme defaults.
+let schemeSpawnLogged = false
+function schemeSpawnFailed(e) {
+  if (schemeSpawnLogged) return
+  schemeSpawnLogged = true
+  console.error('theme: cannot ask the desktop for light or dark (' + (e && e.message) + '); using KDE\'s or Chromium\'s answer')
+}
 function readDesktopScheme() {
   if (process.platform !== 'linux') return
   try { kdeScheme = desktopScheme.parseKdeglobals(fs.readFileSync(path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'kdeglobals'), 'utf8')) } catch (e) { kdeScheme = null }
   applyThemePref()
-  execFile('gdbus', ['call', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop',
-    '--method', 'org.freedesktop.portal.Settings.ReadOne', 'org.freedesktop.appearance', 'color-scheme'], { timeout: 3000 }, (err, out) => {
-    portalScheme = err ? null : desktopScheme.parsePortal(out)
-    applyThemePref()
-  })
+  try {
+    execFile('gdbus', ['call', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop',
+      '--method', 'org.freedesktop.portal.Settings.ReadOne', 'org.freedesktop.appearance', 'color-scheme'], { timeout: 3000 }, (err, out) => {
+      portalScheme = err ? null : desktopScheme.parsePortal(out)
+      applyThemePref()
+    })
+  } catch (e) { portalScheme = null; schemeSpawnFailed(e) }   // error: logged once; no portal answer
 }
 // While Sonata follows the desktop: one `gdbus monitor` child hears the portal's SettingChanged, so a
 // switch to BreezeDark (or back) applies at once. No polling.
@@ -162,7 +181,7 @@ function watchDesktopScheme() {
   if (process.platform !== 'linux' || themePref !== 'system' || schemeWatch) return
   try {
     schemeWatch = spawn('gdbus', ['monitor', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop'], { stdio: ['ignore', 'pipe', 'ignore'] })
-  } catch (e) { schemeWatch = null; return }   // error: NOT-WORTH — no gdbus: the scheme read at start stays
+  } catch (e) { schemeWatch = null; schemeSpawnFailed(e); return }   // error: logged once — no gdbus: the scheme read at start stays
   let buf = ''
   // lifetime: data/exit/error listeners on that child, gone with it
   schemeWatch.stdout.on('data', (chunk) => {
@@ -2334,21 +2353,24 @@ function restartIntoUpdate() {
   // Relaunch in the CLEAN session environment, the way a menu launch does.
   // Inheriting THIS process's Chromium-polluted env crashes the new instance
   // (SIGBUS/SIGTRAP); the user's systemd manager gives it a fresh env and
-  // outlives us. Pass only session vars through, not our whole environment.
-  const sessionVars = ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
-    'XDG_CURRENT_DESKTOP', 'XDG_SESSION_TYPE', 'XAUTHORITY', 'HOME', 'LANG', 'PATH']
+  // outlives us. Pass only session vars through, not our whole environment,
+  // and PATH without our AppImage mount, which ends with us (relaunch.js).
+  const env = relaunch.relaunchEnv(process.env)
+  const args = relaunch.relaunchArgs(process.argv)
+  const unit = 'sonata-relaunch-' + Date.now()
   let started = false
-  try {
-    const setenv = sessionVars.filter((v) => process.env[v]).map((v) => '--setenv=' + v + '=' + process.env[v])
-    execFileSync('systemd-run',
-      ['--user', '--collect', '--unit=sonata-relaunch-' + Date.now(), ...setenv, '--', target],
-      { stdio: 'ignore' })
-    started = true
-  } catch (e) { /* systemd-run unavailable; fall back below */ }
+  // loop: NOT-WORTH — at most two tries: with ExitType=cgroup, then without (systemd older than 250)
+  for (const exitTypeCgroup of [true, false]) {
+    try {
+      execFileSync('systemd-run', relaunch.systemdRunArgs({ target, args, env, unit, exitTypeCgroup }), { stdio: 'ignore' })
+      started = true
+      break
+    } catch (e) { /* error: NOT-WORTH — systemd-run unavailable or too old: next try, then the shell below */ }
+  }
   if (!started) {
-    const env = {}
-    for (const v of sessionVars) if (process.env[v]) env[v] = process.env[v]
-    spawn('/bin/sh', ['-c', 'sleep 0.5; exec ' + JSON.stringify(target)], { detached: true, stdio: 'ignore', env }).unref()
+    try {
+      spawn('/bin/sh', relaunch.shellArgs(target, args), { detached: true, stdio: 'ignore', env }).unref()
+    } catch (e) { console.error('update: could not start the new version:', e.message) }   // error: logged; the next menu launch starts it
   }
   stopDesktopScheme()
   app.exit(0)
@@ -2418,20 +2440,36 @@ function applyAutostart() {
 if (!app.requestSingleInstanceLock()) {
   app.exit(0)
 }
+// Launching Sonata again always shows something: the mini player when it's up, else the main window,
+// made now if there is none (a startup that stopped before it, 0.15.35-dev.1). Before the app is ready
+// the startup below makes it.
 app.on('second-instance', () => {
   if (miniWindow && !miniWindow.isDestroyed()) {
     miniWindow.show()
     miniWindow.focus()
-  } else if (mainWindow && !mainWindow.isDestroyed()) {
+    return
+  }
+  if (!app.isReady()) return
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    startupStep('window', createWindow)
+    if (!tray) startupStep('tray', createTray)
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
     mainWindow.focus()
   }
 })
 
+// One startup step: a failure is logged and the next step still runs, so a theme, locale or
+// settings problem can't keep the window and the tray from appearing.
+function startupStep(name, fn) {
+  try { fn() } catch (e) { console.error('startup: ' + name + ' failed:', (e && e.stack) || e) }   // error: logged; startup goes on
+}
+
 app.whenReady().then(async () => {
   await components.whenReady()
-  initLocaleAndTheme()
+  startupStep('locale and theme', initLocaleAndTheme)
   lastfm = new LastFm(path.join(app.getPath('userData'), 'lastfm.json'))
   discordConfigPath = path.join(app.getPath('userData'), 'discord.json')
   loadDiscordConfig()
@@ -2453,19 +2491,19 @@ app.whenReady().then(async () => {
     if (alignHelper) alignHelper.stop()
     if (lyricsStore) lyricsStore.flush()
   })
-  loadSettings()
-  notices.setDismissed(settings.dismissedNotices)
-  applyAutostart()
-  cleanupWindowPositionMemory()
-  integrateAppImage()
-  createWindow()
-  createTray()
+  startupStep('settings', loadSettings)
+  startupStep('notices', () => notices.setDismissed(settings.dismissedNotices))
+  startupStep('autostart', applyAutostart)
+  startupStep('window positions', cleanupWindowPositionMemory)
+  startupStep('menu entry', integrateAppImage)
+  startupStep('window', createWindow)
+  startupStep('tray', createTray)
   startNowPlayingLoop()
   useTestArtwork()
-  pruneOldAppImages()   // local files only (no network), also with automatic checks off
-  startUpdateChecks()
-  showWhatsNew()
-  askAutoUpdate()
+  startupStep('old versions', pruneOldAppImages)   // local files only (no network), also with automatic checks off
+  startupStep('update checks', startUpdateChecks)
+  startupStep('what\'s new', showWhatsNew)
+  startupStep('auto-update question', askAutoUpdate)
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }
@@ -2484,6 +2522,11 @@ app.whenReady().then(async () => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((e) => {
+  // error: a step outside startupStep threw: said, and the window and tray still come up when they can
+  console.error('startup failed:', (e && e.stack) || e)
+  if (!mainWindow || mainWindow.isDestroyed()) startupStep('window', createWindow)
+  if (!tray) startupStep('tray', createTray)
 })
 
 app.on('window-all-closed', function () {

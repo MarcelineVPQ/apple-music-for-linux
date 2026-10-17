@@ -87,6 +87,7 @@
       "wheel-volume.js",
       "mini-model.js",
       "desktop-scheme.js",
+      "relaunch.js",
       "update-feed.js",
       "sonata.png"
     ],
