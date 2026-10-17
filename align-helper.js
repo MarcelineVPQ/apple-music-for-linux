@@ -18,25 +18,86 @@ const QUIT_GRACE_MS = 5000
 const MAX_CRASHES = 3
 
 /**
+ * True for a path inside another app's sandbox or runtime: a snap (/snap, ~/snap, snapd's state),
+ * a Flatpak app's data (~/.var/app) or a mounted AppImage (/tmp/.mount_*). Same rule as
+ * sonata_align.in_app_sandbox and align/install.sh. A terminal opened in the Codium snap sets
+ * XDG_DATA_HOME=~/snap/codium/<rev>/.local/share, and uv put its Python there: the venv broke
+ * when that snap revision went away (2026-10).
+ */
+function inAppSandbox(p, home) {
+  if (!p) return false
+  const h = path.resolve(home || '')
+  const x = path.resolve(String(p))
+  const roots = ['/snap', '/var/snap', '/var/lib/snapd', path.join(h, 'snap'), path.join(h, '.var', 'app')]
+  return roots.some((r) => x === r || x.startsWith(r + path.sep)) || x.startsWith('/tmp/.mount_')
+}
+
+/**
  * Where the helper lives: the user's install (venv) and our scripts (unpacked from the asar).
- * The install is looked for in SONATA_ALIGN_HOME, $XDG_DATA_HOME/sonata-align and
- * ~/.local/share/sonata-align; the first with a venv wins (a launcher such as a snap can point
- * XDG_DATA_HOME somewhere other than where install.sh put it).
+ * The install is SONATA_ALIGN_HOME, else $XDG_DATA_HOME/sonata-align (unless XDG_DATA_HOME points
+ * into another app's sandbox, inAppSandbox), else ~/.local/share/sonata-align; the first with a
+ * venv wins. `stray` is an install found only in a sandboxed XDG_DATA_HOME (checkInstall says so).
  */
 function helperPaths(env, appDir, exists = (f) => fs.existsSync(f)) {
   const homes = []
+  const hasVenv = (h) => exists(path.join(h, 'venv', 'bin', 'python'))
+  let stray = null
   if (env.SONATA_ALIGN_HOME) homes.push(env.SONATA_ALIGN_HOME)
-  if (env.XDG_DATA_HOME) homes.push(path.join(env.XDG_DATA_HOME, 'sonata-align'))
+  if (env.XDG_DATA_HOME && path.isAbsolute(env.XDG_DATA_HOME)) {
+    const x = path.join(env.XDG_DATA_HOME, 'sonata-align')
+    if (!inAppSandbox(env.XDG_DATA_HOME, env.HOME)) homes.push(x)
+    else if (hasVenv(x)) stray = x
+  }
   homes.push(path.join(env.HOME || '', '.local', 'share', 'sonata-align'))
-  const home = homes.find((h) => exists(path.join(h, 'venv', 'bin', 'python'))) || homes[0]
+  const home = homes.find(hasVenv) || homes[0]
   // packaged builds: align/ is unpacked next to app.asar (python can't read inside the asar)
   const dir = path.join(String(appDir).replace(/app\.asar(?=$|[\\/])/, 'app.asar.unpacked'), 'align')
-  return { home, python: path.join(home, 'venv', 'bin', 'python'), server: path.join(dir, 'server.py') }
+  return { home, python: path.join(home, 'venv', 'bin', 'python'), server: path.join(dir, 'server.py'), stray, userHome: env.HOME || '' }
 }
 
 function isInstalled(paths, io = fs) {
   // error: NOT-WORTH — missing or not executable means "not installed", which Settings → Precise timing says
   try { io.accessSync(paths.python, fs.constants.X_OK); io.accessSync(paths.server, fs.constants.R_OK); return true } catch (e) { return false }
+}
+
+/**
+ * The install's health, checked at start and when Settings asks (never per tick):
+ *   ok         the venv's python resolves to an interpreter outside any app sandbox
+ *   missing    no venv (not installed): Settings explains how to install
+ *   broken     the venv's python is a dangling link or not runnable (its interpreter was removed)
+ *   sandboxed  it works, but its python lives inside another app's sandbox (a snap refresh breaks it)
+ *   stray      no install where Sonata looks, but one inside a sandboxed XDG_DATA_HOME
+ * -> { state, python, target }   (target: what the python link points to, when known)
+ * error: SHOWN — broken, sandboxed and stray get a repair notice (repairText), never a silent failure
+ */
+function checkInstall(paths, io = fs) {
+  const py = paths.python
+  let target = null
+  // error: SHOWN — each failed check below is a state the caller turns into a notice (repairText)
+  try { io.lstatSync(py) } catch (e) {
+    return { state: paths.stray ? 'stray' : 'missing', python: py, target: paths.stray }
+  }
+  try { target = io.readlinkSync(py) } catch (e) { target = null }
+  let real
+  try { real = io.realpathSync(py) } catch (e) { return { state: 'broken', python: py, target } }
+  try { io.accessSync(real, fs.constants.X_OK) } catch (e) { return { state: 'broken', python: py, target: real } }
+  let cfgHome = null
+  try {
+    const m = /^home\s*=\s*(.+)$/m.exec(io.readFileSync(path.join(path.dirname(path.dirname(py)), 'pyvenv.cfg'), 'utf8'))
+    cfgHome = m ? m[1].trim() : null
+  } catch (e) {}   // error: NOT-WORTH — no pyvenv.cfg: the python link alone decides
+  if (inAppSandbox(real, paths.userHome) || inAppSandbox(cfgHome, paths.userHome)) return { state: 'sandboxed', python: py, target: real }
+  return { state: 'ok', python: py, target: real }
+}
+
+/** The repair notice for checkInstall's result, or '' when there is nothing to repair. */
+function repairText(health) {
+  const how = 'Rebuild it from a normal terminal (not one inside an editor or another app): align/install.sh --rebuild. It keeps the downloaded models; the old venv is kept aside for a rollback.'
+  if (!health) return ''
+  if (health.state === 'broken') return 'Precise word timing can\'t start: its helper\'s Python is gone' + (health.target ? ' (' + health.target + ')' : '') + '. ' + how
+  if (health.state === 'sandboxed') return 'Precise word timing works, but its helper uses a Python inside another app (' + health.target + '), so that app\'s next update breaks it. ' + how
+  if (health.state === 'stray') return 'The sonata-align helper was installed inside another app\'s folder (' + health.target + '), where Sonata doesn\'t look. Install it again from a normal terminal: align/install.sh'
+  return ''
 }
 
 /** The helper's environment: ours minus anything an AppImage/Electron sets that would break the venv. */
@@ -292,4 +353,4 @@ function createAlignHelper(opts, deps = {}) {
   }
 }
 
-module.exports = { helperPaths, isInstalled, helperEnv, lineParser, createAlignHelper, IDLE_MS }
+module.exports = { inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, IDLE_MS }

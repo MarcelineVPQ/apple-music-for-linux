@@ -146,6 +146,65 @@ test('lifetime: stop() during a job fails it and ends the process', async () => 
   await waitFor(() => !h.running)
 })
 
+// --- the Codium snap venv (0.15.37): never decide the install's place from another app's sandbox ---
+
+test('paths: a sandboxed XDG_DATA_HOME is never the home; an install found only there is "stray"', () => {
+  const none = () => false
+  const snapXdg = '/h/snap/codium/495/.local/share'
+  assert.equal(H.inAppSandbox(snapXdg, '/h'), true)
+  assert.equal(H.inAppSandbox('/snap/codium/495/usr/bin/python3', '/h'), true)
+  assert.equal(H.inAppSandbox('/h/.var/app/com.vscodium.codium/data', '/h'), true)
+  assert.equal(H.inAppSandbox('/tmp/.mount_Sonata/usr', '/h'), true)
+  assert.equal(H.inAppSandbox('/h/.local/share', '/h'), false)
+  assert.equal(H.inAppSandbox('/h/snapshots', '/h'), false)
+  assert.equal(H.inAppSandbox('/usr/bin/python3.13', '/h'), false)
+  const p = H.helperPaths({ HOME: '/h', XDG_DATA_HOME: snapXdg }, '/src', none)
+  assert.equal(p.home, '/h/.local/share/sonata-align')
+  assert.equal(p.stray, null)
+  const q = H.helperPaths({ HOME: '/h', XDG_DATA_HOME: snapXdg }, '/src', (f) => f.startsWith(snapXdg))
+  assert.equal(q.home, '/h/.local/share/sonata-align')
+  assert.equal(q.stray, snapXdg + '/sonata-align')
+  assert.equal(H.helperPaths({ HOME: '/h', XDG_DATA_HOME: 'rel/dir' }, '/src', none).home, '/h/.local/share/sonata-align')
+})
+
+function fakeFs(files) {
+  // files: path -> { link?: target, exec?: bool, text?: string }
+  const get = (p) => { if (!files[p]) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e } return files[p] }
+  const resolve = (p, n = 0) => { const f = get(p); return f.link ? resolve(f.link, n + 1) : p }
+  return {
+    lstatSync: (p) => get(p),
+    readlinkSync: (p) => { const f = get(p); if (!f.link) throw new Error('EINVAL'); return f.link },
+    realpathSync: (p) => resolve(p),
+    accessSync: (p) => { if (!get(p).exec) throw new Error('EACCES') },
+    readFileSync: (p) => { const f = get(p); if (f.text == null) throw new Error('EISDIR'); return f.text }
+  }
+}
+
+test('install health: ok, missing, broken link, sandboxed python, stray install', () => {
+  const paths = { python: '/h/.local/share/sonata-align/venv/bin/python', userHome: '/h', stray: null }
+  const cfg = '/h/.local/share/sonata-align/venv/pyvenv.cfg'
+  const ok = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [cfg]: { text: 'home = /usr/bin\n' } }))
+  assert.deepEqual(ok, { state: 'ok', python: paths.python, target: '/usr/bin/python3.13' })
+  assert.equal(H.repairText(ok), '')
+  assert.equal(H.checkInstall(paths, fakeFs({})).state, 'missing')
+  const snapPy = '/h/snap/codium/495/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12'
+  const broken = H.checkInstall(paths, fakeFs({ [paths.python]: { link: snapPy } }))
+  assert.equal(broken.state, 'broken')
+  assert.equal(broken.target, snapPy)
+  assert.match(H.repairText(broken), /Python is gone .*snap\/codium\/495.*install\.sh --rebuild.*keeps the downloaded models/)
+  const sandboxed = H.checkInstall(paths, fakeFs({ [paths.python]: { link: snapPy }, [snapPy]: { exec: true }, [cfg]: { text: 'home = /h/snap/codium/495/x\n' } }))
+  assert.equal(sandboxed.state, 'sandboxed')
+  assert.match(H.repairText(sandboxed), /works, but .* another app .*next update breaks it/)
+  // pyvenv.cfg alone (a copied interpreter) is enough to tell
+  const copied = H.checkInstall(paths, fakeFs({ [paths.python]: { exec: true }, [cfg]: { text: 'home = /snap/codium/495/usr/bin\n' } }))
+  assert.equal(copied.state, 'sandboxed')
+  const notExec = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: false } }))
+  assert.equal(notExec.state, 'broken')
+  const stray = H.checkInstall(Object.assign({}, paths, { stray: '/h/snap/codium/495/.local/share/sonata-align' }), fakeFs({}))
+  assert.equal(stray.state, 'stray')
+  assert.match(H.repairText(stray), /inside another app's folder/)
+})
+
 test('release(): the helper quits right after its current job (gaming guard); idle: at once', async () => {
   const { h, logs } = helper('')
   await h.ping()

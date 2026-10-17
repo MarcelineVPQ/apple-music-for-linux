@@ -23,8 +23,36 @@ import urllib.request
 VERSION = '0.1.0'
 
 
-DATA_DIR = os.environ.get('SONATA_ALIGN_HOME') or os.path.join(
-    os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'sonata-align')
+def in_app_sandbox(path, home=None):
+    """True for a path inside another app's sandbox or runtime: a snap (/snap, ~/snap, snapd's
+    state), a Flatpak app's data (~/.var/app) or a mounted AppImage (/tmp/.mount_*). A shell or
+    launcher started from such an app (the Codium snap's terminal sets XDG_DATA_HOME to
+    ~/snap/codium/<rev>/.local/share) must not decide where sonata-align lives: the folder moves
+    or disappears with the app's next refresh."""
+    if not path:
+        return False
+    home = os.path.realpath(home or os.path.expanduser('~'))
+    p = os.path.realpath(os.path.expanduser(path))
+    roots = ('/snap', '/var/snap', '/var/lib/snapd', os.path.join(home, 'snap'), os.path.join(home, '.var', 'app'))
+    return any(p == r or p.startswith(r + os.sep) for r in roots) or p.startswith('/tmp/.mount_')
+
+
+def data_dir(env=None, home=None):
+    """sonata-align's home: SONATA_ALIGN_HOME (Sonata sets it), else $XDG_DATA_HOME/sonata-align
+    unless XDG_DATA_HOME points into another app's sandbox (in_app_sandbox), else
+    ~/.local/share/sonata-align. Same rule as align/install.sh, align/sonata-align and
+    align-helper.js helperPaths."""
+    env = os.environ if env is None else env
+    home = home or env.get('HOME') or os.path.expanduser('~')
+    if env.get('SONATA_ALIGN_HOME'):
+        return env['SONATA_ALIGN_HOME']
+    xdg = env.get('XDG_DATA_HOME')
+    if xdg and os.path.isabs(xdg) and not in_app_sandbox(xdg, home):
+        return os.path.join(xdg, 'sonata-align')
+    return os.path.join(home, '.local', 'share', 'sonata-align')
+
+
+DATA_DIR = data_dir()
 MODEL_DIR = os.path.join(DATA_DIR, 'models')
 
 

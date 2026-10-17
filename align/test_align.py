@@ -137,6 +137,28 @@ class Holds(unittest.TestCase):
 
 
 
+class Paths(unittest.TestCase):
+    """Where sonata-align lives: never inside another app's sandbox (the Codium snap incident)."""
+
+    def test_snap_and_flatpak_dirs(self):
+        h = '/home/u'
+        self.assertTrue(SA.in_app_sandbox('/home/u/snap/codium/495/.local/share', h))
+        self.assertTrue(SA.in_app_sandbox('/snap/codium/495/usr/bin/python3', h))
+        self.assertTrue(SA.in_app_sandbox('/home/u/.var/app/com.vscodium.codium/data', h))
+        self.assertTrue(SA.in_app_sandbox('/tmp/.mount_SonataX/usr/bin', h))
+        self.assertFalse(SA.in_app_sandbox('/home/u/.local/share', h))
+        self.assertFalse(SA.in_app_sandbox('/home/u/snapshots', h))
+        self.assertFalse(SA.in_app_sandbox('/usr/bin/python3.13', h))
+
+    def test_data_dir(self):
+        h = '/home/u'
+        self.assertEqual(SA.data_dir({'SONATA_ALIGN_HOME': '/x/sa'}, h), '/x/sa')
+        self.assertEqual(SA.data_dir({'XDG_DATA_HOME': '/data/me'}, h), '/data/me/sonata-align')
+        self.assertEqual(SA.data_dir({'XDG_DATA_HOME': '/home/u/snap/codium/495/.local/share'}, h), '/home/u/.local/share/sonata-align')
+        self.assertEqual(SA.data_dir({'XDG_DATA_HOME': 'relative'}, h), '/home/u/.local/share/sonata-align')
+        self.assertEqual(SA.data_dir({}, h), '/home/u/.local/share/sonata-align')
+
+
 class GpuBudget(unittest.TestCase):
     def test_threads(self):
         self.assertEqual(SA.gpu_threads({}, 32), 4)

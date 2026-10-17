@@ -575,6 +575,7 @@ function getSharedListener() {
 // per poll tick.
 let alignPaths = null
 let alignInstalledNow = false
+let alignHealth = null      // align-helper checkInstall: ok / missing / broken / sandboxed / stray
 let alignHelper = null
 let alignSession = null
 function alignInstalled(recheck) {
@@ -582,8 +583,18 @@ function alignInstalled(recheck) {
     // one object, updated in place: the helper client reads it at its next spawn
     alignPaths = Object.assign(alignPaths || {}, alignHelperLib.helperPaths(process.env, __dirname))
     alignInstalledNow = alignHelperLib.isInstalled(alignPaths)
+    alignHealth = alignHelperLib.checkInstall(alignPaths)
+    showAlignRepair()
   }
   return alignInstalledNow
+}
+// A venv whose python is gone or lives inside another app's sandbox (the Codium snap): one notice in
+// Settings → Word timing with the repair command, while Precise word timing is on.
+// error: SHOWN — the repair notice; cleared once the install is healthy (checked at start and when Settings asks)
+function showAlignRepair() {
+  const text = settings.lyricsPreciseTiming ? alignHelperLib.repairText(alignHealth) : ''
+  if (!text) { notices.clear('align-repair'); return }
+  notices.show({ id: 'align-repair', place: { page: 'settings', section: 'timing' }, kind: 'error', task: true, text })
 }
 function getAlignHelper() {
   alignInstalled()
@@ -1556,6 +1567,7 @@ function setSetting(key, value) {
       if (alignHelper) alignHelper.stop()           // and free the GPU now
       alignStatusText = ''
     } else askAlignStatus()
+    showAlignRepair()
   }
   else if (key === 'alignGamingPause') {
     if (!value && gameGuard) gameGuard.reset()    // off: resume now
@@ -1687,8 +1699,9 @@ let focusCode = null      // apple-focus.js, injected per Apple page load (read 
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
   if (!settings.lyricsPreciseTiming) return 'off'
-  if (!alignInstalled()) return 'missing'
+  if (!alignInstalled()) return alignHealth && alignHealth.state !== 'missing' ? 'repair' : 'missing'
   if (alignPaused()) return 'paused'
+  if (alignHealth && alignHealth.state === 'sandboxed') return 'repair'
   return alignHelper && alignHelper.running ? 'busy' : 'ready'
 }
 function contentSize() {
@@ -2604,6 +2617,7 @@ app.whenReady().then(async () => {
   startupStep('update checks', startUpdateChecks)
   startupStep('what\'s new', showWhatsNew)
   startupStep('auto-update question', askAutoUpdate)
+  startupStep('precise timing install check', () => alignInstalled(true))
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }
