@@ -71,7 +71,7 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 
 ### Settings and About
 
-Settings and About open in a panel beside Apple's page (the rail's Settings and About items, the tray's *Settings…* and *About Sonata*). Apple's page makes room for it; in a narrow window it slides in as a drawer over the page instead (Esc closes it). Settings are grouped in sections: Playback & lyrics, Precise timing, Appearance, Mini player & windows, Integrations (Last.fm, Discord), Updates and Startup. Each header says the current state in a few words. One section is open at a time; pin the ones you want to keep open (the dot in a header's corner). The ⋮ menu collapses all sections or clears the pins. Sonata remembers it all. About has what's new in your version, what's coming soon, credits and licences, and links.
+Settings and About open in a panel beside Apple's page (the rail's Settings and About items, the tray's *Settings…* and *About Sonata*). Apple's page makes room for it; in a narrow window it slides in as a drawer over the page instead (Esc closes it). Settings are grouped in sections: Playback & lyrics, Precise timing, Appearance, Mini player & windows, Integrations (Last.fm, Discord), Updates, Startup and Experimental (switches still being tested, off until you turn them on). Each header says the current state in a few words. One section is open at a time; pin the ones you want to keep open (the dot in a header's corner). The ⋮ menu collapses all sections or clears the pins. Sonata remembers it all. About has what's new in your version, what's coming soon, credits and licences, links, and Graphics: what this start uses (hardware acceleration, the Experimental switches) and Sonata's CPU use while it is open.
 
 Messages (a Last.fm step, an update, a repaired file) appear at the top of the panel or in their section, with their buttons and a × to dismiss. Short confirmations show for a few seconds at the bottom right of the page.
 
@@ -132,6 +132,9 @@ Apple Music on the web uses Widevine DRM. Sonata is built on [castlabs' Electron
 
 **Lossless? Dolby Atmos? Downloads?**
 Not possible. Lossless and Atmos streams are FairPlay-only, so outside Apple's own apps the Apple Music web player gets AAC. The same goes for offline downloads. This holds for every third-party Apple Music app, not only Sonata.
+
+**Sonata doesn't start after I turned on an Experimental switch. How do I get back?**
+Start it once from a terminal with `--safe-gpu` (for example `./Sonata.AppImage --safe-gpu`, or `SONATA_SAFE_GPU=1`): that start uses none of the Experimental graphics switches and changes no settings, so you can turn the switch off in Settings → Experimental. You rarely need it: when a start with a switch on doesn't finish, or the graphics process crashes, Sonata turns that switch off by itself and says so.
 
 **Is this the old "Apple Music for Linux" app?**
 It started as a fork of [cross-platform/apple-music-for-linux](https://github.com/cross-platform/apple-music-for-linux) by Marcus Tomlinson. That app stopped starting when Google stopped serving the Widevine module for its 2021 Electron 13 build ("Failed to install Widevine components"). Sonata moved to castlabs Electron 42 and the modern Widevine components API, and grew from there.

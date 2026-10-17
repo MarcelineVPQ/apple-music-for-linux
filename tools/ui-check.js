@@ -291,7 +291,7 @@ async function keys() {
   x('key', 'end'); await sleep(150); order.push(await where())
   x('key', 'home'); await sleep(150); order.push(await where())
   x('key', 'up'); await sleep(150); order.push(await where())
-  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['playback', 'timing', 'appearance', 'windows', 'startup', 'playback', 'startup'].map((id) => 'panel:h-settings-' + id).join('|'), order)
+  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['playback', 'timing', 'appearance', 'windows', 'experimental', 'playback', 'experimental'].map((id) => 'panel:h-settings-' + id).join('|'), order)
   x('key', 'home'); await sleep(150)
   const exp = () => panel.ev('document.activeElement.getAttribute("aria-expanded") + "|" + (document.activeElement.getAttribute("aria-controls") || "")')
   const e0 = await exp(); x('key', 'enter'); await sleep(500); const e1 = await exp(); x('key', 'space'); await sleep(500); const e2 = await exp()

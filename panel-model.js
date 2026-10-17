@@ -52,7 +52,9 @@
         { id: 'shortcuts', title: 'Global shortcuts', icon: 'keyboard' },
         { id: 'integrations', title: 'Integrations', icon: 'plug' },
         { id: 'updates', title: 'Updates', icon: 'refresh' },
-        { id: 'startup', title: 'Startup', icon: 'power' }
+        { id: 'startup', title: 'Startup', icon: 'power' },
+        // switches still being tested (gfx-model.js EXPERIMENTS); off until turned on
+        { id: 'experimental', title: 'Experimental', icon: 'flask' }
       ]
     },
     about: {
@@ -62,7 +64,9 @@
         // card above them carries the links
         { id: 'whatsnew', title: 'App changes', icon: 'scroll' },
         { id: 'soon', title: 'Coming soon', icon: 'flag' },
-        { id: 'credits', title: 'Credits', icon: 'heart' }
+        { id: 'credits', title: 'Credits', icon: 'heart' },
+        // the graphics readout (gfx-model.js graphicsRows): what this start uses, measured while it shows
+        { id: 'graphics', title: 'Graphics', icon: 'monitor' }
       ]
     }
   }
@@ -139,9 +143,18 @@
         case 'integrations': return ['Last.fm ' + (st.lastfmConnected ? 'connected' : 'off'), 'Discord ' + (st.discordEnabled ? 'on' : 'off')].join(' · ')
         case 'updates': return [st.updateChannel === 'dev' ? 'Development' : 'Stable', !st.checkForUpdates ? 'no automatic checks' : st.autoInstallUpdates ? 'installs automatically' : 'asks before installing'].join(' · ')
         case 'startup': return [st.closeToTray ? 'Close to tray' : null, st.launchAtLogin ? 'Launch at login' : null, st.startMinimized ? 'Start minimized' : null].filter(Boolean).join(' · ') || 'All off'
+        case 'experimental': return experimentalStatus(st)
       }
     }
     return ''
+  }
+
+  // Experimental's one line: how many switches are on, and whether a restart is waiting
+  function experimentalStatus(st) {
+    const g = st.gfx
+    if (!g) return ''
+    const n = (g.keys || []).filter((k) => st[k] === true).length
+    return [n ? n + ' on' : 'All off', g.safe ? 'safe start' : null, g.pending && g.pending.length ? 'restart to apply' : null].filter(Boolean).join(' · ')
   }
 
   // the Tab / F6 cycle between the window's views: Apple's page -> the panel (when shown) -> the rail -> Apple's page

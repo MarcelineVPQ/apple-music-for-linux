@@ -90,6 +90,8 @@
       "panel.css",
       "panel-ui.js",
       "panel-model.js",
+      "gfx-model.js",
+      "gfx-runtime.js",
       "preload-panel.js",
       "toast.html",
       "toast-ui.js",

@@ -59,10 +59,12 @@ function relaunchArgs(argv) {
 // `systemd-run` arguments: a transient user service, gone when it ends (--collect). ExitType=cgroup as
 // KDE's own launcher sets it: the unit lasts until its last process is gone, so the AppImage's FUSE helper
 // can unmount by itself after Sonata quits instead of being killed with the mount still in place.
-function systemdRunArgs({ target, args = [], env = {}, unit, exitTypeCgroup = true }) {
+// cwd: the folder to start in (a run from source passes `electron .`: the "." is that folder)
+function systemdRunArgs({ target, args = [], env = {}, unit, exitTypeCgroup = true, cwd = '' }) {
   const setenv = Object.keys(env).map((k) => '--setenv=' + k + '=' + env[k])
   return ['--user', '--collect', '--unit=' + unit,
     ...(exitTypeCgroup ? ['-p', 'ExitType=cgroup'] : []),
+    ...(cwd ? ['--working-directory=' + cwd] : []),
     ...setenv, '--', target, ...args]
 }
 

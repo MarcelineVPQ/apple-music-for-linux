@@ -85,7 +85,7 @@ test('header keys: ↑ ↓ wrap, Home End jump, others pass; focus cycle apple -
 
 test('settings sections: every setting of the old Settings window has a section; statuses say the state in words', () => {
   const ids = P.sectionIds('settings')
-  assert.deepEqual(ids, ['playback', 'timing', 'appearance', 'windows', 'shortcuts', 'integrations', 'updates', 'startup'])
+  assert.deepEqual(ids, ['playback', 'timing', 'appearance', 'windows', 'shortcuts', 'integrations', 'updates', 'startup', 'experimental'])
   const ui = fs.readFileSync(path.join(__dirname, '..', 'panel-ui.js'), 'utf8')
   // every toggle the retired settings.html had
   for (const k of ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'lyricsArtSpinSpeed', 'updateChannel']) {
@@ -99,7 +99,11 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.equal(P.sectionStatus('settings', 'startup', {}), 'All off')
   assert.equal(P.sectionStatus('settings', 'appearance', s), 'Dark · album colours · Glass')
   assert.equal(P.sectionStatus('settings', 'updates', Object.assign({}, s, { checkForUpdates: false })), 'Development · no automatic checks')
-  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits'])
+  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits', 'graphics'])
+  const g = { keys: ['expA', 'expB'], safe: false, pending: [] }
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g }), 'All off')
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { pending: ['A'] }), expA: true }), '1 on · restart to apply')
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { safe: true }), expA: true, expB: true }), '2 on · safe start')
 })
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {
