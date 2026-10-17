@@ -16,7 +16,9 @@
 //           light/dark x album colour on/off x Glass on/off), a11y (Sonata's own windows: an offline
 //           axe-style rule set, focus order and keyboard reach with the theme's focus ring, reduced motion),
 //           stage (the lyrics window grown into the stage: columns, real-data texts, every theme with
-//           screenshots, drag regions while the lists scroll, no dead controls, keyboard, idle frames, the form)
+//           screenshots, drag regions while the lists scroll, no dead controls, keyboard, idle frames, the Montage
+//           (on/off, credit, every word readable over every photo in every theme, cost playing, 0 frames paused or
+//           minimised; the real Commons path with SONATA_TEST_MONTAGE), the form)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -883,6 +885,234 @@ const REGIONS_AT = (points) => `(() => {
   return ${JSON.stringify(points)}.map(([x, y, name]) => { let win = null; for (const r of rects) if (x >= r[1] && x < r[3] && y >= r[2] && y < r[4]) win = r; return { name, x, y, region: win ? win[0] : null, by: win ? String(win[5]).slice(0, 30) : null } })
 })()`
 
+// --- the Studio's Montage (montage-ui.js): the tile on and off, the photos behind the lyrics with their
+// credit, the words readable over every photo in every theme (measured: the shade the page chose, its real
+// token colours, each photo's own darkest and lightest pixel decoded here), the credit opening the photo's
+// page through main, "no free photos" / offline said on the tile, reduced motion, and the cost: frames and
+// CPU playing, 0 frames paused or hidden. Stand-in photos: the checker's worst-case artworks (hard
+// black/white stripes, saturated primaries). With SONATA_TEST_MONTAGE=<artist id>:<album id> in the app's
+// environment it also runs the real path (Wikidata, Commons, the disk cache) for that artist, with
+// screenshots in light and dark.
+async function montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) {
+  const facts = () => page.ev('montage.facts()')
+  const tileNow = () => page.ev(`(() => { const t = document.getElementById('t-montage'); return { hidden: t.hidden, pressed: t.getAttribute('aria-pressed'), small: t.querySelector('small').textContent, title: t.title, credit: !document.getElementById('mt-credit').hidden, creditText: document.getElementById('mt-credit').textContent, box: !document.getElementById('montage').hidden, say: document.getElementById('say').textContent } })()`)
+  const passMontage = (v) => mp.ev(`(${lyrWin}.webContents.__passMontage = ${!!v}, true)`)
+  await passMontage(false)
+  await mp.ev(`(() => { const s = ${E}.shell; globalThis.__opened = []; if (!s.__origOpen) { s.__origOpen = s.openExternal; s.openExternal = (u) => { globalThis.__opened.push(u); return Promise.resolve() } } return true })()`)
+  let t = await tileNow()
+  check('montage: the tile shows on the Studio, off by default ("Off")', !t.hidden && t.pressed === 'false' && t.small === 'Off' && !t.box && !t.credit && (await mp.ev(settingsFile)).montage !== true, t)
+  await stageLog()
+  await page.ev(`(document.getElementById('t-montage').click(), true)`); await sleep(400)
+  let l = await stageLog()
+  t = await tileNow()
+  check('montage: a click turns it on (remembered) and says it is looking', l.some((x) => x[0] === 'montage' && x[1] === true) && (await mp.ev(settingsFile)).montage === true && t.pressed === 'true' && t.small === 'Looking…', { l, t })
+
+  // the stand-in photos: their extremes decoded here, in full (the checker's own loop, not montage-model.js)
+  const files = ['worst-artwork.png', 'light-artwork.png', 'dark-artwork.png'].map((f) => path.join(__dirname, f))
+  const EXTREMES = (file) => `(() => {
+    const img = ${E}.nativeImage.createFromPath(${JSON.stringify(file)}); const b = img.toBitmap()
+    const L = (r, g, bb) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bb) }
+    let lo = [9, null], hi = [-1, null]
+    for (let i = 0; i < b.length; i += 4) { const l = L(b[i + 2], b[i + 1], b[i]); if (l < lo[0]) lo = [l, [b[i + 2], b[i + 1], b[i]]]; if (l > hi[0]) hi = [l, [b[i + 2], b[i + 1], b[i]]] }   /* loop: NOT-WORTH — test only */
+    return { lo: lo[1], hi: hi[1], size: img.getSize() }
+  })()`
+  const ext = {}
+  const photos = []
+  for (const [i, f] of files.entries()) {
+    const x = await mp.ev(EXTREMES(f))
+    const id = 'Stand-in ' + (i + 1) + '.png'
+    ext[id] = x
+    photos.push({ id, src: require('url').pathToFileURL(f).href, author: ['Ann Example', 'Ben Example', 'Cy Example'][i], licence: ['CC BY-SA 4.0', 'CC BY 2.0', 'CC0'][i], licenceUrl: '', title: 'Stand-in ' + (i + 1), page: 'https://commons.wikimedia.org/wiki/File:Stand-in_' + (i + 1) + '.png', lo: x.lo, hi: x.hi })
+  }
+  const state = { on: true, status: 'ready', offline: false, set: 'test|stand-ins', photos }
+  await send('stage-montage', state); await sleep(1200)
+  t = await tileNow()
+  let f = await facts()
+  check('montage: with photos it shows behind the lyrics (tile "On"), the first photo in, its credit: author · licence · Wikimedia Commons', t.pressed === 'true' && t.small === 'On' && t.box && f.visible && f.photo === photos[0].id && t.credit && t.creditText === 'Ann Example · CC BY-SA 4.0 · Wikimedia Commons', { t, f })
+
+  // readable over every photo in every theme: the words over the shade the page chose, over the photo's own extremes
+  const MEASURE = `(() => {
+    const centre = document.getElementById('lines').getBoundingClientRect()
+    const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden]') && r.right > centre.left && r.left < centre.right && r.bottom > 0 && r.top < innerHeight }
+    const alphaUp = (el) => { let a = 1; for (let e = el; e && e !== document.body; e = e.parentElement) a *= +getComputedStyle(e).opacity; return a }
+    const out = []
+    const root = document.documentElement
+    const tok = (k) => getComputedStyle(root).getPropertyValue(k).trim()
+    for (const rootSel of ['#header', '#band', '#lines', '#mt-credit']) {
+      const r = document.querySelector(rootSel); if (!r || r.closest('[hidden]')) continue
+      const w = document.createTreeWalker(r, NodeFilter.SHOW_TEXT)
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        if (!n.textContent.trim()) continue
+        const el = n.parentElement
+        if (!vis(el) || el.closest('svg')) continue
+        const a = alphaUp(el); if (a < 0.02) continue
+        const cs = getComputedStyle(el)
+        const bgs = []
+        for (let e = el; e && e !== document.getElementById('card'); e = e.parentElement) { const b = getComputedStyle(e).backgroundColor; if (b && b !== 'rgba(0, 0, 0, 0)') bgs.unshift(b) }
+        out.push({ text: n.textContent.trim().slice(0, 24), color: cs.color, a, bgs, where: rootSel, bgv: !!el.closest('.bgv') })
+      }
+    }
+    const shown = [...document.querySelectorAll('#montage .mt-photo')].filter((l) => +l.style.opacity > 0).map((l) => l.dataset.photo)
+    return { texts: out, surface: tok('--s-surface'), dim: tok('--s-dim'), scrim: +document.getElementById('montage').style.getPropertyValue('--scrim'), shown }
+  })()`
+  const judgeMontage = (tag, m, extremes) => {
+    const surf = parse(m.surface)
+    const low = []
+    for (const id of m.shown) {
+      const x = extremes[id]
+      if (!x) { low.push({ id, why: 'no extremes' }); continue }
+      for (const tx of m.texts) {
+        const c = parse(tx.color)
+        const d = parse(m.dim)
+        const need = d && c.rgb.every((v, i) => Math.abs(v - d.rgb[i]) <= 1) ? 3 : 4.5   // the quiet lines: 3:1
+        const layers = [{ rgb: surf.rgb, a: m.scrim }].concat(tx.bgs.map(parse).filter(Boolean))
+        const r = worstOver({ rgb: c.rgb, a: c.a * tx.a }, layers, [x.lo, x.hi])
+        if (r < (tx.bgv ? 3 : need)) low.push({ id, text: tx.text, where: tx.where, ratio: +r.toFixed(2), need: tx.bgv ? 3 : need, bgv: tx.bgv })
+      }
+    }
+    // backing vocals on unsung lines are judged on their own, as in the stage's theme loop (being reworked on backing-vocals-b)
+    check(tag + ' every word over the montage meets its contrast (4.5:1, quiet lines 3:1) over the photo\'s darkest and lightest pixel (shade ' + m.scrim + ', ' + m.texts.length + ' texts, photos ' + m.shown.join(', ') + ')', m.shown.length > 0 && m.texts.length > 5 && m.scrim > 0 && !low.some((x) => !x.bgv), low.filter((x) => !x.bgv).slice(0, 6))
+    const lowBg = low.filter((x) => x.bgv)
+    check(tag + ' backing vocals over the montage >= 3:1 (pre-existing in lyrics-view.css; owned by backing-vocals-b)', !lowBg.length, lowBg.slice(0, 4))
+  }
+  for (const adaptive of [true, false]) {
+    for (const glass of [true, false]) {
+      await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', adaptive)); await mp.ev(viewCommand('panel', 'set', 'glass', glass)); await sleep(700)
+      for (const dark of [false, true]) {
+        await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+        const tag = 'montage-' + (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '')
+        await send('lyrics-time', T0, false); await sleep(400)
+        judgeMontage(tag, await page.ev(MEASURE), ext)
+        xshot(path.join(OUT, tag + '.png'), W, H)
+      }
+    }
+  }
+  // the credit asks main by the photo's id; main opens only a photo it sent itself (these stand-ins came from
+  // the checker, so nothing opens; the real path below checks the page opening)
+  await stageLog()
+  await page.ev(`(document.getElementById('mt-credit').click(), true)`); await sleep(400)
+  l = await stageLog()
+  const opened = await mp.ev('globalThis.__opened.splice(0)')
+  check('montage: the credit line asks main for the photo\'s page by its id; main opens nothing it didn\'t send', l.length === 1 && l[0][0] === 'montage-credit' && l[0][1] === photos[0].id && opened.length === 0, { l, opened })
+
+  // playing: the pan runs at 10 Hz; paused, hidden or minimised: nothing
+  const pids = await mp.ev(`${E}.app.getAppMetrics().map((m) => m.pid)`)
+  const frames = async (ms) => {
+    let n = 0
+    const on = (m) => { if (m.method === 'Page.screencastFrame') { n++; page.c.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {}) } }
+    page.c.on(on)
+    await page.c.send('Page.startScreencast', { format: 'jpeg', quality: 10, everyNthFrame: 1 })
+    await sleep(600); n = 0; await sleep(ms)
+    await page.c.send('Page.stopScreencast')
+    return n
+  }
+  // the lyrics feed as main sends it while a song plays (2/s), from the main process (this test copy only)
+  // from 120 s on (after the song's last line, so the lyrics engine is quiet and the frames are the montage's own)
+  const play = (on, from) => mp.ev(`(() => { clearInterval(globalThis.__play); if (${!!on}) { let t = ${from || T0}; globalThis.__play = setInterval(() => { t += 0.5; const wc = ${lyrWin}.webContents; wc.__origSend.call(wc, 'lyrics-time', t, true) }, 500) } return true })()`)
+  x('move', 1500, 900)
+  await play(true, 120); await sleep(3000)
+  await send('stage-montage', { on: false, status: 'off', photos: [] }); await sleep(1500)
+  const fpsOff = (await frames(5000)) / 5
+  const cpuOff = +(await cpu(pids, 10000)).toFixed(2)
+  await send('stage-montage', state); await sleep(1500)
+  f = await facts()
+  const fpsOn = (await frames(5000)) / 5
+  const cpuOn = +(await cpu(pids, 10000)).toFixed(2)
+  check('montage: playing, the pan runs at its reduced rate (' + fpsOn + ' frames/s with the lyrics quiet, ' + fpsOff + ' without the montage)', f.running && f.clock > 0 && fpsOn - fpsOff >= 6 && fpsOn - fpsOff <= 14, { f, fpsOn, fpsOff })
+  results.push({ name: 'montage cost (table, this machine, Xvfb, software GL; the lyrics quiet)', ok: true, detail: { playingWithMontage: { framesPerSecond: fpsOn, cpuPercentOfOneCore: cpuOn }, playingWithout: { framesPerSecond: fpsOff, cpuPercentOfOneCore: cpuOff } } })
+  await play(false); await send('lyrics-time', T0 + 30, false); await sleep(1200)
+  f = await facts()
+  const nPaused = await frames(5000)
+  const cpuPaused = +(await cpu(pids, 10000)).toFixed(2)
+  check('montage: paused, no timer and 0 frames for 5 s (on, photos showing)', !f.running && f.visible && nPaused === 0, { f, frames: nPaused, cpu: cpuPaused })
+  results.push({ name: 'montage cost paused (table)', ok: true, detail: { framesIn5s: nPaused, cpuPercentOfOneCore: cpuPaused } })
+  // hidden (minimised) while playing: the timer stops
+  await play(true); await sleep(800)
+  await mp.ev(`(${lyrWin}.minimize(), true)`); await sleep(1500)
+  // Xvfb has no window manager to iconify a window: then hidden (the same 'hidden' document)
+  let how = 'minimised'
+  if (await page.ev('document.visibilityState') === 'visible') { how = 'hidden (no window manager to minimise under Xvfb)'; await mp.ev(`(${lyrWin}.hide(), true)`); await sleep(1500) }
+  const hid = await page.ev(`[document.visibilityState, montage.facts().running]`)
+  const nHidden = await frames(3000)
+  const cpuHidden = +(await cpu(pids, 10000)).toFixed(2)
+  await mp.ev(`(() => { const w = ${lyrWin}; if (w.isMinimized()) w.restore(); w.showInactive(); return true })()`); await sleep(1500)
+  const back = await page.ev('montage.facts().running')
+  await play(false); await send('lyrics-time', T0 + 30, false); await sleep(600)
+  check('montage: ' + how + ' while playing, the pan stops (document hidden, no timer, 0 frames); shown again, it runs again', hid[0] === 'hidden' && hid[1] === false && nHidden === 0 && back === true, { hid, back, nHidden, cpuHidden })
+  results.push({ name: 'montage cost ' + how + ' while playing (table)', ok: true, detail: { framesIn3s: nHidden, cpuPercentOfOneCore: cpuHidden } })
+
+  // reduced motion: no pan or zoom, a slow cross-fade
+  await page.c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }); await sleep(600)
+  f = await facts()
+  check('montage: reduced motion: no pan or zoom (no transform), the cross-fade is CSS\'s', f.visible && f.layers.every((y) => !y.transform || y.transform === 'none') && (await page.ev(`document.getElementById('montage').classList.contains('calm')`)), f)
+  await page.c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] }); await sleep(400)
+
+  // nothing found / offline: the tile says so and the montage stays off
+  await send('stage-montage', { on: true, status: 'none', photos: [] }); await sleep(500)
+  t = await tileNow()
+  check('montage: no free photos for the artist: the tile says so ("No free photos"), not pressed, nothing behind the lyrics, said to screen readers', t.small === 'No free photos' && t.pressed === 'false' && !t.box && !t.credit && /No free photos found for this artist/.test(t.title) && /No free photos found for this artist/.test(t.say), t)
+  await stageLog()
+  await page.ev(`(document.getElementById('t-montage').click(), true)`); await sleep(300)
+  l = await stageLog()
+  check('montage: a click then looks again', l.some((y) => y[0] === 'montage' && y[1] === true) && (await tileNow()).small === 'Looking…', l)
+  await send('stage-montage', { on: true, status: 'offline', photos: [] }); await sleep(400)
+  t = await tileNow()
+  check('montage: offline with nothing saved: the tile says "Offline"', t.small === 'Offline' && t.pressed === 'false' && !t.box, t)
+  await send('stage-montage', Object.assign({}, state, { offline: true })); await sleep(600)
+  t = await tileNow()
+  check('montage: offline with saved photos: they show, the tile says so ("On · saved")', t.small === 'On · saved' && t.box && t.credit, t)
+
+  // the real path for one artist (only with SONATA_TEST_MONTAGE in the app's environment)
+  const real = await mp.ev(`process.env.SONATA_TEST_MONTAGE || ''`)
+  if (real) {
+    const name = await mp.ev(`process.env.SONATA_TEST_MONTAGE_NAME || ''`)
+    await send('stage-np', Object.assign({}, np, { artist: name || np.artist }))
+    await send('lyrics-data', Object.assign({}, song, { artist: name || song.artist }))
+    await send('lyrics-time', T0, false)
+    await passMontage(true)
+    await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await sleep(300)
+    await page.ev(`(() => { const t = document.getElementById('t-montage'); if (t.getAttribute('aria-pressed') === 'true') t.click(); return true })()`); await sleep(600)
+    await page.ev(`(document.getElementById('t-montage').click(), true)`)
+    const t0 = Date.now()
+    let st = null
+    while (Date.now() - t0 < 120000) {
+      st = await page.ev(`(() => { const f = montage.facts(); return { f, small: document.getElementById('t-montage').querySelector('small').textContent } })()`)
+      if (st.f.visible && /^On/.test(st.small)) break
+      await sleep(1000)
+    }
+    await sleep(8000)   // the rest of the photos (one at a time)
+    const realPhotos = await page.ev(`[...document.querySelectorAll('#montage .mt-photo')].map((l) => l.src)`)
+    check('montage (real, ' + real + '): photos from Wikimedia Commons show behind the lyrics with their credit', st && st.f.visible && /^On/.test(st.small), st)
+    const realExt = {}
+    const shownNow = await page.ev(`[...document.querySelectorAll('#montage .mt-photo')].map((l) => [l.dataset.photo, l.src])`)
+    for (const [id, src] of shownNow) if (id && src) realExt[id] = await mp.ev(EXTREMES(require('url').fileURLToPath(src)))
+    for (const dark of [false, true]) {
+      await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(1200)
+      judgeMontage('montage real ' + (dark ? 'dark' : 'light'), await page.ev(MEASURE), realExt)
+      xshot(path.join(OUT, 'montage-real-' + (dark ? 'dark' : 'light') + '.png'), W, H)
+    }
+    await mp.ev('globalThis.__opened.splice(0)')
+    const creditId = await page.ev(`document.getElementById('mt-credit').dataset.photo`)
+    await page.ev(`(document.getElementById('mt-credit').click(), true)`); await sleep(500)
+    const opened2 = await mp.ev('globalThis.__opened.splice(0)')
+    check('montage (real): the credit line opens that photo\'s Commons page in the browser, through main', opened2.length === 1 && /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(opened2[0]) && decodeURIComponent(opened2[0].slice(40)).replace(/_/g, ' ') === creditId, { creditId, opened2 })
+    results.push({ name: 'montage real credits (table)', ok: true, detail: { credit: await page.ev(`document.getElementById('mt-credit').textContent`), layers: realPhotos.length } })
+    await passMontage(false)
+  }
+
+  // off again: a click; nothing behind the lyrics, no timer, remembered
+  await send('stage-montage', state); await sleep(500)
+  await stageLog()
+  await page.ev(`(document.getElementById('t-montage').click(), true)`); await sleep(500)
+  l = await stageLog()
+  t = await tileNow()
+  f = await facts()
+  check('montage: a click turns it off: nothing behind the lyrics, no credit, no timer, remembered', l.some((y) => y[0] === 'montage' && y[1] === false) && t.pressed === 'false' && t.small === 'Off' && !t.box && !t.credit && !f.running && (await mp.ev(settingsFile)).montage === false, { l, t, f })
+  await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true))
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'dark', true)`); await sleep(800)
+  await mp.ev(`(() => { const s = ${E}.shell; if (s.__origOpen) { s.openExternal = s.__origOpen; delete s.__origOpen } return true })()`)
+}
+
 async function stage() {
   const mp = await mainProc()
   // the commands the stage sends main (this test copy only): a second listener beside main's own
@@ -895,7 +1125,7 @@ async function stage() {
   const page = await target('lyrics.html')
   const lyrWin = `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics'))`
   await mp.ev(`(() => { const wc = ${lyrWin}.webContents
-    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if (/^(lyrics-(time|data)|stage-(np|queue))$/.test(ch) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
+    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if ((/^(lyrics-(time|data)|stage-(np|queue))$/.test(ch) || (ch === 'stage-montage' && !wc.__passMontage)) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
     return true })()`)
   const send = (ch, ...a) => mp.ev(`(${lyrWin}.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'), true)`)
   const W = 1240; const H = 780
@@ -924,7 +1154,7 @@ async function stage() {
   const left = Math.ceil(song.duration - T0)
   check('stage: the next card counts down the playing song (Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ') and names the next song', facts.nextIn === 'Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') && facts.nextT === 'The Parting Glass', facts)
   check('stage: Up Next lists the 12 songs after it plus the autoplay one; Playing from the album; the Playlist tab counts 24', facts.rows === 12 && facts.firstRow.startsWith('The Parting Glass') && facts.ctx === 'Playing from Wayfarers: Live at the Gorge' && facts.tabAll === 'Playlist · 24', facts)
-  check('stage: no empty boxes or dead controls (no sheet notes yet: no band; Montage hidden; Liner notes hidden until it\'s merged; the "On the stage" row hidden)', facts.band && facts.layers && facts.montage && facts.liner, facts)
+  check('stage: no empty boxes or dead controls (no sheet notes yet: no band; the Montage tile shows (its row with it); Liner notes hidden until it\'s merged)', facts.band && !facts.layers && !facts.montage && facts.liner, facts)
   check('stage: neither list scrolls sideways', facts.hScroll.every((h) => !h), facts.hScroll)
 
   // --- every theme: light/dark x album colour on/off x Glass on/off ---
@@ -1003,7 +1233,8 @@ async function stage() {
   await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
   // every visible control was exercised (a control not in this list would be untested: it fails here)
   const ctrls = await page.ev(`[...document.querySelectorAll('#card button, #card [role=slider], #card [role=button]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && r.height && !e.closest('[hidden]') && getComputedStyle(e).display !== 'none' }).map((e) => e.id || e.className)`)
-  const known = new Set(['b-shuffle', 'b-prev', 'b-play', 'b-next', 'b-repeat', 'seek-bar', 'vol-bar', 'tab-next', 'tab-all', 'q-row', 'form', 'close', 'line'])
+  // t-montage and mt-credit: the Montage step below exercises them
+  const known = new Set(['b-shuffle', 'b-prev', 'b-play', 'b-next', 'b-repeat', 'seek-bar', 'vol-bar', 'tab-next', 'tab-all', 'q-row', 'form', 'close', 'line', 't-montage', 'mt-credit'])
   const untested = ctrls.filter((c) => !known.has(String(c).split(' ')[0]))
   check('stage: every visible control is one this check exercised (no dead or untested controls)', !untested.length, untested)
   // read-only when Apple's player has no way to jump: no buttons, and it says so
@@ -1034,6 +1265,8 @@ async function stage() {
   await sleep(1000); n = 0; await sleep(5000)
   await page.c.send('Page.stopScreencast')
   check('stage: paused, no frames for 5 s (nothing animates on its own)', n === 0, { frames: n })
+
+  await montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
 
   // --- the form: the stage button shrinks it, Ctrl+Shift+S grows it, reopening brings back the last form ---
   await page.ev(`(document.getElementById('form').click(), true)`); await sleep(1500)
