@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.41-dev.1] — The Studio, liner notes, and backing vocals under their words
+
 ### Added
 
 - **The Studio: the lyrics as the centrepiece.** The lyrics window can grow into the Studio, a full now-playing screen: the lyrics big in the middle, the cover, the song, "Track 13 of 24", the live venue for live albums and the controls (play, previous, next, shuffle, repeat, position, volume) on the left, and on the right Up Next or the whole album or playlist, with a "Next · in 1:22" countdown and the time left. Click a song in the list to play it. Open it with Studio, now the first item on the rail, the new button in the lyrics window's header or Ctrl+Shift+S; the same button or key shrinks it back to the lyrics window. Sonata remembers which one you used last, and the size of each. In the Studio, Liner notes opens the album's booklet, or says when no album was found. Everything follows your theme, album colour and Glass; the keyboard and screen readers reach every control, and nothing moves on its own while the music is paused.
