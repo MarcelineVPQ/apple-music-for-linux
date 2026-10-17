@@ -233,13 +233,21 @@ def download(name, progress=None):
         if progress:
             progress(m['bytes'], m['bytes'])
         return d
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    dst = model_path(name)
+    return fetch(m['url'], model_path(name), m['bytes'], progress=progress, label=name)
+
+
+def fetch(url, dst, size, sha256=None, progress=None, label=None):
+    """Download url to dst once (atomic: .part + rename), checking the size and, when given, the
+    SHA-256. A wrong size or checksum removes the part file and raises ChecksumError.
+    progress(done, total)."""
+    import hashlib
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
     part = dst + '.part'
-    req = urllib.request.Request(m['url'], headers={'User-Agent': 'sonata-align/' + VERSION})
+    h = hashlib.sha256()
+    req = urllib.request.Request(url, headers={'User-Agent': 'sonata-align/' + VERSION})
     # loop: one read per 1 MiB until the response ends · lifetime: one HTTP response per model
     with urllib.request.urlopen(req, timeout=60) as r, open(part, 'wb') as f:
-        total = int(r.headers.get('Content-Length') or m['bytes'])
+        total = int(r.headers.get('Content-Length') or size)
         done = 0
         last = 0
         while True:
@@ -247,15 +255,23 @@ def download(name, progress=None):
             if not buf:
                 break
             f.write(buf)
+            h.update(buf)
             done += len(buf)
             if progress and (done - last >= (8 << 20) or done == total):
                 last = done
                 progress(done, total)
-    if os.path.getsize(part) != m['bytes']:
+    if os.path.getsize(part) != size:
         os.remove(part)
-        raise RuntimeError('download of %s incomplete' % name)
+        raise ChecksumError('download of %s incomplete (%d of %d bytes)' % (label or url, done, size))
+    if sha256 and h.hexdigest() != sha256:
+        os.remove(part)
+        raise ChecksumError('download of %s has the wrong checksum (sha256 %s, expected %s)' % (label or url, h.hexdigest(), sha256))
     os.replace(part, dst)
     return dst
+
+
+class ChecksumError(RuntimeError):
+    pass
 
 
 # ---------------------------------------------------------------------------------------------
@@ -518,15 +534,16 @@ class Aligner:
         STAR = emx.shape[1] - 1
         anchors = [l.get('t') for l in lines]
         known = [a for a in anchors if a is not None]
-        seq, lo, hi, owner = [], [], [], []      # owner: (line, word, token-in-line) or None
+        seq, lo, hi, owner = [], [], [], []      # owner: (line, word) or None
+        chars = {}                                # token index -> character index in its normalised word
         words_of = []
         for i, line in enumerate(lines):
             words = split_words(line.get('text'))
             words_of.append(words)
             toks = []
             for k, w in enumerate(words):
-                for c in normalise_word(w, self.label_index):
-                    toks.append((self.label_index[c], k))
+                for ci, c in enumerate(normalise_word(w, self.label_index)):
+                    toks.append((self.label_index[c], k, ci))
             if not toks:
                 continue
             t0 = anchors[i]
@@ -546,8 +563,8 @@ class Aligner:
                 stop = min(duration, max(stop, start + 0.12 * len(toks) + 0.5))
             f0, f1 = int(start / FRAME), min(T, int(math.ceil(stop / FRAME)))
             seq.append(STAR); lo.append(0); hi.append(T); owner.append(None)
-            for n, (tok, k) in enumerate(toks):
-                seq.append(tok); lo.append(f0); hi.append(f1); owner.append((i, k))
+            for tok, k, ci in toks:
+                seq.append(tok); lo.append(f0); hi.append(f1); owner.append((i, k)); chars[len(seq) - 1] = ci
         seq.append(STAR); lo.append(0); hi.append(T); owner.append(None)
         path = ctc_align(emx, seq, lo=np.array(lo), hi=np.array(hi)) if len(seq) > 1 else None
         if path is None and len(seq) > 1:
@@ -560,10 +577,14 @@ class Aligner:
         for ti, fr in (path or []):
             tok_frames.setdefault(ti, []).append(fr)
         per_word = {}
+        # each character's first frame (line, word, char) -> frame: syllable starts for the sung
+        # notes (notes_step.syllable_table); kept on the aligner until the end of the job
+        self.last_char_first = {}
         for ti, frs in tok_frames.items():
             o = owner[ti]
             if o is None:
                 continue
+            self.last_char_first[(o[0], o[1], chars[ti])] = min(frs)
             peak = float(np.exp(max(emx[fr, seq[ti]] for fr in frs)))
             d = per_word.setdefault(o, [min(frs), max(frs), []])
             d[0] = min(d[0], min(frs)); d[1] = max(d[1], max(frs)); d[2].append(peak)
@@ -641,6 +662,7 @@ class Aligner:
         self.load()
         st['load_s'] = round(time.time() - t, 2)
         stem, covered = stitch(piece_list)
+        self.last_stitched = (stem, covered)      # the sung notes step reads it (server.py), freed after the job
         t = time.time()
         em = self.emissions(torch.from_numpy(stem).to(self.device))
         n = min(len(em), len(covered))

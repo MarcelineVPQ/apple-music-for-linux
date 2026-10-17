@@ -37,6 +37,18 @@ Replies (stdout):
      "words":[{"t":12.41,"end":12.7,"text":"Hello","conf":0.52}]}],"stats":{...}}
   {"type":"error","id":"a1","message":"..."}
 
+Sung notes (Settings -> "Sung notes (developer log)", Development channel, off by default; the
+step is notes_step.py, the note model sung_notes.py through notes.py): an align request that is the
+song's whole-song job may carry "notes":true. After its result has been sent, the job's vocal stem, aligned lines and character frames are kept (one
+song at most, CPU). Then
+  {"cmd":"notes","id":"n1","song":"<id>","syl":[per request line: per word the syllable texts or null]}
+runs RMVPE on that stem and the note model (notes.notes_from), queued behind any jobs already
+waiting, and answers {"type":"result","id":"n1","notes":{...},"stats":{...}}; codes: "no-stem"
+(nothing kept for that song), "no-model" (RMVPE not downloaded), "low-vram". Nothing is kept when
+"notes" is absent. {"cmd":"prepare","id":"p2","mode":"notes"} downloads RMVPE (181 MB, MIT; size and
+SHA-256 checked, code "checksum" on a mismatch) and answers {"ready":true}. The pong lists
+"note_models":{"rmvpe":bool}.
+
 One job runs at a time (a worker thread); requests queue. Cancel takes effect between stages.
 """
 
@@ -59,6 +71,7 @@ sys.stdout = sys.stderr
 warnings.filterwarnings('ignore')
 
 import sonata_align as SA  # noqa: E402
+import notes_step  # noqa: E402  (the sung notes step; the note model is sung_notes.py, through notes.py)
 
 _lock = threading.Lock()
 
@@ -81,6 +94,7 @@ class Server:
         self.al = None             # SA.Aligner (models stay loaded between songs)
         self.current = None
         self.songs = SA.SongCache()  # the current song's section stems + emissions (CPU)
+        self.kept = None             # notes_step.Kept: the last whole-song job's stem for its notes step
 
     def pick(self, req):
         """Aligner for a request: explicit 'aligner', else by language (req 'language' or guessed
@@ -124,6 +138,14 @@ class Server:
             if req.get('cmd') == 'forget':
                 if self.songs.song == req.get('song'):
                     self.songs.clear()
+                if self.kept is not None and self.kept.song == req.get('song'):
+                    self.kept = None
+                continue
+            if req.get('cmd') == 'notes':
+                self.notes_job(req)
+                continue
+            if req.get('cmd') == 'prepare' and req.get('mode') == 'notes':
+                self.prepare_notes(req)
                 continue
             self.current = jid
             try:
@@ -154,6 +176,9 @@ class Server:
                     lines, st = al.run_stitched(pieces, req.get('lines') or [], cancelled=cancelled)
                     st['language'] = lang
                     send({'type': 'result', 'id': jid, 'source': 'aligned', 'lines': lines, 'stats': st})
+                    if req.get('notes'):
+                        stem, covered = al.last_stitched
+                        self.keep(req, al, stem, covered, lines, lang)
                     continue
                 spec = dict(req.get('audio') or {})
                 if audio is not None:
@@ -167,12 +192,16 @@ class Server:
                 else:
                     lines, st = al.run(wav, sr, req.get('lines') or [], cancelled=cancelled)
                     st['language'] = lang
+                    stem = None
                     if req.get('final'):
                         self.songs.clear()
                     elif req.get('song') is not None:
-                        st['kept'] = self.songs.add(req['song'], key, float(req.get('offset') or 0),
-                                                    al.last_stem.float().cpu().numpy())
+                        stem = al.last_stem.float().cpu().numpy()
+                        st['kept'] = self.songs.add(req['song'], key, float(req.get('offset') or 0), stem)
                     send({'type': 'result', 'id': jid, 'source': 'aligned', 'lines': lines, 'stats': st})
+                    # sung notes: only a whole-song job from the song's start (final, or the one section)
+                    if req.get('notes') and not float(req.get('offset') or 0):
+                        self.keep(req, al, stem if stem is not None else al.last_stem.float().cpu().numpy(), None, lines, lang)
             except NoModel as e:
                 send({'type': 'error', 'id': jid, 'code': 'no-model', 'message': str(e)})
             except SA.Cancelled:
@@ -186,10 +215,74 @@ class Server:
                 if self.al is not None:
                     self.al.last_stem = None          # the GPU copy of the stem: free before the cache goes back
                     self.al.last_emissions = None
+                    self.al.last_stitched = None
+                    self.al.last_char_first = None
                     try:
                         self.al.release_cache()
                     except Exception:  # error: NOT-WORTH — a failed empty_cache only keeps memory reserved
                         pass
+
+    # --- sung notes (notes_step.py) ----------------------------------------------------------------
+    def keep(self, req, al, stem, covered, lines, lang):
+        """After a whole-song job's result was sent: keep what its notes step needs (replaces any older one)."""
+        self.kept = notes_step.Kept(req.get('song'), stem, covered, lines, dict(al.last_char_first or {}),
+                                    req.get('lines') or [], lang, getattr(al, 'label_index', None))
+
+    def notes_job(self, req):
+        jid = req.get('id')
+        kept = self.kept
+        if kept is None or kept.song is None or kept.song != req.get('song'):
+            send({'type': 'error', 'id': jid, 'code': 'no-stem', 'message': 'this song\'s vocal stem is not kept here any more'})
+            return
+        self.kept = None              # one notes step per kept job; the stem goes with it
+        if not notes_step.have_rmvpe():
+            send({'type': 'error', 'id': jid, 'code': 'no-model', 'message': 'the RMVPE pitch model is not downloaded'})
+            return
+        torch = None
+        device = 'cpu'
+        self.current = jid
+        try:
+            import torch
+            if torch.cuda.is_available() and os.environ.get('SONATA_ALIGN_DEVICE') != 'cpu':
+                device = 'cuda'
+                free, _total = torch.cuda.mem_get_info()
+                need = notes_step.vram_need()
+                if free < need:
+                    send({'type': 'error', 'id': jid, 'code': 'low-vram',
+                          'message': 'not enough free graphics memory for the sung notes (%.1f GB free, %.1f GB needed)' % (free / 1e9, need / 1e9)})
+                    return
+                frac = os.environ.get('SONATA_ALIGN_VRAM_FRACTION')
+                if frac:
+                    torch.cuda.set_per_process_memory_fraction(float(frac))
+            part, st = notes_step.run(kept, req.get('syl') or [], device=device, torch=torch,
+                                      progress=lambda stage, p: send({'type': 'progress', 'id': jid, 'stage': stage, 'p': round(p, 3)}),
+                                      cancelled=lambda: jid in self.cancelled)
+            send({'type': 'result', 'id': jid, 'notes': part, 'stats': st})
+        except SA.Cancelled:
+            send({'type': 'error', 'id': jid, 'message': 'cancelled'})
+        except Exception as e:  # error: SHOWN — reported to Sonata (one line in Settings), the helper keeps running
+            traceback.print_exc()
+            send({'type': 'error', 'id': jid, 'message': '%s: %s' % (type(e).__name__, e)})
+        finally:
+            kept = None
+            self.cancelled.discard(jid)
+            self.current = None
+            if device == 'cuda' and torch is not None:
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:  # error: NOT-WORTH — a failed empty_cache only keeps memory reserved
+                    pass
+
+    def prepare_notes(self, req):
+        jid = req.get('id')
+        try:
+            notes_step.download_rmvpe(lambda d, t: send({'type': 'progress', 'id': jid, 'stage': 'download', 'p': round(d / max(t, 1), 3),
+                                                          'detail': 'rmvpe %.0f/%.0f MB' % (d / 1e6, t / 1e6)}))
+            send({'type': 'result', 'id': jid, 'ready': True, 'model': 'rmvpe', 'bytes': notes_step.RMVPE['bytes']})
+        except SA.ChecksumError as e:  # error: SHOWN — Settings shows it; the part file is removed, nothing is kept
+            send({'type': 'error', 'id': jid, 'code': 'checksum', 'message': str(e)})
+        except Exception as e:  # error: SHOWN — offline, disk full: Settings shows it
+            send({'type': 'error', 'id': jid, 'message': '%s: %s' % (type(e).__name__, e)})
 
     def handle(self, req):
         cmd = req.get('cmd')
@@ -198,7 +291,7 @@ class Server:
             send(self.pong())
         elif cmd == 'forget':
             self.jobs.put((req, None))     # in order: after the song's queued jobs
-        elif cmd in ('align', 'transcribe', 'prepare'):
+        elif cmd in ('align', 'transcribe', 'prepare', 'notes'):
             if (req.get('audio') or {}).get('stream'):
                 self.streams[jid] = (req, [])
             else:
@@ -220,7 +313,8 @@ class Server:
         return True
 
     def pong(self):
-        info = {'type': 'pong', 'version': SA.VERSION, 'features': ['song-cache', 'vram-check'],
+        info = {'type': 'pong', 'version': SA.VERSION, 'features': ['song-cache', 'vram-check', 'notes'],
+                'note_models': {'rmvpe': notes_step.have_rmvpe()},
                 'models': {k: SA.have_model(k) for k in SA.MODELS},
                 'whisper': {k: os.path.exists(os.path.join(SA.MODEL_DIR, 'whisper-' + k, 'model.bin')) for k in SA.WHISPER}}
         try:
