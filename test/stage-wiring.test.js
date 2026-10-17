@@ -17,7 +17,8 @@ test('one engine: the stage is the lyrics window\'s own page and lyrics-view.js;
   assert.match(html, /require\('\.\/stage-ui'\)\.createStage\(/)
   for (const t of ["require('./lyrics-", 'requestAnimationFrame(', 'setInterval(', 'setTimeout(']) assert.ok(!ui.includes(t), 'stage-ui.js has no ' + t)
   // the stage's time is the lyrics engine's clock (view.time()), from the same 'lyrics-time' pushes
-  assert.match(html, /ipcRenderer\.on\('lyrics-time', \(event, playbackTime\) => \{ if \(stage\.shown\) stage\.setTime\(view\.time\(\)\) \}\)/)
+  // (the sheet-notes band, too: sheet-notes.test.js)
+  assert.match(html, /ipcRenderer\.on\('lyrics-time', \(event, playbackTime\) => \{ if \(stage\.shown\) \{ stage\.setTime\(view\.time\(\)\); sheetBand\.setTime\(\) \} \}\)/)
   // the sung line: a third of the way down on the stage, the middle in the lyrics window
   assert.match(html, /anchor: \(\) => \(document\.body\.classList\.contains\('stage'\) \? 0\.34 : 0\.5\)/)
 })
@@ -69,13 +70,13 @@ test('ways in and the remembered form: header button, rail item, Ctrl+Shift+S; o
   assert.ok(require('../shortcuts-model').problem('Ctrl+Shift+S'), 'Ctrl+Shift+S is a window key, never a global one')
 })
 
-test('no dead controls: Montage stays hidden, Liner notes only once openLinerNotes exists, the notes band only with notes', () => {
+test('no dead controls: Montage stays hidden, Liner notes only once openLinerNotes exists, the notes band only with its switch on', () => {
   assert.match(html, /<button id="t-montage"[^>]*hidden>/)
   assert.ok(!/t-?[mM]ontage[^\n]*hidden = false/.test(ui), 'nothing shows the Montage tile yet')
   assert.match(main, /const linerNotesReady = \(\) => typeof openLinerNotes === 'function'/)
   assert.match(main, /return \{ stage: !!settings\.lyricsStage, linerNotes: linerNotesReady\(\) \}/)
   assert.match(ui, /el\.tLiner\.hidden = !form\.linerNotes/)
-  assert.match(ui, /el\.band\.hidden = !\(has && bandOn\)/)
+  assert.match(ui, /el\.band\.hidden = !\(has && sheetOn\)/)   // the band: the Sheet notes switch on (a message when nothing to draw)
   assert.match(ui, /el\.layers\.hidden = el\.tNotes\.hidden && el\.tMontage\.hidden && el\.tLiner\.hidden/)
   assert.match(html, /<div id="band"[^>]*hidden><\/div>/)
 })

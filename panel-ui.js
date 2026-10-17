@@ -352,6 +352,12 @@
           { hidden: (v) => !v.alignInstalled }),
         switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
           { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on' }),
+        // Sonata's +1, Experimental: the Studio's Sheet notes tile is the same switch (sheet-notes-model.js)
+        switchRow('sheetNotes', 'Sheet notes in the Studio (Experimental)', '',
+          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
+            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (~/.config/apple-music-for-linux/sheet-notes/, at most 500 songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
+              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : '')),
         // a developer tool for judging the sung notes on live tracks: Development channel only
         switchRow('sungNotesLog', 'Sung notes (developer log)', '',
           { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',

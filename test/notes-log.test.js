@@ -175,9 +175,11 @@ test('a bad checksum: nothing kept, one status line, not wanted; turning it on a
 test('main: the download only when Sung notes becomes active; nothing written once it is off', () => {
   const src = read('main.js')
   assert.match(src, /function sungNotesOn\(\) \{ return !!settings\.sungNotesLog && settings\.updateChannel === 'dev' && preciseTimingOn\(\) \}/)
-  assert.match(src, /if \(sungNotesOn\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
+  // the notes step serves the developer log and the Studio's sheet notes (sheet-notes.test.js): one download
+  assert.match(src, /function notesActive\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \}/)
+  assert.match(src, /if \(notesActive\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
   assert.match(src, /if \(!sungNotesOn\(\) \|\| !result \|\| !result\.notes\) return/)
-  assert.match(src, /wanted: \(\) => sungNotesOn\(\) && getNotesSwitch\(\)\.wanted\(\)/)
+  assert.match(src, /wanted: \(\) => notesActive\(\) && getNotesSwitch\(\)\.wanted\(\)/)
   assert.equal(require('../settings-store').defaults().sungNotesLog, false)
   assert.match(src, /'alignGamingPause', 'sungNotesLog'/)
 })
