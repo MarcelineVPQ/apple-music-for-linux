@@ -27,6 +27,7 @@
       "lastfm.js",
       "discord.js",
       "visualizer.js",
+      "viz-frames.js",
       "palette.js",
       "css-replacer.js",
       "preload-apple.js",
