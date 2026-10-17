@@ -238,7 +238,7 @@ apart).
 (XDG_DATA_HOME when set outside an app sandbox), format 1: `song` {title, artist, album, duration,
 appleId}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
 `syllables`, `notes`, `confidence`, `stats`. No audio, no stem, no pitch frames (notes-log.js
-`validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 200 files,
+`validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 1000 files,
 the oldest removed. About 110 kB per song.
 
 **Judging a live track.** `python3 tools/notes-log.py <file>` prints the notes per lyric line ("line

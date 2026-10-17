@@ -1,7 +1,7 @@
 // "Sung notes (developer log)" (notes-log.js, align-session.js notes jobs, main/panel wiring): the switch
 // off means no request, no download and no files; the download happens only once the switch is on and a
 // bad checksum is handled; the gaming guard skips the notes job; the log file's schema, its atomic write
-// and the 200-file cap. The helper is stubbed (align/test_notes.py covers its side).
+// and the 1000-file cap. The helper is stubbed (align/test_notes.py covers its side).
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs')
@@ -104,24 +104,24 @@ test('atomic write: a temp file in the same folder, then a rename; never a write
   assert.deepEqual(fs.readdirSync(dir).sort(), [name, '20261018-Goo-Goo-Dolls-Darling-Live.json'])
 })
 
-test('the cap: at most 200 files, the oldest removed first; the new file is never the one removed', () => {
+test('the cap: at most 1000 files, the oldest removed first; the new file is never the one removed', () => {
   const dir = tmpDir()
   const doc = N.buildDoc(part(), SONG, { version: 'x' })
   const t0 = Date.now() / 1000 - 10000
-  for (let i = 0; i < 205; i++) {
-    const f = path.join(dir, 'old-' + String(i).padStart(3, '0') + '.json')
+  for (let i = 0; i < 1005; i++) {
+    const f = path.join(dir, 'old-' + String(i).padStart(4, '0') + '.json')
     fs.writeFileSync(f, '{}')
     fs.utimesSync(f, t0 + i, t0 + i)
   }
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'not a log')          // other files are left alone
   const out = N.writeLog(dir, doc, { name: 'new.json' })
   assert.equal(out.removed.length, 6)
-  assert.deepEqual(out.removed, ['old-000.json', 'old-001.json', 'old-002.json', 'old-003.json', 'old-004.json', 'old-005.json'])
+  assert.deepEqual(out.removed, ['old-0000.json', 'old-0001.json', 'old-0002.json', 'old-0003.json', 'old-0004.json', 'old-0005.json'])
   const left = fs.readdirSync(dir)
   assert.equal(left.filter((n) => n.endsWith('.json')).length, N.MAX_FILES)
-  assert.ok(left.includes('new.json') && left.includes('old-204.json') && left.includes('notes.txt'))
+  assert.ok(left.includes('new.json') && left.includes('old-1004.json') && left.includes('notes.txt'))
   // an older file name with a newer time is kept by time, not name
-  assert.equal(N.prune(dir, 200).length, 0)
+  assert.equal(N.prune(dir, 1000).length, 0)
 })
 
 // --- the switch: when the model is downloaded ---
@@ -188,7 +188,7 @@ test('Settings: the switch shows only on the Development channel; wording and th
   const row = ui.slice(at, ui.indexOf('textBlock', at))
   assert.match(row, /'Sung notes \(developer log\)'/)
   assert.match(row, /hidden: \(v\) => !v\.alignInstalled \|\| v\.updateChannel !== 'dev'/)
-  assert.match(row, /saves only the notes \(no audio\) to ~\/\.local\/share\/apple-music-for-linux\/notes-log\/, at most 200 songs, oldest removed/)
+  assert.match(row, /saves only the notes \(no audio\) to ~\/\.local\/share\/apple-music-for-linux\/notes-log\/, at most 1,000 songs \(about 110 MB\), oldest removed/)
   assert.doesNotMatch(row, /#[0-9a-f]{3,6}\b|rgb\(|style/i)
 })
 

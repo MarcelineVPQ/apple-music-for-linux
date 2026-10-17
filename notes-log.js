@@ -17,7 +17,7 @@ const path = require('path')
 const { splitWord, hyphenatorFor } = require('./lyrics-syllables')
 
 const FORMAT = 1
-const MAX_FILES = 200
+const MAX_FILES = 1000
 const DIR_NAME = 'notes-log'
 // RVC's rmvpe.pt (huggingface.co/lj1995/VoiceConversionWebUI, MIT): the same entry as align/sung_notes.py RMVPE
 const RMVPE = {
@@ -146,7 +146,7 @@ function prune(dir, max = MAX_FILES, io = fsMod, keep = null) {
   let names = []
   // error: NOT-WORTH — no folder: nothing to prune
   try { names = io.readdirSync(dir) } catch (e) { return removed }
-  // loop: NOT-WORTH — the folder's files (≤ ~200), once per write
+  // loop: NOT-WORTH — the folder's files (≤ ~1000), once per write
   for (const n of names) {
     if (!/\.json\.tmp-\d+$/.test(n)) continue
     // error: NOT-WORTH — an unremovable temp file is tried again next write

@@ -643,7 +643,7 @@ function getAlignSession() {
 // "Sung notes (developer log)" (Settings → Precise timing; Development channel only, off by default;
 // notes-log.js, docs/LEVEL2-ALIGN.md "Sung notes"): after a song's whole-song alignment the helper works
 // out the sung notes from the vocal stem it already has, and only the notes are written here, one JSON
-// per song in ~/.local/share/apple-music-for-linux/notes-log (at most 200, oldest removed). The pitch
+// per song in ~/.local/share/apple-music-for-linux/notes-log (at most 1000, oldest removed). The pitch
 // model is downloaded when the switch is turned on, never while it is off.
 // lifetime: OK — one switch object for the app's life; no timer, no child of its own (the helper's)
 // error: SHOWN — every outcome (saved, skipped, failed, download) is the one status line under the switch

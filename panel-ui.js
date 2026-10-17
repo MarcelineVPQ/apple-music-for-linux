@@ -315,7 +315,7 @@
         // a developer tool for judging the sung notes on live tracks: Development channel only
         switchRow('sungNotesLog', 'Sung notes (developer log)', '',
           { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
-            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ~/.local/share/apple-music-for-linux/notes-log/, at most 200 songs, oldest removed.' +
+            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ~/.local/share/apple-music-for-linux/notes-log/, at most 1,000 songs (about 110 MB), oldest removed.' +
               (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
         textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
         textBlock('note', (v) => (!v.alignInstalled
