@@ -258,3 +258,58 @@ aligned words from `bench/results/auto-j0.json`. The `--audio` onsets are cached
   sections align hasn't been watched.
 - **The first-play numbers on her songs are from 7 songs.** The constants were tuned on
   JamendoLyrics, apart from the Apple tail.
+
+## Held notes (0.15.34)
+
+Marcy's report on 0.15.33: in The Goo Goo Dolls' "Home (Live)", "home" in "Come take me home" is held for
+seconds, but its highlight dropped and the next line lit up while it was still sung. Her cache showed why:
+the aligner's "home" in that line ended at 75.91 s (0.34 s long), while Apple's line runs to 81.47, past the
+next line's start (81.08). A CTC aligner ends a word on the last frame it emits a letter for; a held vowel
+is mostly emitted as blank. The first-play estimate capped the last word's hold at 1 s and 90 % of the time
+to the next line.
+
+**Metric** (`tools/drift-check`, new "held notes" table): every truth word sung ≥ 0.8 s. *End error*: when
+the view stops lighting the word (its end, as `wordState` uses it) minus when the voice stops; *ended early*:
+the highlight ends ≥ 250 ms before the voice; *held frames lit*: share of 50 ms frames inside held words
+where the held word is the lit one.
+
+**Changes**
+1. **Aligner** (`align/sonata_align.py` `extend_holds`): after the alignment, each word's end follows the
+   separated vocal stem while it stays loud (within 24 dB of the song's loud singing and 15 dB above its
+   quiet frames, dips up to 80 ms), never past the next word's start − 0.04 s or 8 s; an extension of 0.2 s
+   or more marks the word `held` with `hold_from` (where the sung part ends). Aligned cache entries move to
+   version 2, so songs aligned before are aligned again the next time they play with a lyric view open.
+2. **Estimate** (`lyrics-timing.js`): a line sung faster than its time holds its last word for up to 3 s
+   (was 1 s), until 0.1 s before the next line (was 90 % of the time to it); with a real Apple end, to that
+   end minus Apple's 0.2 s tail; and when Apple's line end is after the next line's start (the singer is
+   still holding), over the next line to that end − 0.2 s. Rules picked by measuring nine variants on all
+   three sets; "hold until the next line, no limit" was best where lines have ends but kept LRC lines lit
+   through long breaks (end error ~3 s).
+3. **Overlap** (`boundHolds`): a held word keeps its hold over the next line's start (the new line is
+   current while the old word still sings; `liveLines` keeps both lit) but never past the next line's first
+   real (aligned or refined) word, and at most 0.6 s past a next line that is only an anchor. Level 1
+   (Refine by listening) already marked held words from voiced runs; its `held` now survives every merge.
+4. **Syllables and sustain**: the hold belongs to the last syllable (for·ev·er: "er" carries it), and 0.25 s
+   into the hold the pop settles into a gentle sustained lift (`.hold`, one 0.6 s ease, no repeat) for as
+   long as the voice holds. Same in the visualizer (same engine).
+
+**Numbers** (word starts unchanged in every row)
+
+JamendoLyrics, 79 songs, 2,603 held words, truth = hand annotations:
+
+| method | held: ended early | held frames lit | end error mean (bias) | all frames lit |
+|---|--:|--:|--:|--:|
+| estimate, LRC starts, before → after | 58 % → 35 % | 44 % → 65 % | 799 (−696) → 736 (−132) ms | 49 % → 58 % |
+| estimate, starts + ends, before → after | 78 % → 26 % | 47 % → 64 % | 589 (−503) → 369 (−284) ms | 46 % → 55 % |
+| aligned (2nd play), before → after | 50 % → 20 % | 63 % → 81 % | 575 (−359) → 421 (−67) ms | 59 % → 69 % |
+| progressive (1st play), before → after | 42 % → 35 % | 62 % → 66 % | 742 (−209) → 699 (−141) ms | 57 % → 59 % |
+
+Her library, 32 songs, 522 held words, truth = her aligned cache (made before this change, so its own holds
+are often cut short: the "after" is understated): estimate 61 % → 41 % ended early, held frames lit 38 % →
+54 %, all frames lit 38 % → 46 %. Her aligned songs themselves can't be re-measured here (no audio); they are
+re-aligned with holds on their next play.
+
+The aligner rows come from two `align/bench.py` runs on the RTX 5080, `--param hold=0` and the default; the
+bench file now stores the aligner's word ends and holds. In the app, `tools/ui-check.js lyrics` checks a held
+word over the next line's start: both lines lit, the held word lit and settled into its sustain, and released
+0.6 s past an anchor-only next line.

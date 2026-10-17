@@ -285,3 +285,5 @@ labelled.
   token absorbs them.
 - **Transcription**: is a ~25 % WER good enough to show at all? Maybe only with a "help improve:
   submit to LRCLIB" flow after the user corrects it.
+
+**Held notes (0.15.34):** after the Viterbi pass, `extend_holds` lets each word's end follow the separated vocal stem while it stays loud (`hold_db` 24 dB below the song's loud singing, 15 dB above its quiet frames, `hold_gap` 4 frames, `hold_max` 8 s, never past the next word − 0.04 s). Words extended by ≥ 0.2 s carry `held` and `hold_from`. `--param hold=0` turns it off (the bench's "before"). Numbers: docs/LYRIC-TIMING.md "Held notes".

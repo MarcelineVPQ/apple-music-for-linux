@@ -7,6 +7,18 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.34-dev.1] — Held notes stay lit
+
+### Fixed
+
+- **A held note stays lit for the whole hold.** When a singer holds a word (the "home" in "Come take me home"), its highlight now lasts until the voice stops, even after the next line has begun: the next line becomes current and the held word keeps glowing beside it, then lets go. It works from every kind of timing:
+  - **Precise word timing:** the aligner now follows the voice on the separated vocals past where a word's letters end, so a held vowel isn't cut off after a fraction of a second. Songs aligned before are aligned again the next time they play with the lyrics window or the visualizer open.
+  - **Estimated timing:** the last word of a line may hold for up to 3 seconds (it was 1), until just before the next line, to Apple's line end when it has one, and over the next line when Apple's line runs past it.
+  - **Refine timing by listening:** the held notes it already finds now stay held through everything else.
+- **The bounce stays on the held syllable.** The held note's last syllable carries the hold, and after the first pop it settles into a gentle lift for as long as the note lasts, instead of popping again. In the lyrics window and the visualizer.
+
+Measured on 79 songs with hand-marked word ends: held notes whose highlight ended early went from 58 % to 35 % (lyrics with line starts only), from 78 % to 26 % (with line ends), and from 50 % to 20 % with precise word timing. Details in docs/LYRIC-TIMING.md.
+
 ## [0.15.33] — Each duet voice in its own colour
 
 ### Added
