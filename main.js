@@ -1488,7 +1488,7 @@ function setSetting(key, value) {
   if (key === 'launchAtLogin' || key === 'startMinimized') applyAutostart()
   else if (key === 'adaptiveColor') {
     applyMiniBlur()
-    if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette) }  // re-extract next poll
+    if (value) { lastPaletteKey = null; if (lastPalette) broadcastPalette(lastPalette); useTestArtwork() }  // re-extract next poll (UI checks: the test artwork again; nothing without SONATA_TEST_ARTWORK)
     else { lastPalette = null; lastBackdrop = null; lastPaletteKey = null; broadcastPalette(null) }
   }
   else if (key === 'glass') { broadcastPalette(lastPalette); applyMiniBlur() }

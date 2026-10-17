@@ -46,7 +46,7 @@ test('plain (Glass off): every word >= 4.5:1 over ANY backdrop, every album hue,
     for (const p of PALETTES) {
       const t = T.themeTokens({ dark, palette: p })
       const c = t.contrast
-      for (const k of ['label', 'soft', 'blurLabel', 'blurSoft', 'materialLabel', 'materialSoft', 'active', 'hover', 'notice', 'noticeError', 'errorText', 'fill']) {
+      for (const k of ['label', 'soft', 'blurLabel', 'blurSoft', 'materialLabel', 'materialSoft', 'active', 'hover', 'notice', 'noticeError', 'errorText', 'fill', 'upcoming', 'accentText']) {
         assert.ok(c[k] >= 4.5, k + ' ' + c[k].toFixed(2) + ' ' + JSON.stringify(p) + ' dark=' + dark)
       }
       assert.ok(c.ring >= 3, 'ring ' + JSON.stringify(p) + dark)
@@ -71,12 +71,13 @@ test('Glass: over the busiest artwork, every pixel of the backdrop keeps the wor
         const mat = rgbaOf(t.vars['--s-material'])
         const text = rgbaOf(t.vars['--s-text']).rgb
         const soft = rgbaOf(t.vars['--s-soft']).rgb
+        const upcoming = rgbaOf(t.vars['--s-upcoming']).rgb   // the sung line's words not reached yet
         let lowest = 99
         // the exact check, pixel by pixel (BGRA)
         for (let i = 0; i < W * W; i++) {
           const px = [bd.data[i * 4 + 2], bd.data[i * 4 + 1], bd.data[i * 4]]
           const under = T.stack(px, [[mat.rgb, mat.a]])
-          lowest = Math.min(lowest, T.contrast(text, under), T.contrast(soft, under))
+          lowest = Math.min(lowest, T.contrast(text, under), T.contrast(soft, under), T.contrast(upcoming, under))
         }
         assert.ok(lowest >= 4.5, `${name} dark=${dark} ${JSON.stringify(p)}: ${lowest.toFixed(2)}`)
         assert.ok(t.contrast.materialLabel >= 4.5 && t.contrast.materialSoft >= 4.5 && t.contrast.active >= 4.5 && t.contrast.hover >= 4.5, name)

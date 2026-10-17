@@ -126,6 +126,13 @@
     // loop: NOT-WORTH — at most ~30 steps
     while (dimA < 1 && !dimOk(dimA)) dimA += 0.02
     const dim = mix(surface, text, dimA)
+    // the sung line's words not reached yet (0.15.37): faded like the dim lines, but they are read now,
+    // so only as far as 4.5:1 allows (with the accent text's margin), on the card plain or Glass
+    let upA = dimA
+    const upOk = (a) => Math.min(worstContrast(mix(surface, text, a), overLayers()), worstContrast(mix(surface, text, a), matLayers(), matBackdrops)) >= TARGET + 0.15
+    // loop: NOT-WORTH — at most ~30 steps
+    while (upA < 1 && !upOk(upA)) upA += 0.02
+    const upcoming = mix(surface, text, Math.min(1, upA))
     // a button filled with the accent: white words on it, the fill darkened until 4.5:1 (or black
     // words on a lightened fill, for a pale accent, whichever moves the colour less)
     const fitFill = (words, toward) => {
@@ -154,6 +161,7 @@
       '--s-accent-2-text': css(accent2Text),
       '--s-accent-mix-text': css(mixText),
       '--s-dim': css(dim),
+      '--s-upcoming': css(upcoming),
       '--s-active': css(accent, activeA),
       '--s-hover': css(text, hoverA),
       '--s-ring': css(ring),
@@ -197,6 +205,7 @@
         accent2Text: Math.min(worstContrast(accent2Text, overLayers()), worstContrast(accent2Text, matLayers(), matBackdrops)),
         mixText: Math.min(worstContrast(mixText, overLayers()), worstContrast(mixText, matLayers(), matBackdrops)),
         dim: Math.min(worstContrast(dim, overLayers()), worstContrast(dim, matLayers(), matBackdrops)),
+        upcoming: Math.min(worstContrast(upcoming, overLayers()), worstContrast(upcoming, matLayers(), matBackdrops)),
         fill: contrast(onBtn, fill)
       }
     }

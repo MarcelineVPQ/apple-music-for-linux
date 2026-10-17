@@ -138,6 +138,11 @@
   }
   .line:hover { color: var(--s-text); filter: none; }
   .line.active { color: var(--sing); filter: none; }
+  /* the sung line's words not reached yet: the theme's faded colour, >= 4.5:1 on the card in every
+     theme, album colour and Glass (theme.js --s-upcoming), instead of lyrics-view.css's opacity 0.4,
+     which left them 1.7-3:1 (near-white on the light card). Sung words take the singer's colour. */
+  .line.active .w { opacity: 1; color: var(--s-upcoming); transition: transform 0.18s ease-out, color 0.25s ease; }
+  .line.active .w.sung { color: var(--sing); }
   .line.plain { color: var(--s-text); filter: none; cursor: default; }
   #source {
     padding: 18px 0 6px;

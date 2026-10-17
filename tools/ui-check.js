@@ -12,7 +12,8 @@
 //           section open; docked or drawer by width), keys (Tab/F6 across the views, accordion keys, Esc,
 //           the ⋮ menu), loops (50 panel show/hide, 50 pin cycles, 50 navigations: counts flat),
 //           perf (idle repaints and CPU), mini (the mini player, run with --mini), lyrics (the lyrics
-//           window's words over a dark and a light album, both schemes)
+//           window's words over a dark and a light album, both schemes; the sung line's every word >= 4.5:1 in
+//           light/dark x album colour on/off x Glass on/off)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -44,7 +45,7 @@ const LAYOUT = `(() => {
 // send a command as that view would (the same ipcMain handler and its checks)
 const viewCommand = (view, command, ...a) => `(() => {
   const { BaseWindow, ipcMain } = ${E}
-  const w = BaseWindow.getAllWindows().find((w) => w.contentView)
+  const w = BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2)   // the main window, not a BrowserWindow
   const v = w.contentView.children.find((v) => v.webContents.getURL().includes('${view}.html'))
   if (!v) return false
   ipcMain.emit('${view}:command', { sender: v.webContents, senderFrame: { parent: null } }, ${[JSON.stringify(command), ...a.map((v) => JSON.stringify(v))].join(', ')})
@@ -68,7 +69,8 @@ const settingsFile = `JSON.parse(require('fs').readFileSync(require('path').join
 
 // --- colour: the worst contrast of a text colour over its layers, over the darkest and lightest
 // pixel of the Glass backdrop (read from the image the page shows) or over white and black ---
-const worstOver = (text, layers, backdrops) => Math.min(...backdrops.map((b) => ratio(text, lay(b, layers))))
+// text: { rgb, a } (a < 1: a translucent or faded text, blended over what it sits on)
+const worstOver = (text, layers, backdrops) => Math.min(...backdrops.map((b) => { const under = lay(b, layers); return ratio(text.a < 1 ? lay(under, [text]) : text.rgb, under) }))
 
 // In a page: every visible text and control of `rootSel`, with its colour, its background layers
 // (bottom first, from the surface down to it), its box and its accessible name. The Glass backdrop's
@@ -111,7 +113,12 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     if (!vis(el) || el.closest('svg')) continue
     const r = el.getBoundingClientRect()
     const cs = getComputedStyle(el)
-    texts.push({ text: n.textContent.trim().slice(0, 40), color: cs.color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)'),
+    // the text's own colour with every opacity up to the root folded into its alpha (an element faded
+    // with opacity reads as faded as a translucent colour; 0.15.37: the sung line's upcoming words)
+    let op = 1
+    for (let e = el; e && e !== root.parentElement; e = e.parentElement) op *= +getComputedStyle(e).opacity
+    const color = op < 1 ? cs.color.replace(/rgba?\\(([^)]+)\\)/, (m, a) => { const p = a.split(/[ ,/]+/).filter(Boolean).map(Number); return 'rgba(' + p.slice(0, 3).join(', ') + ', ' + ((p.length > 3 ? p[3] : 1) * op) + ')' }) : cs.color
+    texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), op,
       fits: el.scrollWidth <= el.clientWidth + 1 || cs.textOverflow === 'ellipsis' || cs.display === 'inline', clipped: cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1, cls: el.className && String(el.className).slice(0, 30),
       rect: [r.left, r.top, r.right, r.bottom] })
   }
@@ -134,7 +141,7 @@ function judge(t, a, { minHit = 32 } = {}) {
   let worstText = 99
   for (const tx of a.texts) {
     const layers = tx.layers.map(parse).filter(Boolean)
-    const c = worstOver(parse(tx.color).rgb, layers, bds)
+    const c = worstOver(parse(tx.color), layers, bds)
     const need = tx.dim ? 3 : 4.5
     worstText = Math.min(worstText, c)
     if (c < need) low.push(tx.text + ' ' + c.toFixed(2) + ' (' + tx.cls + ')')
@@ -491,9 +498,29 @@ async function mini() {
 }
 
 // the lyrics window over a dark and a light album, both schemes (0.15.31's unreadable lyrics)
+// The sung line in every combination (0.15.37): light/dark x album colour on/off x Glass on/off, each
+// word of the active line (sung, being sung, not reached yet) >= 4.5:1 over the card (the Glass
+// backdrop's darkest and lightest pixel), with opacity counted. Prints the worst ratio per combination.
+async function activeLine(mp, page, send, data, tag, b) {
+  const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.6, end: t + i * 0.6 + 0.5, text: w }))
+  const lines = [0, 1, 2, 3].map((i) => ({ t: i * 6, end: i * 6 + 5, text: 'Words of line ' + (i + 1) + ' here', words: word(i * 6, 'Words of line ' + (i + 1) + ' here') }))
+  await send('lyrics-data', Object.assign({}, data, { title: 'Active line check', lines })); await sleep(400)
+  await send('lyrics-time', 13.7, false); await sleep(700)   // line 3: "Words of line" sung, "line" lit, "3 here" to come
+  const a = await page.ev(PAGE_AUDIT('#card'))
+  xshot(path.join(OUT, 'active-' + tag + '.png'), b.width, b.height)
+  const bds = a.backdrop ? a.backdrop : [[255, 255, 255], [0, 0, 0]]
+  const words = a.texts.filter((t) => t.activeLine)
+  const rows = words.map((t) => ({ text: t.text, op: +t.op.toFixed(2), ratio: +worstOver(parse(t.color), t.layers.map(parse).filter(Boolean), bds).toFixed(2) }))
+  const worstRow = rows.reduce((w, r) => (r.ratio < w.ratio ? r : w), { ratio: 99 })
+  check(tag + ' the sung line: every word >= 4.5:1 (sung, being sung and still to come), worst ' + worstRow.ratio + ' ("' + worstRow.text + '")', rows.length >= 5 && rows.every((r) => r.ratio >= 4.5), rows)
+}
+
 async function lyrics() {
   const mp = await mainProc()
   await mp.ev(viewCommand('rail', 'lyrics')); await sleep(2500)
+  // the panel (for the album colour and Glass switches, as the Settings panel sets them)
+  const panelShown = async () => mp.ev(`${settingsFile}.panelShown`)
+  if (!(await panelShown())) { await mp.ev(viewCommand('rail', 'settings')); await sleep(2500) }
   const page = await target('lyrics.html')
   const data = { title: 'Contrast check', artist: 'Sonata', album: 'Test', duration: 60, source: 'apple', status: '', estimate: false, refined: false, aligned: false, lang: 'en',
     lines: [0, 1, 2, 3, 4, 5].map((i) => ({ t: i * 6, end: i * 6 + 5, text: 'Line number ' + (i + 1) + ' of the song', words: [] })) }
@@ -504,6 +531,17 @@ async function lyrics() {
     wc.send = function (ch, ...a) { if (/^lyrics-(time|data)$/.test(ch) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) }
     return true })()`)
   const send = (ch, ...a) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'); return true })()`)
+  const b0 = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return w.getBounds() })()`)
+  for (const adaptive of [true, false]) {
+    for (const glass of [true, false]) {
+      await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', adaptive)); await mp.ev(viewCommand('panel', 'set', 'glass', glass)); await sleep(600)
+      for (const dark of [false, true]) {
+        await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+        await activeLine(mp, page, send, data, (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '') + '-' + LABEL, b0)
+      }
+    }
+  }
+  await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true)); await sleep(600)
   for (const dark of [false, true]) {
     await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(800)
     await send('lyrics-data', data); await send('lyrics-time', 13, false); await sleep(800)
