@@ -39,7 +39,7 @@
       const glass = !!(input && input.glass) && !plain.matches
       const bd = glass && input && input.backdrop ? input.backdrop[isDark ? 'dark' : 'light'] : null
       const palette = input && input.palette ? input.palette : null
-      const k = [isDark, glass, palette ? palette.accent : '', bd ? bd.url.length + ':' + bd.lumMin + ':' + bd.lumMax : ''].join('|')
+      const k = [isDark, glass, palette ? palette.accent : '', bd ? bd.url.length + ':' + bd.lumMin + ':' + bd.lumMax + ':' + (bd.lo || '') : ''].join('|')
       if (k === key) return
       key = k
       const t = T.themeTokens({ dark: isDark, palette, glass, backdrop: bd })

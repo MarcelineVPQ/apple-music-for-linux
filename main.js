@@ -890,12 +890,14 @@ async function showMoreMenu() {
   let info = null
   try {
     info = await appleWC().executeJavaScript(trackInfoScript)
-  } catch (e) { return }
-  if (!info || !info.ok) return
+  } catch (e) { info = null }   // error: NOT-WORTH — page mid-navigation: the menu opens without the song's items
+  // nothing playing: the menu still opens (Lyrics, Visualizer, Always on Top, Open Full Player); the
+  // song's own items are there but disabled, so the ⋯ never does nothing
+  if (!info || !info.ok) info = { ok: false, id: '', title: '', url: '', rating: 0 }
 
   // info.id is interpolated into scripts executed in the page; only allow the
   // catalog-id character set so a crafted id can't break out of the literal
-  const idSafe = /^[A-Za-z0-9._-]+$/.test(info.id)
+  const idSafe = info.ok && /^[A-Za-z0-9._-]+$/.test(info.id)
 
   const favoriteScript = (value) => `(async () => {
     const mk = MusicKit.getInstance();
@@ -1057,7 +1059,7 @@ function makeBackdrops(img) {
     const b = themeLib.makeBackdrop(bmp, size, size, { dark: mode === 'dark' })
     if (!b) return null
     const url = nativeImage.createFromBitmap(Buffer.from(b.data.buffer, b.data.byteOffset, b.data.byteLength), { width: size, height: size }).toDataURL()
-    out[mode] = { url, lumMin: +b.lumMin.toFixed(4), lumMax: +b.lumMax.toFixed(4) }
+    out[mode] = { url, lumMin: +b.lumMin.toFixed(4), lumMax: +b.lumMax.toFixed(4), lo: b.lo, hi: b.hi }
   }
   return out
 }
@@ -1629,7 +1631,7 @@ function layoutViews() {
 function themeState() {
   const on = !!settings.adaptiveColor && !!lastPalette
   return {
-    palette: on ? { accent: lastPalette.accent } : null,
+    palette: on ? { accent: lastPalette.accent, accent2: lastPalette.accent2 } : null,
     glass: glassOn(),
     blurBehind: miniBlurAvailable(),
     backdrop: on && settings.glass && lastBackdrop ? lastBackdrop : null

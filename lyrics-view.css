@@ -2,7 +2,14 @@
    line's font size, so each page only sets its own line sizes. Pages define --active. Dot size knobs:
    --dot (diameter), --dot-gap, --dots-h (height of the dots row when shown). */
 
-/* duets: singer 1 left, singer 2 right, together centered (one singer: page default) */
+/* duets: singer 1 left, singer 2 right, together centered (one singer: page default). Each singer
+   sings in their own colour (0.15.33): --sing is the page's --active for singer 1 (and every line of
+   a one-singer song), --active-2 for singer 2, --active-mix for lines sung together. Pages set those
+   (theme.js fits each to >= 4.5:1); the sides stay, so colour is never the only cue. Background
+   vocals (.bgv) sit inside their line and take its singer's colour, in their dimmer style. */
+.line, .dots { --sing: var(--active); }
+.line.right, .dots.right { --sing: var(--active-2, var(--active)); }
+.line.center, .dots.center { --sing: var(--active-mix, var(--active)); }
 .line.left { text-align: left; padding-right: 16%; }
 .line.right { text-align: right; padding-left: 16%; }
 .line.center { text-align: center; }
@@ -29,11 +36,11 @@
 .line.active .w.sung { opacity: 1; }
 .line.active .w.now {
   opacity: 1;
-  color: var(--active);
+  color: var(--sing);
   font-weight: 800;
   -webkit-text-stroke: 0.024em currentColor;
   transform: scale(1.1);
-  text-shadow: 0 0 0.67em var(--active), 0 0 0.19em var(--active);
+  text-shadow: 0 0 0.67em var(--sing), 0 0 0.19em var(--sing);
 }
 /* background vocals: smaller and dimmer, under their line, with their own highlight */
 .bgv { font-size: 0.715em; font-weight: 600; line-height: 1.35; margin-top: 0.13em; opacity: 0.7; }
@@ -51,7 +58,7 @@
   transition: transform 0.12s cubic-bezier(.3,1.6,.5,1), filter 0.12s ease-out;
 }
 .line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
-.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: brightness(1.5) drop-shadow(0 0.1em 0.12em var(--active)); }
+.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: brightness(1.5) drop-shadow(0 0.1em 0.12em var(--sing)); }
 .line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: brightness(1.35); }
 
 /* interlude countdown: three dots in place of the next line */
@@ -78,6 +85,6 @@
   width: var(--dot);
   height: var(--dot);
   border-radius: 50%;
-  background: var(--active);
+  background: var(--sing);
   opacity: 0.25;
 }

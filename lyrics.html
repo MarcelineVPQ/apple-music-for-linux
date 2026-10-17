@@ -137,7 +137,7 @@
     transition: color 0.3s ease, filter 0.3s ease;
   }
   .line:hover { color: var(--s-text); filter: none; }
-  .line.active { color: var(--active); filter: none; }
+  .line.active { color: var(--sing); filter: none; }
   .line.plain { color: var(--s-text); filter: none; cursor: default; }
   #source {
     padding: 18px 0 6px;
@@ -179,9 +179,12 @@
   const theme = require('./theme-apply').attach({ surfaces: [document.getElementById('card')] })
   ipcRenderer.on('theme', (event, t) => theme.set(t))
   ipcRenderer.on('palette', (event, p) => {
-    // the album's accent, as the theme made it readable on this card (never the raw colour)
-    if (p && p.accent) document.documentElement.style.setProperty('--active', 'var(--s-accent-text)')
-    else document.documentElement.style.removeProperty('--active')
+    // the album's accents, as the theme made them readable on this card (never the raw colours):
+    // singer 1 (and one-singer songs), singer 2 in a duet, and lines sung together
+    const r = document.documentElement.style
+    const keys = { '--active': '--s-accent-text', '--active-2': '--s-accent-2-text', '--active-mix': '--s-accent-mix-text' }
+    // loop: NOT-WORTH — 3 properties per palette change
+    for (const k in keys) { if (p && p.accent) r.setProperty(k, 'var(' + keys[k] + ')'); else r.removeProperty(k) }
   })
 
   // album art in the header: the URL the mini player shows, so it usually comes from Chromium's

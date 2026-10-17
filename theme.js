@@ -83,8 +83,11 @@
     // loop: NOT-WORTH — at most ~20 steps of 0.02
     while (blurA < 0.98 && (worstContrast(text, blurLayers()) < TARGET + 0.1 || worstContrast(soft, blurLayers()) < TARGET + 0.1)) blurA += 0.02
     // the panel / card material: Glass over the artwork backdrop, else solid
+    // the backdrop's darkest and lightest pixel, in colour when known (makeBackdrop's lo / hi: a
+    // coloured pixel under a coloured word matters, 0.15.33), else greys of those luminances
+    const okRgb = (c) => Array.isArray(c) && c.length === 3 && c.every((v) => Number.isFinite(v))
     const bd = o.glass && o.backdrop && Number.isFinite(o.backdrop.lumMin) && Number.isFinite(o.backdrop.lumMax)
-      ? [greyOf(o.backdrop.lumMin), greyOf(o.backdrop.lumMax)] : null
+      ? (okRgb(o.backdrop.lo) && okRgb(o.backdrop.hi) ? [o.backdrop.lo, o.backdrop.hi, greyOf(o.backdrop.lumMin), greyOf(o.backdrop.lumMax)] : [greyOf(o.backdrop.lumMin), greyOf(o.backdrop.lumMax)]) : null
     let glassA = bd ? b.glass : 1
     const matLayers = () => [[surface, glassA]]
     // a small margin over 4.5: the backdrop's own colour (hue) shifts the mix a little
@@ -104,11 +107,19 @@
     // loop: NOT-WORTH — at most 20 steps
     for (let i = 0; i < 20 && Math.min(worstContrast(ring, overLayers()), worstContrast(ring, matLayers(), matBackdrops)) < 3; i++) ring = mix(ring, text, 0.12)
     // the album accent as words (the sung lyric line): pushed toward the text colour until 4.5:1 on
-    // the card (plain or Glass) over anything
-    let accentText = accent
+    // the card (plain or Glass) over anything. Duets (0.15.33): the second singer's accent and the
+    // group lines' blend of the two, fitted the same way.
     const accentOk = (c) => Math.min(worstContrast(c, overLayers()), worstContrast(c, matLayers(), matBackdrops)) >= TARGET + 0.15
-    // loop: NOT-WORTH — at most 25 steps
-    for (let i = 0; i < 25 && !accentOk(accentText); i++) accentText = mix(accentText, text, 0.08)
+    const fitText = (c0) => {
+      let c = c0
+      // loop: NOT-WORTH — at most 25 steps
+      for (let i = 0; i < 25 && !accentOk(c); i++) c = mix(c, text, 0.08)
+      return c
+    }
+    const accentText = fitText(accent)
+    const accent2 = (palette && hexRgb(palette.accent2)) || null
+    const accent2Text = accent2 ? fitText(accent2) : accentText
+    const mixText = accent2 ? fitText(hueBlend(accent, accent2)) : accentText
     // dim words (lyric lines not being sung): the text, faded only as far as 3:1 allows
     let dimA = 0.35
     const dimOk = (a) => Math.min(worstContrast(mix(surface, text, a), overLayers()), worstContrast(mix(surface, text, a), matLayers(), matBackdrops)) >= 3
@@ -140,6 +151,8 @@
       '--s-text': css(text),
       '--s-soft': css(soft),
       '--s-accent-text': css(accentText),
+      '--s-accent-2-text': css(accent2Text),
+      '--s-accent-mix-text': css(mixText),
       '--s-dim': css(dim),
       '--s-active': css(accent, activeA),
       '--s-hover': css(text, hoverA),
@@ -181,6 +194,8 @@
         errorText: worstContrast(errText, matLayers(), matBackdrops),
         ring: Math.min(worstContrast(ring, overLayers()), worstContrast(ring, matLayers(), matBackdrops)),
         accentText: Math.min(worstContrast(accentText, overLayers()), worstContrast(accentText, matLayers(), matBackdrops)),
+        accent2Text: Math.min(worstContrast(accent2Text, overLayers()), worstContrast(accent2Text, matLayers(), matBackdrops)),
+        mixText: Math.min(worstContrast(mixText, overLayers()), worstContrast(mixText, matLayers(), matBackdrops)),
         dim: Math.min(worstContrast(dim, overLayers()), worstContrast(dim, matLayers(), matBackdrops)),
         fill: contrast(onBtn, fill)
       }
@@ -271,20 +286,39 @@
     for (let p = 0; p < 3; p++) px = boxBlur(px, w, h, radius)   // 3 box passes ~ a Gaussian
     const band = o.dark ? BAND.dark : BAND.light
     const data = new Uint8ClampedArray(w * h * 4)
-    let lumMin = 1; let lumMax = 0
+    let lumMin = 1; let lumMax = 0; let lo = null; let hi = null
     // loop: HOT-PATH-OK — 1,600 pixels, once per track change
     for (let i = 0; i < w * h; i++) {
       const [hh, s, l] = rgbToHsl(px[i * 3], px[i * 3 + 1], px[i * 3 + 2])
       const c = hslToRgb(hh, Math.min(1, s), band[0] + l * (band[1] - band[0])).map((v) => Math.round(Math.max(0, Math.min(255, v))))
       const L = lum(c)
-      if (L < lumMin) lumMin = L
-      if (L > lumMax) lumMax = L
+      if (L < lumMin) { lumMin = L; lo = c }
+      if (L > lumMax) { lumMax = L; hi = c }
       data[i * 4 + R] = c[0]; data[i * 4 + 1] = c[1]; data[i * 4 + B] = c[2]; data[i * 4 + 3] = 255
     }
-    return { data, width: w, height: h, lumMin, lumMax }
+    return { data, width: w, height: h, lumMin, lumMax, lo, hi }
   }
 
-  const api = { BASE, DEFAULT_ACCENT, BAND, hexRgb, mix, lum, contrast, worstContrast, greyOf, stack, themeTokens, makeBackdrop }
+  // the halfway colour of two accents around the colour wheel (shortest way), not through grey:
+  // red and blue give purple, so a group line reads as both singers
+  function hueBlend(a, b) {
+    const [h1, s1, l1] = rgbToHsl(a[0], a[1], a[2])
+    const [h2, s2, l2] = rgbToHsl(b[0], b[1], b[2])
+    let d = h2 - h1
+    if (d > 0.5) d -= 1
+    if (d < -0.5) d += 1
+    return hslToRgb((h1 + d / 2 + 1) % 1, (s1 + s2) / 2, (l1 + l2) / 2)
+  }
+  // the visualizer's sung word (always on its dark stage): the accent lifted toward white until 4.5:1 on black
+  function stageText(hex) {
+    let c = hexRgb(hex)
+    if (!c) return null
+    // loop: NOT-WORTH — at most 20 steps
+    for (let i = 0; i < 20 && contrast(c, BLACK) < TARGET + 0.5; i++) c = mix(c, WHITE, 0.08)
+    return '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+  }
+
+  const api = { stageText, hueBlend, BASE, DEFAULT_ACCENT, BAND, hexRgb, mix, lum, contrast, worstContrast, greyOf, stack, themeTokens, makeBackdrop }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataTheme = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

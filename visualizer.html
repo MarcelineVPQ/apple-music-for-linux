@@ -58,7 +58,7 @@
     animation: lv-next 0.35s ease-out;
   }
   #lyrics .line.active .w.now {
-    text-shadow: 0 0 0.5em var(--active), 0 0 0.15em var(--active), 0 0.05em 0.45em var(--s-stage-shade-soft);
+    text-shadow: 0 0 0.5em var(--sing), 0 0 0.15em var(--sing), 0 0.05em 0.45em var(--s-stage-shade-soft);
   }
   #lyrics .dots { --dot: clamp(12px, 1.05vw, 42px); --dot-gap: calc(var(--dot) * 0.8); --dots-h: calc(var(--dot) * 3.6); }
   /* the stage is centred: the countdown dots too, for one singer and for either side of a duet
@@ -150,9 +150,17 @@
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
   ipcRenderer.on('lyrics-aligned', (e, msg) => lyricsView.align(msg))
   // album accent for the sung word's glow (adaptive colour; null resets to white)
+  // the sung word in the album's accents, lifted to 4.5:1 on the dark stage (theme.js stageText):
+  // singer 1, singer 2 in a duet, and lines sung together (their halfway hue)
+  const T = require('./theme')
   ipcRenderer.on('palette', (e, p) => {
-    if (p && p.accent) document.documentElement.style.setProperty('--active', p.accent)
-    else document.documentElement.style.removeProperty('--active')
+    const r = document.documentElement.style
+    if (!p || !p.accent) { for (const k of ['--active', '--active-2', '--active-mix']) r.removeProperty(k); return }   // loop: NOT-WORTH — 3 properties
+    const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+    const a2 = p.accent2 || p.accent
+    r.setProperty('--active', T.stageText(p.accent))
+    r.setProperty('--active-2', T.stageText(a2))
+    r.setProperty('--active-mix', T.stageText(hex(T.hueBlend(T.hexRgb(p.accent), T.hexRgb(a2)))))
   })
 
   // --- mode system ---

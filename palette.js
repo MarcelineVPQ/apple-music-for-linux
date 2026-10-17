@@ -60,16 +60,43 @@ function extractPalette(data, opts) {
     bins[k] += w; br[k] += r; bgc[k] += g; bb[k] += b; bn[k]++
   }
   let peak = -1, pw = 0
+  // loop: NOT-WORTH — 36 hue bins, once per track
   for (let i = 0; i < 36; i++) if (bins[i] > pw) { pw = bins[i]; peak = i }
-  if (peak < 0 || bn[peak] === 0) return { ...FALLBACK }
+  if (peak < 0 || bn[peak] === 0) return withSecond({ ...FALLBACK }, null)
   const accent = [br[peak] / bn[peak], bgc[peak] / bn[peak], bb[peak] / bn[peak]]
   const a = rgbToHsl(accent[0], accent[1], accent[2])
-  return {
+  // the second voice (duets, 0.15.33): the strongest other vibrant hue at least MIN_HUE_GAP away,
+  // when the art has one worth taking (≥ 12 % of the main hue's weight); else a fixed turn of the wheel
+  let second = -1, sw = 0
+  // loop: NOT-WORTH — 36 hue bins, once per track
+  for (let i = 0; i < 36; i++) {
+    if (bn[i] === 0 || bins[i] < pw * 0.12) continue
+    const d = Math.abs(i - peak) * 10
+    if (Math.min(d, 360 - d) < MIN_HUE_GAP) continue
+    if (bins[i] > sw) { sw = bins[i]; second = i }
+  }
+  const s2 = second >= 0 ? rgbToHsl(br[second] / bn[second], bgc[second] / bn[second], bb[second] / bn[second]) : null
+  return withSecond({
     accent: toHex(hslToRgb(a.h, Math.min(0.95, Math.max(0.58, a.s)), Math.min(0.68, Math.max(0.52, a.l)))),
     bg: toHex(hslToRgb(a.h, 0.34, 0.11)),      // dark, album-tinted surface
     bg2: toHex(hslToRgb(a.h, 0.30, 0.16)),
     hue: a.h
-  }
+  }, s2)
 }
 
-module.exports = { extractPalette, rgbToHsl, hslToRgb }
+// The duet's second accent: from the art (s2: its HSL) or, when the art has no second hue (one
+// colour, or black and white), the main accent's hue turned by FALLBACK_TURN. Always at least
+// MIN_HUE_GAP from the main hue, with the same vividness clamps as the main accent.
+const MIN_HUE_GAP = 60
+const FALLBACK_TURN = 210
+function withSecond(p, s2) {
+  const h1 = typeof p.hue === 'number' ? p.hue : rgbToHsl(...hexRgb(p.accent)).h
+  const h2 = s2 ? s2.h : (h1 + FALLBACK_TURN) % 360
+  const sat = s2 ? Math.min(0.95, Math.max(0.58, s2.s)) : 0.75
+  const lit = s2 ? Math.min(0.68, Math.max(0.52, s2.l)) : 0.6
+  return Object.assign(p, { accent2: toHex(hslToRgb(h2, sat, lit)), hue2: h2 })
+}
+const hexRgb = (h) => { const n = parseInt(String(h).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+const hueGap = (a, b) => { const d = Math.abs(a - b) % 360; return Math.min(d, 360 - d) }
+
+module.exports = { extractPalette, rgbToHsl, hslToRgb, hueGap, MIN_HUE_GAP }
