@@ -324,6 +324,17 @@ function createAlignHelper(opts, deps = {}) {
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
     align(id, messages) { return request(id, messages, jobTimeoutMs) },
     /**
+     * Sung notes (notes-log.js): the notes step on the stem the helper kept from this song's
+     * whole-song job (align request with notes: true). syl: per request line, per word the syllable
+     * texts or null. -> result { notes, stats }; error codes no-stem, no-model, low-vram
+     */
+    notes(id, song, syl) { return request(id, [{ cmd: 'notes', id, song, syl }], jobTimeoutMs) },
+    /** Downloads the RMVPE pitch model (only when the Sung notes switch is turned on). Error code checksum. */
+    prepareNotes() {
+      const id = '__notes' + (++pingN)
+      return request(id, [{ cmd: 'prepare', id, mode: 'notes' }], jobTimeoutMs)
+    },
+    /**
      * Gaming guard: the helper quits once its current job is done (now if it has none), which frees
      * its 1.8–3 GB of graphics memory. The next job spawns it again.
      */

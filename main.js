@@ -11,6 +11,7 @@ const { createListenSession } = require('./listen-session')
 const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
+const notesLogLib = require('./notes-log')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const railModel = require('./rail-model');
@@ -331,6 +332,8 @@ const nowPlayingScript = `(() => {
       album: attrs ? (attrs.albumName || '') : '',
       composer: attrs ? (attrs.composerName || '') : '',
       duration: attrs && attrs.durationInMillis ? attrs.durationInMillis / 1000 : 0,
+      /* the catalogue id (library songs: their library id); only the Sung notes log keeps it */
+      appleId: item ? String((attrs && attrs.playParams && attrs.playParams.catalogId) || item.id || '') : '',
       // precise time from the playing media element (fractional seconds); MusicKit's own value
       // can be whole seconds. Used only when the two agree, so a stray element never wins.
       playbackTime: (() => {
@@ -630,10 +633,52 @@ function getAlignSession() {
       send: sendLyrics,
       now: () => performance.now(),
       log: (m) => console.log('align:', m),
-      paused: () => alignPaused()
+      paused: () => alignPaused(),
+      notes: { wanted: () => sungNotesOn() && getNotesSwitch().wanted(), syl: notesLogLib.syllableSpec, done: sungNotesDone, failed: sungNotesFailed }
     })
   }
   return alignSession
+}
+
+// "Sung notes (developer log)" (Settings → Precise timing; Development channel only, off by default;
+// notes-log.js, docs/LEVEL2-ALIGN.md "Sung notes"): after a song's whole-song alignment the helper works
+// out the sung notes from the vocal stem it already has, and only the notes are written here, one JSON
+// per song in ~/.local/share/apple-music-for-linux/notes-log (at most 200, oldest removed). The pitch
+// model is downloaded when the switch is turned on, never while it is off.
+// lifetime: OK — one switch object for the app's life; no timer, no child of its own (the helper's)
+// error: SHOWN — every outcome (saved, skipped, failed, download) is the one status line under the switch
+let notesSwitch = null
+let notesStatusText = ''
+function sungNotesOn() { return !!settings.sungNotesLog && settings.updateChannel === 'dev' && preciseTimingOn() }
+function setNotesStatus(text) { notesStatusText = text; pushPanel() }
+function getNotesSwitch() {
+  if (!notesSwitch) notesSwitch = notesLogLib.createNotesSwitch({ on: sungNotesOn, helper: getAlignHelper(), status: setNotesStatus, log: (m) => console.log('align:', m) })
+  return notesSwitch
+}
+function sungNotesDone(s, result, lineOffset) {
+  if (!sungNotesOn() || !result || !result.notes) return       // turned off meanwhile: nothing is written
+  const info = s.info || {}
+  const doc = notesLogLib.buildDoc(result.notes, { title: s.title, artist: s.artist, album: info.album, duration: info.duration, appleId: info.appleId },
+    { version: app.getVersion(), aligner: (s.entry && s.entry.model) || '', stats: result.stats, lineOffset })
+  // error: SHOWN — a failed write (disk full, permissions) is the status line
+  try {
+    const out = notesLogLib.writeLog(notesLogLib.logDir(process.env, alignHelperLib.inAppSandbox), doc)
+    setNotesStatus('Saved ' + doc.notes.length + ' notes of “' + s.title + '” (' + path.basename(out.file) + ')')
+  } catch (e) {
+    console.log('align: sung notes not saved: ' + e.message)
+    setNotesStatus('Could not save the notes of “' + s.title + '”: ' + e.message)
+  }
+}
+function sungNotesFailed(s, e) {
+  if (!settings.sungNotesLog) return
+  const code = e && e.code
+  if (code === 'no-model' && notesSwitch) notesSwitch.learn({ note_models: { rmvpe: false } })
+  const why = code === 'paused' ? 'skipped while a game ran'
+    : code === 'no-model' ? 'the pitch model is not downloaded (turn the switch off and on to download it)'
+      : code === 'low-vram' ? 'not enough free graphics memory'
+        : code === 'no-stem' ? 'the helper no longer had the song (it was restarted)'
+          : (e && e.message) || 'unknown error'
+  setNotesStatus('No notes for “' + s.title + '”: ' + why)
 }
 
 // Gaming guard (game-guard.js; Settings → "Pause word timing while gaming", on by default): while a
@@ -737,7 +782,7 @@ async function lyricsTick() {
     // lyrics-timing call the views would make, so main knows which lines are estimated.
     const precise = preciseTimingOn()
     const aligner = precise ? getAlignSession() : alignSession
-    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise)
+    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise, { album: state.album, duration: state.duration, appleId: state.appleId, lang: got.lang || '' })
     const prep = alignSessionLib.prepareLines(got.lines || [], {
       estimate: !!settings.estimatedWordTiming,
       entry: precise ? aligner.entryFor(state.title, state.artist, got.lines || []) : null
@@ -1677,7 +1722,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
 function setSetting(key, value) {
   if (key === 'theme') {
     if (!['system', 'light', 'dark'].includes(value)) return
@@ -1721,6 +1766,11 @@ function setSetting(key, value) {
     showAlignRepair()
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
+  if (key === 'sungNotesLog' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
+    // the only download: when Sung notes becomes active (switch on, Development, Precise word timing on)
+    if (sungNotesOn()) getNotesSwitch().turnedOn()
+    else if (key === 'sungNotesLog') notesStatusText = ''
+  }
   else if (key === 'alignGamingPause') {
     if (!value && gameGuard) gameGuard.reset()    // off: resume now
     sendAlignNote()
@@ -1754,6 +1804,7 @@ async function askAlignStatus() {
     const pong = await getAlignHelper().ping()
     console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
     alignStatusText = pong.device === 'cuda' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
+    if (notesSwitch) notesSwitch.learn(pong)
   } catch (e) { // error: SHOWN — "Helper not working: …" in Settings → Precise timing
     console.log('align: helper not answering: ' + e.message)
     alignStatusText = 'Helper not working: ' + e.message
@@ -2033,13 +2084,16 @@ function aboutData() {
 function panelSnapshot() {
   const u = updater ? updater.state() : { phase: 'idle' }
   const v = {}
-  for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 18 keys per panel snapshot
+  for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 20 keys per panel snapshot
   Object.assign(v, {
     theme: themePref,
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),
     alignStatus: alignStatusText,
+    notesStatus: notesStatusText,
+    notesModel: !!(notesSwitch && notesSwitch.model),
+    notesModelSize: notesLogLib.sizeText(notesLogLib.RMVPE.bytes),
     lastfmConnected: !!(lastfm && lastfm.connected),
     lastfmUser: lastfm && lastfm.connected ? (lastfm.username || '') : '',
     discordEnabled: !!discordConfig.enabled,

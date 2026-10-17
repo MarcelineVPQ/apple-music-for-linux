@@ -191,6 +191,70 @@ Files: `align/sonata_align.py` (pipeline), `align/server.py` (protocol), `align/
 PCM, protocol, holds, paths, GPU budget, stitching). test/align-install.test.js covers install.sh's
 and the launcher's path choices.
 
+## Sung notes (developer log, experimental)
+
+Settings → Precise timing → **Sung notes (developer log)**: shown only on the Development channel, off
+by default, needs Precise word timing on. Groundwork for the +1 (live sheet notes); research and
+scores in docs/research/notes-proto-results-2026-10.md on the research-gpu-pipeline branch.
+
+**Flow.** The song's whole-song job (the final pass, or the only section of a one-section song,
+offset 0) carries `"notes": true`. After its result has been sent, server.py keeps that job's vocal
+stem (CPU, 16 kHz; the stitched sections or the separated song: no second separation), the aligned
+lines and each character's first frame (`Aligner.last_char_first`), one song at most. Sonata
+(align-session.js) then queues `{"cmd":"notes","id","song","syl"}` behind whatever waits, so the
+alignment itself is never delayed; `syl` is lyrics-syllables.js's split of every word (the one the
+views use). The helper (align/notes_step.py) runs RMVPE on the stem, times each syllable at the first
+aligned frame of its letters, gates frames to within 35 dB of the stem's loud singing, calls
+`notes.notes_from`, frees RMVPE and the allocator cache, and answers `{"type":"result","notes":{…}}`.
+main.js adds the song's identity and writes the file (notes-log.js). Error codes: `no-stem` (nothing
+kept for that song, e.g. the helper restarted), `no-model`, `low-vram` (needs 0.9 GB + the 1 GB
+margin free), plus `checksum` for the download. Every outcome is the one status line under the
+switch.
+
+**The model's interface** (align/notes.py; the model is align/sung_notes.py, vendored unchanged from
+research `research/notes-proto/sung_notes.py` cfb48c7, numpy only, no I/O):
+
+    notes_from(f0, times, conf, syllables, opts=None) -> dict
+      f0, conf: RMVPE Hz and salience per 10 ms frame; times: frame times (s)
+      syllables: [{t, end, text, line, word, syl, nsyl, word_text}], time-ordered
+      opts: {'profile': 'stem', 'vthr': 0.7, 'loud': bool per frame, 'params': {...}, 'key': (pc, mode)?}
+      -> {format 1, model, profile, params, duration_s, tuning, key, notes[{t, end, midi, cents, name,
+          conf, syl_index, line, word, syl, melisma, cents_tuning?, octave_fixed?}], confidence, counts}
+
+A newer model replaces sung_notes.py; notes.py, notes_step.py and the log format stay.
+
+**Download.** RVC's `rmvpe.pt` (huggingface.co/lj1995/VoiceConversionWebUI, MIT), 181,184,272 bytes
+(173 MiB, shown in Settings before), SHA-256 `6d62215f…ec193`, into `<helper home>/models/rmvpe.pt`,
+only by `{"cmd":"prepare","mode":"notes"}`, which Sonata sends when the switch becomes active (on,
+Development channel, Precise word timing on). A wrong size or checksum removes the part file.
+The pong lists `"note_models": {"rmvpe": bool}`.
+
+**Not in the helper.** S-KEY and Beat This! are not in its venv (and not tiny: Beat This! weights
+~80 MB plus three packages), so there is no key model and no beats or bars: the key is
+Krumhansl-Schmuckler on the notes (`source: "ks-notes"`; the melody alone can't tell relative keys
+apart).
+
+**The log.** `~/.local/share/apple-music-for-linux/notes-log/<yyyymmdd>-<artist>-<title>.json`
+(XDG_DATA_HOME when set outside an app sandbox), format 1: `song` {title, artist, album, duration,
+appleId}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
+`syllables`, `notes`, `confidence`, `stats`. No audio, no stem, no pitch frames (notes-log.js
+`validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 200 files,
+the oldest removed. About 110 kB per song.
+
+**Judging a live track.** `python3 tools/notes-log.py <file>` prints the notes per lyric line ("line
+text:  E4 F♯4–G4 …", – joining a melisma) and the same word by word; `--png out.png --t0 34 --dur 25`
+draws the research prototype's staff view (system Python with matplotlib).
+
+**Cost (RTX 5080, two JamendoLyrics songs, 3:37 and 4:00, stitched final pass).** The notes job takes
+1.1 s wall: RMVPE load 0.27 s, f0 0.36–0.42 s on the GPU, the note model 0.41–0.46 s on the CPU.
+Extra VRAM while it runs about 0.6 GB (2.0 GB process peak with the alignment models resident).
+
+Files: align/notes_step.py (the step, the download), align/notes.py (the interface),
+align/sung_notes.py (the model), align/rmvpe.py (the network, RVC's code, MIT; mel filters from
+torchaudio), align/test_notes.py (synthetic voice, syllables, download and checksum, protocol;
+`SONATA_TEST_RMVPE=<rmvpe.pt>` adds a real RMVPE run), notes-log.js, test/notes-log.test.js,
+tools/notes-log.py.
+
 ## Install footprint
 
 Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it;
@@ -215,6 +279,7 @@ Settings → Precise timing and the rail says "Helper needs a rebuild". The fix 
 | htdemucs | 84 MB |
 | aligner per language (en / xlsr-xx / mms) | 1.26 GB each |
 | Whisper large-v3-turbo (transcription only) | 1.62 GB |
+| RMVPE (Sung notes developer log only) | 181 MB |
 | **Typical user** (venv + Demucs + English + one more language) | **≈ 9.7 GB** |
 | uv's wheel cache (`~/.cache/uv`, can be cleared after install) | ~6.5 GB |
 
@@ -237,6 +302,7 @@ Sonata is GPL-3.0. Nothing below is bundled into Sonata. The user's own install 
 | transformers / huggingface_hub | Apache-2.0 | |
 | faster-whisper / CTranslate2 | MIT / MIT | |
 | Whisper large-v3-turbo weights (+ CTranslate2 conversion, dropbox-dash, formerly mobiuslabsgmbh) | MIT | |
+| RMVPE network code (RVC, align/rmvpe.py) + rmvpe.pt weights | MIT | Sung notes developer log only |
 | onnxruntime (Silero VAD inside faster-whisper) | MIT (VAD model MIT) | |
 | soundfile (libsndfile), PyAV (FFmpeg) | BSD-3 (LGPL-2.1 libs, dynamically linked) | |
 | Bench songs (JamendoLyrics) | CC BY / BY-SA / BY-NC / BY-ND / … per song | kept only in `~/.local/share/sonata-align/bench/`, unmodified, never in the repo; used only for local measurement |

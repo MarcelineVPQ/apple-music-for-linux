@@ -312,6 +312,12 @@
           { hidden: (v) => !v.alignInstalled }),
         switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
           { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on' }),
+        // a developer tool for judging the sung notes on live tracks: Development channel only
+        switchRow('sungNotesLog', 'Sung notes (developer log)', '',
+          { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
+            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ~/.local/share/apple-music-for-linux/notes-log/, at most 200 songs, oldest removed.' +
+              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+        textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
         textBlock('note', (v) => (!v.alignInstalled
           ? 'Precise word timing needs the sonata-align helper (about 10 GB). Install it with align/install.sh from the Sonata source; this section notices it.'
           : v.lyricsPreciseTiming ? (v.alignStatus || 'Asking the helper…') : ''))
