@@ -135,11 +135,44 @@ loaded between songs; the alignment model is swapped per language and the separa
 → {"cmd":"chunk","id":"a2","data":"<base64 PCM>"}   (repeat)   → {"cmd":"end","id":"a2"}
 → {"cmd":"transcribe","id":"t1","audio":{...}}                     optional "language"
 → {"cmd":"cancel","id":"a1"}      → {"cmd":"quit"}
+→ {"cmd":"align","id":"s1","song":"s3","offset":27.0,"lines":[...],"audio":{"stream":true,...}}   a section: its stem is kept
+→ {"cmd":"align","id":"f1","song":"s3","final":true,"lines":[...]}   the whole-song pass from the kept stems (no audio)
+→ {"cmd":"forget","song":"s3"}   drop that song's kept stems (queued behind its jobs; no reply)
 ← {"type":"progress","id":"a1","stage":"download|separate|emissions|align|transcribe","p":0.42,"detail":"en 512/1262 MB"}
 ← {"type":"result","id":"a1","source":"aligned","lines":[{"line":0,"aligned":true,"confidence":0.61,
      "words":[{"t":12.41,"end":12.70,"text":"Hello","conf":0.72}]}],"stats":{"separate_s":2.0,...,"language":"en"}}
-← {"type":"error","id":"a1","message":"...","code":"no-model"?}
+← {"type":"error","id":"a1","message":"...","code":"no-model"|"no-cache"|"low-vram"?}
 ```
+
+**Separate once per song (0.15.37).** A section job with `song` and `offset` (where its slice starts,
+on the 20 ms frame grid) keeps its vocal stem on the CPU (`SongCache`: float32 at 16 kHz, one song,
+at most 20 min of audio). The `final` job without audio stitches the stems (overlaps cut at their
+middle, unheard gaps silent and blank), runs wav2vec2 once more on the stitched stem, then the
+Viterbi and the held notes: no second Demucs pass. If the stems are gone (another song, the helper
+restarted, other models) it answers `no-cache`, and align-session.js sends the audio as before.
+Reusing each section's own emissions instead was 2 ms worse in median, so the emissions run again
+(0.3 s). Measured with tools/drift-check/section-bench.js on 12 JamendoLyrics songs: helper time per
+song 5.74 → 3.41 s, the same words' error unchanged (median 42 → 41 ms, mean 75 → 77 ms, ≤ 0.1 s
+81 % → 81 %).
+
+**GPU budget (0.15.37).** In GPU mode torch uses at most 4 CPU threads (`SONATA_ALIGN_THREADS`, 0 =
+torch's default; the CPU path is unchanged): its default (one thread per core) only spins while
+Demucs waits for the GPU. After each job the allocator's cache goes back to the driver
+(`torch.cuda.empty_cache`). Before each GPU job the free VRAM (`torch.cuda.mem_get_info`) must cover
+the working set (1.8 GB) + any model still to load + a 1 GB margin (`SONATA_ALIGN_VRAM_MARGIN_GB`),
+else `low-vram` and nothing runs. `SONATA_ALIGN_VRAM_FRACTION` hard-caps the process (benches).
+align/bench.py, 6 English songs, before → after: CPU 66–71 → 31 s, wall the same (20.0 s), peak
+VRAM 3184 → 3100 MB reserved, at rest 3184 → 1402 MB reserved (the helper process 3.5 → 1.7 GB in
+nvidia-smi), accuracy identical.
+
+**Gaming guard (0.15.37, game-guard.js).** Settings → *Pause word timing while gaming* (on by
+default). While Feral GameMode has clients, a Steam game runs (`reaper SteamLaunch AppId=`), or
+other processes keep the NVIDIA card > 30 % busy (`nvidia-smi pmon`; AMD: `gpu_busy_percent` > 50 %,
+only without NVIDIA) for two checks in a row, Sonata records nothing for alignment, starts no job,
+and the helper quits after its current one. Songs keep their estimate and Level 1; the sections
+missed fill in on a later play (the partial entry). It resumes 30 s after the last signal. Checks
+run at most every 5 s from the lyrics poll, only while there is alignment work or a pause. Signals
+that aren't available (no GameMode, no nvidia-smi, Intel, Flatpak sandbox) are no-ops.
 
 Optional fields on `align`/`prepare`:
 - `language`: else guessed from the lyrics.
@@ -154,17 +187,30 @@ machines without NVIDIA (slow, see above). AMD/ROCm is not tested.
 
 Files: `align/sonata_align.py` (pipeline), `align/server.py` (protocol), `align/sonata-align`
 (launcher), `align/install.sh` + `requirements.txt`, `align/bench.py`,
-`align/bench_transcribe.py`, `align/test_align.py` (10 unit tests: Viterbi, windows, text,
-language, PCM, protocol).
+`align/bench_transcribe.py`, `align/test_align.py` (unit tests: Viterbi, windows, text, language,
+PCM, protocol, holds, paths, GPU budget, stitching). test/align-install.test.js covers install.sh's
+and the launcher's path choices.
 
 ## Install footprint
 
-Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it). Nothing
+Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it;
+`$XDG_DATA_HOME/sonata-align` only when XDG_DATA_HOME is not inside another app's sandbox). Nothing
 is installed system-wide.
+
+**The venv's Python (0.15.37).** A venv's `bin/python` is a link to the interpreter it was made
+from. install.sh builds it from a system Python 3.10–3.13 (3.12 first; `SONATA_ALIGN_PYTHON`
+overrides), never one under `~/snap`, `/snap`, `~/.var/app` or an AppImage mount, and never lets uv
+download one (except `--uv-python`, into `<home>/python`). The first install came from the Codium
+snap's terminal: uv put Python in `~/snap/codium/495/` and the snap set XDG_DATA_HOME there, so a
+snap refresh would have broken Precise timing. Sonata checks the install at start and when
+Settings asks (align-helper.js `checkInstall`): a dangling or sandboxed python gets a notice in
+Settings → Precise timing and the rail says "Helper needs a rebuild". The fix is
+`align/install.sh --rebuild` from a normal terminal: the old venv is moved aside to
+`venv.old-<date>` (put back automatically if the build fails), the models stay.
 
 | Part | Size |
 |---|---|
-| venv (Python 3.12 via uv, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1 GB |
+| venv (a system Python 3.10–3.13, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1 GB |
 | CPU-only venv (`install.sh --cpu`, estimate) | ~1 GB |
 | htdemucs | 84 MB |
 | aligner per language (en / xlsr-xx / mms) | 1.26 GB each |
@@ -172,7 +218,7 @@ is installed system-wide.
 | **Typical user** (venv + Demucs + English + one more language) | **≈ 9.7 GB** |
 | uv's wheel cache (`~/.cache/uv`, can be cleared after install) | ~6.5 GB |
 
-Runtime: 2.7 GB VRAM peak while aligning; the GPU is idle between songs. The helper should exit
+Runtime: 3.1 GB VRAM peak while aligning, 1.7 GB at rest with the models loaded (0.15.37); the GPU is idle between songs. The helper should exit
 when idle (see the integration plan) so the VRAM is freed.
 
 ## Licences

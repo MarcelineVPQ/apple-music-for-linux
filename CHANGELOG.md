@@ -7,12 +7,22 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Pause word timing while gaming** (Settings → Precise timing, on by default). While a game runs (Feral GameMode, a Steam game, or another program keeping the graphics card busy), precise word timing starts no new work, and its helper quits after its current song part to free graphics memory. Songs keep their estimated timing, the lyrics note says "Precise timing paused while you play", and what was missed is aligned on a later play. It goes on 30 seconds after the game ends.
+
 ### Changed
 
 - **Lyrics are lighter on your computer.** The lyrics window and the visualizer's lyrics now animate the way graphics cards like it. The line colour, the sung word, the syllable glow and the countdown dots all move without redrawing the window on every frame. While a song is sung, the lyrics window's drawing work dropped by about 60 %. The one look change is on purpose: the lines not being sung are no longer softly blurred, they are sharp. After a break in the singing, the list now settles exactly centred on the countdown dots.
 - **The visualizer rests while the music is paused.** When you pause, the scene settles for half a second and then stays still, using no drawing at all, until you press play again. It picks up right where it stopped. Before, it kept animating at full speed while paused.
+- **Precise word timing is lighter on your PC.** While the graphics card does the work, the helper now uses 4 processor threads instead of one per core, which halves its processor time (66–71 to 31 CPU seconds for six songs) at the same speed. After each song it gives back the graphics memory it no longer needs: about 1.7 GB stays in use between songs instead of 3.5 GB. Before each job it checks that enough graphics memory is free (what the job needs plus 1 GB), and waits for a later play if not.
+- **Each song is separated only once.** The last pass over the whole song used to separate the vocals again; it now reuses the vocals of the sections it has already done. That is 41 % less graphics card time per song (5.7 to 3.4 seconds) with the same word timing.
 
 Measured on an isolated copy (software rendering, so compare before and after, not absolute numbers): style work in the lyrics window while singing went from 60 to 6 times a second, layouts from 3.7 to 1, and animations the graphics card couldn't run from 4 to 0. The paused visualizer went from 60 frames a second to none. Details in docs/PERFORMANCE.md.
+
+### Fixed
+
+- **Precise word timing no longer depends on the app you installed it from.** Installed from a code editor's terminal (a snap such as Codium), its helper used that editor's private copy of Python, and an update of the editor would have broken it. `align/install.sh` now always uses your system's Python and never puts the helper inside another app's folder, and Sonata tells you at start when an install needs a rebuild (`align/install.sh --rebuild`, which keeps the downloaded models), instead of failing quietly.
 
 ## [0.15.37-dev.1] — Track length in your media controls, readable lyrics ahead
 
