@@ -177,7 +177,7 @@ absolute values. Before = 0.15.37-dev.1 (39d8016); after = lean lyrics.
 - **The visualizer's playing rows are unchanged:** its canvas draws every frame on the main thread, by design until phase 5 (WebGL).
 - **0.15.36 (e7b45c8) for reference:** lyrics singing 436 % / 59.5 style/s; interlude 410 %; the visualizer paused 526 % at 60 frames/s.
 
-## Visualizer paint: cached bar gradients, stage tokens, fallback parec (Unreleased, branch w1-visualizer)
+## Visualizer paint: cached bar gradients, stage tokens, fallback parec (0.15.39-dev.1)
 
 BACKLOG "Visualizer: per-frame gradients and the fallback parec". Measured with the gpu-render-hdr harness
 (`measure-render.js` from the research branch, plus aurora and nebula scenarios), each run on its own

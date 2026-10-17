@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.39-dev.1] — Electron 45, global shortcuts, the album cover and a keyboard pass
+
 ### Added
 
 - **View the album cover.** Right-click the cover in the lyrics window or the mini player (or press the Menu key on it), or choose View Album Cover in the mini player's More menu, and the song's cover opens large in the middle of your screen, as sharp as your screen can show it. Esc, a click anywhere or Close puts it away.
@@ -40,8 +42,8 @@ See docs/RELEASING.md.
 - **"Hey-hey-ay-ay-ay" is sung as words.** A run of words joined by hyphens counted as one word, so its estimated timing was too short and precise timing placed it as one block. Each part is now its own word for the estimate and for precise timing, and it is still written as one ("(Hey-hey-ay-ay-ay)", no spaces). Songs with such a run that were aligned before are aligned again the next time they play with the lyrics window or the visualizer open; the others keep their saved timing.
 - **Live recordings no longer take a studio version's timed lyrics from LRCLIB.** When LRCLIB has synced lyrics only for another recording of the song, Sonata now shows its words without the wrong timing, and it picks a live record for a live cut (and a studio record for a studio cut) when both are there.
 - **Precise timing fills in lines it missed.** When part of a line wasn't heard (a jump inside a verse), that verse is aligned again on a later play, at most twice, recording only that verse.
-Measured on the 79-song benchmark and the songs in the library cache: nothing got worse (details in docs/LYRIC-TIMING.md "Lyrics fine-tuning"). Held notes in the middle of a line were measured too; guessing them from the words alone cost more than it gained, so they stay with precise timing, which already holds them.
 
+Measured on the 79-song benchmark and the songs in the library cache: nothing got worse (details in docs/LYRIC-TIMING.md "Lyrics fine-tuning"). Held notes in the middle of a line were measured too; guessing them from the words alone cost more than it gained, so they stay with precise timing, which already holds them.
 
 ## [0.15.38-dev.1] — Leaner lyrics, precise timing pauses while you game
 

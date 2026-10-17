@@ -380,7 +380,7 @@ stamps only), and the "I'm so alive, I'm so alive" lines drift (sung slower than
 "(Hey-hey-ay-ay-ay)" lines were rejected by the aligner (low confidence) and are estimated; they now bounce
 by syllable (`splitWord`: a hyphen between letters is a boundary) and take the onset too.
 
-## Lyrics fine-tuning (0.15.39, branch w1-lyrics-tuning)
+## Lyrics fine-tuning (0.15.39-dev.1)
 
 Five backlog rows in one pass. Measured with the drift check (her cache copied 2026-10-17: 51 aligned
 songs, 21 live = titles with "(Live" or "[Live", the Goo Goo Dolls and Dave Matthews Band Live at the

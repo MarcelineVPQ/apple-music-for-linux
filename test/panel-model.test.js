@@ -185,7 +185,8 @@ test('about: What\'s new = this version\'s CHANGELOG section, older ones after; 
   // the real files read and give something
   const real = A.aboutData(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', 'BACKLOG.md'), 'utf8'), require('../package.json').version, false)
   assert.equal(real.whatsNew.current.version, require('../package.json').version, 'the running version has its CHANGELOG section')
-  assert.ok(real.soon.length >= 3, 'Coming soon lists the marked BACKLOG rows')
+  // at least one: 0.15.39 shipped most of the marked rows, so the count moves with the BACKLOG
+  assert.ok(real.soon.length >= 1, 'Coming soon lists the marked BACKLOG rows')
   assert.ok(real.credits.some((g) => g.rows.some((r) => /castlabs/.test(r.text))))
   assert.ok(real.credits.some((g) => g.rows.some((r) => /LRCLIB/.test(r.what))))
   assert.ok(real.credits.some((g) => g.rows.some((r) => /Poly Haven/.test(r.text) && /CC0/.test(r.text))))

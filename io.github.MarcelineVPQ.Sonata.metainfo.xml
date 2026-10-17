@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.39-dev.1" date="2026-10-17" type="development">
+      <description>
+        <p>Global shortcuts, a large album cover view, songwriter credits, keyboard and screen reader support in Sonata's own windows, sturdier lyrics and scrobbles, and the newer Electron 45 engine.</p>
+      </description>
+    </release>
     <release version="0.15.38-dev.1" date="2026-10-17" type="development">
       <description>
         <p>Lyrics and the visualizer draw far less (the visualizer rests while paused), and precise word timing uses less of your PC and pauses while you play a game.</p>
