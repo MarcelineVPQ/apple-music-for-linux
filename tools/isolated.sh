@@ -7,7 +7,7 @@
 #                                                            (e.g. busctl --user ..., gdbus introspect ...)
 #   tools/isolated.sh stop  --insp 9482                      quit it with app.exit(0), then check coredumps
 #
-# <sonata binary>: dist/linux-unpacked/sonata from `npm run dist` (or node_modules/electron/dist/electron
+# <sonata binary>: dist/linux-unpacked/apple-music-for-linux from `npm run dist` (or node_modules/electron/dist/electron
 # with the app folder in the app args). An unpacked build has no $APPIMAGE, so it never repoints
 # ~/Downloads/Sonata.AppImage or prunes AppImages; never start an AppImage from ~/Downloads (it does both).
 # What isolates it:
@@ -55,6 +55,7 @@ kill \$xvfb 2>/dev/null
 echo "exit \$code" >> "$root/app.log"
 EOF
     chmod +x "$root/inner.sh"
+    echo "$bin" > "$root/bin"; date '+%Y-%m-%d %H:%M:%S' > "$root/started"
     systemd-run --user --quiet --collect --unit "$unit" \
       env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE -u XDG_SESSION_DESKTOP -u XDG_CURRENT_DESKTOP -u DESKTOP_SESSION \
           -u KDE_FULL_SESSION -u KDE_SESSION_VERSION -u KDE_SESSION_UID -u SESSION_MANAGER -u DBUS_SESSION_BUS_ADDRESS \
@@ -83,8 +84,12 @@ EOF
     if systemctl --user is-active --quiet "$unit" 2>/dev/null; then echo "stop: still running after 20 s; last resort: systemctl --user kill -s KILL $unit" >&2; exit 1; fi
     fusermount3 -uz "$root/run/doc" 2>/dev/null || true
     tail -1 "$root/app.log" 2>/dev/null || true
-    dumps="$(coredumpctl list --since -10min --no-legend 2>/dev/null | grep -c . || true)"
-    echo "coredumps in the last 10 min: $dumps"
+    # every dump since the start (of this copy's binary, and of anything else, as a warning)
+    since="$(cat "$root/started" 2>/dev/null || echo '-10min')"
+    all="$(coredumpctl list --since "$since" --no-legend 2>/dev/null || true)"
+    ours="$(printf '%s\n' "$all" | grep -cF "$(cat "$root/bin" 2>/dev/null || echo /nonexistent)" || true)"
+    echo "coredumps of this copy since its start: $ours (any process: $(printf '%s\n' "$all" | grep -c . || true))"
+    [ "$ours" = 0 ] || exit 1
     ;;
   *) sed -n 2,9p "$0"; exit 2 ;;
 esac

@@ -117,7 +117,7 @@ Every Electron run for a check uses `tools/isolated.sh` (or the same recipe):
   **never SIGTERM** (Electron answers it with a core dump), `kill -KILL` only as a last resort;
   afterwards `coredumpctl list --since -10min` must be empty;
 - **never start an AppImage from `~/Downloads`**: it repoints `~/Downloads/Sonata.AppImage` to itself and
-  prunes older `sonata-*.AppImage` beside it, even with a throwaway HOME. Use `dist/linux-unpacked/sonata`
+  prunes older `sonata-*.AppImage` beside it, even with a throwaway HOME. Use `dist/linux-unpacked/apple-music-for-linux`
   or copy the AppImage to a scratch folder. Never touch the `Sonata.AppImage` symlink or Marcy's running
   Sonata; restarting it, or anything on her machine, is "say first, then wait".
 

@@ -117,6 +117,7 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     // with opacity reads as faded as a translucent colour; 0.15.37: the sung line's upcoming words)
     let op = 1
     for (let e = el; e && e !== root.parentElement; e = e.parentElement) op *= +getComputedStyle(e).opacity
+    if (op < 0.1) continue   // faded out by an ancestor (the mini player's title under its scrubber): not shown
     const color = op < 1 ? cs.color.replace(/rgba?\\(([^)]+)\\)/, (m, a) => { const p = a.split(/[ ,/]+/).filter(Boolean).map(Number); return 'rgba(' + p.slice(0, 3).join(', ') + ', ' + ((p.length > 3 ? p[3] : 1) * op) + ')' }) : cs.color
     texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), op,
       fits: el.scrollWidth <= el.clientWidth + 1 || cs.textOverflow === 'ellipsis' || cs.display === 'inline', clipped: cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1, cls: el.className && String(el.className).slice(0, 30),

@@ -184,7 +184,7 @@ StartupWMClass=apple-music-for-linux
 
 > **Tip:** don't launch from a terminal inside a snap-packaged IDE (VS Code/Codium snap); the snap's confinement breaks Electron's helper processes.
 
-Tests: `npm test`. UI checks of an isolated copy: `tools/ui-check.js` and `tools/rail-check.js` (their headers say how to run them). Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md); a local signed test feed for the updater: `SONATA_UPDATE_FEED` (same file).
+Tests: `npm test`. UI checks of an isolated copy (`tools/isolated.sh` starts and quits one): `tools/ui-check.js` and `tools/rail-check.js` (their headers say how to run them). Gates: `npm run gates`. Project rules: [CLAUDE.md](CLAUDE.md). Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md); a local signed test feed for the updater: `SONATA_UPDATE_FEED` (same file).
 
 ## Always on top on Wayland
 
