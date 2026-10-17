@@ -31,6 +31,16 @@ for (const v of ['PATH', 'LD_LIBRARY_PATH']) {   // loop: NOT-WORTH — two vari
 }
 
 const appName = 'Sonata'
+// The app's name is Sonata (the desktop's media controls show it: MPRIS Identity, from the app name),
+// but its settings, login and caches stay where every install has them, the folder named after the
+// package (~/.config/apple-music-for-linux). userData is read before the rename and pinned; the
+// session data, logs and the single-instance lock follow it. The window class (StartupWMClass) and
+// the Wayland app id come from the package name before this file runs, so they don't change.
+{
+  const keepUserData = app.getPath('userData')
+  app.setName(appName)
+  app.setPath('userData', keepUserData)
+}
 
 // NOTE on sandboxing: recent Ubuntu restricts unprivileged user namespaces via
 // AppArmor, which aborts Chromium's sandbox setup BEFORE this script runs — it
@@ -1923,6 +1933,14 @@ function injectFocusStops() {
   appleWC().executeJavaScriptInIsolatedWorld(999, [{ code: focusCode }])
     .catch((e) => console.error('rail: focus stops failed:', e.message))   // error: LOGGED-OK — page mid-load: no focus stops until the next load (Tab still works in the page)
 }
+// The song's length and position for the desktop's media controls (media-position.js): declared from
+// MusicKit in Apple's page (main world), once per page load; the page script keeps it current itself.
+const mediaPositionCode = require('./media-position').pageScript()
+function injectMediaPosition() {
+  if (!mainAlive()) return
+  appleWC().executeJavaScript(mediaPositionCode)
+    .catch((e) => console.error('media controls: position script failed:', e.message))   // error: LOGGED-OK — page mid-load: no length in the media controls until the next load (playback is unaffected)
+}
 
 // lifetime: OK — registered once at module load (like every ipcMain handler here)
 // error: NOT-WORTH — a command not from the rail view's top frame, or not one of the rail's names, is dropped
@@ -2143,8 +2161,10 @@ function createWindow() {
   });
 
   // lifetime: OK — one dom-ready listener, dies with the view · per Apple page load (not per SPA route
-  // change: Apple's routes keep the document) one injection of the focus stops
+  // change: Apple's routes keep the document) one injection of the focus stops and one of the
+  // media-controls position script
   appleWC().on('dom-ready', injectFocusStops)
+  appleWC().on('dom-ready', injectMediaPosition)
 
   appleWC().on('page-title-updated', () => {
     applyCustomCss()

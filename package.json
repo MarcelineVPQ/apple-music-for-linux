@@ -89,6 +89,7 @@
       "mini-model.js",
       "desktop-scheme.js",
       "relaunch.js",
+      "media-position.js",
       "update-feed.js",
       "sonata.png"
     ],
