@@ -136,8 +136,9 @@ of that plus Marcy's own QC.
    (Keep a Changelog, dev builds get their own sections). `node tools/set-version.js --verify vX.Y.Z…`.
 2. Tag `vX.Y.Z` (Stable, `master`) or `vX.Y.Z-dev.N` (Development, a prerelease; work lands on `dev`).
 3. `release.yml`: tests, verdict gate, `set-version.js --verify "$GITHUB_REF_NAME"` (a tag ≠ version fails),
-   AppImage, release notes from the CHANGELOG section; then `feed.yml` hashes the AppImage, writes and
-   signs `latest.json` / `latest-dev.json` (secret `SONATA_FEED_KEY`) and commits them to `master`.
+   AppImage plus its build attestation, release notes from the CHANGELOG section; then `feed.yml` hashes
+   the AppImage, writes and signs `latest.json` / `latest-dev.json` (secret `SONATA_FEED_KEY`), commits them
+   to `master` and attests them (`gh attestation verify FILE -R MarcelineVPQ/apple-music-for-linux`).
 4. **Never hand-edit a feed**: re-run *Update feed* and verify the `.sig` against `TRUSTED_KEYS`.
 5. **Pushed is not done**: check CI after every push (`gh run list --branch <branch>`), fix before
    pushing anything else.

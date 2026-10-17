@@ -85,6 +85,7 @@ If Sonata's settings file or lyrics cache is ever damaged, Sonata keeps everythi
 - **Check for updates automatically** (on by default): every two hours. Off: Sonata goes online for updates only when you press *Check now* (or the tray's *Check for Updates…*).
 - **Two channels:** **Stable** (default) gets tested releases; **Development** also gets development builds (`X.Y.Z-dev.N`) as soon as they're out. Stable never sees development builds. Switching back to Stable never installs an older version by itself; **Back to stable** (Settings → Updates, on Development) installs the newest stable release even if it's older, after asking.
 - Never a downgrade otherwise, and never over the AppImage that is running: the new file goes beside it and `Sonata.AppImage` (the menu entry's link) points to it.
+- How it works step by step, and how to check a download yourself with its build attestation: [How it's built and tested](#how-its-built-and-tested).
 
 ## Screenshots
 
@@ -184,7 +185,54 @@ StartupWMClass=apple-music-for-linux
 
 > **Tip:** don't launch from a terminal inside a snap-packaged IDE (VS Code/Codium snap); the snap's confinement breaks Electron's helper processes.
 
-Tests: `npm test`. UI checks of an isolated copy (`tools/isolated.sh` starts and quits one): `tools/ui-check.js` and `tools/rail-check.js` (their headers say how to run them). Gates: `npm run gates`. Project rules: [CLAUDE.md](CLAUDE.md). Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md); a local signed test feed for the updater: `SONATA_UPDATE_FEED` (same file).
+Tests, gates and UI checks: see [How it's built and tested](#how-its-built-and-tested). Project rules: [CLAUDE.md](CLAUDE.md). Building and signed releases: [docs/RELEASING.md](docs/RELEASING.md); a local signed test feed for the updater: `SONATA_UPDATE_FEED` (same file).
+
+## How it's built and tested
+
+<!--
+TODO (media, only once the UI and features are final): short clips of the views and the theme
+system at work belong here. Not recorded yet; don't add them before then.
+-->
+
+**The views.** Sonata is plain JavaScript on [castlabs Electron](https://github.com/castlabs/electron-releases) (for Widevine), with no build step.
+
+- The main window holds separate views side by side: Apple's web player, the [navigation rail](#player), the [side panel](#settings-and-about) (Settings and About) and short notices. Apple's page gets none of Sonata's code beyond a few small scripts for focus, the mouse-wheel volume and the media controls, and it never gets Node.
+- The mini player, the lyrics window and the visualizer are their own windows. One lyrics engine draws the words in both the lyrics window and the visualizer.
+- The logic is kept apart from the windows (layout, lyrics timing, the theme, the updater), so it can be tested without starting Electron.
+
+**One theme system.** Every colour in Sonata's own windows comes from one place (`theme.js`): light or dark, the album's colour, and the Glass material. It raises contrast until text reaches 4.5:1 (3:1 for dimmed lyric lines) over any artwork. New UI uses those colours, never its own. The only exceptions are things drawn as they look in real life: the vinyl cover and the visualizer's night scenes.
+
+**Tests.**
+
+- `npm test`: unit tests for the logic (lyrics sources, word timing, syllables, the cache, the theme's contrast, the rail and panel layout, settings repair, the signed-feed checks and the update flow). They run in plain Node: no Electron, no display, no sound.
+- `npm run gates`, two checks:
+  - **The verdict gate** (`tools/verdicts.js --check`): every loop, timer, listener, child process and error handler in the shipped code carries a written verdict saying why it's fine or what it costs (`docs/PERFORMANCE.md`). Code without one fails.
+  - **The version check** (`tools/set-version.js --verify`): every file that carries the version agrees.
+- **The UI checker** (`tools/ui-check.js`, `tools/rail-check.js`): starts an isolated copy of Sonata on its own hidden display with a throwaway home folder, and checks the real windows at real sizes. Light and dark, the rail pinned or not, the panel docked or as a drawer: text contrast, names, hit targets, clipping, keyboard paths (Tab, F6, Esc), counts that stay flat over many open/close cycles, and idle repaints. It runs against Apple's logged-out page, so it can't see Apple's signed-in screens, and it needs a display, so it's run by hand before releases, not on GitHub.
+
+**CI.** Every push and pull request runs `npm test` and `npm run gates` on GitHub ([ci.yml](.github/workflows/ci.yml)). A release tag runs them again, and the release stops if the tag doesn't match the version ([release.yml](.github/workflows/release.yml)).
+
+**Releases and signed update feeds.**
+
+- GitHub Actions builds each release's AppImage from its tag and uploads it to the release.
+- After each release, a second workflow ([feed.yml](.github/workflows/feed.yml)) downloads the AppImage, records its size and SHA-512 in the update feed, and signs the feed with Sonata's Ed25519 key.
+- There are two feeds: **Stable** (`latest.json`, tested releases) and **Development** (`latest-dev.json`, development builds `X.Y.Z-dev.N` plus the stable releases). Stable never offers a development build.
+- **Build attestations:** releases from now on also carry a GitHub attestation for the AppImage and the feeds: a signed record that this repository's workflow built the file, from which commit. Check a download with the [GitHub CLI](https://cli.github.com):
+
+  ```bash
+  gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/apple-music-for-linux
+  ```
+
+  Releases up to v0.15.38-dev.1 have none. Sonata itself doesn't need this: it checks the feed signature and the file's hash on every update.
+
+**How updates work.**
+
+1. Sonata fetches the feed for your channel and its `.sig` from this repository (20 seconds after start, then every two hours, on *Check now* and when you switch channels).
+2. It refuses the feed unless the signature is from Sonata's key, the channel is the one you chose, and the version is newer than yours (or it's *Back to stable*).
+3. It downloads the AppImage named in the feed, from this repository's releases, and refuses it unless the size and SHA-512 match.
+4. It puts the new AppImage beside the running one, points `Sonata.AppImage` at it, and offers *Restart now* (only while nothing plays).
+
+What you see along the way, and the settings, are in [Updates](#updates). Details for maintainers: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Always on top on Wayland
 

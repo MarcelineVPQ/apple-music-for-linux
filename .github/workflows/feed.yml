@@ -16,8 +16,12 @@ on:
   schedule:
     - cron: "23 6 * * *"
 
+# id-token + attestations: the build-provenance attestation of the feeds it commits. When release.yml
+# calls this workflow, its `feed` job grants the same.
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   feed:
@@ -62,6 +66,7 @@ jobs:
           if [ -f latest.json ]; then node tools/sign-feed.js latest.json; fi
           if [ -f latest-dev.json ]; then node tools/sign-feed.js latest-dev.json; fi
       - name: Commit if changed
+        id: commit
         if: steps.ready.outputs.ready == 'true'
         run: |
           files=(); for f in latest.json latest.json.sig latest-dev.json latest-dev.json.sig; do [ -f "$f" ] && files+=("$f"); done
@@ -71,6 +76,20 @@ jobs:
             git add "${files[@]}"
             git commit -m "chore(release): update latest.json / latest-dev.json"
             git push origin HEAD:master
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
           else
             echo "Feeds unchanged."
           fi
+      # Build provenance for the feeds just committed: a signed attestation that this workflow wrote
+      # them (gh attestation verify latest.json -R MarcelineVPQ/apple-music-for-linux). On top of, not
+      # instead of, the Ed25519 .sig the app checks. Only when a commit happened, so the daily
+      # unchanged run adds nothing; every feed file present is attested (unchanged ones too).
+      - name: Attest build provenance (feeds)
+        if: steps.commit.outputs.pushed == 'true'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            latest.json
+            latest.json.sig
+            latest-dev.json
+            latest-dev.json.sig

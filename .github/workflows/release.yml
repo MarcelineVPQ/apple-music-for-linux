@@ -14,6 +14,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Build provenance: id-token mints the OIDC token for the Sigstore signing certificate,
+    # attestations stores the attestation (gh attestation verify FILE -R MarcelineVPQ/apple-music-for-linux).
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -32,6 +38,19 @@ jobs:
 
       - name: Build AppImage
         run: npx electron-builder --linux AppImage --publish never
+
+      # Build provenance, before the release is visible: a signed attestation that this workflow
+      # built the AppImage from this tag. Stable releases also attest latest-linux.yml (the legacy
+      # feed old installs read); development releases don't upload it, so don't attest it.
+      - name: Attest build provenance (AppImage)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/sonata-*-x86_64.AppImage
+      - name: Attest build provenance (latest-linux.yml)
+        if: ${{ !contains(github.ref_name, '-dev.') }}
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/latest-linux.yml
 
       - name: Draft release, publish when complete
         env:
@@ -63,5 +82,11 @@ jobs:
   feed:
     name: Refresh latest.json / latest-dev.json
     needs: build
+    # A called workflow gets only what its caller job grants: feed.yml commits the feeds and
+    # attests them.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/feed.yml
     secrets: inherit

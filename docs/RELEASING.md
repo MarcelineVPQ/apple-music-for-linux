@@ -73,11 +73,12 @@ run that workflow (Actions → Update feed → Run workflow).
    check with `node tools/set-version.js --verify vX.Y.Z`, and commit on `master`.
 2. `git tag vX.Y.Z && git push origin master vX.Y.Z`.
 3. `release.yml` runs the tests and the verdict gate, checks the tag against the version
-   (`tools/set-version.js --verify "$GITHUB_REF_NAME"`: a mismatch fails the release), builds the AppImage, creates a
+   (`tools/set-version.js --verify "$GITHUB_REF_NAME"`: a mismatch fails the release), builds the AppImage, writes a
+   build-provenance attestation for the AppImage and `latest-linux.yml` (see [Build attestations](#build-attestations)), creates a
    draft release with the CHANGELOG section as notes, uploads `sonata-X.Y.Z-x86_64.AppImage` **and
    `latest-linux.yml`**, then publishes it as *Latest*.
 4. `feed.yml` (called by the release) downloads and hashes the AppImage, writes `latest.json` and
-   `latest-dev.json`, signs them and commits them to `master`.
+   `latest-dev.json`, signs them, commits them to `master` and attests them.
 
 ## Development release
 
@@ -85,6 +86,45 @@ Same steps with version `X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and
 the CHANGELOG section is `## [X.Y.Z-dev.N]` (falls back to `[Unreleased]`). The release is published as a
 **prerelease** (never *Latest*, so `releases/latest` and old installs never see it), without
 `latest-linux.yml`, and only `latest-dev.json` changes.
+
+## Build attestations
+
+Releases carry GitHub [artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds):
+a statement, signed through Sigstore with a short-lived certificate that GitHub issues to the workflow run,
+that this repository's workflow built the file, from which tag and commit. It's a second, independent check
+beside the feed signature: the `.sig` says the feed comes from the holder of Sonata's key; an attestation
+says which workflow run made the file. Only releases tagged after these steps were added have them
+(v0.15.38-dev.1 and earlier don't).
+
+| File | Attested by | When |
+|---|---|---|
+| `sonata-X.Y.Z(-dev.N)-x86_64.AppImage` | `release.yml` | every release, before the release is published |
+| `latest-linux.yml` | `release.yml` | Stable releases only (development releases don't upload it) |
+| `latest.json`, `latest-dev.json` and their `.sig` | `feed.yml` | whenever the feed run commits a change (a release, or a run that finds one); an unchanged daily run attests nothing |
+
+Permissions: the jobs that attest have `id-token: write` (the OIDC token for the signing certificate) and
+`attestations: write` (to store it); `release.yml`'s `feed` job grants them to `feed.yml`, since a called
+workflow gets only what its caller job grants.
+
+To check a file (GitHub CLI 2.49 or newer; it fetches the attestation from GitHub by the file's SHA-256):
+
+```bash
+gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/apple-music-for-linux
+# stricter: also require the release workflow as the signer
+gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/apple-music-for-linux \
+  --signer-workflow MarcelineVPQ/apple-music-for-linux/.github/workflows/release.yml
+# a feed, as the app downloads it
+curl -sLO https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/latest.json
+gh attestation verify latest.json -R MarcelineVPQ/apple-music-for-linux
+```
+
+It passes with "Verification succeeded!" and names the workflow and commit; a file that was changed
+after the build, or never built here, fails (and so does a release from before attestations). The app itself doesn't check
+attestations: it checks the Ed25519 signature, the size and the SHA-512 (above).
+
+**Not tested by a real release yet:** the steps pass actionlint, but the first tag that runs them is
+the proof. After it, check the release run's summary (it lists each attestation) and run the
+`gh attestation verify` lines above on the downloaded AppImage and `latest-dev.json` / `latest.json`.
 
 ## Signing key
 
