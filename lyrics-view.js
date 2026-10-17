@@ -193,7 +193,8 @@ function slideFrom(before, after, centre) {
 
 /**
  * createLyricsView({ container, layout: 'scroll' | 'stage', onSeek(t)?, onFrame(time)?,
- *   emptyText(data)? -> string|null, notes: bool, credits: bool }) -> { setData, setTime, refine, align, time, playing }
+ *   emptyText(data)? -> string|null, notes: bool, credits: bool, anchor?: number | () => number })
+ *   -> { setData, recenter, setTime, refine, align, time, playing }
  */
 function createLyricsView(opts) {
   const container = opts.container
@@ -205,12 +206,16 @@ function createLyricsView(opts) {
     const box = container.getBoundingClientRect()
     const r = el.getBoundingClientRect()
     let top = container.scrollTop + r.top - box.top
-    if (block === 'center') top -= (box.height - r.height) / 2
+    if (block === 'center') top -= box.height * anchor() - r.height / 2
     else if (r.top >= box.top && r.bottom <= box.bottom) top = container.scrollTop   // 'nearest': already in view
     else if (r.bottom > box.bottom) top -= box.height - r.height
     container.scrollTo({ top: Math.max(0, top), left: 0, behavior: still() ? 'auto' : 'smooth' })
   }
   const stage = opts.layout === 'stage'
+  // scroll: where the sung line is held, as a fraction of the list's height from its top (the lyrics
+  // window: the middle; its stage form, lyrics.html body.stage: a third of the way down). A number or a
+  // function read at each scroll, so the page can change it with its layout.
+  const anchor = () => { const a = typeof opts.anchor === 'function' ? opts.anchor() : opts.anchor; return Number.isFinite(a) ? a : 0.5 }
   let lines = []
   let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }; a word span
                             // with syllables has span.syl = [syllable span]
@@ -705,8 +710,18 @@ function createLyricsView(opts) {
     updateFrames()
   })
 
+  // the page's layout changed (the lyrics window grown into the stage or shrunk back, a band folded
+  // away): scroll the sung line back to its anchor on the next render
+  // (merge hook, backing-vocals-b: re-place backing lines here too, as the page's font sizes changed:
+  // for (const e of lineEls) e.bgKey = null; placeBacking())
+  function recenter() {
+    scrollTarget = null
+    if (clock && lines.length) render(T.clockTime(clock, performance.now()))
+  }
+
   return {
     setData,
+    recenter,
     setTime,
     refine,
     align,

@@ -27,6 +27,7 @@ const relaunch = require('./relaunch');
 const shortcutsLib = require('./shortcuts')
 const shortcutsModel = require('./shortcuts-model')
 const dbusWire = require('./dbus-wire')
+const stageModel = require('./stage-model')
 const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
@@ -116,13 +117,14 @@ function applySavedBounds(opts, key) {
 // Persist a window's size/position (debounced) whenever it moves or resizes.
 // loop: NOT-WORTH — lyrics-window bounds save · 500 ms one-shot debounce · runs only after a move/resize · stops after firing · cost ~0
 // lifetime: OK — resize/move listeners live on the window and die with it; the timer checks isDestroyed() first
+// key: the setting, or a function giving it (the lyrics window keeps one size per form: lyricsBounds, stageBounds)
 function persistBounds(win, key) {
   let timer = null
   const save = () => {
     if (win.isDestroyed() || win.isMinimized() || win.isFullScreen() || !win.isVisible()) return
     clearTimeout(timer)
     timer = setTimeout(() => {
-      if (!win.isDestroyed()) { settings[key] = win.getBounds(); saveSettings() }
+      if (!win.isDestroyed()) { settings[typeof key === 'function' ? key() : key] = win.getBounds(); saveSettings() }
     }, 500)
   }
   win.on('resize', save); win.on('move', save)   // lifetime: OK — both die with the window
@@ -351,7 +353,8 @@ const nowPlayingScript = `(() => {
       shuffle: mk.shuffleMode === 1,
       repeat: mk.repeatMode,
       volume: mk.volume,
-      contentRating: attrs ? (attrs.contentRating || '') : ''
+      contentRating: attrs ? (attrs.contentRating || '') : '',
+      releaseDate: attrs ? (attrs.releaseDate || '') : ''
     };
   } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page loading): { ok: false }, the polls skip that tick */
     return { ok: false };
@@ -813,6 +816,7 @@ async function lyricsTick() {
   }
   // isPlaying lets the views stop their word-highlight clock right away on pause
   sendLyrics('lyrics-time', state.playbackTime, state.isPlaying)
+  if (stageShowing()) stageTick(state, key)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())
   alignGuardTick()
@@ -821,12 +825,15 @@ async function lyricsTick() {
 }
 
 function createLyricsWindow() {
+  // the form it was last used in (settings.lyricsStage): the stage or the lyrics window, each with its own size
+  const form = settings.lyricsStage ? 'stage' : 'compact'
+  const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+  const bounds = form === 'stage' ? stageModel.windowBounds('stage', settings.stageBounds, area) : applySavedBounds({ width: stageModel.COMPACT_DEFAULT.width, height: stageModel.COMPACT_DEFAULT.height }, 'lyricsBounds')
+  const min = stageModel.minSize(form, area)
   // lifetime: OK — one lyrics window at a time; 'closed' nulls it and stops the feed when no view is left
-  lyricsWindow = new BrowserWindow(applySavedBounds({
-    width: 380,
-    height: 560,
-    minWidth: 260,
-    minHeight: 300,
+  lyricsWindow = new BrowserWindow(Object.assign(bounds, {
+    minWidth: min.width,
+    minHeight: min.height,
     frame: false,
     roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the card draws its own corners
     transparent: true,
@@ -837,9 +844,9 @@ function createLyricsWindow() {
       nodeIntegration: true,
       contextIsolation: false
     }
-  }, 'lyricsBounds'))
+  }))
   lyricsWindow.loadFile('lyrics.html')
-  persistBounds(lyricsWindow, 'lyricsBounds')
+  persistBounds(lyricsWindow, () => (settings.lyricsStage ? 'stageBounds' : 'lyricsBounds'))
   lockDownLocalWindow(lyricsWindow)
   pushRail()
   // the lyrics and visualizer shortcuts work in the lyrics window too (Ctrl+Shift+L closes it again)
@@ -849,6 +856,9 @@ function createLyricsWindow() {
   // lifetime: OK — fires once per load
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
+    lyricsWindow.webContents.send('lyrics-form', lyricsForm())
+    stageSent = ''
+    stageQueueSig = ''
     startLyricsFeed()
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
     lyricsWindow.webContents.send('theme', themeState())
@@ -871,6 +881,145 @@ function toggleLyricsWindow() {
   else {
     createLyricsWindow()
   }
+}
+
+// --- the stage: the lyrics window grown into the now-playing screen (lyrics.html body.stage) ---
+// One window, two forms: the lyrics window (compact) and the stage. Opening the lyrics (Ctrl+Shift+L,
+// the rail, the tray, the mini player) brings back the form last used (settings.lyricsStage); the stage
+// button in its header, the rail's Stage item and Ctrl+Shift+S grow it into the stage or shrink it back.
+// Each form keeps its own size (lyricsBounds, stageBounds).
+let stageSent = ''        // the last 'stage-np' sent (JSON), so it's sent on change only
+let stageQueueSig = ''    // the queue's signature as last sent: Apple's page answers "same" while it holds
+let stageQueueAt = 0      // when the queue was last read (ms)
+let stageQueueKey = ''    // the song the queue was last read for (a new song reads it at once)
+// the liner notes (branch liner-notes: openLinerNotes(album)); the tile shows only once it's there
+const linerNotesReady = () => typeof openLinerNotes === 'function'
+function lyricsForm() {
+  return { stage: !!settings.lyricsStage, linerNotes: linerNotesReady() }
+}
+function stageShowing() {
+  return !!(lyricsWindow && !lyricsWindow.isDestroyed() && settings.lyricsStage && lyricsWindow.isVisible() && !lyricsWindow.isMinimized())
+}
+function setLyricsForm(stage) {
+  const on = !!stage
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) {
+    settings.lyricsStage = on
+    saveSettings()
+    createLyricsWindow()
+    return
+  }
+  if (!!settings.lyricsStage === on) { lyricsWindow.show(); lyricsWindow.focus(); return }
+  settings.lyricsStage = on
+  saveSettings()
+  const area = screen.getDisplayMatching(lyricsWindow.getBounds()).workArea
+  const form = on ? 'stage' : 'compact'
+  const b = stageModel.windowBounds(form, on ? settings.stageBounds : settings.lyricsBounds, area)
+  const min = stageModel.minSize(form, area)
+  stageSent = ''
+  stageQueueSig = ''
+  stageQueueKey = ''
+  lyricsWindow.webContents.send('lyrics-form', lyricsForm())
+  lyricsWindow.setMinimumSize(min.width, min.height)
+  lyricsWindow.setBounds(b)
+  pushRail()
+}
+// the rail's Stage item and Ctrl+Shift+S: the stage showing shrinks back to the lyrics window, else it opens as the stage
+function toggleStage() {
+  setLyricsForm(!(lyricsWindow && !lyricsWindow.isDestroyed() && settings.lyricsStage))
+}
+
+// Apple's queue, read-only: the songs as MusicKit holds them (MusicKit.getInstance().queue.items) and
+// the one playing. `since` is the signature last sent: while the queue holds (same length, position,
+// ends and shuffle) the page answers { same: true } and nothing else crosses.
+const stageQueueScript = (since) => `(() => {
+  try {
+    const mk = MusicKit.getInstance();
+    const q = mk.queue;
+    const items = (q && q.items) || [];
+    const pos = q && typeof q.position === 'number' ? q.position : (typeof mk.nowPlayingItemIndex === 'number' ? mk.nowPlayingItemIndex : -1);
+    const id = (it) => (it && it.id ? String(it.id) : '');
+    const sig = items.length + ':' + pos + ':' + id(items[0]) + ':' + id(items[items.length - 1]) + ':' + mk.shuffleMode;
+    if (sig === ${JSON.stringify(String(since || ''))}) return { ok: true, same: true, sig };
+    const np = mk.nowPlayingItem;
+    const c = np && np.container;
+    const cname = c ? ((c.attributes && c.attributes.name) || c.name || '') : '';
+    return {
+      ok: true, sig, position: pos,
+      canPlay: typeof mk.changeToMediaAtIndex === 'function',
+      container: c ? { type: String(c.type || ''), name: String(cname) } : null,
+      /* loop: NOT-WORTH — the queue's songs (at most ${stageModel.QUEUE_MAX}), only when the signature changed (a new song, the queue edited), while the stage shows */
+      items: items.slice(0, ${stageModel.QUEUE_MAX}).map((it) => {
+        const a = it.attributes || {};
+        const art = a.artwork && a.artwork.url ? a.artwork.url.replace('{w}', 112).replace('{h}', 112) : '';
+        return { id: id(it), title: a.name || it.title || '', artist: a.artistName || '', album: a.albumName || '', duration: (a.durationInMillis || 0) / 1000, art, autoplay: !!it.isAutoplay };
+      })
+    };
+  } catch (e) { /* error: NOT-WORTH — no MusicKit or no queue yet (page loading): { ok: false }, read again on the next tick */
+    return { ok: false };
+  }
+})()`
+
+// The stage's song (sent on change) and queue (read at once on a new song, else every 2 s, and only
+// the signature crosses while it holds). Runs in the lyrics feed's tick, only while the stage shows
+// (not minimized, not hidden, not the compact form).
+// error: NOT-WORTH — a failing read (page mid-navigation) skips this tick; the next tick reads again
+async function stageTick(state, key) {
+  const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(state.volume) || 0, releaseDate: state.releaseDate || '' }
+  const json = JSON.stringify(np)
+  if (json !== stageSent) { stageSent = json; lyricsWindow.webContents.send('stage-np', np) }
+  const now = Date.now()
+  if (key === stageQueueKey && now - stageQueueAt < 2000) return
+  stageQueueKey = key
+  stageQueueAt = now
+  let q
+  try { q = await appleWC().executeJavaScript(stageQueueScript(stageQueueSig)) } catch (e) { return }   // error: NOT-WORTH — page mid-navigation: read again on the next tick
+  if (!q || !q.ok || q.same || !stageShowing()) return
+  stageQueueSig = q.sig
+  lyricsWindow.webContents.send('stage-queue', stageModel.cleanQueue(q))
+}
+
+// Play a song of the queue (the stage's Up Next / Playlist): only when Apple's player offers
+// changeToMediaAtIndex, and only if the song at that place is still the one clicked (the queue may have
+// moved on since the list was drawn); otherwise nothing happens and the list is read again.
+const stagePlayScript = (index, id) => `(() => {
+  try {
+    const mk = MusicKit.getInstance();
+    const it = mk.queue && mk.queue.items ? mk.queue.items[${index}] : null;
+    if (!it || String(it.id) !== ${JSON.stringify(id)} || typeof mk.changeToMediaAtIndex !== 'function') return false;
+    mk.changeToMediaAtIndex(${index});
+    return true;
+  } catch (e) { /* error: PASSES-ON — false to main, which reads the queue again */
+    return false;
+  }
+})()`
+
+// lifetime: OK — registered once at module load (like every ipcMain handler here)
+// error: NOT-WORTH — a command not from the lyrics window's top frame, or one stage-model.stageCommand refuses, is dropped
+ipcMain.on('stage-command', (event, command, value) => {
+  if (!lyricsWindow || lyricsWindow.isDestroyed() || event.sender !== lyricsWindow.webContents) return
+  if (!event.senderFrame || event.senderFrame.parent) return
+  const c = stageModel.stageCommand(command, value)
+  if (!c) return
+  if (c.command === 'form') { setLyricsForm(c.value === 'stage'); return }
+  if (!mainAlive()) return
+  const run = (code, what) => appleWC().executeJavaScript(code)
+    .catch((e) => console.error('stage ' + what + ' failed:', e.message))   // error: LOGGED-OK — page mid-load: that one command does nothing (the stage shows the player's real state on the next tick)
+  if (c.command === 'play-pause') playerCommand('playPause')
+  else if (c.command === 'next') playerCommand('next')
+  else if (c.command === 'previous') playerCommand('previous')
+  else if (c.command === 'shuffle') playerCommand('toggleShuffle')
+  else if (c.command === 'repeat') playerCommand('cycleRepeat')
+  else if (c.command === 'seek') run(`(() => { MusicKit.getInstance().seekToTime(${c.value}); })();`, 'seek')
+  else if (c.command === 'volume') run(`(() => { MusicKit.getInstance().volume = ${c.value}; })();`, 'volume')
+  else if (c.command === 'play-item') {
+    run(stagePlayScript(c.value.index, c.value.id), 'play').then((ok) => { if (!ok) { stageQueueSig = ''; stageQueueKey = '' } })
+  }
+  else if (c.command === 'liner-notes' && linerNotesReady()) {
+    openLinerNotes({ album: lastStage().album, artist: lastStage().artist })
+  }
+})
+function lastStage() {
+  try { return JSON.parse(stageSent || '{}') } catch (e) { return {} }   // error: NOT-WORTH — our own JSON; {} when nothing was sent yet
 }
 
 // lifetime: OK — every ipcMain.on / ipcMain.handle in this file is registered once at module load, never per window open (measured: counts stay at 1 after 20 open/close cycles of each window)
@@ -1044,12 +1193,14 @@ function vizAudioTick(isPlaying) {
 // Lyrics and visualizer from either player: the same keys in the main window and the mini player,
 // shown as accelerator labels in the tray and "More" menus (labels only; the keys are handled here)
 const LYRICS_KEY = 'Ctrl+Shift+L'
+const STAGE_KEY = 'Ctrl+Shift+S'
 const VISUALIZER_KEY = 'Ctrl+Shift+V'
 const MINI_KEY = 'Ctrl+M'   // handled in the main window's before-input-event; a label for the rail
 function viewShortcut(input) {
   if (input.type !== 'keyUp' || !input.control || !input.shift || input.alt) return false
   const key = input.key.toLowerCase()
   if (key === 'l') toggleLyricsWindow()
+  else if (key === 's') toggleStage()
   else if (key === 'v') toggleVisualizer()
   else return false
   return true
@@ -1954,10 +2105,10 @@ function railSnapshot() {
     mode: layout.mode,
     room: layout.room,
     wide: railWide && layout.mode !== 'pinned' && !settings.railLocked,
-    open: { lyrics: !!lyricsWindow, visualizer: !!vizWindow, mini: !!miniWindow },
+    open: { lyrics: !!lyricsWindow, stage: !!lyricsWindow && !!settings.lyricsStage, visualizer: !!vizWindow, mini: !!miniWindow },
     panel: { shown: !!settings.panelShown, page: settings.panelPage },
     reminders: notices.reminders().pages,
-    keys: { lyrics: LYRICS_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
+    keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     precise: railPrecise(),
@@ -2224,6 +2375,7 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'focus-apple-next') focusView('rail', false)
   else if (command === 'focus-apple-prev') focusView('rail', true)
   else if (command === 'lyrics') toggleLyricsWindow()
+  else if (command === 'stage') toggleStage()
   else if (command === 'visualizer') toggleVisualizer()
   else if (command === 'mini') toggleMiniPlayer()
   else if (command === 'settings') togglePanelPage('settings')

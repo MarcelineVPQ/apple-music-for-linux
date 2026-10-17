@@ -14,7 +14,9 @@
 //           perf (idle repaints and CPU), mini (the mini player, run with --mini), lyrics (the lyrics
 //           window's words over a dark and a light album, both schemes; the sung line's every word >= 4.5:1 in
 //           light/dark x album colour on/off x Glass on/off), a11y (Sonata's own windows: an offline
-//           axe-style rule set, focus order and keyboard reach with the theme's focus ring, reduced motion)
+//           axe-style rule set, focus order and keyboard reach with the theme's focus ring, reduced motion),
+//           stage (the lyrics window grown into the stage: columns, real-data texts, every theme with
+//           screenshots, drag regions while the lists scroll, no dead controls, keyboard, idle frames, the form)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -120,7 +122,7 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     for (let e = el; e && e !== root.parentElement; e = e.parentElement) op *= +getComputedStyle(e).opacity
     if (op < 0.1) continue   // faded out by an ancestor (the mini player's title under its scrubber): not shown
     const color = op < 1 ? cs.color.replace(/rgba?\\(([^)]+)\\)/, (m, a) => { const p = a.split(/[ ,/]+/).filter(Boolean).map(Number); return 'rgba(' + p.slice(0, 3).join(', ') + ', ' + ((p.length > 3 ? p[3] : 1) * op) + ')' }) : cs.color
-    texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), op,
+    texts.push({ text: n.textContent.trim().slice(0, 40), color, layers: layersOf(el), size: parseFloat(cs.fontSize), weight: +cs.fontWeight, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv'), activeLine: !!el.closest('.line.active') && !el.closest('.bgv'), bgv: !!el.closest('.bgv'), op,
       fits: el.scrollWidth <= el.clientWidth + 1 || cs.textOverflow === 'ellipsis' || cs.display === 'inline', clipped: cs.textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth + 1, cls: el.className && String(el.className).slice(0, 30),
       rect: [r.left, r.top, r.right, r.bottom] })
   }
@@ -828,9 +830,235 @@ async function a11y() {
   page.c.close(); mp.c.close()
 }
 
+// --- the stage (lyrics.html body.stage): the lyrics window grown into the now-playing screen ---
+// Opened from the rail, fed a public-domain song (Oh My Darling, Clementine) with word timing, background
+// vocals and an interlude, the song and a 24-song album as Apple's queue would give them. Checks: the three
+// columns and their real-data texts (Track 13 of 24, the live chip, Next · in m:ss), contrast / hit targets
+// / names / clipping in light/dark x album colour on/off x Glass on/off (screenshots of each), the drag
+// regions while both lists are scrolled (Chromium's rule: every element's rect, later wins, scrolled rows
+// unclipped), every control visibly doing something (a command to main or a visible change), the keyboard
+// (Tab through every control with the focus ring, the queue's arrows), no idle frames while paused, and the
+// form: the stage button shrinks it, Ctrl+Shift+S grows it, reopening brings back the form last used.
+const CLEMENTINE = [
+  'In a cavern, in a canyon', 'Excavating for a mine', 'Dwelt a miner, forty-niner', 'And his daughter Clementine',
+  'Oh my darling, oh my darling', 'Oh my darling, Clementine', 'You are lost and gone forever', 'Dreadful sorry, Clementine',
+  'Light she was and like a fairy', 'And her shoes were number nine', 'Herring boxes, without topses', 'Sandals were for Clementine',
+  'Oh my darling, oh my darling', 'Oh my darling, Clementine', 'You are lost and gone forever', 'Dreadful sorry, Clementine'
+]
+function stageSong() {
+  const lines = []
+  let t = 4
+  CLEMENTINE.forEach((text, i) => {
+    if (i === 8) t += 12   // an interlude: the countdown dots
+    const ws = text.split(' ')
+    const step = 2.9 / ws.length
+    const words = ws.map((w, k) => ({ t: +(t + k * step).toFixed(2), end: +(t + k * step + step * 0.9).toFixed(2), text: w }))
+    const line = { t, end: +(t + 3).toFixed(2), text, words }
+    // the chorus answers itself: background vocals under it
+    if (i >= 4 && i <= 7) { const echo = i === 6 ? 'gone forever' : i % 2 ? 'Clementine' : 'oh my darling'; line.bg = echo.split(' ').map((w, k) => ({ t: +(t + 2.2 + k * 0.4).toFixed(2), end: +(t + 2.55 + k * 0.4).toFixed(2), text: w })) }
+    lines.push(line)
+    t += 3.1
+  })
+  return { title: 'Oh My Darling, Clementine', artist: 'The Juniper Lane Band', album: 'Wayfarers: Live at the Gorge', duration: 158, source: 'apple', status: '', estimate: false, refined: false, aligned: true, lang: 'en', writers: ['Traditional'], lines }
+}
+const STAGE_TRACKS = ['Cotton-Eyed Joe', 'Oh! Susanna', 'Wildwood Flower', 'Swing Low, Sweet Chariot', 'Bury Me Not on the Lone Prairie', 'Down by the Riverside', 'I Ride an Old Paint', 'Old Joe Clark', 'Amazing Grace', 'Will the Circle Be Unbroken', 'Shenandoah', 'Red River Valley', 'Oh My Darling, Clementine', 'The Parting Glass', 'Home on the Range', 'Camptown Races', 'Skip to My Lou', 'Buffalo Gals', 'Arkansas Traveler', 'Turkey in the Straw', 'Wayfaring Stranger', 'John Henry', 'Goodnight, Irene', 'Midnight Special']
+const stageQueue = () => ({ position: 12, canPlay: true, container: { type: 'albums', name: 'Wayfarers: Live at the Gorge' },
+  items: STAGE_TRACKS.map((title, i) => ({ id: 'pd' + (i + 1), title, artist: 'The Juniper Lane Band', album: 'Wayfarers: Live at the Gorge', duration: 180 + (i * 37) % 420, art: '' }))
+    .concat([{ id: 'ap1', title: 'Autoplay Song', artist: 'Someone Else', album: 'Elsewhere', duration: 200, art: '', autoplay: true }]) })
+
+// Chromium's drag regions, as Electron 45 builds them: every element with an app-region, in document
+// order, its full rect (a scrolled element's rect is NOT clipped to its scroller), the later one winning.
+// -> the winner ('drag' / 'no-drag' / null) at each point
+const REGIONS_AT = (points) => `(() => {
+  const region = (el) => { const cs = getComputedStyle(el); return cs.getPropertyValue('app-region') || cs.getPropertyValue('-webkit-app-region') || cs.webkitAppRegion || '' }
+  const rects = []
+  for (const el of document.querySelectorAll('*')) {   /* loop: NOT-WORTH — test only */
+    const r = region(el).trim()
+    if (r !== 'drag' && r !== 'no-drag') continue
+    const cs = getComputedStyle(el)
+    if (cs.display === 'none' || el.closest('[hidden]')) continue
+    const b = el.getBoundingClientRect()
+    if (b.width > 0 && b.height > 0) rects.push([r, b.left, b.top, b.right, b.bottom, el.id || el.className || el.tagName])
+  }
+  return ${JSON.stringify(points)}.map(([x, y, name]) => { let win = null; for (const r of rects) if (x >= r[1] && x < r[3] && y >= r[2] && y < r[4]) win = r; return { name, x, y, region: win ? win[0] : null, by: win ? String(win[5]).slice(0, 30) : null } })
+})()`
+
+async function stage() {
+  const mp = await mainProc()
+  // the commands the stage sends main (this test copy only): a second listener beside main's own
+  await mp.ev(`(() => { const { ipcMain } = ${E}; if (!globalThis.__stageLog) ipcMain.on('stage-command', (e, c, v) => globalThis.__stageLog.push([c, v])); globalThis.__stageLog = []; return true })()`)
+  const stageLog = () => mp.ev('globalThis.__stageLog.splice(0)')
+  await mp.ev(viewCommand('rail', 'stage')); await sleep(3000)
+  check('stage: the rail\'s Stage item opens the lyrics window as the stage', (await mp.ev(settingsFile)).lyricsStage === true && await winOpen(mp, 'Lyrics'))
+  const panelShown = async () => mp.ev(`${settingsFile}.panelShown`)
+  if (!(await panelShown())) { await mp.ev(viewCommand('rail', 'settings')); await sleep(2500) }
+  const page = await target('lyrics.html')
+  const lyrWin = `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics'))`
+  await mp.ev(`(() => { const wc = ${lyrWin}.webContents
+    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if (/^(lyrics-(time|data)|stage-(np|queue))$/.test(ch) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
+    return true })()`)
+  const send = (ch, ...a) => mp.ev(`(${lyrWin}.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'), true)`)
+  const W = 1240; const H = 780
+  const b = await mp.ev(`(() => { const w = ${lyrWin}; w.setBounds({ x: 0, y: 0, width: ${W}, height: ${H} }); return w.getBounds() })()`)
+  check('stage: the window takes the stage size (min 980 x 620)', b.width === W && b.height === H, b)
+  const art = require('url').pathToFileURL(path.resolve(process.env.SONATA_TEST_ARTWORK || path.join(__dirname, 'dark-artwork.png'))).href
+  const song = stageSong()
+  const np = { title: song.title, artist: song.artist, album: song.album, art, duration: song.duration, isPlaying: false, shuffle: false, repeat: 0, volume: 0.7, releaseDate: '2026-05-01' }
+  const T0 = 26.2
+  const feed = async (t) => { await send('lyrics-data', song); await send('stage-np', np); await send('stage-queue', stageQueue()); await send('lyrics-time', t, false); await sleep(900) }
+  await feed(T0)
+
+  // --- the columns and their real-data texts ---
+  const facts = await page.ev(`(() => {
+    const r = (id) => { const e = document.getElementById(id); const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right), Math.round(b.width)] }
+    const tx = (id) => document.getElementById(id).textContent
+    return { stage: document.body.classList.contains('stage'), np: r('np'), lines: r('lines'), queue: r('queue'), size: getComputedStyle(document.querySelector('.line')).fontSize,
+      ctx: tx('ctx'), track: tx('chip-track'), live: tx('chip-live'), nextIn: tx('next-in'), nextT: tx('next-t'), title: tx('np-title'), album: tx('np-album'), tabAll: tx('tab-all'),
+      rows: document.querySelectorAll('#q-list .q-row').length, firstRow: (document.querySelector('#q-list .q-row .t') || {}).textContent, footL: tx('q-foot-l'), footR: tx('q-foot-r'),
+      band: document.getElementById('band').hidden, layers: document.getElementById('layers').hidden, montage: document.getElementById('t-montage').hidden, liner: document.getElementById('t-liner').hidden,
+      tElapsed: tx('t-el'), tRem: tx('t-rem'), hScroll: [document.getElementById('lines'), document.getElementById('q-list')].map((e) => e.scrollWidth > e.clientWidth + 1) }
+  })()`)
+  check('stage: three columns: the song (292 px), the lyrics between, what plays next (312 px)', facts.stage && facts.np[2] === 292 && facts.queue[2] === 312 && facts.np[1] <= facts.lines[0] + 1 && facts.lines[1] <= facts.queue[0] + 1, facts)
+  check('stage: the lyrics are big (31 px) in the middle', facts.size === '31px', facts.size)
+  check('stage: "Track 13 of 24" from the queue (the autoplay song not counted), the live chip from the album title', facts.track === 'Track 13 of 24' && facts.footL === 'Track 13 of 24' && facts.live === 'Live · The Gorge', facts)
+  const left = Math.ceil(song.duration - T0)
+  check('stage: the next card counts down the playing song (Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ') and names the next song', facts.nextIn === 'Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') && facts.nextT === 'The Parting Glass', facts)
+  check('stage: Up Next lists the 12 songs after it plus the autoplay one; Playing from the album; the Playlist tab counts 24', facts.rows === 12 && facts.firstRow.startsWith('The Parting Glass') && facts.ctx === 'Playing from Wayfarers: Live at the Gorge' && facts.tabAll === 'Playlist · 24', facts)
+  check('stage: no empty boxes or dead controls (no sheet notes yet: no band; Montage hidden; Liner notes hidden until it\'s merged; the "On the stage" row hidden)', facts.band && facts.layers && facts.montage && facts.liner, facts)
+  check('stage: neither list scrolls sideways', facts.hScroll.every((h) => !h), facts.hScroll)
+
+  // --- every theme: light/dark x album colour on/off x Glass on/off ---
+  for (const adaptive of [true, false]) {
+    for (const glass of [true, false]) {
+      await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', adaptive)); await mp.ev(viewCommand('panel', 'set', 'glass', glass)); await sleep(700)
+      for (const dark of [false, true]) {
+        await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+        const tag = 'stage-' + (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '')
+        await send('lyrics-time', T0, false); await sleep(500)
+        xshot(path.join(OUT, tag + '.png'), W, H)
+        const a = await page.ev(PAGE_AUDIT('#card'))
+        // backing vocals on unsung lines are judged on their own (below): their look is being reworked on
+        // branch backing-vocals-b (lyrics-view.css .bgv opacity 0.7 over the dim colour, the same in the lyrics window)
+        judge(tag, Object.assign({}, a, { texts: a.texts.filter((t) => !t.bgv) }), { minHit: 24 })
+        const bg = a.texts.filter((t) => t.bgv).map((t) => ({ text: t.text, ratio: +worstOver(parse(t.color), t.layers.map(parse).filter(Boolean), a.backdrop || [[255, 255, 255], [0, 0, 0]]).toFixed(2) }))
+        const lowBg = bg.filter((x) => x.ratio < 3)
+        check(tag + ' backing vocals >= 3:1 (pre-existing in lyrics-view.css; owned by backing-vocals-b)', !lowBg.length, lowBg.slice(0, 4))
+        const cols = await page.ev(`(() => { const out = []; for (const id of ['np', 'queue']) { const c = document.getElementById(id).getBoundingClientRect(); for (const e of document.getElementById(id).querySelectorAll('*')) { const r = e.getBoundingClientRect(); if (r.width && !e.matches('.bar > span') && (r.left < c.left - 1 || r.right > c.right + 1) && !e.closest('[hidden]')) out.push(id + ' ' + (e.id || e.className)) } } return out })()`)
+        check(tag + ' nothing spills out of the side columns', !cols.length, cols.slice(0, 6))
+      }
+    }
+  }
+  await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true)); await sleep(600)
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'dark', true)`); await sleep(800)
+  // the Playlist tab and a duet moment for the record
+  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(400)
+  xshot(path.join(OUT, 'stage-dark-playlist.png'), W, H)
+  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
+
+  // --- drag regions while both lists are scrolled: late in the song (lines scrolled up over the header) ---
+  await send('lyrics-time', 60.5, false); await sleep(1200)
+  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(400)
+  await page.ev(`(() => { const q = document.getElementById('q-list'); q.scrollTop = q.scrollHeight; return q.scrollTop })()`); await sleep(300)
+  const pts = await page.ev(`(() => {
+    const c = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2), id] }
+    const ctx = document.getElementById('ctx').getBoundingClientRect()
+    const qt = document.getElementById('q-title').getBoundingClientRect()
+    const vol = document.getElementById('vol').getBoundingClientRect()
+    const lines = document.getElementById('lines').getBoundingClientRect()
+    const above = [...document.querySelectorAll('#lines .line')].filter((l) => l.getBoundingClientRect().bottom < lines.top).length
+    return { above, scrolled: document.getElementById('q-list').scrollTop, points: [[Math.round(ctx.left + 20), Math.round(ctx.top + ctx.height / 2), 'header (playing from)'], [Math.round(ctx.right - 4), Math.round(ctx.top + 3), 'header (right end)'], [Math.round(qt.left + 10), Math.round(qt.top + qt.height / 2), 'queue title'], [Math.round(vol.left + 40), Math.round(vol.bottom + 30), 'left column below the volume'],
+      c('form'), c('close'), c('tab-next'), c('tab-all'), c('b-play'), c('seek-bar'), c('vol-bar'), [Math.round(lines.left + 60), Math.round(lines.top + 120), 'a lyric line'], c('q-list')] }
+  })()`)
+  const reg = await page.ev(REGIONS_AT(pts.points))
+  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
+  const want = (n) => /header|queue title|left column/.test(n) ? 'drag' : 'no-drag'
+  const wrong = reg.filter((r) => r.region !== want(r.name))
+  check('stage drag regions (lyrics scrolled ' + pts.above + ' lines up over the header, the queue scrolled ' + pts.scrolled + ' px): the header, the queue\'s title and the left column drag; every control and both lists don\'t', pts.above >= 3 && pts.scrolled > 0 && !wrong.length, { wrong, all: reg })
+
+  // --- every control does something you can see or hear ---
+  await send('lyrics-time', T0, false); await sleep(600)
+  await stageLog()
+  const clicks = [['b-shuffle', 'shuffle'], ['b-prev', 'previous'], ['b-play', 'play-pause'], ['b-next', 'next'], ['b-repeat', 'repeat']]
+  const got = {}
+  for (const [id, cmd] of clicks) { await page.ev(`(document.getElementById(${JSON.stringify(id)}).click(), true)`); await sleep(250); const l = await stageLog(); got[id] = l.map((x) => x[0]).join(','); check('stage: ' + id + ' sends "' + cmd + '" to the player', got[id] === cmd, l) }
+  await page.ev(`(document.getElementById('seek-bar').focus(), true)`); await focusWin(mp, 'Lyrics'); await sleep(200)
+  x('key', 'Right'); await sleep(300)
+  let l = await stageLog()
+  check('stage: → on the song position seeks 5 s on', l.length === 1 && l[0][0] === 'seek' && Math.abs(l[0][1] - (T0 + 5)) < 0.6, l)
+  await page.ev(`(document.getElementById('vol-bar').focus(), true)`); await sleep(150)
+  x('key', 'Left'); await sleep(300)
+  l = await stageLog()
+  check('stage: ← on the volume turns it down 5 %', l.length === 1 && l[0][0] === 'volume' && Math.abs(l[0][1] - 0.65) < 0.011, l)
+  const sb = await page.ev(`(() => { const r = document.getElementById('seek-bar').getBoundingClientRect(); return [Math.round(r.left + r.width * 0.5), Math.round(r.top + r.height / 2)] })()`)
+  x('click', sb[0], sb[1]); await sleep(300)
+  l = await stageLog()
+  check('stage: a click half way along the song position seeks to the middle', l.length >= 1 && l[l.length - 1][0] === 'seek' && Math.abs(l[l.length - 1][1] - song.duration / 2) < 3, l)
+  await send('lyrics-time', T0, false); await sleep(300)
+  await page.ev(`(document.querySelector('#q-list button.q-row').click(), true)`); await sleep(300)
+  l = await stageLog()
+  check('stage: a click on an Up Next song asks to play that place in the queue (index and id, checked again in Apple\'s page)', l.length === 1 && l[0][0] === 'play-item' && l[0][1].index === 13 && l[0][1].id === 'pd14', l)
+  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(300)
+  const tabbed = await page.ev(`[document.getElementById('q-title').textContent, document.getElementById('tab-all').getAttribute('aria-pressed'), document.querySelectorAll('#q-list .q-row').length, !!document.querySelector('#q-list .q-row.cur'), document.getElementById('next-card').hidden]`)
+  check('stage: the Playlist tab shows the whole album with the song playing marked (the next card steps aside)', tabbed[0] === 'Playlist' && tabbed[1] === 'true' && tabbed[2] === 25 && tabbed[3] && tabbed[4], tabbed)
+  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
+  // every visible control was exercised (a control not in this list would be untested: it fails here)
+  const ctrls = await page.ev(`[...document.querySelectorAll('#card button, #card [role=slider], #card [role=button]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && r.height && !e.closest('[hidden]') && getComputedStyle(e).display !== 'none' }).map((e) => e.id || e.className)`)
+  const known = new Set(['b-shuffle', 'b-prev', 'b-play', 'b-next', 'b-repeat', 'seek-bar', 'vol-bar', 'tab-next', 'tab-all', 'q-row', 'form', 'close', 'line'])
+  const untested = ctrls.filter((c) => !known.has(String(c).split(' ')[0]))
+  check('stage: every visible control is one this check exercised (no dead or untested controls)', !untested.length, untested)
+  // read-only when Apple's player has no way to jump: no buttons, and it says so
+  await send('stage-queue', Object.assign(stageQueue(), { canPlay: false })); await sleep(400)
+  const ro = await page.ev(`[document.querySelectorAll('#q-list button').length, document.getElementById('q-note').hidden, document.getElementById('q-note').textContent]`)
+  check('stage: without changeToMediaAtIndex the list is read-only and says so', ro[0] === 0 && !ro[1] && /Read-only/.test(ro[2]), ro)
+  await send('stage-queue', stageQueue()); await sleep(400)
+
+  // --- the keyboard: Tab reaches every control in DOM order with the ring; the queue's arrows ---
+  const lyWant = await page.ev(TABBABLES('#card'))
+  // the keyboard starts from the top of the page (a blur keeps the old element as Tab's starting point)
+  await page.ev(`(() => { const t = document.createElement('div'); t.tabIndex = -1; document.body.prepend(t); t.focus(); t.remove(); return true })()`)
+  await focusWin(mp, 'Lyrics'); await sleep(300)
+  const stops = await walkKeys(page, 'tab', lyWant.length + 2, { back: 'shift+tab' })
+  judgeStops('stage (Tab)', stops, lyWant)
+  const rules = await page.ev(A11Y_RULES('#card'))
+  check('stage: offline rule set (roles, names, ids, nothing focusable hidden)', !rules.length, rules)
+  await page.ev(`(document.querySelector('#q-list button.q-row').focus({ focusVisible: true }), true)`); await sleep(150)
+  const rows = await walkKeys(page, 'down', 2)
+  check('stage: ↓ in the queue moves song by song, with the focus ring', rows.length === 2 && rows.every((s) => s.ring) && /Home on the Range/.test(rows[0].label || '') && /Camptown Races/.test(rows[1].label || ''), rows.map((s) => s.label))
+
+  // --- idle: paused, nothing repaints ---
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  x('move', 1500, 900); await sleep(1500)
+  let n = 0
+  page.c.on((m) => { if (m.method === 'Page.screencastFrame') { n++; page.c.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {}) } })
+  await page.c.send('Page.startScreencast', { format: 'jpeg', quality: 10, everyNthFrame: 1 })
+  await sleep(1000); n = 0; await sleep(5000)
+  await page.c.send('Page.stopScreencast')
+  check('stage: paused, no frames for 5 s (nothing animates on its own)', n === 0, { frames: n })
+
+  // --- the form: the stage button shrinks it, Ctrl+Shift+S grows it, reopening brings back the last form ---
+  await page.ev(`(document.getElementById('form').click(), true)`); await sleep(1500)
+  const small = await mp.ev(`(() => { const w = ${lyrWin}; return Object.assign(w.getBounds(), { min: w.getMinimumSize() }) })()`)
+  const sf = await page.ev(`[document.body.classList.contains('stage'), document.getElementById('np').hidden, document.getElementById('form').getAttribute('aria-pressed')]`)
+  check('stage: the stage button shrinks it back to the lyrics window (its own size and minimum)', small.width < 600 && small.min[0] === 260 && !sf[0] && sf[1] && sf[2] === 'false' && (await mp.ev(settingsFile)).lyricsStage === false, { small, sf })
+  xshot(path.join(OUT, 'stage-shrunk-compact.png'), small.width + small.x, small.height + small.y)
+  await focusWin(mp, 'Lyrics'); await sleep(200); x('key', 'ctrl+shift+s'); await sleep(1500)
+  const big = await mp.ev(`(() => { const w = ${lyrWin}; return Object.assign(w.getBounds(), { min: w.getMinimumSize() }) })()`)
+  check('stage: Ctrl+Shift+S grows it into the stage again, at the size it had', big.width === W && big.height === H && big.min[0] === 980 && (await page.ev(`document.body.classList.contains('stage')`)), big)
+  await focusWin(mp, 'Lyrics'); await sleep(200); x('key', 'Escape'); await sleep(1000)
+  check('stage: Esc closes it', !(await winOpen(mp, 'Lyrics')))
+  page.c.close()
+  await mp.ev(viewCommand('rail', 'lyrics')); await sleep(2500)
+  const page2 = await target('lyrics.html')
+  check('stage: the lyrics item reopens it in the form last used (the stage)', await page2.ev(`document.body.classList.contains('stage')`))
+  // back to the lyrics window for the other phases, then closed
+  await page2.ev(`(document.getElementById('form').click(), true)`); await sleep(1200)
+  await mp.ev(viewCommand('rail', 'lyrics')); await sleep(800)
+  page2.c.close(); mp.c.close()
+}
+
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)

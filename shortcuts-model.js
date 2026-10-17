@@ -19,7 +19,7 @@
   const NAMED = ['Left', 'Right', 'Up', 'Down', 'PageUp', 'PageDown', 'Home', 'End', 'Insert', 'Delete', 'Space']
   const KEYS = new Set([...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'].concat(Array.from({ length: 24 }, (_, i) => 'F' + (i + 1)), NAMED))
   // Sonata's own window keys (main.js windowShortcut / viewShortcut): never a global one
-  const RESERVED = ['Ctrl+R', 'Ctrl+D', 'Ctrl+M', 'Ctrl+B', 'Ctrl+Shift+L', 'Ctrl+Shift+V']
+  const RESERVED = ['Ctrl+R', 'Ctrl+D', 'Ctrl+M', 'Ctrl+B', 'Ctrl+Shift+L', 'Ctrl+Shift+S', 'Ctrl+Shift+V']
   const ALIASES = { control: 'Ctrl', ctrl: 'Ctrl', cmdorctrl: 'Ctrl', commandorcontrol: 'Ctrl', alt: 'Alt', option: 'Alt', shift: 'Shift', super: 'Super', meta: 'Super', cmd: 'Super', command: 'Super' }
 
   // "ctrl+alt+p" / "Alt+Control+P" -> "Ctrl+Alt+P" (modifiers in MODS order); null when not a key Sonata takes

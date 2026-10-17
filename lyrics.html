@@ -128,10 +128,27 @@
     cursor: pointer;
   }
   #close:hover { background: var(--s-hover); color: var(--s-text); }
+  /* the stage button: grows the lyrics window into the stage, or shrinks it back (stage-ui.js setForm) */
+  #form {
+    -webkit-app-region: no-drag;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--s-soft);
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  #form:hover { background: var(--s-hover); color: var(--s-text); }
+  #form svg { width: 13px; height: 13px; fill: currentColor; }
   /* the keyboard's focus ring (the theme's ring colour, >= 3:1); a click shows none, so the look with
      a mouse is unchanged */
-  #close:focus, #art:focus, #lines:focus, .line:focus { outline: none; }
-  #close:focus-visible, #lines:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+  #close:focus, #form:focus, #art:focus, #lines:focus, .line:focus { outline: none; }
+  #close:focus-visible, #form:focus-visible, #lines:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
   #art:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; border-radius: 50%; }
   .line:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; border-radius: 8px; }
   /* for screen readers only: the lyrics' status ("No lyrics available…") */
@@ -152,9 +169,14 @@
      over the header, so the window stopped dragging a few seconds into a song (0.15.39-dev.1). Rects
      after the lines win: #grip re-marks the header as drag, its two holes keep the cover and the close
      button clickable. Placed over the header by placeGrip(); invisible, no pointer events, not in the
-     accessibility tree, so the header stays first for the keyboard and screen readers. */
-  #grip { position: absolute; -webkit-app-region: drag; pointer-events: none; }
-  #grip > div { position: absolute; -webkit-app-region: no-drag; }
+     accessibility tree, so the header stays first for the keyboard and screen readers.
+     The stage form has two scrolling lists (the lyrics and the queue), so #grip holds one drag patch
+     (.ga) per area a scrolled list can cover: the header and the sheet-notes band over the lyrics, the
+     queue's head over its list; each patch has a no-drag hole (i) per control in it. #grip itself has
+     no region of its own. */
+  #grip { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+  #grip > .ga { position: absolute; -webkit-app-region: drag; }
+  #grip > .ga > i { position: absolute; -webkit-app-region: no-drag; }
   @media (prefers-reduced-motion: reduce) { #lines { scroll-behavior: auto; } }
   .line {
     display: grid;
@@ -208,10 +230,286 @@
     color: var(--s-soft);
     text-align: center;
   }
+  [hidden] { display: none !important; }
+
+  /* ===== the stage (body.stage): the lyrics window grown into the now-playing screen =====
+     docs/mockups/stage-view.html (approved 2026-10-17). Three columns: the song and the transport, the
+     lyrics (the reason for the window), what plays next. Theme tokens only; nothing animates on its own
+     (stage-ui.js: transforms written on the time pushes, only when they change). */
+  body.stage #card {
+    display: grid;
+    grid-template-columns: 292px minmax(0, 1fr) 312px;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "np head queue" "np band queue" "np lines queue";
+  }
+  body.stage #np { grid-area: np; }
+  body.stage #header { grid-area: head; padding: 14px 12px 6px 40px; min-width: 0; }
+  body.stage #band { grid-area: band; }
+  body.stage #lines { grid-area: lines; }
+  body.stage #queue { grid-area: queue; }
+  body.stage #art, body.stage #song { display: none; }
+  #ctx { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #ctx b { color: var(--s-text); }
+  /* the lyrics, big and left-set; the sung line held a third of the way down (lyrics-view.js anchor) */
+  body.stage #lines {
+    padding: 4px 56px 40vh 40px;
+    -webkit-mask-image: linear-gradient(transparent 0, var(--s-text) 48px, var(--s-text) calc(100% - 64px), transparent 100%);
+  }
+  body.stage .line { font-size: 31px; padding: 9px 0; letter-spacing: -0.005em; }
+  body.stage #credits { font-size: 13px; text-align: left; }
+  body.stage #source { font-size: 12px; text-align: left; }
+  body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
+  #band { margin: 6px 18px 8px 22px; height: 150px; position: relative; }
+
+  /* --- left: now playing --- */
+  #np {
+    display: flex;
+    flex-direction: column;
+    padding: 22px 22px 16px;
+    border-right: 1px solid var(--s-edge);
+    min-width: 0;
+    overflow: hidden;
+  }
+  #cover {
+    width: 248px;
+    height: 248px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    object-fit: cover;
+    align-self: center;
+    box-shadow: 0 18px 40px var(--s-art-shadow), 0 0 0 1px var(--s-edge);
+  }
+  #np h1 {
+    margin: 18px 0 2px;
+    font-size: 21px;
+    line-height: 1.2;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  #np-artist { font-size: 15px; font-weight: 600; color: var(--s-accent-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #np-album { margin-top: 2px; font-size: 12.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #where { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--s-text);
+    border: 1px solid var(--s-edge);
+    max-width: 100%;
+  }
+  .chip > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip.count i { display: block; flex-shrink: 0; width: 30px; height: 4px; border-radius: 2px; background: var(--s-track); position: relative; overflow: hidden; }
+  .chip.count b { position: absolute; inset: 0; background: var(--s-ring); transform-origin: left center; transform: scaleX(0); }
+  .chip.live { color: var(--s-soft); font-weight: 600; }
+  .chip.live::before { content: '●'; font-size: 8px; color: var(--s-accent-text); }
+
+  /* the sliders: a 4 px track in a 24 px tall hit area; the fill scales and the knob slides (transform) */
+  .bar { position: relative; height: 24px; cursor: pointer; -webkit-app-region: no-drag; touch-action: none; }
+  .bar::before { content: ''; position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: 2px; background: var(--s-track); }
+  .bar > i { position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: 2px; background: var(--s-ring); transform-origin: left center; transform: scaleX(0); }
+  .bar > span { position: absolute; left: 0; right: 0; top: 0; bottom: 0; transform: translateX(0); pointer-events: none; }
+  .bar > span > b { position: absolute; left: -6px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--s-knob); box-shadow: 0 1px 3px var(--s-shadow); }
+  .bar:focus { outline: none; }
+  .bar:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; border-radius: 4px; }
+  #seek { margin-top: 14px; }
+  #seek .times { display: flex; justify-content: space-between; margin-top: 2px; font-size: 11px; font-weight: 600; color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  #transport { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 4px; }
+  #transport .rep { position: relative; display: inline-grid; }
+  #repeat-one { position: absolute; right: 6px; top: 3px; font-size: 9px; font-weight: 800; color: var(--s-accent-text); pointer-events: none; }
+  #vol { display: flex; align-items: center; gap: 8px; color: var(--s-soft); }
+  #vol svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+  #vol .bar { flex: 1; }
+  #vol .bar > i { background: var(--s-soft); }
+
+  /* round icon buttons (the transport) */
+  .ib {
+    -webkit-app-region: no-drag;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    color: var(--s-text);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-grid;
+    place-items: center;
+    position: relative;
+    transition: transform 0.12s ease;
+  }
+  .ib:hover { background: var(--s-hover); }
+  .ib:active { transform: scale(0.94); }
+  .ib svg { width: 16px; height: 16px; fill: currentColor; }
+  .ib.small { color: var(--s-soft); }
+  .ib.small svg { width: 14px; height: 14px; }
+  .ib.big { width: 46px; height: 46px; }
+  .ib.big svg { width: 20px; height: 20px; }
+  /* on (shuffle, repeat): a dot under the icon as well as the colour, as in the mini player */
+  .ib.on { color: var(--s-accent-text); }
+  .ib.on::after { content: ''; position: absolute; left: 50%; bottom: 4px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
+  .ib.fill { background: var(--s-fill); color: var(--s-on-fill); }
+  .ib.fill:hover { background: var(--s-fill); }
+  .ib:focus { outline: none; }
+  .ib:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+
+  #layers { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--s-edge); }
+  #layers .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-dim); margin-bottom: 8px; display: block; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tile {
+    -webkit-app-region: no-drag;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 4px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--s-edge);
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--s-soft);
+    transition: transform 0.12s ease;
+  }
+  .tile:hover { background: var(--s-hover); color: var(--s-text); }
+  .tile:active { transform: scale(0.97); }
+  .tile svg { width: 18px; height: 18px; fill: currentColor; }
+  .tile small { font-weight: 600; font-size: 10px; color: var(--s-soft); }
+  .tile[aria-pressed="true"] { color: var(--s-text); border-color: var(--s-ring); }
+  .tile[aria-pressed="true"] small { color: var(--s-text); }
+  .tile:focus { outline: none; }
+  .tile:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+
+  /* --- right: Up Next / Playlist --- */
+  #queue { display: flex; flex-direction: column; padding: 14px 0 0; border-left: 1px solid var(--s-edge); min-width: 0; overflow: hidden; }
+  #q-top { flex-shrink: 0; }
+  #q-title { margin: 0; padding: 0 18px; font-size: 17px; font-weight: 800; }
+  .seg { display: flex; margin: 10px 18px 12px; padding: 2px; border-radius: 8px; border: 1px solid var(--s-edge); }
+  .seg button {
+    -webkit-app-region: no-drag;
+    flex: 1;
+    min-height: 26px;
+    border: 0;
+    background: none;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--s-soft);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .seg button:hover { color: var(--s-text); }
+  /* pressed: the text colour and a ring (no fill behind the words, so they read on every album colour) */
+  .seg button[aria-pressed="true"] { color: var(--s-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--s-ring); }
+  .seg button:focus { outline: none; }
+  .seg button:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; }
+  #next-card {
+    margin: 0 14px 10px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--s-edge);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  #next-card .nt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  #next-art { flex-shrink: 0; width: 56px; height: 56px; border-radius: 7px; object-fit: cover; box-shadow: 0 4px 10px var(--s-art-shadow); }
+  #next-card .k { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-accent-text); font-variant-numeric: tabular-nums; }
+  #next-card .t { font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #next-card .s { font-size: 11.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #q-list {
+    -webkit-app-region: no-drag;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    list-style: none;
+    margin: 0;
+    padding: 0 8px 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--s-track) transparent;
+  }
+  .q-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--s-text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+  }
+  button.q-row { cursor: pointer; }
+  button.q-row:hover { background: var(--s-hover); }
+  button.q-row:focus { outline: none; }
+  button.q-row:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+  .q-row .n { font-size: 11px; font-weight: 600; color: var(--s-soft); text-align: right; font-variant-numeric: tabular-nums; }
+  .q-row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-row .t small { display: block; font-size: 11px; font-weight: 500; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-row .d { font-size: 11px; font-weight: 600; color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  .q-row.cur { box-shadow: inset 3px 0 0 var(--s-ring); }
+  .q-row.played .t { color: var(--s-soft); }
+  /* the song playing: three still bars (no endless animation: nothing runs while idle) */
+  .q-row .eq { display: inline-flex; gap: 2px; align-items: flex-end; justify-content: flex-end; height: 11px; }
+  .q-row .eq i { width: 3px; border-radius: 1px; background: var(--s-accent-text); height: 11px; }
+  .q-row .eq i:nth-child(1) { height: 6px; }
+  .q-row .eq i:nth-child(3) { height: 8px; }
+  #q-note { padding: 6px 18px 8px; font-size: 11px; font-weight: 600; color: var(--s-soft); }
+  #q-foot { flex-shrink: 0; display: flex; justify-content: space-between; gap: 8px; padding: 10px 18px 12px; border-top: 1px solid var(--s-edge); font-size: 11px; font-weight: 600; color: var(--s-soft); }
+  #q-foot span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
   <div id="card">
+    <!-- the stage form (body.stage, stage-ui.js): the song and the transport on the left -->
+    <section id="np" aria-label="Now playing" hidden>
+      <img id="cover" alt="" hidden>
+      <h1 id="np-title"></h1>
+      <div id="np-artist"></div>
+      <div id="np-album"></div>
+      <div id="where">
+        <span id="chip-track" class="chip count" title="Where this song sits in its album or playlist" hidden><i aria-hidden="true"><b></b></i><span></span></span>
+        <span id="chip-live" class="chip live" hidden><span></span></span>
+      </div>
+      <div id="seek">
+        <div id="seek-bar" class="bar" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i id="seek-fill"></i><span id="seek-run"><b></b></span></div>
+        <div class="times" aria-hidden="true"><span id="t-el">0:00</span><span id="t-rem"></span></div>
+      </div>
+      <div id="transport">
+        <button id="b-shuffle" class="ib small" title="Shuffle" aria-label="Shuffle" aria-pressed="false"></button>
+        <button id="b-prev" class="ib" title="Previous" aria-label="Previous"></button>
+        <button id="b-play" class="ib big fill" title="Play" aria-label="Play"></button>
+        <button id="b-next" class="ib" title="Next" aria-label="Next"></button>
+        <span class="rep"><button id="b-repeat" class="ib small" title="Repeat" aria-label="Repeat: off" aria-pressed="false"></button><span id="repeat-one" aria-hidden="true" hidden>1</span></span>
+      </div>
+      <div id="vol"><span id="i-vol" aria-hidden="true"></span><div id="vol-bar" class="bar" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="vol-fill"></i><span id="vol-run"><b></b></span></div></div>
+      <!-- the stage's layers: each tile shows only when it does something (no dead controls) -->
+      <div id="layers" hidden>
+        <span class="k">On the stage</span>
+        <div class="tiles">
+          <button id="t-notes" class="tile" aria-label="Sheet notes" aria-pressed="true" title="The sung melody as notes, in sync (Experimental)" hidden><span class="ti"></span>Sheet notes<small>On</small></button>
+          <!-- Montage: hidden until the Ken Burns montage is built (BACKLOG) -->
+          <button id="t-montage" class="tile" aria-label="Montage" aria-pressed="false" title="Related photos drifting behind the lyrics" hidden><span class="ti"></span>Montage<small>Off</small></button>
+          <button id="t-liner" class="tile" aria-label="Liner notes" title="Open the album's booklet: credits, notes, the venue" hidden><span class="ti"></span>Liner notes<small>Booklet</small></button>
+        </div>
+      </div>
+    </section>
     <div id="header">
       <div id="art" title="Show album (right-click: View Album Cover)" role="button" tabindex="0" aria-label="Show album" aria-haspopup="menu">
         <svg id="ring" viewBox="0 0 34 34"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" cx="17" cy="17" r="16"/></svg>
@@ -225,12 +523,30 @@
         </div>
       </div>
       <div id="song"><span class="t">Lyrics</span><span class="a"></span></div>
+      <div id="ctx" hidden></div>
+      <button id="form" aria-label="Stage" aria-pressed="false" aria-keyshortcuts="Control+Shift+S" title="Open the stage: the lyrics with the song and what plays next (Ctrl+Shift+S)"></button>
       <button id="close" title="Close (Esc)" aria-label="Close lyrics">
         <svg viewBox="0 0 16 16"><path d="M3.28 2.22a.75.75 0 0 0-1.06 1.06L6.94 8l-4.72 4.72a.75.75 0 1 0 1.06 1.06L8 9.06l4.72 4.72a.75.75 0 1 0 1.06-1.06L9.06 8l4.72-4.72a.75.75 0 0 0-1.06-1.06L8 6.94 3.28 2.22z"/></svg>
       </button>
     </div>
+    <!-- the sheet-notes band (the +1) above the words: only when there are notes to show -->
+    <div id="band" role="img" aria-label="Sheet notes" hidden></div>
     <div id="lines" role="group" aria-label="Lyrics" aria-description="Up and Down move between lines, Enter plays from a line"><div id="empty">Play a song to see its lyrics</div></div>
-    <div id="grip" aria-hidden="true"><div id="grip-art"></div><div id="grip-close"></div></div>
+    <!-- the stage form: what plays next on the right -->
+    <section id="queue" aria-labelledby="q-title" hidden>
+      <div id="q-top">
+        <h2 id="q-title">Up Next</h2>
+        <div class="seg" role="group" aria-label="Show"><button id="tab-next" aria-label="Up Next" aria-pressed="true">Up Next</button><button id="tab-all" aria-label="Playlist" aria-pressed="false">Playlist</button></div>
+        <div id="next-card" hidden>
+          <img id="next-art" alt="" hidden>
+          <div class="nt"><span class="k" id="next-in">Next</span><span class="t" id="next-t"></span><span class="s" id="next-s"></span></div>
+        </div>
+      </div>
+      <ul id="q-list" aria-label="Up Next"></ul>
+      <div id="q-note" hidden></div>
+      <div id="q-foot"><span id="q-foot-l"></span><span id="q-foot-r"></span></div>
+    </section>
+    <div id="grip" aria-hidden="true"></div>
   </div>
   <div id="say" class="sr-only" role="status"></div>
 <script>
@@ -407,24 +723,48 @@
   // the lyrics engine (model, clock, word timing, rendering) is shared with the visualizer overlay
   const linesEl = document.getElementById('lines')
 
-  // #grip (see its CSS) follows the header, the cover and the close button: on any change of the header's
-  // size (window resize, the cover shown or hidden, a two-line title) and of the cover's.
-  // lifetime: OK — two ResizeObservers (header, cover) for the window's life, released with it
+  // #grip (see its CSS): one drag patch per area a scrolled list can cover, with a hole per control in it.
+  // The lyrics window: the header (holes: the cover, the stage button, the close button). The stage adds
+  // the sheet-notes band (over the lyrics) and the queue's head (over its list). Placed again on any
+  // change of those areas' sizes (window resize, the cover shown or hidden, a two-line title, the form
+  // changing, the queue's tab switching the next card).
+  // lifetime: OK — four ResizeObservers (header, cover, band, queue head) for the window's life, released with it
   const gripEl = document.getElementById('grip')
   const headerEl = document.getElementById('header')
+  const CONTROLS = 'button, [role=button], [role=slider], [tabindex="0"], a[href], input'
   function placeGrip() {
     const card = document.getElementById('card').getBoundingClientRect()
     const place = (el, r, from) => { el.style.left = (r.left - from.left) + 'px'; el.style.top = (r.top - from.top) + 'px'; el.style.width = r.width + 'px'; el.style.height = r.height + 'px' }
-    const h = headerEl.getBoundingClientRect()
-    place(gripEl, h, card)
-    // loop: NOT-WORTH — the 2 holes, once per header or cover resize, never per frame
-    for (const [id, src] of [['grip-art', artEl], ['grip-close', document.getElementById('close')]]) place(document.getElementById(id), src.getBoundingClientRect(), h)
+    const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? r : null }
+    const patches = []
+    // loop: NOT-WORTH — at most 3 areas and their few controls, once per resize of one of them, never per frame
+    for (const area of [headerEl, document.getElementById('band'), document.getElementById('q-top')]) {
+      const r = shown(area)
+      if (!r) continue
+      const ga = document.createElement('div')
+      ga.className = 'ga'
+      place(ga, r, card)
+      for (const c of area.querySelectorAll(CONTROLS)) {
+        const cr = shown(c)
+        if (!cr) continue
+        const hole = document.createElement('i')
+        place(hole, cr, r)
+        ga.appendChild(hole)
+      }
+      patches.push(ga)
+    }
+    gripEl.replaceChildren(...patches)
   }
+  // lifetime: OK — the four ResizeObservers below live as long as the window
   new ResizeObserver(placeGrip).observe(headerEl)
   new ResizeObserver(placeGrip).observe(artEl)
+  new ResizeObserver(placeGrip).observe(document.getElementById('band'))
+  new ResizeObserver(placeGrip).observe(document.getElementById('q-top'))
   const view = require('./lyrics-view').createLyricsView({
     container: linesEl,
     layout: 'scroll',
+    // the sung line: in the middle of the lyrics window; a third of the way down on the stage
+    anchor: () => (document.body.classList.contains('stage') ? 0.34 : 0.5),
     notes: true,
     credits: true,
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
@@ -471,6 +811,34 @@
 
   // lifetime: OK — one listener for the window's life (the view keeps its own for the word animation)
   document.addEventListener('visibilitychange', updateStill)
+
+  // --- the stage: the lyrics window grown into the now-playing screen (stage-ui.js, stage-model.js) ---
+  // Main sends the form ('lyrics-form': { stage, linerNotes }), and while the stage shows the song
+  // ('stage-np', on change) and Apple's queue ('stage-queue'); the time comes with 'lyrics-time' above.
+  // The stage button (header) and Ctrl+Shift+S switch the form; main resizes the window.
+  let relayout = 0
+  const stage = require('./stage-ui').createStage({
+    doc: document,
+    send: (command, value) => ipcRenderer.send('stage-command', command, value),
+    // the layout changed: the drag grip follows, and the sung line goes back to its place once the new
+    // layout has settled (one frame later)
+    onLayout: () => {
+      placeGrip()
+      cancelAnimationFrame(relayout)
+      // lifetime: OK — one pending frame at most (cancelled by the next layout change), per layout change
+      relayout = requestAnimationFrame(() => { relayout = 0; placeGrip(); view.recenter() })
+    }
+  })
+  // lifetime: OK — one click handler on the stage button, released with the window
+  document.getElementById('form').onclick = () => ipcRenderer.send('stage-command', 'form', stage.shown ? 'compact' : 'stage')
+  // lifetime: OK — the stage's three listeners ('lyrics-form', 'stage-np', 'stage-queue'), added once at load, released with the window
+  ipcRenderer.on('lyrics-form', (event, f) => stage.setForm(f))
+  ipcRenderer.on('stage-np', (event, np) => stage.setNowPlaying(np))
+  ipcRenderer.on('stage-queue', (event, q) => stage.setQueue(q))
+  ipcRenderer.on('lyrics-time', (event, playbackTime) => { if (stage.shown) stage.setTime(view.time()) })
+  // the window resized (the form switched, or the user resized it): the sung line back to its place
+  // lifetime: OK — one ResizeObserver on the lyrics list for the window's life
+  new ResizeObserver(() => { if (!relayout) relayout = requestAnimationFrame(() => { relayout = 0; view.recenter() }) }).observe(linesEl)
 </script>
 </body>
 </html>

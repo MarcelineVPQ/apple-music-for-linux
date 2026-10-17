@@ -92,7 +92,7 @@ test('names: every button in the floating windows is named; every page says its 
 })
 
 test('focus: the lyrics window\'s and the mini player\'s controls show the theme\'s ring on keyboard focus', () => {
-  const want = { 'lyrics.html': ['#close', '#art', '#lines', '.line'], 'miniplayer.html': ['button', '#art', '#seek', '#volume'] }
+  const want = { 'lyrics.html': ['#close', '#form', '#art', '#lines', '.line', '.ib', '.bar', '.tile', '.seg button', 'button.q-row'], 'miniplayer.html': ['button', '#art', '#seek', '#volume'] }
   for (const [f, sels] of Object.entries(want)) {
     const r = rules(styles(read(f)))
     for (const s of sels) {
@@ -100,6 +100,12 @@ test('focus: the lyrics window\'s and the mini player\'s controls show the theme
       assert.ok(ring && /var\(--s-ring\)/.test(ring.decls.outline || ''), f + ' ' + s + ':focus-visible uses --s-ring')
     }
   }
+})
+
+test('no colour-only signals: the stage\'s on toggles (shuffle, repeat) get a dot as well as the colour', () => {
+  const r = rules(styles(read('lyrics.html')))
+  const dot = r.find((x) => x.selectors.includes('.ib.on::after'))
+  assert.ok(dot && dot.decls.content === "''" && dot.decls.background === 'currentColor')
 })
 
 test('no colour-only signals: the mini player\'s on toggles get a dot as well as the colour', () => {
