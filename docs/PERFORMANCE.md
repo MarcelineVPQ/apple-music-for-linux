@@ -29,13 +29,13 @@ Discord update. None of these objects is stored.
 | main.js `createMiniWindow` | mini poll | 1 s | mini window exists, including minimized/paused | mini `closed`, main `close` | 1 read/s, 0.05 % main CPU. Left as is |
 | main.js `startLyricsFeed` (0.15.22) | lyrics feed poll, for the lyrics window and the visualizer | 500 ms | lyrics window or visualizer exists, including minimized/paused | last of them `closed`, main `close` | 2 reads/s plus one lyrics lookup per track (cached), 1 IPC send per view per tick. Replaces the lyrics poll and the visualizer's own 300 ms poll |
 | main.js `vizAudioTick` + visualizer.js | own-stream parec (audio-listen.js; since 0.15.24 the one shared parec that also feeds refine and precise timing) → 1024-point FFT → IPC | ~43 frames/s | visualizer exists and the song plays (system-monitor fallback: visualizer exists) | pause, viz `closed` | 1 FFT + 1 IPC send per frame; FFT buffers reused (no per-frame garbage) |
-| visualizer.html `frame` | requestAnimationFrame | display rate | window visible (Chromium pauses rAF when hidden) | window close | one canvas frame. Left as is: ambient modes animate on purpose |
+| visualizer.html `frame` | requestAnimationFrame through the frame gate (viz-frames.js, Unreleased) | display rate | window visible (Chromium pauses rAF when hidden) **and** the music plays, plus a 0.5 s settle after a pause, a scene change or a resize | pause (after the settle), `lyrics-time` pushes stopping for 1.5 s, window close | one canvas frame while playing; **0 frames while paused** (Marcy 2026-10-16; before, the ambient modes kept drawing at 60 frames/s). Measured in "Lean lyrics" below |
 | visualizer.html lyrics (0.15.22) | lyrics-view.js word/dot loop (the lyrics window's) | per word change | visible, playing, word timing | as the lyrics window | DOM class writes per word change |
 | visualizer.html `showLabel` | label fade | 1.4 s one-shot | after a mode switch | fires; cleared before re-arm | ~0 |
 | main.js `startUpdateChecks` | update check | 20 s once, then 2 h (+1 per channel switch) | AppImage builds | app exit | 2 small GETs/2 h (signed feed + `.sig`; 1 on the placeholder-key `latest-linux.yml` path); `updateCheckBusy` prevents overlap. A new version is hashed by a streamed read (`update-feed.js` `verifyDownload`), once per version |
 | main.js `persistBounds`, `rememberBounds` | bounds save debounce | 500 ms one-shot | after a move/resize | fires | ~0; checks `isDestroyed()` |
 | main.js mini/lyrics keep-above | KWin keep-above | 300 ms one-shot | once per window open | fires | one qdbus call, KDE Wayland only |
-| lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight + interlude dots | display rate | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | per frame a few comparisons; DOM class writes only when a word/line changes, 3 dot styles during a countdown. Measured below |
+| lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight (lyrics-view.js, also the visualizer's overlay) | one frame per word/line change, woken by a timer | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | DOM class writes only when a word/line changes, no layout. Since lean lyrics (Unreleased) the countdown dots are 4 Web Animations (compositor) made once per interlude, so a countdown no longer wakes the loop every frame. Measured below |
 | lyrics.html `#spin` (0.15.10) | CSS rotation of the round cover | 9 s per turn | Settings → Spin album art on (off by default), visible and playing | `animation-play-state: paused` when hidden or paused | compositor only; +3.5 % software-GL GPU under Xvfb, renderer unchanged |
 | miniplayer / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
 
@@ -141,6 +141,41 @@ artwork URL (Chromium's HTTP cache), sent only when the art changes. The progres
 written at most 4×/s and only when it moved. The spin (off by default) is a compositor-only
 CSS rotation: about +3.5 % in the software-GL GPU process, nothing in the renderer; it is
 paused while the window is hidden or the music is paused.
+
+## Lean lyrics: render path on the compositor (Unreleased)
+
+Phase 1 of docs/research/gpu-render-hdr-2026-10.md, with Marcy's two decisions (2026-10-16): the
+unsung lines lose their soft blur, and the visualizer freezes while paused.
+
+- **Lyrics card:** no `backdrop-filter` (the window is transparent, so it blurred nothing but still made the card a blur pass every frame).
+- **Unsung lines:** no `filter: blur(0.6px)`.
+- **Line colour:** a crossfade of three stacked copies (unsung, hover, karaoke layer; lyrics.html) instead of a `color` transition. The copy to show sits underneath at once and the one leaving fades out on top, so there is no dip.
+- **Sung word:** a stacked bold copy (`.b`) is switched on by visibility, so a word change never lays out. The 0.15.37 upcoming-word colour switches with the word, with no `color` transition.
+- **Syllable glow:** the brightness eases on the syllable's text layer (`.sg`, a filter that doesn't move pixels, so it runs on the compositor). The small drop-shadow switches with the pop.
+- **Countdown dots:** four Web Animations (3 dots + the row) made once per interlude from `dotKeyframes` (the same values as `interludeProgress`). They are re-synced to the song clock only when they drift by more than 60 ms, and paused with the song. Opening or closing the row is instant: the lines it moves slide with a transform (FLIP), not a `height` transition.
+- **Row edges** for the inward pop are read once per line and cached until a resize.
+- **Visualizer:** the blurred cover crossfades by opacity between two layers (was a `background-image` transition). The render loop goes through `viz-frames.js`: it draws while playing, settles for 0.5 s after a pause, then requests no frames.
+- **Gates:** test/render-path.test.js fails on any non-compositor transition, keyframe or Web Animation in lyrics-view.css, lyrics.html or visualizer.html. test/viz-frames.test.js covers the freeze.
+
+Measured with docs/research/gpu-render-hdr/measure-render.js (isolated: throwaway HOME, Xvfb,
+private D-Bus, SwiftShader GL, quit with app.exit(0); 4 s settle, CPU over 20 s, a 6 s trace). "SW GPU" is
+the main process with the in-process software GPU, inflated many times over: compare rows, not
+absolute values. Before = 0.15.37-dev.1 (39d8016); after = lean lyrics.
+
+| Scenario | Frames/s | Renderer % | Main + SW GPU % | Style recalcs/s | Layouts/s | Paints/s | Non-composited animations |
+|---|---|---|---|---|---|---|---|
+| Lyrics, paused | 0 → 0 | 0 → 0.05 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| Lyrics, singing (Glass on) | 59.5 → 59.1 | 4.25 → 2.5 | 440 → **173 (−61 %)** | 59.7 → **6.0** | 3.7 → **1.0** | 16.7 → 7.0 | 4 (color, height, filter) → **0** |
+| Lyrics, interlude dots | 60 → 60 | 4.05 → 1.1 | 412 → **133 (−68 %)** | 60.1 → **5.0** | 2.7 → **0.5** | 14.3 → 5.8 | 12 → **0** |
+| Visualizer bars + lyrics (1080p) | 45.8 → 46.7 | 6.05 → 5.95 | 857 → 847 | 45.5 → 46.3 | 2.7 → 1.0 | 5.5 → 2.3 | 2 → **0** |
+| Visualizer toasters + lyrics | 60 → 59.5 | 7.2 → 7.15 | 1005 → 1003 | 59.5 → 58.8 | 3.7 → 1.0 | 7.5 → 2.3 | 2 → **0** |
+| Visualizer bars, paused | 60 → **0** | 2.35 → **0.05** | 536 → **0.15** | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| Visualizer toasters, paused | 60 → **0** | 3.4 → **0.05** | 846 → **0.05** | 0 → 0 | 0 → 0 | 0 → 0 | 0 → 0 |
+| Mini player, playing | 1 → 1 | 0.1 → 0.15 | 2.75 → 2.7 | 1 → 1 | 1 → 1 | 2 → 2 | 0 → 0 |
+
+- **Lyrics frames while singing stay ~60/s.** The pop, the syllable bounce and the crossfades overlap in a dense song, as designed, but they are now compositor frames: style recalcs ≈ word and syllable changes, and layout ≈ line changes.
+- **The visualizer's playing rows are unchanged:** its canvas draws every frame on the main thread, by design until phase 5 (WebGL).
+- **0.15.36 (e7b45c8) for reference:** lyrics singing 436 % / 59.5 style/s; interlude 410 %; the visualizer paused 526 % at 60 frames/s.
 
 ## Navigation rail (0.15.29+; its own view since 0.15.31)
 
