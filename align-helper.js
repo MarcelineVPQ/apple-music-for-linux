@@ -329,6 +329,11 @@ function createAlignHelper(opts, deps = {}) {
      * texts or null. -> result { notes, stats }; error codes no-stem, no-model, low-vram
      */
     notes(id, song, syl) { return request(id, [{ cmd: 'notes', id, song, syl }], jobTimeoutMs) },
+    /**
+     * Sheet notes in the Studio, first play: the pitch line of one section the helper kept (the section
+     * job's song id and offset). -> result { pitch: { t0, hop, v }, stats }; error codes no-stem, no-model, low-vram
+     */
+    pitch(id, song, offset) { return request(id, [{ cmd: 'pitch', id, song, offset }], jobTimeoutMs) },
     /** Downloads the RMVPE pitch model (only when the Sung notes switch is turned on). Error code checksum. */
     prepareNotes() {
       const id = '__notes' + (++pingN)
