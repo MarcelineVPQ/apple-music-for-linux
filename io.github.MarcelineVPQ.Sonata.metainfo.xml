@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.33" date="2026-10-16">
+      <description>
+        <p>Each duet voice sings in its own colour from the album art (lines sung together in the colour between), in the lyrics window and the visualizer. The side panel is shown and hidden from the rail only.</p>
+      </description>
+    </release>
     <release version="0.15.32" date="2026-10-16">
       <description>
         <p>Settings and About now open as a panel beside the page, with sections that fold, pin and remember. A Glass look made from the album artwork, one colour system for every Sonata window, an Apple-style mini player with a scrubber, the mouse wheel on the volume, updates you can see (available, progress, installed, what's new), Back to stable, and damaged settings repaired instead of reset.</p>

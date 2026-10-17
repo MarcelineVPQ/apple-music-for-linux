@@ -7,6 +7,21 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.33] — Each duet voice in its own colour
+
+### Added
+
+- **Duets in two colours.** In songs with two singers, the second singer's line and words light up in a second colour from the album art (its next strongest colour, kept well apart from the first on the colour wheel; for art with only one colour, or black and white, a clearly different partner colour). Lines sung together take the colour halfway between the two. Background vocals keep their dimmer style, in their singer's colour. The singers still sit on their own sides, so colour is never the only cue, and every colour keeps at least 4.5:1 contrast in light and dark. In the lyrics window and the visualizer.
+
+### Changed
+
+- **The side panel has no hide button any more.** The rail's Settings or About item is the one way to show or hide it (press it again to hide), plus Esc for the drawer in a narrow window, as in the DS5 app.
+- **No greyed-out update controls when running from source.** Settings → Updates then says in one line that only the AppImage updates itself. *Back to stable* shows only where it can do something: on the Development channel or a development build.
+
+### Fixed
+
+- **The mini player's ⋯ and favourite star can be clicked again.** Pointing at the middle of the pill swapped the whole title row, buttons included, for the scrubber, so the ⋯ and the star vanished under the pointer. They now sit beside the song and always stay put; only the title and artist turn into the scrubber, after the pointer has rested on them for a moment (passing over on the way to the buttons doesn't flicker). With nothing playing there's no scrubber at all, the star steps aside, and the ⋯ menu still opens (Lyrics, Visualizer, Always on Top, Open Full Player). From the keyboard, Tab reaches the bar (the scrubber opens), then the star and the ⋯.
+
 ## [0.15.32] — Settings beside the page, Glass and updates you can see
 
 ### Added
