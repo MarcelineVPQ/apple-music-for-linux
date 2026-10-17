@@ -14,10 +14,14 @@
 .line.right { text-align: right; padding-left: 16%; }
 .line.center { text-align: center; }
 
-/* karaoke words: each word reserves its bold width (hidden ::after copy), so the pop
-   (GPU transform + weight) never moves the line. Word colours apply on the active line only. */
+/* karaoke words: each word reserves its bold width (hidden ::after copy), so the pop never moves
+   the line. The sung word shows its stacked bold copy (.b) in place of its regular text (.r): a
+   visibility switch, so a word change never lays the line out; the pop is a GPU transform. Word
+   colours apply on the active line only. Animations here stay on the compositor (transform,
+   opacity, a brightness filter): test/render-path.test.js checks it. */
 .w {
   display: inline-flex;
+  position: relative;
   margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space */
   flex-direction: column;
   align-items: center;
@@ -32,40 +36,62 @@
   visibility: hidden;
   overflow: hidden;
 }
+.w > .b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  text-align: center;
+  white-space: nowrap;
+  font-weight: 800;
+  -webkit-text-stroke: 0.024em currentColor;
+  visibility: hidden;
+}
+.line.active .w.now > .r { visibility: hidden; }
+.line.active .w.now > .b { visibility: visible; }
 .line.active .w { opacity: 0.4; }
 .line.active .w.sung { opacity: 1; }
 .line.active .w.now {
   opacity: 1;
   color: var(--sing);
-  font-weight: 800;
-  -webkit-text-stroke: 0.024em currentColor;
   transform: scale(1.1);
   text-shadow: 0 0 0.67em var(--sing), 0 0 0.19em var(--sing);
 }
 /* background vocals: smaller and dimmer, under their line, with their own highlight */
 .bgv { font-size: 0.715em; font-weight: 600; line-height: 1.35; margin-top: 0.13em; opacity: 0.7; }
-.bgv .w::after { font-weight: 700; }
-.line.active .bgv .w.now { font-weight: 700; transform: scale(1.08); }
+.bgv .w::after, .bgv .w > .b { font-weight: 700; }
+.line.active .bgv .w.now { transform: scale(1.08); }
 
 /* syllables (Apple words timed in several spans): the whole word lights up as above, but only the
-   syllable being sung pops (GPU transform, so the line never reflows). No kerning or ligatures, so the
-   syllable row and the reserved bold copy (::after) are exactly the same width. */
+   syllable being sung pops (GPU transform, so the line never reflows). They live in the bold copy.
+   No kerning or ligatures, so the syllable row and the reserved bold copy (::after) are exactly the
+   same width. The glow is split so it animates on the compositor: the brightness eases on the
+   syllable's text layer (.sg, brightness only), the small drop-shadow (a filter that moves pixels,
+   which Chromium can't animate off the main thread) switches with the pop. */
 .w.hs { font-kerning: none; font-variant-ligatures: none; }
 .w .sr { white-space: nowrap; }
 .w .s {
   display: inline-block;
   transform-origin: 50% 80%;
-  transition: transform 0.12s cubic-bezier(.3,1.6,.5,1), filter 0.12s ease-out;
+  transition: transform 0.12s cubic-bezier(.3,1.6,.5,1);
 }
+.w .sg { display: inline-block; transition: filter 0.12s ease-out; }
+/* a word that is no longer sung hides its bold copy at once, so its syllables settle without an animation */
+.w:not(.now) .s, .w:not(.now) .sg { transition: none; }
 .line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
 /* a held note (0.15.34): after the pop, the word (or its held last syllable) settles into a gentle
    sustained lift for as long as the voice holds; it stays lit and glowing, one ease, no repeat */
 .line.active .w.now.hold:not(.hs) { transform: scale(1.05); transition: transform 0.6s ease-out, opacity 0.25s ease; }
-.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(1.05); filter: brightness(1.25) drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out, filter 0.6s ease-out; }
-.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: brightness(1.5) drop-shadow(0 0.1em 0.12em var(--sing)); }
-.line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: brightness(1.35); }
+.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(1.05); filter: drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out; }
+.line.active .w.now.hold .s.now > .sg { filter: brightness(1.25); transition: filter 0.6s ease-out; }
+.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
+.line.active .w.now .s.now > .sg { filter: brightness(1.5); }
+.line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: none; }
+.line.active .bgv .w.now .s.now > .sg { filter: brightness(1.35); }
 
-/* interlude countdown: three dots in place of the next line */
+/* interlude countdown: three dots in place of the next line. The row opens and closes at once (the
+   lines it moves slide on the compositor, lyrics-view.js FLIP); the fill, breathe and exit are Web
+   Animations of opacity/transform (dotKeyframes), never per-frame style writes. */
 .dots {
   --dot: 11px;
   --dot-gap: 9px;
@@ -75,7 +101,7 @@
   height: 0;
   overflow: hidden;
   opacity: 0;
-  transition: height 0.3s ease, opacity 0.3s ease;
+  transition: opacity 0.3s ease;
 }
 .dots.on { height: var(--dots-h); opacity: 1; overflow: visible; }
 .dots.left, .dots.plainside { justify-content: flex-start; }

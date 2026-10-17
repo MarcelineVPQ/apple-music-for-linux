@@ -16,6 +16,12 @@
 // the syllable being sung pops (.s.now); other words pop as a whole, as before. Words without Apple
 // syllables get estimated ones (lyrics-syllables.js: hyphenation patterns for data.lang, en-US by
 // default), once per line when the lyrics load or a line's timing is refined or aligned.
+//
+// Render path ("draw once, animate on the compositor", docs/research/gpu-render-hdr-2026-10.md): a word
+// change is class writes only, never a layout. The sung word shows a stacked bold copy (.b) instead of
+// changing its weight; the line's colour change is a crossfade of stacked copies (lyrics.html); the
+// countdown dots are Web Animations made once per interlude (dotKeyframes); a dots row opening or
+// closing slides the lines around it with a transform (FLIP), never a height animation.
 const T = require('./lyrics-timing')
 const S = require('./lyrics-syllables')
 
@@ -116,6 +122,58 @@ function stageNext(lineCount, latest, interlude) {
   return latest + 1 < lineCount ? latest + 1 : -1
 }
 
+const BREATHE = 2.6        // rad/s: the countdown row's gentle breathe, 1 + 0.06 sin(2.6 t), t = song time
+const DOT_STEP = Math.PI / BREATHE / 4   // s between breathe keyframes (8 per breath; linear in between)
+
+/**
+ * The countdown dots of an interlude as Web Animation keyframes (compositor-only: opacity and
+ * transform), the same values the old per-frame code wrote (interludeProgress): each dot fills from
+ * 0.25 opacity / scale 0.8 to 1 / 1 in turn, and the row breathes with the song time and fades and
+ * shrinks out over the last 0.6 s. Time runs from g.start to the interlude's end (duration, s);
+ * an animation's currentTime is (song time - g.start) in ms.
+ * -> { duration, dots: [keyframes] x3, row: keyframes }
+ */
+function dotKeyframes(g) {
+  const end = g.end - T.LINE_LEAD
+  const duration = Math.max(0.001, end - g.start)
+  const at = (t) => Math.min(1, Math.max(0, (t - g.start) / duration))
+  const dot = (fill) => ({ opacity: +(0.25 + 0.75 * fill).toFixed(4), transform: 'scale(' + (0.8 + 0.2 * fill).toFixed(4) + ')' })
+  const span = Math.max(0.001, end - g.start - 0.6)
+  const dots = [0, 1, 2].map((d) => [
+    Object.assign({ offset: 0 }, dot(0)),
+    Object.assign({ offset: at(g.start + span * d / 3) }, dot(0)),
+    Object.assign({ offset: at(g.start + span * (d + 1) / 3) }, dot(1)),
+    Object.assign({ offset: 1 }, dot(1))
+  ])
+  // the row: sampled breathe x exit (exact at the samples, linear between), plus the exit's corners
+  const times = new Set([g.start, end, Math.max(g.start, end - 0.6)])
+  // loop: NOT-WORTH — one keyframe per 1/8 breath (~0.3 s) across the interlude, once per interlude shown
+  for (let t = Math.ceil(g.start / DOT_STEP) * DOT_STEP; t < end; t += DOT_STEP) times.add(t)
+  const row = [...times].sort((a, b) => a - b).map((t) => {
+    const exit = T.interludeProgress(g, t).exit
+    const breathe = 1 + 0.06 * Math.sin(t * BREATHE)
+    return { offset: at(t), opacity: +exit.toFixed(4), transform: 'scale(' + (breathe * exit).toFixed(4) + ')' }
+  })
+  return { duration, dots, row }
+}
+
+/**
+ * FLIP: how far each element must start from (translateY, px) so a layout change looks like a slide:
+ * before/after are { top, height } per element; dots rows use their centre (they grow from their top).
+ * Elements that didn't move (|dy| < 0.5 px) are left out. -> [{ i, dy }]
+ */
+function slideFrom(before, after, centre) {
+  const out = []
+  // loop: NOT-WORTH — the shown elements around a countdown (at most the window's lines), per dots open/close
+  for (let i = 0; i < before.length; i++) {
+    if (!before[i] || !after[i]) continue
+    const pos = (r) => r.top + (centre && centre[i] ? r.height / 2 : 0)
+    const dy = pos(before[i]) - pos(after[i])
+    if (Math.abs(dy) >= 0.5) out.push({ i, dy: Math.round(dy * 10) / 10 })
+  }
+  return out
+}
+
 /**
  * createLyricsView({ container, layout: 'scroll' | 'stage', onSeek(t)?, onFrame(time)?,
  *   emptyText(data)? -> string|null, notes: bool }) -> { setData, setTime, refine, align, time, playing }
@@ -127,7 +185,7 @@ function createLyricsView(opts) {
   let lines = []
   let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }; a word span
                             // with syllables has span.syl = [syllable span]
-  let interludes = []       // [{ index, start, end, el, dots: [i], row }]
+  let interludes = []       // [{ index, start, end, el, dots: [i], row, anims }]
   let wordTimed = false
   let live = new Set()      // lines currently .active
   let shownInterlude = -1
@@ -143,6 +201,9 @@ function createLyricsView(opts) {
   let notesEl = null
   let notes = []
 
+  // a word: its regular text (.r) and, stacked on it, the bold copy the sung word shows (.b): the
+  // switch is a visibility change, so a word change never lays the line out (lyrics-view.css). With
+  // syllables, the bold copy holds them side by side (no spaces) in one row; only it pops them.
   function wordSpans(parent, words) {
     const spans = []
     // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
@@ -151,21 +212,33 @@ function createLyricsView(opts) {
       const span = doc.createElement('span')
       span.className = 'w'
       span.dataset.text = w.text
+      const r = doc.createElement('span')
+      r.className = 'r'
+      const b = doc.createElement('span')
+      b.className = 'b'
+      b.setAttribute('aria-hidden', 'true')
       if (w.syl) {
-        // syllables side by side (no spaces) in one row, above the word's reserved bold width
         span.classList.add('hs')
+        r.textContent = w.syl.map((y) => y.text).join('')
         const row = doc.createElement('span')
         row.className = 'sr'
+        // loop: NOT-WORTH — a word's syllables (a handful), once per line per track
         span.syl = w.syl.map((y) => {
           const s = doc.createElement('span')
           s.className = 's'
-          s.textContent = y.text
+          const g = doc.createElement('span')   // the syllable's brightness layer (filter: brightness only, compositor)
+          g.className = 'sg'
+          g.textContent = y.text
+          s.appendChild(g)
           row.appendChild(s)
           return s
         })
-        span.appendChild(row)
+        b.appendChild(row)
+      } else {
+        r.textContent = w.text
+        b.textContent = w.text
       }
-      else span.textContent = w.text
+      span.append(r, b)
       parent.appendChild(span)
       spans.push(span)
     })
@@ -220,18 +293,35 @@ function createLyricsView(opts) {
       }
       const el = doc.createElement('div')
       el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
-      const entry = { el, side: sides[i], words: [], bg: [], pos: null, bgPos: null }
+      const ly = doc.createElement('div')   // the line's content (the FLIP slide target in the stage)
+      ly.className = 'ly'
+      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null }
       if (line.words && line.words.length) {
         const main = doc.createElement('div')
         entry.words = wordSpans(main, line.words)
-        el.appendChild(main)
+        ly.appendChild(main)
       }
-      else el.textContent = line.text
+      else ly.textContent = line.text
       if (line.bg && line.bg.length) {
         const bg = doc.createElement('div')
         bg.className = 'bgv'
         entry.bg = wordSpans(bg, line.bg)
-        el.appendChild(bg)
+        ly.appendChild(bg)
+      }
+      el.appendChild(ly)
+      if (!stage && line.t !== null) {
+        // the lyrics window crossfades the line's colour (lyrics.html): two plain copies (unsung and
+        // hover colours) stacked with the karaoke layer; same words and widths, no bold copies
+        ly.classList.add('ly-main')
+        // loop: NOT-WORTH — two copies per timed line, once per track
+        for (const cls of ['ly-dim', 'ly-hov']) {
+          const copy = ly.cloneNode(true)
+          copy.className = 'ly ' + cls
+          copy.setAttribute('aria-hidden', 'true')
+          // loop: NOT-WORTH — the copy's bold layers (one per word), once per track
+          for (const b of copy.querySelectorAll('.b')) b.remove()
+          el.appendChild(copy)   // after the karaoke layer: its words come first in the DOM (z-index stacks them)
+        }
       }
       if (line.t !== null && opts.onSeek) {
         // lifetime: OK — one click handler per line, dropped with the line on the next setData
@@ -308,13 +398,23 @@ function createLyricsView(opts) {
     }
   }
 
-  // scaled words at a row's edge grow inward, so they stay inside the window padding
+  // scaled words at a row's edge grow inward, so they stay inside the window padding. The row edges
+  // are read once per line (one layout read when it first lights) and kept until the window resizes.
   function edgeOrigin(spans, i, side) {
-    const top = spans[i].offsetTop
-    if (side === 'right') return i === spans.length - 1 || spans[i + 1].offsetTop !== top ? '100% 65%' : ''
     if (side === 'center') return ''
-    return i === 0 || spans[i - 1].offsetTop !== top ? '0% 65%' : ''
+    if (!spans.origins) {
+      const tops = spans.map((s) => s.offsetTop)
+      spans.origins = tops.map((top, k) => side === 'right'
+        ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% 65%' : '')
+        : (k === 0 || tops[k - 1] !== top ? '0% 65%' : ''))
+    }
+    return spans.origins[i]
   }
+  // lifetime: OK — one resize listener per view; views live as long as their window (the row edges change)
+  doc.defaultView.addEventListener('resize', () => {
+    // loop: NOT-WORTH — the song's lines, once per resize
+    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins }
+  })
 
   // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
   // edge, last at the right edge)
@@ -370,23 +470,7 @@ function createLyricsView(opts) {
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
     live = next
-    if (gi !== shownInterlude) {
-      if (shownInterlude >= 0) interludes[shownInterlude].el.classList.remove('on')
-      if (gi >= 0) interludes[gi].el.classList.add('on')
-      shownInterlude = gi
-    }
-    if (gi >= 0) {
-      const g = interludes[gi]
-      const { fills, exit } = T.interludeProgress(g, time)
-      // loop: HOT-PATH-OK — 3 dots per frame, only while a countdown shows
-      for (let d = 0; d < 3; d++) {
-        g.dots[d].style.opacity = String(0.25 + 0.75 * fills[d])
-        g.dots[d].style.transform = 'scale(' + (0.8 + 0.2 * fills[d]).toFixed(3) + ')'
-      }
-      const breathe = 1 + 0.06 * Math.sin(time * 2.6)
-      g.row.style.transform = 'scale(' + (breathe * exit).toFixed(3) + ')'
-      g.row.style.opacity = String(exit)
-    }
+    let slides = null
     if (stage) {
       // stage: only the live lines (.active), the dots and the next line (.next) are shown
       const nx = stageNext(lines.length, latest, gi >= 0 ? interludes[gi] : null)
@@ -395,21 +479,80 @@ function createLyricsView(opts) {
         if (nx >= 0) lineEls[nx].el.classList.add('next')
         shownNext = nx
       }
-      return
     }
-    const target = gi >= 0 ? interludes[gi].el : (latest >= 0 ? lineEls[latest].el : null)
-    if (target !== scrollTarget) {
-      scrollTarget = target
-      if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    if (gi !== shownInterlude) {
+      // the dots row opens/closes at once (no height animation: that laid out every frame); what it
+      // moves slides from where it was, on the compositor (FLIP), as the height transition looked
+      const around = slideTargets(gi >= 0 ? interludes[gi] : interludes[shownInterlude])
+      const before = around.map((a) => rect(a.measure))
+      if (shownInterlude >= 0) closeDots(interludes[shownInterlude])
+      if (gi >= 0) interludes[gi].el.classList.add('on')
+      shownInterlude = gi
+      slides = slideFrom(before, around.map((a) => rect(a.measure)), around.map((a) => a.centre)).map((s) => ({ el: around[s.i].move, dy: s.dy }))
     }
+    if (gi >= 0) syncDots(interludes[gi], time)
+    if (!stage) {
+      const target = gi >= 0 ? interludes[gi].el : (latest >= 0 ? lineEls[latest].el : null)
+      if (target !== scrollTarget) {
+        scrollTarget = target
+        if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+    }
+    // after the scroll target is taken (it reads positions with transforms)
+    // loop: NOT-WORTH — the elements a dots row moved (at most the window's lines), per open/close
+    if (slides) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
   }
 
-  // loop: HOT-PATH-OK — lyrics word/dot animation · requestAnimationFrame, woken by a setTimeout at the next word/line
-  // change (every frame only while a countdown is showing) · runs only while this window is visible, the
-  // song is playing and the lyrics have word timing (or a countdown is showing) · stops when hidden
-  // (visibilitychange), paused (isPlaying false or the time stops moving), on a new track, or when no
-  // word timing/countdown is left · cost: one frame per word change, DOM class writes only for what
-  // changed; 3 dot styles per frame during a countdown (docs/PERFORMANCE.md)
+  const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }
+
+  // what a dots row opening or closing moves: the stage's shown lines (their content, so the stage's
+  // own lv-in animation keeps the line's transform), or the lyrics window's lines in view; and the
+  // dots row itself (its centre: the old height animation grew it from its top)
+  function slideTargets(g) {
+    const out = []
+    if (g) out.push({ measure: g.el, move: g.el, centre: true })
+    const view = container.getBoundingClientRect()
+    // loop: NOT-WORTH — one pass over the song's lines, per dots open/close (a few per song)
+    for (const e of lineEls) {
+      if (stage) {
+        if (e.el.classList.contains('active') || e.el.classList.contains('next')) out.push({ measure: e.el, move: e.ly })
+        continue
+      }
+      const r = e.el.getBoundingClientRect()
+      if (r.bottom >= view.top - 80 && r.top <= view.bottom + 80) out.push({ measure: e.el, move: e.el })
+    }
+    return out
+  }
+
+  // the countdown on the compositor: one Web Animation per dot and one for the row, made when the
+  // dots open, kept in step with the song clock (re-synced only when it drifts), paused with the song
+  function syncDots(g, time) {
+    if (!g.anims) {
+      const k = dotKeyframes(g)
+      const opts = { duration: k.duration * 1000, fill: 'both' }
+      g.anims = g.dots.map((d, i) => d.animate(k.dots[i], opts)).concat([g.row.animate(k.row, opts)])
+    }
+    const at = (time - g.start) * 1000
+    const playing = !!clock && clock.playing && doc.visibilityState === 'visible'
+    // loop: NOT-WORTH — the 4 countdown animations, per render while the dots show
+    for (const a of g.anims) {
+      if (Math.abs((a.currentTime || 0) - at) > 60) a.currentTime = at
+      if (playing && a.playState !== 'running') a.play()
+      else if (!playing && a.playState === 'running') a.pause()
+    }
+  }
+  function closeDots(g) {
+    g.el.classList.remove('on')
+    if (g.anims) for (const a of g.anims) a.cancel()   // loop: NOT-WORTH — 4 animations
+    g.anims = null
+  }
+
+  // loop: HOT-PATH-OK — lyrics word/line changes · requestAnimationFrame, woken by a setTimeout at the next word/line
+  // change (never every frame: the countdown dots run as compositor animations, syncDots) · runs only
+  // while this window is visible, the song is playing and the lyrics have word timing (or a countdown is
+  // showing, to end it on time) · stops when hidden (visibilitychange), paused (isPlaying false or the
+  // time stops moving), on a new track, or when no word timing/countdown is left · cost: one frame per
+  // word change, DOM class writes only for what changed, no layout (docs/PERFORMANCE.md)
   function wantFrames() {
     return doc.visibilityState === 'visible' && !!clock && clock.playing &&
       lines.length > 0 && lines[0].t !== null && (wordTimed || shownInterlude >= 0)
@@ -417,7 +560,6 @@ function createLyricsView(opts) {
   // lifetime: OK — at most one rAF or one wake-up timeout pending (raf / wake); stopFrames cancels both on
   // every replan, a new track, hidden and pause
   function schedule(time) {
-    if (shownInterlude >= 0) { raf = requestAnimationFrame(frame); return }
     const wait = T.nextChange(lines, time, WORD_LEAD)
     if (wait === Infinity) return                    // nothing left to change until the next push
     if (wait < 0.03) { raf = requestAnimationFrame(frame); return }
@@ -443,7 +585,11 @@ function createLyricsView(opts) {
   // isPlaying is sent along since 0.15.10; older pushes (undefined) fall back to "time stopped moving"
   function setTime(playbackTime, isPlaying) {
     clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
-    if (doc.visibilityState !== 'visible') { stopFrames(); return }
+    if (doc.visibilityState !== 'visible') {
+      stopFrames()
+      if (shownInterlude >= 0) syncDots(interludes[shownInterlude], T.clockTime(clock, performance.now()))   // pauses them
+      return
+    }
     render(T.clockTime(clock, performance.now()))
     updateFrames()   // re-plans the next wake-up from the resynced clock
   }
@@ -464,4 +610,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
