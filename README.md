@@ -258,6 +258,7 @@ Sonata takes your region from your desktop's locale (country code, `US` if none 
 - Widevine playback through [castlabs Electron for Content Security](https://github.com/castlabs/electron-releases).
 - Karaoke syllables with [hyphen](https://github.com/ytiurin/hyphen) (ISC) and the TeX hyphenation patterns of [hyph-utf8](https://github.com/hyphenation/tex-hyphen), each under its own licence (listed in About → Credits & licences).
 - The flying toasters are lit with the "White Home Studio" HDRI from [Poly Haven](https://polyhaven.com) (CC0).
+- The sheet notes' clefs, sharps and flats are outlines from [Noto Music](https://fonts.google.com/noto/specimen/Noto+Music) by Google, under the SIL Open Font License 1.1 ([licenses/NotoMusic-OFL.txt](licenses/NotoMusic-OFL.txt)).
 
 The full list, including the optional sonata-align models, is in the app: About → Credits & licences.
 

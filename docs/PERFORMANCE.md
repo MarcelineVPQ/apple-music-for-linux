@@ -272,6 +272,33 @@ Browse, GC'd: 15.5 k → 332 k DOM nodes and 5.3 k → 71.8 k listeners *without
 Apple's own code). A reload frees it all (2 k listeners after). Logged in this may differ; see
 BACKLOG.
 
+## Sheet notes band (Unreleased, branch studio-sheet-notes)
+
+The Studio's band (sheet-notes-ui.js) draws the whole song once into one wide strip (SVG notes and
+pitch line, HTML syllables) when a song's notes or a new first-play section arrive. Playing moves the
+strip with one Web Animation of `transform` (linear to the song's end, re-synced only when it drifts
+> 60 ms on the 2/s time pushes): the compositor runs it, no script per frame. The note being sung
+changes class at its start and end (one timeout to the next change). Paused: the animation paused,
+no timer. Hidden or folded away: same. Off: nothing is built, nothing runs, and main asks the helper for
+nothing. Reduced motion: no animation; the staff turns a page at a time and the playhead steps on the
+time pushes.
+
+Measured by the UI checker's stage phase (isolated copy, Xvfb, software compositing; 5 s playing with a
+time push every 500 ms, the lyrics' countdown dots running in both):
+
+| | band on (notes) | band off |
+|---|---|---|
+| Frames | 299 | 300 |
+| Renderer CPU (one core) | 3.0 % | 1.6 % |
+| GPU process CPU (software GL on Xvfb) | 29.8 % | 23.8 % |
+| Script | 2 ms | 0 ms |
+| Tasks | 42 ms | 17 ms |
+| Layouts / style recalcs | 5 / 31 | 5 / 12 |
+| Paused, 4 s | 0 frames, no timer | – |
+
+On a real GPU the strip is one composited layer moving, so the GPU process's share is far smaller than
+under Xvfb's software GL; measure it on Marcy's machine before stable.
+
 ## Not measurable headless
 
 - Real playback: no Apple login, so no track changes, artwork, palette, lyrics,

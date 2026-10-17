@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Sheet notes in the Studio (Experimental).** The sung melody above the Studio's lyrics, playing out live with the words. The first time a song plays, a pitch line follows the singing as Sonata hears each part; from the next play on, the notes sit on a staff in the song's key, each as long as it was held, with the syllable under it and the note being sung lit. Where the singing doesn't sit on notes (rap, speech, shouting) it shows the pitch line instead of guessing notes. Turn it on with the Studio's Sheet notes tile or Settings → Precise timing; it needs Precise word timing, and is worked out on your computer with the word timing. Only the notes are kept. Off, the band folds away and the lyrics take the room.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, and backing vocals under their words
 
 ### Added
