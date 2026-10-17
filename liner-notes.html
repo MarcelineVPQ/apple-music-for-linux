@@ -180,8 +180,10 @@
   /* navigation: previous / the sections / next */
   #nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px 12px; }
   #sections { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  /* no --s-field fill under the quiet --s-soft words: --s-soft is fitted to 4.5:1 on the card itself,
+     and the fill lifted the background enough to drop it to 4.33:1 (dark, album colour on, Glass off) */
   #sections button {
-    min-height: 32px; border: 1px solid var(--s-edge); background: var(--s-field); border-radius: 8px; cursor: pointer;
+    min-height: 32px; border: 1px solid var(--s-edge); background: transparent; border-radius: 8px; cursor: pointer;
     padding: 0 12px; font: 700 12px var(--font-text); color: var(--s-soft);
   }
   #sections button:hover { color: var(--s-text); background: var(--s-hover); }
