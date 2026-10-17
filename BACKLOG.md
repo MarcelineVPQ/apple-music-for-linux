@@ -21,6 +21,7 @@ One list for planned work. Status words: **Planned**, **Building**, **Done** (an
 | After 0.15.10: songwriter credits | **Planned** | Soon: songwriter credits at the end of the lyrics. "Written by …" at the end of the lyrics, from the same data. |
 | After 0.15.10: Electron update (own release) | **Planned** | castlabs 42.3.3 → 44.5.1+wvcus (stable 2026-10-03), then 45 once castlabs ships it stable. Must stay castlabs (Widevine). |
 | After 0.15.10: CI on GitHub | **Planned** | Tests on every push; CI checked after every push (first-class standard). |
+| Meet the 42PS Standard (CLAUDE.md, version from the release step, full verdict lister) | **Planned** | From ~/projects/42pixelstudios/docs/standards/42ps-standard.md (2026-10-16): Sonata still lacks a CLAUDE.md (project rules), types its version into package.json by hand instead of the release step setting it, and its verdict gate (test/verdicts.test.js) covers a fixed file list rather than a `--check` lister over all files. CI on push is its own row above. |
 | After 0.15.10: gate tests | **Planned** | Every loop has a `// loop:` verdict; no duplicate code. |
 | After 0.15.10: CHANGELOG and release checklist | **Planned** | Same release discipline as the other projects. |
 | After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
