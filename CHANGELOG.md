@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.40-dev.1] — The lyrics window drags again
+
 ### Fixed
 
 - **The lyrics window drags again.** Since 0.15.39 (Electron 45), a few seconds into a song you could no longer move the lyrics window by its header: the lyric lines that had scrolled out of view still counted as "not for dragging" over the header. The header now always drags, with the cover and the close button still working; keyboard and screen-reader order are unchanged.
