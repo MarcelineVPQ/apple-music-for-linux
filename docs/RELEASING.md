@@ -66,11 +66,14 @@ run that workflow (Actions → Update feed → Run workflow).
 
 ## Stable release
 
-1. Bump `version` in `package.json` (and `package-lock.json`) to `X.Y.Z`, add a `<release>` to
-   `io.github.MarcelineVPQ.Sonata.metainfo.xml`, and rename `## [Unreleased]` in `CHANGELOG.md` to
-   `## [X.Y.Z] — Short title`. Commit on `master`.
+1. Set the version in one step, never by hand:
+   `node tools/set-version.js X.Y.Z --summary "One sentence for software centres"` writes `package.json`,
+   `package-lock.json` and the `<release>` in `io.github.MarcelineVPQ.Sonata.metainfo.xml` (today's date;
+   `--date YYYY-MM-DD` to choose). Rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] — Short title`,
+   check with `node tools/set-version.js --verify vX.Y.Z`, and commit on `master`.
 2. `git tag vX.Y.Z && git push origin master vX.Y.Z`.
-3. `release.yml` runs the tests, checks the tag matches `package.json`, builds the AppImage, creates a
+3. `release.yml` runs the tests and the verdict gate, checks the tag against the version
+   (`tools/set-version.js --verify "$GITHUB_REF_NAME"`: a mismatch fails the release), builds the AppImage, creates a
    draft release with the CHANGELOG section as notes, uploads `sonata-X.Y.Z-x86_64.AppImage` **and
    `latest-linux.yml`**, then publishes it as *Latest*.
 4. `feed.yml` (called by the release) downloads and hashes the AppImage, writes `latest.json` and

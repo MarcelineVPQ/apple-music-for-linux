@@ -23,14 +23,12 @@ jobs:
       - run: npm ci
       - run: npm test
 
-      - name: Tag matches package.json
-        run: |
-          v="$(node -p "require('./package.json').version")"
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json v$v"; exit 1; }
-          case "$v" in
-            *-dev.*) echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-dev\.[0-9]+$' || { echo "dev versions are X.Y.Z-dev.N"; exit 1; } ;;
-            *) echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "stable versions are X.Y.Z"; exit 1; } ;;
-          esac
+      - run: node tools/verdicts.js --check
+
+      # package.json, package-lock.json, the metainfo and CHANGELOG.md agree, and the tag is "v" +
+      # package.json's version (X.Y.Z or X.Y.Z-dev.N only); all set by tools/set-version.js
+      - name: Tag matches the version
+        run: node tools/set-version.js --verify "$GITHUB_REF_NAME"
 
       - name: Build AppImage
         run: npx electron-builder --linux AppImage --publish never
