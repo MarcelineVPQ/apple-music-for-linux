@@ -620,7 +620,7 @@ function getAlignSession() {
 // Gaming guard (game-guard.js; Settings → "Pause word timing while gaming", on by default): while a
 // game runs, Precise timing records nothing, starts no job, and the helper quits after its current
 // one. The lyric views' source note and the rail say so.
-// loop: none of its own · one check per 5 s at most, from the lyrics poll, only while precise timing
+// loop: NOT-WORTH — none of its own · one check per 5 s at most, from the lyrics poll, only while precise timing
 // has work (a song still to align, the helper running) or is paused (to see the game end) · cost ~5 ms in main + gdbus and
 // nvidia-smi children (~10 ms each) per check
 let gameGuard = null

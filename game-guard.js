@@ -47,7 +47,7 @@ function parsePmon(out, ownPids) {
   const head = lines.find((l) => /^#\s*gpu\s+pid\s+type\s+sm\b/.test(l))
   if (!head) return null
   let sum = 0
-  // loop: one pass over pmon's rows (one per GPU process, a few dozen) · per check
+  // loop: NOT-WORTH — one pass over pmon's rows (one per GPU process, a few dozen) · per check
   for (const l of lines) {
     if (!l.trim() || l.startsWith('#')) continue
     const c = l.trim().split(/\s+/)
@@ -92,6 +92,7 @@ function linuxProbes(deps) {
   const off = new Set()
   const run = (name, cmd, args) => new Promise((resolve) => {
     if (off.has(name)) return resolve(null)
+    // lifetime: OK — one short child per probe; killed by the 3 s timeout, ends with its answer
     deps.execFile(cmd, args, { timeout: 3000, encoding: 'utf8' }, (err, stdout) => {
       if (err && err.code === 'ENOENT') off.add(name)
       resolve(err ? null : stdout)
@@ -105,7 +106,7 @@ function linuxProbes(deps) {
     try { pids = deps.fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)) } catch (e) { return null }
     const next = new Map()
     let found = false
-    // loop: one pass over /proc (~800 processes; comm read once per new pid, cmdline only for "reaper") · per check
+    // loop: NOT-WORTH — one pass over /proc (~800 processes; comm read once per new pid, cmdline only for "reaper") · per check
     for (const pid of pids) {
       let comm = comms.get(pid)
       if (comm === undefined) {
@@ -125,7 +126,7 @@ function linuxProbes(deps) {
     // error: NOT-WORTH — no DRM sysfs: "can't tell"
     try { cards = deps.fs.readdirSync('/sys/class/drm').filter((n) => /^card\d+$/.test(n)) } catch (e) { return null }
     let best = null
-    // loop: one pass over the DRM cards (one or two) · per check
+    // loop: NOT-WORTH — one pass over the DRM cards (one or two) · per check
     for (const c of cards) {
       try {
         const vendor = deps.fs.readFileSync('/sys/class/drm/' + c + '/device/vendor', 'utf8').trim()

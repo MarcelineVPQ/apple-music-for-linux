@@ -458,8 +458,8 @@ function createAlignSession(deps) {
       let messages = kept ? finalMessages(id, req.lines, s.id) : audio()
       return Promise.resolve()
         .then(() => deps.helper.align(id, messages))
-        // error: a final pass the helper can't build from kept sections (no-cache) is sent again with
-        // the audio; any other error goes on to the handler below
+        // error: PASSES-ON — a final pass the helper can't build from kept sections (no-cache) is sent
+        // again with the audio; any other error goes on to the handler below
         .catch((e) => {
           if (!(kept && e && e.code === 'no-cache')) throw e
           log('the helper no longer has the sections of "' + s.title + '": the whole song again from the audio')
