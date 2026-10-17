@@ -50,7 +50,7 @@
   <releases>
     <release version="0.15.41-dev.1" date="2026-10-17" type="development">
       <description>
-        <p>The Studio: the lyrics as the centrepiece of a full now-playing screen, the album's liner notes as a booklet, and backing vocals placed under the words they answer.</p>
+        <p>The Studio: the lyrics as the centrepiece of a full now-playing screen, with an optional Montage of free photos; the album's liner notes as a booklet; and backing vocals placed under the words they answer.</p>
       </description>
     </release>
     <release version="0.15.40-dev.1" date="2026-10-17" type="development">

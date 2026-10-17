@@ -37,6 +37,7 @@ Discord update. None of these objects is stored.
 | main.js mini/lyrics keep-above | KWin keep-above | 300 ms one-shot | once per window open | fires | one qdbus call, KDE Wayland only |
 | lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight (lyrics-view.js, also the visualizer's overlay) | one frame per word/line change, woken by a timer | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | DOM class writes only when a word/line changes, no layout. Since lean lyrics (0.15.38) the countdown dots are 4 Web Animations (compositor) made once per interlude, so a countdown no longer wakes the loop every frame. Measured below |
 | lyrics.html `#spin` (0.15.10) | CSS rotation of the round cover | 9 s per turn | Settings → Spin album art on (off by default), visible and playing | `animation-play-state: paused` when hidden or paused | compositor only; +3.5 % software-GL GPU under Xvfb, renderer unchanged |
+| lyrics.html Montage (montage-ui.js, 0.15.41) | the Ken Burns pan: one `setTimeout` tick writing 2 layers' transform/opacity (composited `<img>`s) | 10 Hz (reduced motion: one one-shot per 20 s, CSS cross-fade, no pan) | the Studio shows, Montage on (off by default) with photos, the music plays, the window visible | pause, hide/minimise (`visibilitychange`), Montage off, the compact form | 0 frames and no timer at rest; playing cost in "Montage" below. main.js `resolveMontageSong`: per new song while the Studio shows and it is on, 1 Apple catalog read, then the disk cache, else ~5-8 Wikidata/Commons requests (one lane per host, 150-300 ms gaps), then ≤ 8 thumbnails one at a time (cached on disk, 64 MB bound) |
 | miniplayer / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
 
 **Duplicate pollers:** with mini player + lyrics + visualizer all open, three polls
@@ -271,6 +272,29 @@ Browse, GC'd: 15.5 k → 332 k DOM nodes and 5.3 k → 71.8 k listeners *without
 320 k and 5.4 k → 69.3 k with it (about 6.3 k nodes and 1.3 k listeners kept per navigation by
 Apple's own code). A reload frees it all (2 k listeners after). Logged in this may differ; see
 BACKLOG.
+
+## Montage: the Studio's photos behind the lyrics (0.15.41-dev.1)
+
+Two `<img>` layers (`will-change: transform, opacity`) in the Studio's centre column; montage-ui.js writes their
+transform and opacity from one `setTimeout` tick, only while the Studio shows, the Montage is on with photos,
+the music plays and the window is visible. Measured on an isolated copy (Xvfb 1240 x 780, software GL, no GPU:
+every composited frame is drawn by the CPU, so these are upper bounds), the song past its last line so the
+lyrics engine is quiet and the frames are the montage's own; CPU is every Sonata process, % of one core, over 10 s:
+
+| State | Frames/s | CPU |
+|---|---|---|
+| playing, Montage off | 1-1.3 | 0.5-1.0 % |
+| playing, Montage on, pan at 10 Hz (shipped) | 11 | 7.6-9.8 % |
+| paused, Montage on (photos showing) | 0 in 5 s | 0.1-0.2 % |
+| hidden while playing, Montage on | 0 in 3 s | 0.2 % |
+
+Per frame the cost is the window's composite in software (the photo layer resampled, the shade's two
+layers, the lyrics' mask): removing the shade's layers changed nothing measurable (8.0-8.6 %), removing the
+lyrics' mask saved ~1.7 points. With the lyrics moving as well, the first build's 15 Hz pan added 6.7-7.9
+points over the same song without the Montage, the shipped 10 Hz one 4.3. With a GPU the composite is the GPU's work; not measured here (never on
+Marcy's running copy). Photos are fetched at Commons' standard widths covering the column at the largest zoom
+(montage-model.js `needWidth`), decoded once per photo; each photo's darkest and lightest pixel is measured
+once in main (montage-model.js `extremes`, one pass over the decoded thumbnail) and cached.
 
 ## Not measurable headless
 

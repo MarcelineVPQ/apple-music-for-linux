@@ -7,11 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
-## [0.15.41-dev.1] — The Studio, liner notes, and backing vocals under their words
+## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added
 
 - **The Studio: the lyrics as the centrepiece.** The lyrics window can grow into the Studio, a full now-playing screen: the lyrics big in the middle, the cover, the song, "Track 13 of 24", the live venue for live albums and the controls (play, previous, next, shuffle, repeat, position, volume) on the left, and on the right Up Next or the whole album or playlist, with a "Next · in 1:22" countdown and the time left. Click a song in the list to play it. Open it with Studio, now the first item on the rail, the new button in the lyrics window's header or Ctrl+Shift+S; the same button or key shrinks it back to the lyrics window. Sonata remembers which one you used last, and the size of each. In the Studio, Liner notes opens the album's booklet, or says when no album was found. Everything follows your theme, album colour and Glass; the keyboard and screen readers reach every control, and nothing moves on its own while the music is paused.
+- **The Montage.** In the Studio, the Montage tile puts free photos of the artist, the band live, a live album's venue and the album's years behind the lyrics, drifting slowly and fading from one to the next. The photos come from Wikimedia Commons (only freely licensed ones, never album covers or logos), and each shows its credit: who took it and its licence, linked to its page. The lyrics stay readable over every photo, in every theme. It's off until you turn it on, and nothing runs while the music is paused, the Studio is hidden or the Montage is off. With "Reduce motion" on, the photos only fade.
 - **Liner notes.** The album as a CD booklet you page through: the cover and the disc, Apple Music's notes on the album, where and when it was recorded (with the set for live albums), the album's Wikipedia article, who played and who wrote each song, the lyrics of the songs you have played (the line being sung is marked), the real booklet and back-cover scans where the Cover Art Archive has them, and a Sources page. Every block says where it comes from: Apple Music, MusicBrainz, the Cover Art Archive, Wikidata, Wikipedia (CC BY-SA, linked) and, for live albums, setlist.fm with your own free key (Settings → Integrations). Open it with Liner Notes… in the lyrics window cover's menu or the mini player's menus. Turn pages with the arrows, the section buttons or ← →; Esc or ✕ closes it. A booklet you opened before also opens offline, and a source that didn't load says so on its page.
 
 ### Changed

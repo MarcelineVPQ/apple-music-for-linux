@@ -69,9 +69,11 @@ test('ways in and the remembered form: header button, rail item, Ctrl+Shift+S; o
   assert.ok(require('../shortcuts-model').problem('Ctrl+Shift+S'), 'Ctrl+Shift+S is a window key, never a global one')
 })
 
-test('no dead controls: Montage stays hidden, Liner notes only once openLinerNotes exists, the notes band only with notes', () => {
+test('no dead controls: Montage shows with the Studio (montage-ui.js), Liner notes only once openLinerNotes exists, the notes band only with notes', () => {
+  // the Montage tile: hidden in the page until the Studio shows (montage-ui.js drawTile), before the stage's own form listener
   assert.match(html, /<button id="t-montage"[^>]*hidden>/)
-  assert.ok(!/t-?[mM]ontage[^\n]*hidden = false/.test(ui), 'nothing shows the Montage tile yet')
+  assert.ok(!/t-?[mM]ontage[^\n]*hidden = false/.test(ui), 'stage-ui.js leaves the Montage tile to montage-ui.js')
+  assert.ok(html.indexOf("montage.setForm(") < html.indexOf("ipcRenderer.on('lyrics-form', (event, f) => stage.setForm(f))"), 'the Montage tile shows before the stage counts the layer tiles')
   assert.match(main, /const linerNotesReady = \(\) => typeof openLinerNotes === 'function'/)
   assert.match(main, /return \{ stage: !!settings\.lyricsStage, linerNotes: linerNotesReady\(\) \}/)
   assert.match(ui, /el\.tLiner\.hidden = !form\.linerNotes/)

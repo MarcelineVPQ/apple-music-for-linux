@@ -39,6 +39,8 @@ const SCHEMA = {
   lyricsArtSpinSpeed: ['relaxed', oneOf('relaxed', 'true'), 'Record speed'],
   estimatedWordTiming: [true, bool, 'Estimated word timing'],
   lyricsListenRefine: [false, bool, 'Refine timing by listening'],
+  // the Studio's Montage: free photos of the artist and the venue behind the lyrics (off by default)
+  montage: [false, bool, 'Montage behind the lyrics'],
   lyricsPreciseTiming: [false, bool, 'Precise word timing'],
   alignGamingPause: [true, bool, 'Pause word timing while gaming'],
   sungNotesLog: [false, bool, 'Sung notes (developer log)'],

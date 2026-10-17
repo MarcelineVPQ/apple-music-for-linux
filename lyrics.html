@@ -269,6 +269,53 @@
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
   #band { margin: 6px 18px 8px 22px; height: 150px; position: relative; }
 
+  /* --- the Montage (montage-ui.js): related free photos drifting behind the lyrics, in the centre
+     column only. Two photo layers move by transform and fade by opacity (composited); over them the
+     shade: the theme's own surface colour at --scrim, raised per photo until every word passes
+     (montage-model.js scrimFor), a little stronger where the words are. The mock-ups:
+     docs/mockups/stage-view.html, ken-burns.html (w2-mockups). --- */
+  #montage { display: none; }
+  body.stage #montage { display: block; grid-column: 2; grid-row: 1 / span 3; position: relative; z-index: 0; overflow: hidden; pointer-events: none; }
+  body.stage #header, body.stage #lines { position: relative; z-index: 1; }
+  body.stage #band { z-index: 1; }
+  .mt-photo { position: absolute; left: -7%; top: -7%; width: 114%; height: 114%; object-fit: cover; opacity: 0; will-change: transform, opacity; }
+  #montage.calm .mt-photo { transition: opacity 3s ease; }
+  .mt-scrim { position: absolute; inset: 0; z-index: 3; }
+  .mt-scrim::before { content: ''; position: absolute; inset: 0; background: var(--s-surface); opacity: var(--scrim, 0.98); transition: opacity 0.3s ease; }
+  .mt-scrim::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 70% 60% at 40% 45%, var(--s-surface), transparent 75%); opacity: calc(var(--scrim, 0.98) * 0.55); transition: opacity 0.3s ease; }
+  /* the credit line: the photo's author, licence and source; a click opens its Commons page */
+  #mt-credit {
+    -webkit-app-region: no-drag;
+    grid-column: 2;
+    grid-row: 3;
+    align-self: end;
+    justify-self: end;
+    position: relative;
+    z-index: 2;
+    margin: 0 14px 12px;
+    max-width: calc(100% - 28px);
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--s-edge);
+    background: var(--s-over-page);
+    color: var(--s-soft);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #mt-credit > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #mt-credit b { color: var(--s-text); font-weight: 700; }
+  #mt-credit svg { width: 12px; height: 12px; fill: currentColor; flex-shrink: 0; }
+  #mt-credit:hover { color: var(--s-text); }
+  #mt-credit:focus { outline: none; }
+  #mt-credit:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+  body:not(.stage) #mt-credit { display: none; }
+
   /* --- left: now playing --- */
   #np {
     display: flex;
@@ -369,7 +416,7 @@
   .ib:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
 
   #layers { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--s-edge); }
-  #layers .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-dim); margin-bottom: 8px; display: block; }
+  #layers .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-soft); margin-bottom: 8px; display: block; }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .tile {
     -webkit-app-region: no-drag;
@@ -512,12 +559,14 @@
         <span class="k">In the Studio</span>
         <div class="tiles">
           <button id="t-notes" class="tile" aria-label="Sheet notes" aria-pressed="true" title="The sung melody as notes, in sync (Experimental)" hidden><span class="ti"></span>Sheet notes<small>On</small></button>
-          <!-- Montage: hidden until the Ken Burns montage is built (BACKLOG) -->
+          <!-- Montage: shown with the Studio (montage-ui.js); says when it finds no free photos -->
           <button id="t-montage" class="tile" aria-label="Montage" aria-pressed="false" title="Related photos drifting behind the lyrics" hidden><span class="ti"></span>Montage<small>Off</small></button>
           <button id="t-liner" class="tile" aria-label="Liner notes" title="Open the album's booklet: credits, notes, the venue" hidden><span class="ti"></span>Liner notes<small>Booklet</small></button>
         </div>
       </div>
     </section>
+    <!-- the Studio's Montage (montage-ui.js): behind the centre column, only when on with photos -->
+    <div id="montage" aria-hidden="true" hidden><img class="mt-photo" alt=""><img class="mt-photo" alt=""><div class="mt-scrim"></div></div>
     <div id="header">
       <div id="art" title="Show album (right-click: View Album Cover)" role="button" tabindex="0" aria-label="Show album" aria-haspopup="menu">
         <svg id="ring" viewBox="0 0 34 34"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" cx="17" cy="17" r="16"/></svg>
@@ -540,6 +589,7 @@
     <!-- the sheet-notes band (the +1) above the words: only when there are notes to show -->
     <div id="band" role="img" aria-label="Sheet notes" hidden></div>
     <div id="lines" role="group" aria-label="Lyrics" aria-description="Up and Down move between lines, Enter plays from a line"><div id="empty">Play a song to see its lyrics</div></div>
+    <button id="mt-credit" aria-label="Photo credit" hidden><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 3h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm.5 8.5h11L10 7l-2.5 3L6 8.5zM5 7a1.25 1.25 0 1 0 0-2.5A1.25 1.25 0 0 0 5 7z"/></svg><span></span></button>
     <!-- the stage form: what plays next on the right -->
     <section id="queue" aria-labelledby="q-title" hidden>
       <div id="q-top">
@@ -819,6 +869,22 @@
 
   // lifetime: OK — one listener for the window's life (the view keeps its own for the word animation)
   document.addEventListener('visibilitychange', updateStill)
+
+  // --- the Studio's Montage (montage-ui.js): free photos behind the lyrics; main finds them ('stage-montage') ---
+  // Made before the stage below: its 'lyrics-form' listener shows the Montage tile first, so the stage's
+  // own one (the layer tiles' row, shown when any tile is) sees it.
+  const montage = require('./montage-ui').createMontage({
+    doc: document,
+    theme,
+    send: (command, value) => ipcRenderer.send('stage-command', command, value),
+    say: (text) => { document.getElementById('say').textContent = text }
+  })
+  // lifetime: OK — the Montage's five listeners (form, state, time, theme; the colour scheme's change), added once at load, released with the window
+  ipcRenderer.on('lyrics-form', (event, f) => montage.setForm(!!(f && f.stage)))
+  ipcRenderer.on('stage-montage', (event, m) => montage.setState(m))
+  ipcRenderer.on('lyrics-time', () => montage.setPlaying(view.playing && document.body.classList.contains('stage')))
+  ipcRenderer.on('theme', () => montage.reshade())
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => montage.reshade())
 
   // --- the stage: the lyrics window grown into the now-playing screen (stage-ui.js, stage-model.js) ---
   // Main sends the form ('lyrics-form': { stage, linerNotes }), and while the stage shows the song
