@@ -421,3 +421,21 @@ cover, 0–46 px below it:
 - Run-limited tile: no value three times in a row or column (white noise left a 14 px run).
 - Cost: one static layer per album header, no animation, no script (not measurable apart from noise).
 - Waits for her eyes on her TV: whether the steps are gone at 1000-nit SDR white, and whether the grain shows.
+
+### HDR output (`expHdrOutput`: `--force-color-profile=scrgb-linear`, hdr-glow.js, hdr-screens.js)
+
+- **The flag**: the app's own decision puts `force-color-profile=scrgb-linear` on its command line (read back
+  with `app.commandLine`), only with the switch on and on native Wayland.
+- **The HDR glow** (lyrics window, stand-in song playing, dark theme, the window told it is on DP-5 at 1.8×:
+  the isolated KWin's virtual output is SDR, so kscreen-doctor there says no HDR): a WebGPU device starts,
+  the canvas follows the sung word (`.w.now`, or the syllable being sung), **2.3 draws a second** = the word
+  changes, none between words; the lyrics window's renderer **2.8 % of a core with the glow, 2.7 % without**
+  (10 s each, the same within noise). Told "off": the device is destroyed and the canvas removed.
+  Light theme: the sung word is dark there (4.5:1 over a light card), so it isn't boosted (a first run
+  boosted it and washed it out on lavender; hdr-glow.js `glows`).
+- **Wayland colour tags**: on the isolated KWin's SDR virtual output, 2 "Unable to set image transfer function
+  … transfer:SRGB" lines at start with scRGB on (0 without). Phase 0 on DP-5 (Marcy's TV) logged none with
+  scRGB in any window, and Chromium sent ABGR16161616F buffers tagged st2084_pq there with or without it.
+  Whether her journal still logs the line with Sonata itself: to read on her desktop once she turns it on.
+- **Waits for her eyes on DP-5**: how bright the sung word reads (1.8× her SDR white, the TV tone-maps
+  above ~330 nits), whether the letters sit exactly on the text, and Apple's page/art/video the same as off.

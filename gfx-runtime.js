@@ -7,6 +7,7 @@
 //   gfx.snapshot() / gfx.readout(open, appleWC)                the panel's state, About → Graphics
 // Docs: docs/research/hdr-hw-accel-apple-music-2026-10.md section 5.
 const M = require('./gfx-model')
+const H = require('./hdr-screens')
 
 const HEALTHY_MS = 20 * 1000     // a start counts as healthy 20 s after its first page loaded
 const SAMPLE_MS = 5 * 1000       // About → Graphics: one /proc sample every 5 s while it is open
@@ -16,7 +17,8 @@ function createGfx(o) {
   const { app, fs, path } = o
   const settingsStore = o.settingsStore
   const log = o.log || ((m) => console.log(m))
-  const extra = o.extra || {}        // per-switch runtime parts (hdr screens, decode probe), added by later steps
+  const extra = o.extra || {}        // per-switch runtime parts (the decode probe), added by later steps
+  const execFile = o.execFile || require('child_process').execFile
   let start = { safe: false, active: [], inactive: {}, switches: [], line: '' }
   let ctx = M.startContext({ platform: process.platform, argv: process.argv, env: process.env })
   let atStart = { disable: [], notice: '' }
@@ -29,6 +31,8 @@ function createGfx(o) {
   let sampleTimer = null
   let readoutOpen = false
   let cpu = null
+  let screens = null         // KDE's outputs (hdr-screens.js), read at start with HDR output on and when About → Graphics opens
+  let screensBusy = false
 
   // Before 'ready': read the settings file (read-only: main's loadSettings repairs it later), look for a
   // start marker left by a start that never got healthy, decide the switches, write the new marker.
@@ -73,9 +77,32 @@ function createGfx(o) {
     log('[gpu] start marker removed: ' + why)
   }
 
-  // In 'ready', with main's settings loaded. h: { settings() -> object, turnOff(key), notify(id, text), changed() }
+  // --- HDR output: which screen each lyric window is on ---
+  const hdrActive = () => start.active.includes('expHdrOutput')
+  // `kscreen-doctor -o` (read-only, fixed argv, no shell, 5 s at most); then done()
+  function readScreens(done) {
+    if (screensBusy) return
+    screensBusy = true
+    // lifetime: OK — kscreen-doctor exits by itself; the 5 s timeout kills a hung one
+    execFile('kscreen-doctor', ['-o'], { timeout: 5000 }, (err, out) => {
+      screensBusy = false
+      // error: LOGGED-OK — not KDE Plasma (or no kscreen-doctor): no screen counts as HDR, so the lyrics keep their SDR glow; About → Graphics says no screens were read
+      if (err) { if (!screens) log('[gpu] kscreen-doctor: ' + err.message); screens = [] } else screens = H.parseKscreen(out)
+      if (done) done()
+    })
+  }
+  // what a lyric window at `bounds` is told ('lyrics-hdr'): { on, headroom, screen }
+  function hdrFor(bounds) { return H.windowHdr(hdrActive(), screens || [], bounds) }
+  // the desktop's screens changed (added, removed, a mode or HDR switched): read them again
+  function screensChanged() {
+    if (hdrActive()) readScreens(() => { if (hooks) { hooks.screensChanged(); hooks.changed() } })
+  }
+
+  // In 'ready', with main's settings loaded. h: { settings() -> object, turnOff(key), notify(id, text), changed(),
+  // screensChanged() (send each lyric window its HDR state again) }
   function ready(h) {
     hooks = h
+    if (hdrActive()) readScreens(() => { hooks.screensChanged(); hooks.changed() })
     // the marker named switches: they are off in this start already; now off in the settings too, said once
     if (atStart.disable.length) {
       // loop: NOT-WORTH — ≤ 4 switches, once at start
@@ -121,7 +148,8 @@ function createGfx(o) {
       const on = s[e.key] === true
       const used = start.active.includes(e.key)
       const idle = start.inactive[e.key]
-      if (on && used) note[e.key] = 'On now.'
+      if (on && used && e.key === 'expHdrOutput' && screens && !screens.some((x) => x.hdr)) note[e.key] = 'On, but no HDR screen found (KDE Plasma: kscreen-doctor).'
+      else if (on && used) note[e.key] = 'On now.'
       else if (on && idle) note[e.key] = 'Not used this start: ' + M.reasonText(idle).replace(/^Off for this start: /, '') + '.'
       else if (on) note[e.key] = 'Applies at restart.'
       else if (used || idle) note[e.key] = 'Off after a restart.'
@@ -137,7 +165,7 @@ function createGfx(o) {
     }
   }
   function readoutExtra() {
-    const out = {}
+    const out = { screensLine: screens ? H.screensLine(screens) : '' }
     // loop: NOT-WORTH — the few runtime parts (≤ 3)
     for (const k of Object.keys(extra)) if (extra[k].readout) out[k] = extra[k].readout()
     return out
@@ -170,6 +198,7 @@ function createGfx(o) {
     take()
     // lifetime: OK — cleared when About → Graphics closes (above) and at quit (stop)
     sampleTimer = setInterval(take, SAMPLE_MS)
+    readScreens(() => { if (hooks) hooks.changed() })
     // loop: NOT-WORTH — the runtime parts' own probes (≤ 3), once per open
     for (const k of Object.keys(extra)) if (extra[k].probe) extra[k].probe(() => { if (hooks) hooks.changed() })
   }
@@ -177,7 +206,7 @@ function createGfx(o) {
     clearTimeout(healthTimer); healthTimer = null
     clearInterval(sampleTimer); sampleTimer = null
   }
-  return { beforeReady, ready, painted, snapshot, readout, stop, get start() { return start }, get context() { return ctx } }
+  return { beforeReady, ready, painted, snapshot, readout, stop, hdrFor, screensChanged, get hdrActive() { return hdrActive() }, get start() { return start }, get context() { return ctx } }
 }
 
 module.exports = { createGfx, HEALTHY_MS }

@@ -768,8 +768,15 @@
   new ResizeObserver(placeGrip).observe(artEl)
   new ResizeObserver(placeGrip).observe(document.getElementById('band'))
   new ResizeObserver(placeGrip).observe(document.getElementById('q-top'))
+  // Settings → Experimental → HDR output: the sung word glows brighter than SDR white on an HDR screen
+  // (hdr-glow.js; nothing exists while main says this window isn't on one)
+  const hdrGlow = require('./hdr-glow').createHdrGlow(document)
+  // lifetime: OK — added once at load, released with the window
+  ipcRenderer.on('lyrics-hdr', (event, s) => hdrGlow.set(s))
+  window.__sonataHdr = hdrGlow.state
   const view = require('./lyrics-view').createLyricsView({
     container: linesEl,
+    onSung: (el) => hdrGlow.sung(el),
     layout: 'scroll',
     // the sung line: in the middle of the lyrics window; a third of the way down on the stage
     anchor: () => (document.body.classList.contains('stage') ? 0.34 : 0.5),

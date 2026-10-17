@@ -378,6 +378,7 @@ function createLyricsView(opts) {
     scrollTarget = null
     roving = null
     stopFrames()
+    if (sungEl) { sungEl = null; opts.onSung(null) }   // the old song's word goes with its lines
     if (data.lang) container.lang = data.lang
     else container.removeAttribute('lang')
     if (!lines.length) {
@@ -665,6 +666,7 @@ function createLyricsView(opts) {
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
     live = next
+    if (opts.onSung) sungNow(gi >= 0 ? -1 : latest)
     let slides = null
     if (stage) {
       // stage: only the live lines (.active), the dots and the next line (.next) are shown
@@ -706,6 +708,20 @@ function createLyricsView(opts) {
   }
 
   const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }
+
+  // opts.onSung(el): the element being sung changed (the latest line's word, or its syllable being sung;
+  // null between words, in an interlude and at the end): the HDR glow (hdr-glow.js) follows it. One compare
+  // per rendered frame, a call only on a change.
+  let sungEl = null
+  function sungNow(latest) {
+    const e = latest >= 0 ? lineEls[latest] : null
+    const p = e && e.pos
+    const span = p && p.now >= 0 ? e.words[p.now] : null
+    const el = span ? (span.syl && p.syl >= 0 ? span.syl[p.syl] : span) : null
+    if (el === sungEl) return
+    sungEl = el
+    opts.onSung(el)
+  }
 
   // what a dots row opening or closing moves: the stage's shown lines (their content, so the stage's
   // own lv-in animation keeps the line's transform), or the lyrics window's lines in view; and the

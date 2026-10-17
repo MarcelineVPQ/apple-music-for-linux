@@ -60,7 +60,8 @@ const SCHEMA = {
   lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run'],
   // Settings → Experimental (gfx-model.js EXPERIMENTS): all off until the user turns them on
   expTrueVideoColours: [false, bool, 'True video colours (experimental)'],
-  expGlowDither: [false, bool, 'Dithered cover glow (experimental)']
+  expGlowDither: [false, bool, 'Dithered cover glow (experimental)'],
+  expHdrOutput: [false, bool, 'HDR output (experimental)']
 }
 
 function defaults() {

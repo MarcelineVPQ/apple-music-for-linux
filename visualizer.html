@@ -194,7 +194,12 @@
   // the lyrics: the same engine and data as the lyrics window (lyrics-view.js), laid out as a stage
   // loop: HOT-PATH-OK — its word/dot animation loop lives in lyrics-view.js (woken per word change, not per frame)
   // lifetime: OK — the four lyrics listeners below are added once at load, released with the window
-  const lyricsView = require('./lyrics-view').createLyricsView({ container: document.getElementById('lyrics'), layout: 'stage' })
+  // Settings → Experimental → HDR output: the sung word glows brighter than SDR white on an HDR screen (hdr-glow.js)
+  const hdrGlow = require('./hdr-glow').createHdrGlow(document)
+  // lifetime: OK — added once at load, released with the window
+  ipcRenderer.on('lyrics-hdr', (e, s) => hdrGlow.set(s))
+  window.__sonataHdr = hdrGlow.state
+  const lyricsView = require('./lyrics-view').createLyricsView({ container: document.getElementById('lyrics'), layout: 'stage', onSung: (el) => hdrGlow.sung(el) })
   ipcRenderer.on('lyrics-data', (e, data) => lyricsView.setData(data))
   ipcRenderer.on('lyrics-time', (e, t, playing) => { lyricsView.setTime(t, playing); gate.setPlaying(!!playing) })
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))

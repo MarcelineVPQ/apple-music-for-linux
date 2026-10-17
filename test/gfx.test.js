@@ -349,3 +349,99 @@ test('Dithered cover glow: main adds it to Apple\'s CSS through the one css-repl
   assert.equal(e.restart, false, 'CSS: applies at once, no flag, no restart')
   assert.match(G.graphicsRows({ settings: { expGlowDither: true }, start: G.startFlags({}, WAYLAND) }).find((r) => r.id === 'glow').value, /^Dithered/)
 })
+
+test('HDR output: --force-color-profile=scrgb-linear on native Wayland only; off by default; second to go after a crash', () => {
+  assert.equal(settingsStore.defaults().expHdrOutput, false)
+  assert.deepEqual(G.startFlags({ expHdrOutput: true }, WAYLAND).switches, [['force-color-profile', 'scrgb-linear']])
+  assert.equal(G.startFlags({ expHdrOutput: true }, X11).inactive.expHdrOutput, 'x11')
+  const both = G.startFlags({ expHdrOutput: true, expTrueVideoColours: true }, WAYLAND)
+  assert.deepEqual(both.switches, [['force-color-profile', 'scrgb-linear'], ['disable-gpu-memory-buffer-video-frames', '']])
+  const crash = { type: 'GPU', reason: 'crashed' }
+  assert.equal(G.crashTurnOff(crash, both.active, { expHdrOutput: true, expTrueVideoColours: true }).key, 'expHdrOutput', 'HDR before the colour fix')
+})
+
+test('HDR screens: her kscreen-doctor output (colour codes included) -> DP-5 HDR at 1.8× SDR white, HDMI-A-2 SDR', () => {
+  const H = require('../hdr-screens')
+  const s = H.parseKscreen(fs.readFileSync(path.join(__dirname, 'fixtures', 'kscreen-doctor-dp5-hdr.txt'), 'utf8'))
+  assert.deepEqual(s.map((x) => [x.name, x.hdr, x.sdrNits, x.peakNits, x.x, x.y, x.width, x.height, x.scale]),
+    [['HDMI-A-2', false, null, null, 3200, 0, 450, 1920, 1], ['DP-5', true, 1000, 1800, 0, 0, 3200, 1800, 1.2]])
+  assert.equal(H.headroom(s[1]), 1.8, 'peak "unknown, overridden with: 1800" over SDR 1000')
+  assert.equal(H.headroom(s[0]), null)
+  assert.equal(H.headroom({ hdr: true, sdrNits: 203, peakNits: 5000 }), H.MAX_HEADROOM)
+  assert.equal(H.headroom({ hdr: true, sdrNits: 400, peakNits: null }), 1, 'peak unknown: no boost promised')
+  assert.deepEqual(H.windowHdr(true, s, { x: 200, y: 200, width: 900, height: 700 }), { on: true, headroom: 1.8, screen: 'DP-5' })
+  assert.deepEqual(H.windowHdr(true, s, { x: 3210, y: 100, width: 400, height: 900 }), { on: false, headroom: 1, screen: 'HDMI-A-2' })
+  assert.deepEqual(H.windowHdr(false, s, { x: 200, y: 200, width: 900, height: 700 }), { on: false, headroom: 1, screen: '' }, 'HDR output off: never on')
+  assert.equal(H.screenFor(s, { x: 3000, y: 100, width: 400, height: 400 }).name, 'HDMI-A-2', 'centre on the side screen')
+  assert.equal(H.screensLine(s), 'HDMI-A-2 SDR · DP-5 HDR, peak 1800 / SDR 1000 nits')
+  assert.equal(H.screensLine([]), 'No screens read (KDE Plasma: kscreen-doctor)')
+})
+
+test('HDR runtime: kscreen-doctor read with a fixed argv and a timeout, only with HDR output active; the windows are told', () => {
+  const d = tmp()
+  fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ expHdrOutput: true }))
+  const calls = []
+  const fixture = fs.readFileSync(path.join(__dirname, 'fixtures', 'kscreen-doctor-dp5-hdr.txt'), 'utf8')
+  const app = fakeApp(d)
+  const saved = { argv: process.argv, platform: Object.getOwnPropertyDescriptor(process, 'platform'), env: process.env }
+  process.argv = ['/opt/Sonata/sonata']
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  process.env = Object.assign({}, saved.env, { WAYLAND_DISPLAY: 'wayland-0', SONATA_SAFE_GPU: '' })
+  let gfx
+  try {
+    delete require.cache[require.resolve('../gfx-runtime')]
+    gfx = require('../gfx-runtime').createGfx({ app, fs, path, settingsStore, log: () => {}, execFile: (cmd, args, opts, cb) => { calls.push([cmd, args, opts.timeout]); cb(null, fixture) } })
+    gfx.beforeReady()
+  } finally {
+    process.argv = saved.argv; Object.defineProperty(process, 'platform', saved.platform); process.env = saved.env
+  }
+  assert.deepEqual(app.switches, [['force-color-profile', 'scrgb-linear']])
+  let told = 0
+  gfx.ready({ settings: () => ({ expHdrOutput: true }), turnOff: () => {}, notify: () => {}, changed: () => {}, screensChanged: () => told++ })
+  assert.deepEqual(calls, [['kscreen-doctor', ['-o'], 5000]])
+  assert.equal(told, 1)
+  assert.deepEqual(gfx.hdrFor({ x: 10, y: 10, width: 800, height: 600 }), { on: true, headroom: 1.8, screen: 'DP-5' })
+  assert.equal(gfx.snapshot({ gpu_compositing: 'enabled' }).note.expHdrOutput, 'On now.')
+  gfx.stop()
+})
+
+test('HDR glow: the singer\'s colour keeps its hue, the letters at the headroom, the halo below them, never under SDR white', () => {
+  const HG = require('../hdr-glow')
+  assert.deepEqual(HG.parseRgb('rgb(255, 128, 0)'), [1, 128 / 255, 0])
+  assert.deepEqual(HG.parseRgb('rgba(10, 20, 30, 0.5)').map((x) => Math.round(x * 255)), [10, 20, 30])
+  assert.deepEqual(HG.parseRgb('color(srgb 1 0.5 0)'), [1, 0.5, 0])
+  assert.equal(HG.parseRgb('red'), null)
+  const lin = HG.singLinear([1, 0.4, 0.2])
+  assert.equal(Math.max(...lin), 1, 'brightest channel at 1')
+  assert.ok(lin[0] >= lin[1] && lin[1] >= lin[2], 'the channel order (the hue) stays')
+  assert.ok(Math.min(...lin) >= 0.3, 'leans 30 % toward white')
+  assert.equal(HG.glows([0.9, 0.8, 1]), true, 'a light sung word (dark theme) glows')
+  assert.equal(HG.glows([0.36, 0.2, 0.55]), false, 'a dark sung word (light theme) keeps its SDR look')
+  assert.deepEqual(HG.boosts(1.8), { core: 1.8, halo: 1.4 })
+  assert.deepEqual(HG.boosts(0.5), { core: 1, halo: 1 })
+  assert.deepEqual(HG.boosts(50), { core: 6, halo: 3.5 })
+  // the bold copy of a word: text centred in its box, baseline at half-leading + ascent
+  assert.deepEqual(HG.textLayout({ pad: 10, center: true, boxW: 100, textW: 80, top: 0, boxH: 40, elH: 40, ascent: 24, descent: 6 }), { x: 20, y: 39, width: 120, height: 60 })
+  assert.equal(HG.textLayout({ pad: 10, center: false, boxW: 50, textW: 48, top: 0, boxH: 40, elH: 40, ascent: 24, descent: 6 }).x, 10, 'a syllable starts at its left')
+  assert.match(HG.SHADER, /fn enc\(/)
+})
+
+test('HDR glow: rgba16float in extended tone mapping (the DS5 path Marcy saw brightest), wired into both lyric views, no frame loop', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'hdr-glow.js'), 'utf8')
+  assert.match(src, /ctx\.configure\(\{ device, format: 'rgba16float', toneMapping: \{ mode: 'extended' \}, alphaMode: 'premultiplied' \}\)/)
+  assert.doesNotMatch(src, /requestAnimationFrame|setInterval|setTimeout|Observer\(/, 'one draw per word change')
+  assert.match(src, /device\.destroy\(\)/)
+  for (const page of ['lyrics.html', 'visualizer.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '..', page), 'utf8')
+    assert.match(html, /require\('\.\/hdr-glow'\)\.createHdrGlow\(document\)/, page)
+    assert.match(html, /ipcRenderer\.on\('lyrics-hdr', \((event|e), s\) => hdrGlow\.set\(s\)\)/, page)
+    assert.match(html, /onSung: \(el\) => hdrGlow\.sung\(el\)/, page)
+  }
+  const view = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.js'), 'utf8')
+  assert.match(view, /if \(opts\.onSung\) sungNow\(gi >= 0 \? -1 : latest\)/)
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /function trackHdr\(win\) \{\s*if \(!gfx\.hdrActive\) return/, 'nothing registered without HDR output')
+  assert.match(main, /win\.webContents\.send\('lyrics-hdr', gfx\.hdrFor\(win\.getBounds\(\)\)\)/)
+  const files = require('../package.json').build.files
+  assert.ok(files.includes('hdr-glow.js') && files.includes('hdr-screens.js'))
+})

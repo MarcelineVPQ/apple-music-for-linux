@@ -93,6 +93,8 @@
       "gfx-model.js",
       "gfx-runtime.js",
       "glow-dither.js",
+      "hdr-screens.js",
+      "hdr-glow.js",
       "preload-panel.js",
       "toast.html",
       "toast-ui.js",

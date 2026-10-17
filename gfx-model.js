@@ -55,6 +55,27 @@
         label: 'Cover glow',
         value: i.settings && i.settings.expGlowDither ? 'Dithered: one code value of grain over the glow\'s fade, plus-lighter' : 'Apple\'s own: fades in 8-bit steps'
       })
+    },
+    // Sonata renders in scRGB (linear, 1.0 = SDR white), the DS5 app's switch: KWin 6.6 has no "srgb"
+    // transfer for Chromium's default path. Phase 0 on DP-5: F16 buffers either way; with scRGB the
+    // WebGPU rgba16float canvas was the brightest white (hdr-glow.js draws the sung word with it; screens
+    // from kscreen-doctor, hdr-screens.js). Needs native Wayland (XWayland surfaces carry no colour description).
+    {
+      key: 'expHdrOutput',
+      name: 'HDR output',
+      label: 'HDR output (experimental)',
+      desc: 'On an HDR screen (KDE Plasma), Sonata draws in high dynamic range: the word being sung in the lyrics window and the visualizer glows brighter than white. Applies at restart.',
+      restart: true,
+      crashRank: 2,
+      switches: () => [['force-color-profile', 'scrgb-linear']],
+      blocked: (c) => (c.x11 ? 'x11' : null),
+      needs: (c) => (c.x11 ? 'x11' : null),
+      readout: (i, st) => ({
+        id: 'hdr',
+        label: 'HDR output',
+        value: st.active.includes('expHdrOutput') ? 'On (scRGB): ' + (i.screensLine || 'reading the screens…')
+          : st.inactive.expHdrOutput ? reasonText(st.inactive.expHdrOutput) : 'Off' + (i.screensLine ? ' · ' + i.screensLine : '')
+      })
     }
   ]
 

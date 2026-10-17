@@ -853,6 +853,7 @@ function createLyricsWindow() {
   }))
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, () => (settings.lyricsStage ? 'stageBounds' : 'lyricsBounds'))
+  trackHdr(lyricsWindow)
   lockDownLocalWindow(lyricsWindow)
   pushRail()
   // the lyrics and visualizer shortcuts work in the lyrics window too (Ctrl+Shift+L closes it again)
@@ -1398,6 +1399,7 @@ function createVizWindow() {
   vizListener = getSharedListener()({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
 
   // the lyrics feed drives the overlay's lyrics, its now-playing and its audio (vizAudioTick)
+  trackHdr(vizWindow)
   vizWindow.webContents.once('did-finish-load', () => {
     startLyricsFeed()
     if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
@@ -2549,8 +2551,33 @@ function startGfx() {
     settings: () => settings,
     turnOff: (key) => { if (settings[key] === true) { settings[key] = false; saveSettings() } },
     notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-show', label: 'Open Experimental' }] }),
-    changed: () => pushPanel()
+    changed: () => pushPanel(),
+    screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
   })
+  watchScreens()
+}
+// HDR output (Settings → Experimental, active this start): each lyric window is told whether it sits on an
+// HDR screen and with what headroom ('lyrics-hdr', hdr-glow.js), when it loads, after it moves (300 ms after
+// the last move event) and when the screens change. Without HDR output nothing is registered.
+function sendHdr(win) {
+  if (win && !win.isDestroyed()) win.webContents.send('lyrics-hdr', gfx.hdrFor(win.getBounds()))
+}
+function trackHdr(win) {
+  if (!gfx.hdrActive) return
+  let timer = null
+  // lifetime: OK — the load, move and closed listeners die with the window; the one-shot timer is cleared on close
+  win.webContents.on('did-finish-load', () => sendHdr(win))
+  win.on('move', () => { clearTimeout(timer); timer = setTimeout(() => sendHdr(win), 300) })
+  win.on('closed', () => clearTimeout(timer))
+}
+// the desktop's screens changed: read KDE's outputs again (250 ms after the last event), then tell the windows
+let screensTimer = null
+function watchScreens() {
+  if (!gfx.hdrActive) return
+  // lifetime: OK — one 250 ms one-shot, replaced by the next screen event (a debounce)
+  const later = () => { clearTimeout(screensTimer); screensTimer = setTimeout(() => gfx.screensChanged(), 250) }
+  // lifetime: NOT-WORTH — three screen listeners for the app's life, only with HDR output on
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, later)   // loop: NOT-WORTH — three event names, once
 }
 // About → Graphics is on screen: the readout samples /proc (every 5 s) only then
 function gfxReadout() {
