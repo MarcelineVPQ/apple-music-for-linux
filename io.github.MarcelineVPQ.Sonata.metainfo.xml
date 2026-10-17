@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.36-dev.1" date="2026-10-16" type="development">
+      <description>
+        <p>After an update, "Restart now" always brings Sonata back with its window and tray icon, and opening Sonata again always shows its window.</p>
+      </description>
+    </release>
     <release version="0.15.35-dev.1" date="2026-10-16" type="development">
       <description>
         <p>Hyphenated words such as "Hey-hey-ay-ay-ay" bounce syllable by syllable, and estimated lines start their words when the singer comes in, learned from the lines already heard.</p>
