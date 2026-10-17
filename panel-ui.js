@@ -172,6 +172,46 @@
       }
     }
   }
+  // a key the user pastes in (an API key of their own): a password field, Save and Remove. The saved key is
+  // never shown again (main only says whether one is saved); Save is there while the field holds a key.
+  function keyRow(key, labelText, statusFn, o) {
+    const opt = o || {}
+    const input = el('input', 'text-input')
+    input.type = 'password'
+    input.autocomplete = 'off'
+    input.spellcheck = false
+    input.maxLength = 64
+    setAttr(input, 'placeholder', opt.placeholder || 'Paste your key')
+    const save = el('button', 'btn', 'Save')
+    save.type = 'button'
+    const remove = el('button', 'btn', 'Remove')
+    remove.type = 'button'
+    const ctl = el('div', 'btns')
+    ctl.append(input, save, remove)
+    const { r, label, desc } = row(labelText, '', ctl)
+    r.classList.add('action-row')
+    setAttr(input, 'aria-labelledby', label.id)
+    setAttr(input, 'aria-describedby', desc.id)
+    setAttr(save, 'aria-label', 'Save the ' + labelText + ' key')
+    setAttr(remove, 'aria-label', 'Remove the ' + labelText + ' key')
+    const valid = () => /^[A-Za-z0-9-]{8,64}$/.test(input.value.trim())
+    const paint = () => { save.hidden = !input.value.trim(); save.disabled = !valid() }
+    // lifetime: OK — input, keydown and the two clicks, dropped with the section's body
+    input.addEventListener('input', paint)
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && valid()) { e.preventDefault(); save.click() } })
+    save.addEventListener('click', (e) => { if (!e.isTrusted || !valid()) return; bridge.send('set', key, input.value.trim()); input.value = ''; paint() })
+    remove.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('set', key, '') })
+    paint()
+    return {
+      el: r,
+      update(s) {
+        const v = s.v || {}
+        const set = !!v[opt.setFlag]
+        remove.hidden = !set
+        setText(desc, statusFn(v, set))
+      }
+    }
+  }
   // Global shortcuts: one row per action. X11: the key is a button; pressing it waits for the new keys
   // (main lets go of Sonata's grabs and window keys meanwhile), Esc or leaving the button cancels, and
   // Reset puts the suggested key back. Wayland: the desktop owns the keys, so the row only shows the
@@ -356,7 +396,10 @@
         actionRow('Last.fm', (v) => (v.lastfmConnected ? 'Connected as ' + (v.lastfmUser || '?') + ', scrobbling' : 'Not connected'),
           [{ label: (v) => (v.lastfmConnected ? 'Disconnect' : 'Connect…'), action: 'lastfm' }]),
         actionRow('Discord Rich Presence', (v) => (!v.discordEnabled ? 'Off' : v.discordState === 'on' ? 'Connected, showing what you play' : 'On, waiting for the Discord app'),
-          [{ label: (v) => (v.discordEnabled ? 'Disconnect' : 'Connect…'), action: 'discord' }])
+          [{ label: (v) => (v.discordEnabled ? 'Disconnect' : 'Connect…'), action: 'discord' }]),
+        keyRow('setlistfmKey', 'setlist.fm', (v, set) => (set
+          ? 'Key saved. The liner notes of live albums show the show\'s setlist from setlist.fm.'
+          : 'Optional, for the liner notes of live albums: the show\'s setlist. Uses your own free API key (setlist.fm → Settings → API).'), { setFlag: 'setlistfmKeySet', placeholder: 'Your setlist.fm API key' })
       ],
       updates: () => [
         // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls

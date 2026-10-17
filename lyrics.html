@@ -839,8 +839,9 @@
   })
   // lifetime: OK — one click handler on the stage button, released with the window
   document.getElementById('form').onclick = () => ipcRenderer.send('stage-command', 'form', stage.shown ? 'compact' : 'stage')
-  // lifetime: OK — the stage's three listeners ('lyrics-form', 'stage-np', 'stage-queue'), added once at load, released with the window
+  // lifetime: OK — the stage's four listeners ('lyrics-form', 'stage-np', 'stage-queue', 'stage-liner'), added once at load, released with the window
   ipcRenderer.on('lyrics-form', (event, f) => stage.setForm(f))
+  ipcRenderer.on('stage-liner', (event, ok) => stage.linerFound(ok))
   ipcRenderer.on('stage-np', (event, np) => stage.setNowPlaying(np))
   ipcRenderer.on('stage-queue', (event, q) => stage.setQueue(q))
   ipcRenderer.on('lyrics-time', (event, playbackTime) => { if (stage.shown) stage.setTime(view.time()) })

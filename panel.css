@@ -217,6 +217,17 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   cursor: pointer;
 }
 .select option { background: var(--s-surface); color: var(--s-text); }
+.text-input {
+  min-height: 32px;
+  width: 150px;
+  padding: 0 8px;
+  border: 1px solid var(--s-edge);
+  border-radius: 8px;
+  background: var(--s-field);
+  color: var(--s-text);
+  font: inherit;
+}
+.text-input::placeholder { color: var(--s-soft); opacity: 1; }
 .btn {
   display: inline-flex;
   align-items: center;

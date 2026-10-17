@@ -74,6 +74,8 @@ function createStage(opts) {
   let volShown = -1
   let bandNode = null     // the sheet-notes band's content (null: no data, no band, no tile)
   let bandOn = true
+  let linerNone = ''      // the album (albumKey) the Liner notes tile found no booklet for: it says so until the album changes
+  const albumKey = () => (np ? (np.album || '') + '|' + (np.artist || '') : '|')
 
   setIcon(el.shuffle, 'shuffle'); setIcon(el.prev, 'prev'); setIcon(el.play, 'play'); setIcon(el.next, 'next'); setIcon(el.repeat, 'repeat')
   setIcon($('i-vol'), 'vol')
@@ -370,12 +372,21 @@ function createStage(opts) {
     get shown() { return !!form.stage },
     setNowPlaying(n) {
       np = n && typeof n === 'object' ? n : null
+      if (linerNone && linerNone !== albumKey()) { linerNone = ''; el.tLiner.querySelector('small').textContent = 'Booklet' }
       drawNowPlaying()
       drawTime(true)
     },
     setQueue(raw) {
       q = M.cleanQueue(raw)
       drawQueue(false)
+    },
+    // the Liner notes tile's answer from main: false when no album matched the song (the booklet
+    // didn't open): the tile says so until the album changes or a click finds one, and screen readers hear it
+    linerFound(ok) {
+      linerNone = ok ? '' : albumKey()
+      el.tLiner.querySelector('small').textContent = ok ? 'Booklet' : 'No album found'
+      const say = doc.getElementById('say')
+      if (!ok && say) say.textContent = 'Liner notes: no album found for this song'
     },
     setTime(t) {
       const v = Number(t)

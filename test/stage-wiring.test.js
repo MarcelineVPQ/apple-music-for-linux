@@ -80,6 +80,14 @@ test('no dead controls: Montage stays hidden, Liner notes only once openLinerNot
   assert.match(html, /<div id="band"[^>]*hidden><\/div>/)
 })
 
+test('the Liner notes tile opens the stage\'s album, and says so when no album matched', () => {
+  assert.match(main, /openLinerNotes\(\{ album: s\.album, artist: s\.artist \}, lyricsWindow\)/)
+  assert.match(main, /webContents\.send\('stage-liner', !!ok\)/)
+  assert.match(html, /ipcRenderer\.on\('stage-liner', \(event, ok\) => stage\.linerFound\(ok\)\)/)
+  assert.ok(ui.includes("textContent = ok ? 'Booklet' : 'No album found'"), 'the tile says when no album matched')
+  assert.ok(typeof require('../liner-notes-model') === 'object')
+})
+
 test('the stage\'s files ship (package.json build.files)', () => {
   const files = require('../package.json').build.files
   for (const f of ['stage-model.js', 'stage-ui.js', 'lyrics.html', 'lyrics-view.js']) assert.ok(files.includes(f), f)

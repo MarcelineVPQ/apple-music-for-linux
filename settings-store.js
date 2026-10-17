@@ -29,6 +29,7 @@ const SCHEMA = {
   lyricsBounds: [null, bounds, 'Lyrics window size'],
   lyricsStage: [false, bool, 'Lyrics shown as the stage'],
   stageBounds: [null, bounds, 'Stage size'],
+  linerBounds: [null, bounds, 'Liner notes window size'],
   miniAlwaysOnTop: [true, bool, 'Keep the mini player on top'],
   lyricsAlwaysOnTop: [true, bool, 'Keep lyrics on top'],
   adaptiveColor: [true, bool, 'Adaptive album color'],
@@ -54,6 +55,8 @@ const SCHEMA = {
   dismissedNotices: [[], stringList(50), 'Dismissed notices'],
   globalShortcuts: [false, bool, 'Global shortcuts'],
   shortcutKeys: [{}, require('./shortcuts-model').validStored, 'Global shortcut keys'],
+  // the user's own setlist.fm API key (liner notes of live albums); none ships with Sonata
+  setlistfmKey: ['', (v) => typeof v === 'string' && /^[A-Za-z0-9-]{0,64}$/.test(v), 'setlist.fm API key'],
   lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run']
 }
 

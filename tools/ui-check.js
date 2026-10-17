@@ -17,6 +17,8 @@
 //           axe-style rule set, focus order and keyboard reach with the theme's focus ring, reduced motion),
 //           stage (the lyrics window grown into the stage: columns, real-data texts, every theme with
 //           screenshots, drag regions while the lists scroll, no dead controls, keyboard, idle frames, the form)
+//           liner (the liner notes booklet for one real album, --album <Apple Music ID>: contrast in every theme,
+//           no dead controls, the keyboard, reduced motion; needs the network)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -1140,9 +1142,135 @@ async function stage() {
   page2.c.close(); mp.c.close()
 }
 
+// --- liner: the liner notes booklet (liner-notes.html), opened for one real album (--album, an Apple
+// Music catalog ID; the default is a well-documented live album with a Wikipedia article and Cover Art
+// Archive scans). Needs the network (the isolated copy fetches Apple, MusicBrainz, Wikidata,
+// Wikipedia and the Cover Art Archive like the app does). Per light/dark x album colour on/off x Glass
+// on/off: every spread's text >= 4.5:1, names, hit targets (>= 24 px, WCAG 2.5.8), nothing clipped.
+// Then no dead control (each one clicked: the spread changes, the page pulses, a link reaches main's
+// openExternal, the ✕ closes), the keyboard (Tab order with the ring, ← → Home End, Esc), reduced
+// motion (the turn becomes an opacity fade) and the rule set. Screenshots of every spread, light and dark.
+const LINER_ALBUM = opt('album', '1440892370')
+const MAIN_EXPORTS = `require.cache[require('path').join(${E}.app.getAppPath(), 'main.js')].exports`
+async function liner() {
+  const mp = await mainProc()
+  // links: main's openExternal is recorded instead of opening a browser (this test copy only)
+  await mp.ev(`(() => { const sh = ${E}.shell; if (!sh.__orig) { sh.__orig = sh.openExternal; sh.openExternal = (u) => { (global.__opened = global.__opened || []).push(u); return Promise.resolve() } } return true })()`)
+  const open = async () => {
+    check('liner: openLinerNotes({ appleId }) opens the booklet', await mp.ev(`${MAIN_EXPORTS}.openLinerNotes({ appleId: ${JSON.stringify(LINER_ALBUM)} })`))
+    await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Liner Notes')); w.setBounds({ x: 0, y: 0, width: 1120, height: 780 }); return true })()`)
+    const page = await target('liner-notes.html')
+    // the sources answer within a minute (MusicBrainz: 1 request per 1.1 s)
+    const ready = await waitFor(async () => { try { const st = await page.ev('[window.__liner().spreads, document.getElementById("status").textContent]'); return st[0] > 2 && !/Looking up/.test(st[1]) ? st : null } catch (e) { return null } }, 90000)
+    check('liner: the booklet laid out with every source asked', !!ready, ready)
+    await sleep(800)
+    return page
+  }
+  let page = await open()
+  const st = () => page.ev('window.__liner()')
+  const goTo = async (i) => { for (let k = 0; k < 40 && (await st()).cur !== i; k++) { await page.ev(`(document.getElementById(${(await st()).cur < i ? '"next"' : '"prev"'}).click(), true)`); await sleep(820) } }
+  const n = (await st()).spreads
+  // album colour and Glass through the Settings panel, as a user switches them
+  if (!(await mp.ev(`${settingsFile}.panelShown`))) { await mp.ev(viewCommand('rail', 'settings')); await sleep(2000) }
+  const set = async (k, v) => { await mp.ev(viewCommand('panel', 'set', k, v)); await sleep(700) }
+  // --quick: the controls and the keyboard only (after a full run's theme matrix passed)
+  for (const dark of args.includes('--quick') ? [] : [false, true]) {
+    for (let i = 0; i < 3 && (await page.ev('matchMedia("(prefers-color-scheme: dark)").matches')) !== dark; i++) { await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(700) }
+    for (const colour of [true, false]) {
+      for (const glass of [true, false]) {
+        await set('adaptiveColor', colour); await set('glass', glass); await sleep(600)
+        const tag = 'liner-' + (dark ? 'dark' : 'light') + (colour ? '-colour' : '-plain') + (glass ? '-glass' : '-solid')
+        await goTo(0)
+        // loop: every spread · test only
+        for (let i = 0; i < n; i++) {
+          if (i) { await page.ev('(document.getElementById("next").click(), true)'); await sleep(900) }
+          const a = await page.ev(PAGE_AUDIT('#card'))
+          judge(tag + ' spread ' + i, a, { minHit: 24 })
+          if (colour && glass) xshot(path.join(OUT, tag + '-' + String(i).padStart(2, '0') + '.png'), 1120, 780)
+          if (!dark && colour && glass) { const v = await page.ev(A11Y_RULES('body')); check('liner spread ' + i + ': offline rule set', !v.length, v) }
+        }
+      }
+    }
+  }
+  await set('adaptiveColor', true); await set('glass', true)
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
+
+  // --- no dead controls: every kind of control, clicked, does something visible ---
+  await goTo(0)
+  await page.ev('(document.getElementById("next").click(), true)'); await sleep(900)
+  check('liner: → (next) turns to the next spread', (await st()).cur === 1)
+  await page.ev('(document.getElementById("prev").click(), true)'); await sleep(900)
+  check('liner: ← (previous) turns back', (await st()).cur === 0)
+  const secs = (await st()).sections
+  const dead = []
+  // loop: every section button · test only
+  for (const id of secs) {
+    const before = (await st()).cur
+    await page.ev(`(document.querySelector('#sections button[data-section="${id}"]').click(), true)`); await sleep(950)
+    const after = await page.ev(`({ cur: window.__liner().cur, pulse: !!document.querySelector('.page.pulse'), current: document.querySelector('#sections button[data-section="${id}"]').getAttribute('aria-current') })`)
+    if (!(after.current === 'true' && (after.cur !== before || after.pulse))) dead.push(id + ' ' + JSON.stringify(after))
+  }
+  check('liner: every section button opens its section (or, already open, its page pulses)', !dead.length, dead)
+  // every link on every spread reaches main's openExternal with its own https address
+  await goTo(0)
+  const linkFails = []
+  let links = 0
+  // loop: every spread's links · test only
+  for (let i = 0; i < n; i++) {
+    if (i) { await page.ev('(document.getElementById("next").click(), true)'); await sleep(900) }
+    const hrefs = await page.ev('[...document.querySelectorAll("#spread a[href]")].map((a) => a.href)')
+    for (let k = 0; k < hrefs.length; k++) {
+      await mp.ev('(global.__opened = [], true)')
+      // a real click through X (the page only acts on trusted clicks); the window sits at 0,0
+      const r = await page.ev(`(() => { const a = [...document.querySelectorAll('#spread a[href]')][${k}]; const r = a.getBoundingClientRect(); return [Math.round(r.left + Math.min(12, r.width / 2)), Math.round(r.top + r.height / 2)] })()`)
+      x('click', r[0], r[1]); await sleep(300)
+      const got = await mp.ev('global.__opened')
+      links++
+      if (got[0] !== hrefs[k]) linkFails.push(hrefs[k] + ' -> ' + JSON.stringify(got))
+    }
+  }
+  check('liner: every link (' + links + ') opens its page in the browser (through main, https only)', links > 3 && !linkFails.length, linkFails.slice(0, 6))
+
+  // --- the keyboard ---
+  await goTo(1)
+  await focusWin(mp, 'Liner Notes'); await sleep(300)
+  const want = await page.ev(TABBABLES('#card'))
+  await page.ev('(document.getElementById("close").focus({ focusVisible: true }), true)'); await sleep(200)
+  const stops = await walkKeys(page, 'tab', want.length + 2, { from: [await page.ev(FOCUS_NOW)] })
+  judgeStops('liner (Tab)', stops, want)
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  x('key', 'Right'); await sleep(900)
+  const r1 = (await st()).cur
+  x('key', 'Left'); await sleep(900)
+  const r2 = (await st()).cur
+  x('key', 'End'); await sleep(900)
+  const r3 = (await st()).cur
+  x('key', 'Home'); await sleep(900)
+  check('liner: → ← End Home turn the pages', r1 === 2 && r2 === 1 && r3 === n - 1 && (await st()).cur === 0, { r1, r2, r3, n })
+  // reduced motion: the turn is an opacity fade, never a rotation
+  await emulateReduce(page, true); await sleep(200)
+  await page.ev('(window.__anims = [], new MutationObserver(() => { for (const a of document.getAnimations()) window.__anims.push(Object.keys(a.effect.getKeyframes()[0] || {}).filter((k) => !["offset", "easing", "composite", "computedOffset"].includes(k)).join(",")) }).observe(document.getElementById("spread"), { childList: true, subtree: true }), true)')
+  x('key', 'Right'); await sleep(60)
+  const fadeKeys = await page.ev('[...new Set(window.__anims)]'); await sleep(500)
+  await emulateReduce(page, false)
+  x('key', 'Right'); await sleep(60)
+  const turnKeys = await page.ev('[...new Set(window.__anims)]'); await sleep(900)
+  check('liner reduced motion: the turn becomes an opacity fade (no rotation); without it the leaf turns (transform + opacity)', fadeKeys.length && fadeKeys.every((k) => k === 'opacity') && turnKeys.includes('transform') && turnKeys.every((k) => k === 'opacity' || k === 'transform'), { fadeKeys, turnKeys })
+  // Esc closes; then the ✕ closes
+  await focusWin(mp, 'Liner Notes'); await sleep(200); x('key', 'Escape'); await sleep(800)
+  check('liner: Esc closes the booklet', !(await winOpen(mp, 'Liner Notes')))
+  page.c.close()
+  page = await open()
+  const c = await page.ev('(() => { const r = document.getElementById("close").getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] })()')
+  x('click', c[0], c[1]); await sleep(800)
+  check('liner: the ✕ closes the booklet', !(await winOpen(mp, 'Liner Notes')))
+  await mp.ev(`(() => { const sh = ${E}.shell; if (sh.__orig) { sh.openExternal = sh.__orig; delete sh.__orig } return true })()`)
+  mp.c.close()
+}
+
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage, liner }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)

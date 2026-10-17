@@ -12,7 +12,7 @@ const T = require('../lyrics-timing')
 
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
 const styles = (html) => [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n')
-const SOURCES = () => ({ 'lyrics-view.css': read('lyrics-view.css'), 'lyrics.html': styles(read('lyrics.html')), 'visualizer.html': styles(read('visualizer.html')) })
+const SOURCES = () => ({ 'lyrics-view.css': read('lyrics-view.css'), 'lyrics.html': styles(read('lyrics.html')), 'visualizer.html': styles(read('visualizer.html')), 'liner-notes.html': styles(read('liner-notes.html')) })
 
 const COMPOSITED = new Set(['transform', 'opacity', 'filter', 'none'])
 // filter functions that don't move pixels: Chromium runs their animations on the compositor
@@ -92,7 +92,7 @@ function offCompositor(sources) {
   return bad
 }
 
-test('lyrics + visualizer CSS: every transition and keyframe animation runs on the compositor', () => {
+test('lyrics + visualizer + liner notes CSS: every transition and keyframe animation runs on the compositor', () => {
   assert.deepEqual(offCompositor(SOURCES()), [])
 })
 
@@ -123,7 +123,7 @@ test('lyrics window: no blur on unsung lines, no backdrop blur on the card (the 
 })
 
 test('Web Animations in the lyric views and the visualizer animate transform/opacity only', () => {
-  for (const f of ['lyrics-view.js', 'lyrics.html', 'visualizer.html']) {
+  for (const f of ['lyrics-view.js', 'lyrics.html', 'visualizer.html', 'liner-notes.html']) {
     const src = read(f)
     // literal keyframe lists: .animate([{ prop: … }, …]
     for (const m of src.matchAll(/\.animate\(\[([\s\S]*?)\]\s*,/g)) {
@@ -179,4 +179,15 @@ test('lyrics engine: no per-frame wake-ups for the countdown, no per-frame dot s
   assert.doesNotMatch(src, /shownInterlude >= 0\) \{ raf = requestAnimationFrame/)
   assert.doesNotMatch(src, /\.style\.(opacity|transform) = /)
   assert.doesNotMatch(src, /offsetTop !== top/, 'row edges are cached, not re-read per word')
+})
+
+test('liner notes: the page turn is transform (rotateY) + opacity only; Reduce motion turns it into a cross-fade', () => {
+  const src = read('liner-notes.html')
+  const anims = [...src.matchAll(/\.animate\((?:fwd \? )?(\[[^\]]*\])(?: : (\[[^\]]*\]))?/g)].flatMap((m) => [m[1], m[2]].filter(Boolean))
+  assert.ok(anims.some((a) => /rotateY\(-180deg\)/.test(a)) && anims.some((a) => /rotateY\(180deg\)/.test(a)), 'the turn both ways')
+  assert.ok(anims.every((a) => !/(width|height|left|top|color|background|filter|--)/.test(a)), anims.join(' | '))
+  assert.match(src, /if \(reduce\.matches\) \{[\s\S]{0,200}fade\.animate\(\[\{ opacity: 0 \}, \{ opacity: 1 \}\]/, 'Reduce motion: an opacity fade, no rotation')
+  // no animated custom property (the mock-up's --shade ran on the main thread) and no filter on the spread
+  assert.doesNotMatch(src, /@property/)
+  assert.doesNotMatch(styles(src), /#spread \{[^}]*filter/)
 })
