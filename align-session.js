@@ -42,7 +42,7 @@ function splitWords(text) { return String(text || '').split(/\s+/).filter(Boolea
 function lyricsHash(lines) {
   let h = 0x811c9dc5
   const s = (lines || []).map((l) => String((l && l.text) || '')).join('\n')
-  // loop: one pass over the lyrics' characters (a few KB) · per track change
+  // loop: NOT-WORTH — one pass over the lyrics' characters (a few KB) · per track change
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i)
     h = Math.imul(h, 0x01000193) >>> 0
@@ -123,7 +123,7 @@ function createSongBuffer(opts = {}) {
   function addCovered(a, b) {
     const out = []
     let cur = [a, b]
-    // loop: merge into the sorted span list · per chunk (~50/s) · a handful of spans (one per seek)
+    // loop: HOT-PATH-OK — merge into the sorted span list · per chunk (~50/s) · a handful of spans (one per seek)
     for (const s of covered) {
       if (s[1] < cur[0]) out.push(s)
       else if (s[0] > cur[1]) { out.push(cur); cur = s }
@@ -147,7 +147,7 @@ function createSongBuffer(opts = {}) {
       const n = Math.min(mid.length, i + maxFrames - f)
       if (n <= i) return
       const first = f
-      // loop: one pass over the chunk's frames (~440 per 20 ms chunk) · ends with the chunk
+      // loop: HOT-PATH-OK — one pass over the chunk's frames (~440 per 20 ms chunk) · ends with the chunk
       for (; i < n; i++, f++) {
         const bi = Math.floor(f / blockFrames)
         let b = blocks.get(bi)
@@ -165,6 +165,7 @@ function createSongBuffer(opts = {}) {
       const b = Math.round(to * rate)
       if (b <= a) return 0
       let got = 0
+      // loop: HOT-PATH-OK — the heard spans (a handful, one per seek), per section check
       for (const s of covered) got += Math.max(0, Math.min(b, s[1]) - Math.max(a, s[0]))
       return got / (b - a)
     },
@@ -177,7 +178,7 @@ function createSongBuffer(opts = {}) {
       const f0 = Math.max(0, Math.round(from * rate))
       const frames = Math.max(0, Math.min(Math.round(until * rate), maxFrames) - f0)
       const out = Buffer.alloc(frames * FRAME_BYTES)
-      // loop: copy the recorded blocks that overlap · once per alignment · ≤ 90 blocks
+      // loop: NOT-WORTH — copy the recorded blocks that overlap · once per alignment · ≤ 90 blocks
       for (const [bi, b] of blocks) {
         const a = bi * blockFrames - f0                         // block start, in frames of `out`
         const lo = Math.max(0, -a), hi = Math.min(blockFrames, frames - a)
@@ -211,7 +212,7 @@ function * alignMessages(id, raw, pcm, opts = {}) {
   const head = { cmd: 'align', id, lines: requestLines(raw), audio: { stream: true, format: 's16le', rate: opts.rate || RATE, channels: CHANNELS } }
   if (opts.language) head.language = opts.language
   yield head
-  // loop: one message per 256 KB of PCM · ≤ ~330 for a 15 min song · ends with the buffer
+  // loop: SERIAL-REQUIRED — the helper reads its stdin in order; one message per 256 KB of PCM · ≤ ~330 for a 15 min song · ends with the buffer
   for (let o = 0; o < pcm.length; o += step) {
     yield { cmd: 'chunk', id, data: pcm.subarray(o, Math.min(pcm.length, o + step)).toString('base64') }
   }
@@ -225,6 +226,7 @@ function * alignMessages(id, raw, pcm, opts = {}) {
 function entryFromResult(result, raw, heard, meta = {}) {
   const lines = {}
   let n = 0
+  // loop: NOT-WORTH — the helper's lines (tens), once per alignment result
   for (const r of (result && result.lines) || []) {
     const i = r && r.line
     const line = raw[i]
@@ -281,7 +283,7 @@ function singEnd(raw, i) {
  */
 function sections(raw) {
   const idx = []
-  // loop: one pass over the song's lines · per song
+  // loop: NOT-WORTH — the song's lines, then its blocks and sections · per song
   for (let i = 0; i < (raw || []).length; i++) if (raw[i].t != null && splitWords(raw[i].text).length) idx.push(i)
   if (!idx.length) return []
   const gaps = new Set(T.findInterludes(raw).map((g) => g.index))
@@ -291,6 +293,7 @@ function sections(raw) {
     blocks[blocks.length - 1].push(i)
   }
   const out = []
+  // loop: NOT-WORTH — the blocks and their sections (≤ ~10), once per song
   for (const b of blocks) {
     const parts = Math.ceil(b.length / SECTION_LINES)
     const size = Math.ceil(b.length / parts)
@@ -317,6 +320,7 @@ function sectionRequest(raw, sec, first) {
 /** A helper result for a section, in song lines and song time (input to entryFromResult). */
 function sectionResult(result, sec, offset) {
   const lines = []
+  // loop: NOT-WORTH — the section's lines (≤ ~10), once per alignment result
   for (const r of (result && result.lines) || []) {
     if (!r || !Number.isInteger(r.line)) continue
     lines.push(Object.assign({}, r, {
@@ -415,7 +419,7 @@ function createAlignSession(deps) {
       return spans.some((sp) => sp[0] <= a + 0.05 && sp[1] >= b - 0.05)
     }
     const what = sec ? 'lines ' + (sec.from + 1) + '–' + (sec.to + 1) + ' of ' + s.raw.length : 'whole song'
-    // error: helper missing, crashed, timed out or refused (no model for the language) -> one log
+    // error: LOGGED-OK — helper missing, crashed, timed out or refused (no model for the language) -> one log
     // line and no further jobs for this song; its lines keep what they have (aligned sections stay).
     // A no-model refusal is remembered so the song isn't recorded again for nothing.
     const run = () => {
@@ -434,7 +438,7 @@ function createAlignSession(deps) {
           if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           return s.entry
         })
-        .catch((e) => {
+        .catch((e) => {   // error: LOGGED-OK — see the comment above run()
           messages = null
           s.failed = true
           log('alignment failed for "' + s.title + '": ' + (e && e.message))
@@ -454,7 +458,7 @@ function createAlignSession(deps) {
   // one section: that job was the whole song). -> the last queued job or null
   function due(s, time, final) {
     let job = null
-    // loop: over the sections not yet handled (≤ ~10 per song) · per tick
+    // loop: HOT-PATH-OK — over the sections not yet handled (≤ ~10 per song) · per tick
     while (s.next < s.secs.length) {
       const sec = s.secs[s.next]
       if (!final && time <= sec.at) break

@@ -13,7 +13,9 @@ function createCssReplacer(webContents, css) {
     return webContents.insertCSS(text).then((next) => {
       const old = key
       key = next
+      // error: NOT-WORTH — a key from a previous document is stale; removing it fails and there is nothing to remove
       if (old) return webContents.removeInsertedCSS(old).catch(() => {})
+      // error: NOT-WORTH — insertCSS fails only while the page is mid-navigation; the next navigation or title change applies it again
     }).catch(() => {})
   }
 }

@@ -16,6 +16,7 @@ function decodeEntities(s) {
 // One tag's attributes -> { name: value }, prefixes kept ('ttm:agent', 'xml:id').
 function tagAttrs(tag) {
   const attrs = {}
+  // loop: NOT-WORTH — a tag's few attributes, while parsing a song's lyrics (once per song)
   for (const m of tag.matchAll(/([\w:.-]+)\s*=\s*"([^"]*)"/g)) attrs[m[1]] = m[2]
   return attrs
 }
@@ -29,6 +30,7 @@ function ttmlLang(ttml) {
 // <ttm:agent xml:id="v1" type="person"/> -> { v1: 'person' }
 function ttmlAgents(ttml) {
   const agents = {}
+  // loop: NOT-WORTH — the song's singers (1-3), once per song
   for (const m of ttml.matchAll(/<ttm:agent\b[^>]*>/g)) {
     const a = tagAttrs(m[0])
     if (a['xml:id']) agents[a['xml:id']] = a.type || 'person'
@@ -44,6 +46,7 @@ function ttmlSyllables(inner) {
   const stack = []                        // open spans: { bg, timed }
   let cur = null                          // timed span collecting text
   const gap = { main: true, bg: true }    // whitespace since the last syllable, per track
+  // loop: NOT-WORTH — the spans of one line, once per song
   for (const m of inner.matchAll(/<(\/?)([\w:]+)([^>]*)>|([^<]+)/g)) {
     if (m[4] !== undefined) {
       const text = decodeEntities(m[4])
@@ -84,6 +87,7 @@ function ttmlSyllables(inner) {
 function mergeSyllables(syllables, everySpan) {
   const words = []
   const parts = []                        // per word: its syllable spans
+  // loop: NOT-WORTH — one line's syllables and words (tens), once per song
   for (const s of syllables) {
     if (!s.text.trim()) continue
     const last = words[words.length - 1]
@@ -94,6 +98,7 @@ function mergeSyllables(syllables, everySpan) {
     }
     else { words.push({ t: s.t, end: s.end, text: s.text }); parts.push([s]) }
   }
+  // loop: NOT-WORTH — the line's words, twice, once per song
   for (const w of words) w.text = w.text.replace(/\s+/g, ' ').trim()
   for (let i = 0; i < words.length; i++) {
     if (words[i].end === null) words[i].end = i + 1 < words.length ? words[i + 1].t : words[i].t + 1
@@ -118,6 +123,7 @@ function parseTtml(ttml) {
   const raw = []
   const re = /<p\b([^>]*)>([\s\S]*?)<\/p>/g
   let match
+  // loop: NOT-WORTH — the song's lines (tens to ~100), once per song
   while ((match = re.exec(ttml))) {
     const attrs = tagAttrs(match[1])
     if (attrs.begin === undefined) continue
@@ -127,6 +133,7 @@ function parseTtml(ttml) {
   const multi = raw.filter((r) => r.syl.main.length > 1)
   const everySpan = multi.length > 0 && !multi.some((r) => r.syl.main.slice(1).some((s) => s.newWord || /^\s/.test(s.text)))
   const lines = []
+  // loop: NOT-WORTH — the song's lines, once per song
   for (const { attrs, inner, syl } of raw) {
     const words = mergeSyllables(syl.main, everySpan)
     const bg = mergeSyllables(syl.bg, everySpan)
@@ -159,6 +166,7 @@ function lrcWords(body) {
   if (!stamps.length) return { text: body.trim(), words: null }
   const words = []
   const lead = body.slice(0, stamps[0].index).trim()
+  // loop: NOT-WORTH — one LRC line's word stamps, once per song
   for (let i = 0; i < stamps.length; i++) {
     const m = stamps[i]
     const t = parseInt(m[1], 10) * 60 + parseFloat(m[2])
@@ -176,6 +184,7 @@ function lrcWords(body) {
 // Enhanced LRC "<mm:ss.xx>" word stamps become words.
 function parseLrc(lrc) {
   const entries = []
+  // loop: NOT-WORTH — the LRC file's lines and their stamps (tens to ~100), once per song
   for (const raw of String(lrc || '').split(/\r?\n/)) {
     const stamps = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)]
     if (!stamps.length) continue
@@ -192,6 +201,7 @@ function parseLrc(lrc) {
   }
   entries.sort((a, b) => a.t - b.t)
   const lines = []
+  // loop: NOT-WORTH — the entries once per song; the inner search stops at the first later stamp (usually the next)
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]
     if (e.gap) continue
@@ -200,6 +210,7 @@ function parseLrc(lrc) {
     if (e.words) {
       const last = e.words[e.words.length - 1]
       if (last.end === null) last.end = Math.min(last.t + 1, next ? next.t : Infinity)
+      // loop: NOT-WORTH — one line's words, once per song
       for (let k = 0; k < e.words.length - 1; k++) if (e.words[k].end === null) e.words[k].end = e.words[k + 1].t
       e.end = last.end
     }
@@ -258,7 +269,7 @@ async function fetchLrclib(state, deps) {
   let lines = []
   try {
     lines = lrclibLines(await get(base + '/api/get-cached?' + q))
-  } catch (e) { /* fall through to search */ }
+  } catch (e) { /* error: NOT-WORTH — falls through to search, whose failure throws to the caller */ }
   if (!lines.length) {
     const s = new URLSearchParams({ track_name: state.title, artist_name: state.artist || '' })
     lines = lrclibLines(pickHit(await get(base + '/api/search?' + s), state.duration))
@@ -301,13 +312,14 @@ function createLyricsResolver(deps) {
         const lines = ttml ? parseTtml(ttml) : []
         const lang = ttml ? ttmlLang(ttml) : ''
         if (lines.length) return remember(lang ? { lines, source: 'apple', lang } : { lines, source: 'apple' })
-      } catch (e) { /* no Apple lyrics */ }
+      } catch (e) { /* error: SWALLOWED — an Apple lookup that fails (page mid-navigation) reads as "no Apple lyrics": LRCLIB is tried, else the song shows no lyrics until the next track (no retry) */ }
       if (stale) return { lines: stored.lines, source: 'apple' }   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
           if (lines.length) return remember({ lines, source: 'lrclib' })
         } catch (e) {
+          // error: SHOWN — logged, and the window says the lyrics service is busy; main.js retries (30 s, 60 s, 120 s)
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
           // the service failed (busy, rate limit, offline): not the same as "no lyrics"
           return { lines: [], source: '', error: 'busy' }

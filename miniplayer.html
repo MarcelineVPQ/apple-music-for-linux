@@ -215,12 +215,13 @@
 <script>
   const { ipcRenderer } = require('electron')
   // loop: none in this page — it only reacts to main-process pushes ('palette', 'favorite-state', 'now-playing' at 1/s)
-  // lifetime: the three ipcRenderer.on listeners ('theme', 'favorite-state', 'now-playing') are added once at load and die with the window
+  // lifetime: OK — the three ipcRenderer.on listeners ('theme', 'favorite-state', 'now-playing') are added once at load and die with the window
 
   // the one theme system (theme.js): the pill's colours follow the album. Glass: KWin's blur of the
   // desktop behind the pill when main could ask for it (blurBehind), else the artwork Glass material
   const pill = document.getElementById('pill')
   const theme = require('./theme-apply').attach({ surfaces: [pill] })
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('theme', (event, t) => {
     const blur = !!(t && t.glass && t.blurBehind)
     pill.classList.toggle('blur', blur)
@@ -228,6 +229,7 @@
   })
 
   const send = (cmd, value) => ipcRenderer.send('mini-command', cmd, value)
+  // lifetime: OK — one click handler per control (set once at load, released with the window)
   document.getElementById('shuffle').onclick = () => send('toggleShuffle')
   document.getElementById('prev').onclick = () => send('previous')
   document.getElementById('playpause').onclick = () => send('playPause')
@@ -236,8 +238,9 @@
   document.getElementById('queue').onclick = () => send('queue')
   document.getElementById('lyrics').onclick = () => send('lyrics')
   document.getElementById('more').onclick = () => send('moreMenu')
+  // lifetime: OK — set once at load, released with the window
   document.getElementById('art').onclick = () => send('expand')
-  // lifetime: one keydown listener on the artwork (a button for the keyboard: Enter / Space)
+  // lifetime: OK — one keydown listener on the artwork, released with the window (a button for the keyboard: Enter / Space)
   document.getElementById('art').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send('expand') } })
   document.getElementById('fav').onclick = () => send('toggleFavorite')
 
@@ -249,6 +252,7 @@
     document.getElementById('fav').title = on ? 'Undo Favorite' : 'Favorite'
     document.getElementById('fav').setAttribute('aria-pressed', String(on))
   }
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('favorite-state', (event, fav) => {
     if (fav && fav.ok) setFavorite(fav.rating)
   })
@@ -264,10 +268,10 @@
   // hover intent: the scrubber opens once the pointer has rested ~120 ms on the song's words, so
   // passing over them on the way to the star or the ⋯ doesn't flicker; it closes when the pointer leaves
   let hotTimer = null
-  // lifetime: pointerenter / pointerleave on the words, one each for the window's life
+  // lifetime: OK — pointerenter / pointerleave on the words, one each, released with the window
   mid.addEventListener('pointerenter', () => {
     clearTimeout(hotTimer)
-    // loop: hover intent · one 120 ms one-shot per pointer entry · cleared on leave · cost ~0
+    // loop: NOT-WORTH — hover intent · one 120 ms one-shot per pointer entry · cleared on leave · cost ~0
     hotTimer = setTimeout(() => mid.classList.add('hot'), 120)
   })
   mid.addEventListener('pointerleave', () => { clearTimeout(hotTimer); hotTimer = null; mid.classList.remove('hot') })
@@ -292,7 +296,7 @@
   // drag or click the bar to seek: the bar follows the pointer, the song seeks on release
   let dragging = false
   const at = (e) => { const r = seek.getBoundingClientRect(); return mm.seekAt(e.clientX, r.left, r.width, currentDuration) }
-  // lifetime: pointerdown/move/up and keydown on the bar, one each for the window's life
+  // lifetime: OK — pointerdown/move/up and keydown on the bar, one each, released with the window
   seek.addEventListener('pointerdown', (e) => {
     if (!currentDuration || e.button !== 0) return
     dragging = true
@@ -301,6 +305,7 @@
     showTime(at(e), currentDuration)
   })
   seek.addEventListener('pointermove', (e) => { if (dragging) showTime(at(e), currentDuration) })
+  // lifetime: OK — see above: one each, released with the window
   seek.addEventListener('pointerup', (e) => {
     if (!dragging) return
     dragging = false
@@ -317,6 +322,7 @@
   const volumeSlider = document.getElementById('volume')
   let draggingVolume = false
   let lastVolume = 1
+  // lifetime: OK — the slider's three handlers, set once at load, released with the window
   volumeSlider.onpointerdown = () => { draggingVolume = true }
   volumeSlider.onpointerup = () => { draggingVolume = false }
   volumeSlider.oninput = () => {
@@ -349,7 +355,7 @@
     updateMuteIcon(next)
     showVolume(next)
   }
-  // lifetime: one wheel listener each on the slider and the speaker button, for the window's life (not passive: it stops the scroll)
+  // lifetime: OK — one wheel listener each on the slider and the speaker button (and the speaker's click), released with the window (not passive: it stops the scroll)
   volumeSlider.addEventListener('wheel', onWheel, { passive: false })
   document.getElementById('mute').addEventListener('wheel', onWheel, { passive: false })
   document.getElementById('mute').onclick = () => {
@@ -365,6 +371,7 @@
     document.getElementById('icon-muted').style.display = volume > 0 ? 'none' : ''
   }
 
+  // lifetime: OK — added once at load, released with the window; a push per second while the mini player is open
   ipcRenderer.on('now-playing', (event, state) => {
     if (!state || !state.ok) return
     document.getElementById('title').textContent = state.title || 'Not playing'

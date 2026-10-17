@@ -14,8 +14,8 @@
 //
 // Rules: words never reorder, never leave their line, never start more than maxShift from the
 // estimate, and keep a minimum length.
-// loop: none (one call per line once its time has passed; the alignment is O(S·M·40) per tempo,
-// S syllables and M onsets in one line, a few ms at most) · lifetime: keeps nothing
+// loop: NOT-WORTH — one call per line once its time has passed; the alignment is O(S·M·40) per tempo,
+// S syllables and M onsets in one line, a few ms at most · lifetime: NOT-WORTH — keeps nothing
 
 const { syllables, findInterludes } = require('./lyrics-timing')
 
@@ -54,6 +54,7 @@ function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v }
 // The line's syllables with estimated times: { w (word index), first, t }
 function syllablePlan(words) {
   const out = []
+  // loop: NOT-WORTH — a line's words and their syllables (≤ ~40), once per refine
   words.forEach((w, i) => {
     const k = syllables(w.text)
     const step = Math.max(0, w.end - w.t) / (k + (/[,;:.!?…—-]$/.test(w.text) ? 0.6 : 0) + 0.35) // see wordWeight
@@ -83,6 +84,7 @@ function align(syl, onsets, P, lo, ban = null) {
   }
   // onsets inside the line before the first match count as skipped too
   const lead = new Float64Array(M + 1)
+  // loop: NOT-WORTH — the DP: S × M nodes, each over ≤ 5 syllables × 8 onsets (S, M ≤ ~40), a few ms per call; refineWords runs once per line, once its time has passed (listen-session.js)
   for (let j = 0; j < M; j++) lead[j + 1] = lead[j] + (onsets[j].t > lo ? onsets[j].s : 0)
   for (let s = 0; s < S; s++) {
     for (let j = 0; j < M; j++) {
@@ -91,6 +93,7 @@ function align(syl, onsets, P, lo, ban = null) {
       if (o === -Infinity) continue
       let b = o - P.skipSyllable * s - P.skipOnset * lead[j], from = -1
       const off = onsets[j].t - syl[s].t
+      // loop: NOT-WORTH — the DP's look-back: ≤ 5 syllables × 8 onsets × the onsets skipped (≤ 8)
       for (let ps = Math.max(0, s - 5); ps < s; ps++) {
         for (let pj = Math.max(0, j - 8); pj < j; pj++) {
           const pv = best[ps * M + pj]
@@ -107,6 +110,7 @@ function align(syl, onsets, P, lo, ban = null) {
     }
   }
   let top = -1, topV = 0
+  // loop: NOT-WORTH — the best end node, S × M, once per align call
   for (let s = 0; s < S; s++) {
     for (let j = 0; j < M; j++) {
       const v = best[s * M + j] - P.skipSyllable * (S - 1 - s)
@@ -114,6 +118,7 @@ function align(syl, onsets, P, lo, ban = null) {
     }
   }
   const match = new Int32Array(S).fill(-1)
+  // loop: NOT-WORTH — backtrack, ≤ S steps
   for (let k = top; k >= 0; k = prev[k]) match[Math.floor(k / M)] = k % M
   return { match, score: topV }
 }
@@ -144,6 +149,7 @@ function refineWords(line, evidence, opts = {}) {
   const voiced = ((evidence && evidence.voiced) || []).filter((v) => v.confidence >= P.minVoiced)
   const anyOnset = (a, b) => ((evidence && evidence.onsets) || []).some((o) => o.strength >= P.holdOnset && o.t > a && o.t < b)
   // held notes: a voiced run that starts at an onset and lasts holdMin+ with no new syllable
+  // loop: NOT-WORTH — the line's onsets (≤ ~40) × its voiced spans, once per refine
   for (const o of onsets) {
     const v = voiced.find((x) => Math.abs(x.start - o.t) <= 0.12 && x.end - o.t >= P.holdMin)
     o.hold = v && !anyOnset(o.t + 0.12, v.end - 0.05) ? v.end - o.t : 0
@@ -170,6 +176,7 @@ function refineWords(line, evidence, opts = {}) {
     tries.sort((a, b) => b.score - a.score)
     const best = tries[0]
     const match = Int32Array.from(best.match), score = best.score
+    // loop: NOT-WORTH — the other tempos (a few) × syllables, once per refine
     for (const alt of tries.slice(1)) {
       if (alt.score < score - P.ambiguity) break
       for (let k = 0; k < syl.length; k++) if (alt.match[k] >= 0 && alt.match[k] !== match[k]) match[k] = -1
@@ -177,6 +184,7 @@ function refineWords(line, evidence, opts = {}) {
     // A word's onset must also be clearly better than the next-best alignment without it
     // (e.g. everything one syllable over): else the word doesn't move.
     if (P.margin > 0) {
+      // loop: NOT-WORTH — one re-alignment per matched first syllable (≤ ~15 words), once per refine
       for (let k = 0; k < syl.length; k++) {
         if (!syl[k].first || match[k] < 0) continue
         const alt = align(best.warped, onsets, P, lo, { s: k, j: best.match[k] })
@@ -187,6 +195,7 @@ function refineWords(line, evidence, opts = {}) {
     confidence = clamp(score / syl.length, 0, 1)
     if (count >= Math.max(1, Math.ceil(P.minMatchFrac * syl.length))) {
       const shift = new Array(n).fill(null)
+      // loop: NOT-WORTH — the line's syllables, once per refine
       syl.forEach((s, k) => {
         if (match[k] < 0) return
         const o = onsets[match[k]]
@@ -194,6 +203,7 @@ function refineWords(line, evidence, opts = {}) {
         if (s.first) { shift[s.w] = o.t - s.t; anchored[s.w] = true }
       })
       if (P.interpolate) {
+        // loop: NOT-WORTH — the line's words with a scan to the nearest anchors (≤ ~15²), once per refine
         for (let i = 0; i < n; i++) {
           if (anchored[i]) continue
           let a = i - 1, b = i + 1
@@ -212,6 +222,7 @@ function refineWords(line, evidence, opts = {}) {
   }
 
   // order and minimum lengths inside [lo, hi]; anything that can't fit keeps the estimate
+  // loop: NOT-WORTH — two passes over the line's words, once per refine
   for (let i = 0; i < n; i++) {
     const min = i ? starts[i - 1] + P.minWord : lo
     if (starts[i] < min) starts[i] = min
@@ -228,6 +239,7 @@ function refineWords(line, evidence, opts = {}) {
   // next word's estimated start, so that word and the unmatched ones after it shift right, up
   // to the next matched word / the line end
   if (P.midHolds) {
+    // loop: NOT-WORTH — the line's words, with short inner scans to the next anchor, once per refine
     for (let i = 0; i < n - 1; i++) {
       if (anchored[i + 1] || !heldUntil[i]) continue
       const end = starts[i + 1]
@@ -237,6 +249,7 @@ function refineWords(line, evidence, opts = {}) {
       let delta = Math.min(heldUntil[i] + 0.05 - end, (k < n ? starts[k] : hi) - P.minWord - starts[k - 1])
       for (let q = i + 1; q < k; q++) delta = Math.min(delta, est[q].t + P.maxShift - starts[q])
       if (delta < 0.05) continue
+      // loop: NOT-WORTH — the words up to the next anchor
       for (let q = i + 1; q < k; q++) starts[q] += delta
     }
   }
@@ -251,6 +264,7 @@ function refineWords(line, evidence, opts = {}) {
     last.end = Math.min(v.end, hi)
   }
   // held: long enough, and its last holdTail seconds are one voiced note with no new syllable
+  // loop: NOT-WORTH — the line's words, three passes, once per refine
   words.forEach((w, i) => { if (heldUntil[i] && heldUntil[i] - w.t >= P.holdMin) w.held = true })
   for (const w of words) {
     if (w.held || w.end - w.t < P.holdMin) continue
@@ -275,6 +289,7 @@ function noiseRate(onsets, lines, upTo = Infinity, opts = {}) {
   const spans = (findInterludes(lines) || []).map((g) => [g.start + 0.5, Math.min(upTo, g.end - 0.5)])
   if (!spans.length && lines && lines.length && lines[0].t != null) spans.push([0.5, Math.min(upTo, lines[0].t - 0.5)])
   let seconds = 0, count = 0
+  // loop: NOT-WORTH — the song's instrumental spans × the onsets heard so far (≤ a few thousand), once per refined line
   for (const [a, b] of spans) {
     if (b <= a) continue
     seconds += b - a

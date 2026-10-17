@@ -96,8 +96,8 @@ function applySavedBounds(opts, key) {
   return opts
 }
 // Persist a window's size/position (debounced) whenever it moves or resizes.
-// loop: lyrics-window bounds save · 500 ms one-shot debounce · runs only after a move/resize · stops after firing · cost ~0
-// lifetime: resize/move listeners live on the window and die with it; the timer checks isDestroyed() first
+// loop: NOT-WORTH — lyrics-window bounds save · 500 ms one-shot debounce · runs only after a move/resize · stops after firing · cost ~0
+// lifetime: OK — resize/move listeners live on the window and die with it; the timer checks isDestroyed() first
 function persistBounds(win, key) {
   let timer = null
   const save = () => {
@@ -107,7 +107,7 @@ function persistBounds(win, key) {
       if (!win.isDestroyed()) { settings[key] = win.getBounds(); saveSettings() }
     }, 500)
   }
-  win.on('resize', save); win.on('move', save)
+  win.on('resize', save); win.on('move', save)   // lifetime: OK — both die with the window
 }
 
 function initLocaleAndTheme() {
@@ -162,28 +162,30 @@ function schemeSpawnFailed(e) {
 }
 function readDesktopScheme() {
   if (process.platform !== 'linux') return
+  // error: NOT-WORTH — no kdeglobals (not KDE): that source says nothing, the next one decides
   try { kdeScheme = desktopScheme.parseKdeglobals(fs.readFileSync(path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'kdeglobals'), 'utf8')) } catch (e) { kdeScheme = null }
   applyThemePref()
+  // lifetime: OK — one short gdbus call per read (3 s timeout), it ends by itself
   try {
     execFile('gdbus', ['call', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop',
       '--method', 'org.freedesktop.portal.Settings.ReadOne', 'org.freedesktop.appearance', 'color-scheme'], { timeout: 3000 }, (err, out) => {
       portalScheme = err ? null : desktopScheme.parsePortal(out)
       applyThemePref()
     })
-  } catch (e) { portalScheme = null; schemeSpawnFailed(e) }   // error: logged once; no portal answer
+  } catch (e) { portalScheme = null; schemeSpawnFailed(e) }   // error: LOGGED-OK — logged once; no portal answer
 }
 // While Sonata follows the desktop: one `gdbus monitor` child hears the portal's SettingChanged, so a
 // switch to BreezeDark (or back) applies at once. No polling.
-// lifetime: one child process while the theme is "Same as the desktop" (Linux); stopped when Sonata's
+// lifetime: OK — one child process while the theme is "Same as the desktop" (Linux); stopped when Sonata's
 // own choice is set and on quit · cost one idle process that wakes only on portal signals
 function watchDesktopScheme() {
   readDesktopScheme()
   if (process.platform !== 'linux' || themePref !== 'system' || schemeWatch) return
   try {
     schemeWatch = spawn('gdbus', ['monitor', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop'], { stdio: ['ignore', 'pipe', 'ignore'] })
-  } catch (e) { schemeWatch = null; schemeSpawnFailed(e); return }   // error: logged once — no gdbus: the scheme read at start stays
+  } catch (e) { schemeWatch = null; schemeSpawnFailed(e); return }   // error: LOGGED-OK — logged once, no gdbus: the scheme read at start stays
   let buf = ''
-  // lifetime: data/exit/error listeners on that child, gone with it
+  // lifetime: OK — data/exit/error listeners on that child, gone with it
   schemeWatch.stdout.on('data', (chunk) => {
     buf += chunk
     const lines = buf.split('\n')
@@ -224,12 +226,12 @@ function openExternalSafe(url) {
     if (scheme === 'http:' || scheme === 'https:' || scheme === 'mailto:') {
       shell.openExternal(url)
     }
-  } catch (e) { /* invalid URL: ignore */ }
+  } catch (e) { /* error: NOT-WORTH — not a URL: nothing to open */ }
 }
 
 // Block navigation and popups for windows that load our trusted local HTML
 // with Node integration — defense in depth so they can never reach remote code.
-// lifetime: one setWindowOpenHandler + one will-navigate listener per local window; both die with the window
+// lifetime: OK — one setWindowOpenHandler + one will-navigate listener per local window; both die with the window
 function lockDownLocalWindow(win) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('will-navigate', (event) => event.preventDefault())
@@ -252,6 +254,7 @@ const clickPageButtonSource = `
       const clickPageButton = (re) => {
         const walk = (root, depth) => {
           if (depth > 25) return null;
+          /* loop: NOT-WORTH — one walk per user command (shuffle, repeat, queue), shadow depth ≤ 25 */
           for (const el of root.querySelectorAll('button, [role=button]')) {
             if (re.test(el.getAttribute('aria-label') || el.title || '')) return el;
           }
@@ -294,7 +297,7 @@ function playerCommand(command) {
     })();`
   }
   appleWC().executeJavaScript(scripts[command])
-    .catch((e) => console.error('player command failed:', command, e.message))
+    .catch((e) => console.error('player command failed:', command, e.message))   // error: LOGGED-OK — page mid-load (no MusicKit yet): that one command does nothing
 }
 
 // Read current track state from the page's MusicKit instance
@@ -329,12 +332,13 @@ const nowPlayingScript = `(() => {
       volume: mk.volume,
       contentRating: attrs ? (attrs.contentRating || '') : ''
     };
-  } catch (e) {
+  } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page loading): { ok: false }, the polls skip that tick */
     return { ok: false };
   }
 })()`
 
 function createMiniWindow() {
+  // lifetime: OK — one mini window at a time; its 'closed' handler nulls it and stops its poll
   miniWindow = new BrowserWindow({
     width: 680,
     height: 72,
@@ -353,11 +357,11 @@ function createMiniWindow() {
   lockDownLocalWindow(miniWindow)
   pushRail()
   // give KWin a moment to map the window before asking it to keep it above
-  // loop: mini keep-above · 300 ms one-shot · runs once per mini open · stops after firing · cost one qdbus exec (KDE Wayland only)
+  // loop: NOT-WORTH — mini keep-above · 300 ms one-shot · runs once per mini open · stops after firing · cost one qdbus exec (KDE Wayland only)
   if (settings.miniAlwaysOnTop) setTimeout(() => applyMiniKeepAbove(true), 300)
 
   // the lyrics and visualizer shortcuts work in the mini player too (shown in its "More" menu)
-  // lifetime: registered once per mini window, dies with its webContents
+  // lifetime: OK — registered once per mini window, dies with its webContents
   miniWindow.webContents.on('before-input-event', (event, input) => { viewShortcut(input) })
 
   miniWindow.webContents.once('did-finish-load', () => {
@@ -365,8 +369,8 @@ function createMiniWindow() {
     if (lastPalette) miniWindow.webContents.send('palette', lastPalette)
     miniWindow.webContents.send('theme', themeState())
     applyMiniBlur()
-    // loop: mini player now-playing poll · 1000 ms · runs while the mini window exists (also when minimized or paused) · stops on mini 'closed' (and main 'close') · cost 1 executeJavaScript/s into the page + 1 IPC send; measured 0.04-0.05 % of one core in the main process (docs/PERFORMANCE.md). Left as is: only runs while the mini player is open; polling on while minimized costs the same, not worth a code change.
-    // error: a failing executeJavaScript (page mid-navigation) is skipped until the next tick; at 1/s that can't hammer, and a reload ends it
+    // loop: HOT-PATH-OK — mini player now-playing poll · 1000 ms · runs while the mini window exists (also when minimized or paused) · stops on mini 'closed' (and main 'close') · cost 1 executeJavaScript/s into the page + 1 IPC send; measured 0.04-0.05 % of one core in the main process (docs/PERFORMANCE.md). Left as is: only runs while the mini player is open; polling on while minimized costs the same, not worth a code change.
+    // error: NOT-WORTH — a failing executeJavaScript (page mid-navigation) is skipped until the next tick; at 1/s that can't hammer, and a reload ends it
     miniPoll = setInterval(async () => {
       if (!mainAlive() || !miniWindow) return
       try {
@@ -382,11 +386,11 @@ function createMiniWindow() {
           if (miniWindow && !miniWindow.isDestroyed()) miniWindow.webContents.send('favorite-state', fav)
         }
         if (state && state.ok) refreshPalette(state)
-      } catch (e) { /* page mid-navigation; try again next tick */ }
+      } catch (e) { /* error: NOT-WORTH — page mid-navigation; tried again next tick */ }
     }, 1000)
   })
 
-  // lifetime: the 'closed' handler nulls miniWindow and clears miniPoll, so no closure keeps the destroyed window alive
+  // lifetime: OK — the 'closed' handler nulls miniWindow and clears miniPoll, so no closure keeps the destroyed window alive
   miniWindow.on('closed', () => {
     miniWindow = null
     clearInterval(miniPoll)
@@ -427,11 +431,11 @@ const lyricsFetchScriptFor = (offset) => `(async () => {
         const a = (data && data.attributes) || {};
         const t = a.ttml || a.ttmlLocalizations;
         return typeof t === 'string' ? t : '';
-      } catch (e) { return ''; }
+      } catch (e) { /* error: SWALLOWED — a failed Apple lookup reads as no lyrics (as lyrics-sources.js:315 says) */ return ''; }
     };
     const ttml = (await get('syllable-lyrics')) || (await get('lyrics'));
     return { ok: true, ttml };
-  } catch (e) {
+  } catch (e) { /* error: SWALLOWED — no MusicKit (page loading): no Apple lyrics this time, LRCLIB is tried */
     return { ok: true, ttml: '' };
   }
 })()`
@@ -447,7 +451,7 @@ const nextItemScript = `(() => {
     if (!a || !a.name) return { ok: false };
     return { ok: true, title: a.name, artist: a.artistName || '', album: a.albumName || '',
              duration: a.durationInMillis ? a.durationInMillis / 1000 : 0 };
-  } catch (e) { return { ok: false }; }
+  } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to prefetch */ return { ok: false }; }
 })()`
 
 // Clicks a link to the playing song's album already in the page (now-playing bar, lists), found
@@ -462,6 +466,7 @@ const showAlbumScript = `(() => {
     const re = new RegExp('/album/(?:[^/?#]*/)?' + id + '(?:[?#]|$)');
     const walk = (root, depth) => {
       if (depth > 25) return null;
+      /* loop: NOT-WORTH — one walk per album click, shadow depth ≤ 25 */
       for (const a of root.querySelectorAll('a[href*="/album/"]')) if (re.test(a.getAttribute('href'))) return a;
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) { const hit = walk(el.shadowRoot, depth + 1); if (hit) return hit; }
@@ -471,7 +476,7 @@ const showAlbumScript = `(() => {
     const link = walk(document, 0);
     if (link) link.click();
     return !!link;
-  } catch (e) { return false; }
+  } catch (e) { /* error: NOT-WORTH — no song or no MusicKit: false, the window is only shown */ return false; }
 })()`
 
 const lyricsSources = require('./lyrics-sources')
@@ -505,7 +510,7 @@ async function prefetchNextLyrics(currentKey) {
   try {
     const next = await appleWC().executeJavaScript(nextItemScript)
     if (next && next.ok && next.title) await getLyrics(Object.assign(next, { queueOffset: 1 }))
-  } catch (e) { /* prefetch is best effort */ }
+  } catch (e) { /* error: NOT-WORTH — prefetch is best effort; the song's own lookup runs when it plays */ }
 }
 
 // "Refine timing by listening" (Settings, off by default): listens to Sonata's own stream while
@@ -527,7 +532,7 @@ function getListenSession() {
       now: () => performance.now(),
       log: (m) => console.log('listen:', m)
     })
-  } catch (e) {
+  } catch (e) { // error: LOGGED-OK — logged once; listening stays off (listenLoadFailed)
     listenLoadFailed = true
     console.error('listen: refine by listening unavailable:', e.message)
   }
@@ -597,6 +602,7 @@ function lyricViews() {
   return [lyricsWindow, vizWindow].filter((w) => w && !w.isDestroyed())
 }
 function sendLyrics(channel, ...args) {
+  // loop: HOT-PATH-OK — ≤ 2 views (lyrics window, visualizer), per lyrics push
   for (const w of lyricViews()) w.webContents.send(channel, ...args)
 }
 // a view joined (its page just loaded): resend the song and the art on the next tick
@@ -604,7 +610,7 @@ function startLyricsFeed() {
   lyricsKey = null
   lyricsArt = null
   vizArt = null
-  // loop: lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
+  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
 }
 function stopLyricsFeedIfIdle() {
@@ -616,7 +622,7 @@ function stopLyricsFeedIfIdle() {
   if (alignSession) alignSession.stop(true)   // a song heard to the end is still aligned
 }
 
-// error: a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
+// error: NOT-WORTH — a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
 async function lyricsTick() {
   if (!mainAlive() || !lyricViews().length) return
   let state
@@ -626,10 +632,10 @@ async function lyricsTick() {
   if (!state || !state.ok || !lyricViews().length) return
 
   const key = state.title + '|' + state.artist
-  // loop: lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
+  // loop: NOT-WORTH — lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
   // 30 s, 60 s, then every 120 s · only while a lyric view is open and the song unchanged ·
   // stops on success, track change or when the last view closes · cost one lookup per retry
-  // error: backoff capped at 120 s, so a down service is never hammered
+  // error: NOT-WORTH — backoff capped at 120 s, so a down service is never hammered
   const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
   if (key !== lyricsKey || retryDue) {
     lyricsKey = key
@@ -680,6 +686,7 @@ async function lyricsTick() {
 }
 
 function createLyricsWindow() {
+  // lifetime: OK — one lyrics window at a time; 'closed' nulls it and stops the feed when no view is left
   lyricsWindow = new BrowserWindow(applySavedBounds({
     width: 380,
     height: 560,
@@ -700,16 +707,17 @@ function createLyricsWindow() {
   lockDownLocalWindow(lyricsWindow)
   pushRail()
 
+  // lifetime: OK — fires once per load
   lyricsWindow.webContents.once('did-finish-load', () => {
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
     startLyricsFeed()
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
     lyricsWindow.webContents.send('theme', themeState())
-    // loop: lyrics keep-above · 300 ms one-shot · once per lyrics open · stops after firing · cost one qdbus exec (KDE Wayland only)
+    // loop: NOT-WORTH — lyrics keep-above · 300 ms one-shot · once per lyrics open · stops after firing · cost one qdbus exec (KDE Wayland only)
     if (settings.lyricsAlwaysOnTop) setTimeout(() => applyLyricsKeepAbove(true), 300)
   })
 
-  // lifetime: 'closed' nulls lyricsWindow; the feed stops when no lyric view is left
+  // lifetime: OK — 'closed' nulls lyricsWindow; the feed stops when no lyric view is left
   lyricsWindow.on('closed', () => {
     lyricsWindow = null
     stopLyricsFeedIfIdle()
@@ -726,7 +734,7 @@ function toggleLyricsWindow() {
   }
 }
 
-// lifetime: every ipcMain.on / ipcMain.handle in this file is registered once at module load, never per window open (measured: counts stay at 1 after 20 open/close cycles of each window)
+// lifetime: OK — every ipcMain.on / ipcMain.handle in this file is registered once at module load, never per window open (measured: counts stay at 1 after 20 open/close cycles of each window)
 ipcMain.on('lyrics-command', (event, command, value) => {
   if (command === 'close') {
     if (lyricsWindow) lyricsWindow.close()
@@ -738,13 +746,13 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     // open the playing album through the page's own album link (client-side routing, so playback
     // goes on); without such a link on screen the window is only shown
     appleWC().executeJavaScript(showAlbumScript)
-      .catch((e) => console.error('show album failed:', e.message))
+      .catch((e) => console.error('show album failed:', e.message)) // error: LOGGED-OK — page mid-load: the window is shown, the album isn't opened
   }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainWindow) {
       appleWC().executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
-        .catch((e) => console.error('lyrics seek failed:', e.message))
+        .catch((e) => console.error('lyrics seek failed:', e.message)) // error: LOGGED-OK — page mid-load: that seek is lost (the next click works)
     }
   }
 })
@@ -752,6 +760,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
 // --- audio-reactive visualizer / ambient mode ---
 
 function createVizWindow() {
+  // lifetime: OK — one visualizer at a time; 'closed' stops its audio and nulls it
   vizWindow = new BrowserWindow({
     fullscreen: true,
     frame: false,
@@ -763,7 +772,7 @@ function createVizWindow() {
   lockDownLocalWindow(vizWindow)
   pushRail()
 
-  // lifetime: one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
+  // lifetime: OK — one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
   // see getSharedListener) per visualizer window; both stopped and dropped on 'closed'
   visualizer = new Visualizer((bands) => {
     if (vizWindow && !vizWindow.isDestroyed()) vizWindow.webContents.send('viz-bands', bands)
@@ -776,7 +785,7 @@ function createVizWindow() {
     if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
   })
 
-  // lifetime: 'closed' stops the listener handle (the parec ends when no other user listens) and the
+  // lifetime: OK — 'closed' stops the listener handle (the parec ends when no other user listens) and the
   // Visualizer (kills its fallback parec, if any) and nulls vizWindow; the
   // lyrics feed stops when no lyric view is left
   vizWindow.on('closed', () => {
@@ -791,7 +800,7 @@ function createVizWindow() {
 // Visualizer audio, per lyrics-feed tick (2/s): listen to Sonata's own stream while the song plays
 // (the stream may be gone while paused) and show silence on pause. When our stream can't be found
 // (audio-listen gives up: 'unavailable'), fall back to the whole-system monitor, logged once.
-// loop: spectrum stream · ~43 frames/s from parec · runs while the visualizer exists and the song
+// loop: HOT-PATH-OK — spectrum stream · ~43 frames/s from parec · runs while the visualizer exists and the song
 // plays (fallback: while the visualizer exists) · stops on pause (listener) and on viz 'closed' ·
 // cost one 1024-point FFT + one IPC send per frame
 function vizAudioTick(isPlaying) {
@@ -825,7 +834,7 @@ function toggleVisualizer() {
   else createVizWindow()
 }
 
-// lifetime: registered once at module load (see above)
+// lifetime: OK — registered once at module load (see above)
 ipcMain.on('viz-close', () => { if (vizWindow) vizWindow.close() })
 
 // --- three-dots menu on the mini player ---
@@ -843,9 +852,9 @@ const trackInfoScript = `(async () => {
       const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
       const entry = r && r.data && r.data.data && r.data.data[0];
       rating = entry && entry.attributes ? entry.attributes.value : 0;
-    } catch (e) { /* not rated */ }
+    } catch (e) { /* error: NOT-WORTH — not rated (or no answer): shown as not a favourite */ }
     return { ok: true, id: String(id), title: attrs.name || '', url: attrs.url || '', rating };
-  } catch (e) {
+  } catch (e) { /* error: NOT-WORTH — no song or MusicKit: the menu opens without the song items */
     return { ok: false };
   }
 })()`
@@ -853,7 +862,7 @@ const trackInfoScript = `(async () => {
 function musicApiCall(script, label) {
   if (!mainAlive()) return
   appleWC().executeJavaScript(script)
-    .catch((e) => console.error(label + ' failed:', e.message))
+    .catch((e) => console.error(label + ' failed:', e.message))   // error: SILENT-BUG — Favorite / Add to Library from the ⋯ menu: a failure is only logged, the user is never told
 }
 
 // Read the current song's favorite rating. The id never leaves the page, so
@@ -869,7 +878,7 @@ const ratingFetchScript = `(async () => {
     const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
     const entry = r && r.data && r.data.data && r.data.data[0];
     return { ok: true, rating: entry && entry.attributes ? entry.attributes.value : 0 };
-  } catch (e) {
+  } catch (e) { /* error: NOT-WORTH — no answer: shown as not a favourite (star off) */
     return { ok: true, rating: 0 };
   }
 })()`
@@ -888,7 +897,7 @@ const toggleFavoriteScript = `(async () => {
       const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
       const entry = r && r.data && r.data.data && r.data.data[0];
       rating = entry && entry.attributes ? entry.attributes.value : 0;
-    } catch (e) { /* not rated */ }
+    } catch (e) { /* error: NOT-WORTH — not rated (or no answer): treated as not a favourite */ }
     if (rating === 1) {
       await mk.api.music('/v1/me/ratings/songs/' + id, {}, { fetchOptions: { method: 'DELETE' } });
       return { ok: true, rating: 0 };
@@ -899,7 +908,7 @@ const toggleFavoriteScript = `(async () => {
       headers: { 'Content-Type': 'application/json' }
     } });
     return { ok: true, rating: 1 };
-  } catch (e) {
+  } catch (e) { /* error: NOT-WORTH — failed: { ok: false }, the star stays as it was */
     return { ok: false };
   }
 })()`
@@ -968,7 +977,7 @@ async function showMoreMenu() {
 // On Wayland a window can't raise itself, so setAlwaysOnTop is a no-op
 // there. KWin (KDE) exposes keep-above through its D-Bus scripting API;
 // drive that as a fallback. Other Wayland compositors offer no client path.
-// lifetime: one short-lived qdbus child per call (window open / setting change), never on a timer
+// lifetime: OK — one short-lived qdbus child per call (window open / setting change), never on a timer
 function applyKeepAbove(caption, scriptId, on) {
   if (process.platform !== 'linux' || !process.env.WAYLAND_DISPLAY) return
   if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
@@ -976,8 +985,9 @@ function applyKeepAbove(caption, scriptId, on) {
   try {
     fs.writeFileSync(scriptPath,
       `for (const w of workspace.windowList()) if (w.caption === ${JSON.stringify(caption)}) w.keepAbove = ${on};`)
-  } catch (e) { return }
+  } catch (e) { return }   // error: NOT-WORTH — tmp not writable: setAlwaysOnTop stays the only keep-above
   const scripting = '$Q org.kde.KWin /Scripting org.kde.kwin.Scripting'
+  // lifetime: OK — one short qdbus run, it ends by itself
   exec(
     `Q=$(command -v qdbus6 || command -v qdbus) && ` +
     `${scripting}.unloadScript ${scriptId} >/dev/null 2>&1; ` +
@@ -992,7 +1002,7 @@ function applyKeepAbove(caption, scriptId, on) {
 // shaped like the pill (mini-model.js blurRegion), set with xprop. Native Wayland would need the
 // org_kde_kwin_blur protocol, which Electron gives no way to reach; there, and on other desktops,
 // the pill keeps the Glass material (artwork) or its plain tint.
-// lifetime: one short-lived xprop child per mini open or Glass change, never on a timer
+// lifetime: OK — one short-lived xprop child per mini open or Glass change, never on a timer
 // error: NOT-WORTH — xprop missing or failing: logged once, the pill keeps its tint (the page doesn't know the difference)
 function miniBlurAvailable() {
   if (process.platform !== 'linux' || !(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return false
@@ -1010,6 +1020,7 @@ function applyMiniBlur() {
   const args = glassOn()
     ? ['-id', String(xid), '-f', '_KDE_NET_WM_BLUR_BEHIND_REGION', '32c', '-set', '_KDE_NET_WM_BLUR_BEHIND_REGION', miniModel.blurRegion(4, 4, b.width - 8, b.height - 8, scale).join(',')]
     : ['-id', String(xid), '-remove', '_KDE_NET_WM_BLUR_BEHIND_REGION']
+  // lifetime: OK — one short xprop run per mini open or Glass change
   execFile('xprop', args, (err) => { if (err) console.error('mini blur: xprop failed:', err.message) })
 }
 function applyMiniKeepAbove(on) { applyKeepAbove(appName + ' — Mini Player', 'sonata-keep-above-mini', on) }
@@ -1029,11 +1040,12 @@ function cleanupWindowPositionMemory() {
   if (!(process.env.XDG_CURRENT_DESKTOP || '').split(':').includes('KDE')) return
   const rulesFile = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'kwinrulesrc')
   let text
-  try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e) { return }
+  try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e) { return }   // error: NOT-WORTH — no kwinrulesrc: nothing to clean
   if (!text.includes('Sonata:remember-position')) return
   const remove = []
   const re = /\[([0-9a-fA-F-]{36})\]\n([\s\S]*?)(?=\n\[|$)/g
   let m
+  // loop: NOT-WORTH — once per start, a few KWin rules
   while ((m = re.exec(text))) { if (m[2].includes('Sonata:remember-position')) remove.push(m[1]) }
   let out = text
   for (const id of remove) out = out.replace(new RegExp('\\n?\\[' + id + '\\][\\s\\S]*?(?=\\n\\[|$)'), '')
@@ -1046,8 +1058,9 @@ function cleanupWindowPositionMemory() {
   }
   try {
     fs.writeFileSync(rulesFile, out)
+    // lifetime: OK — one short qdbus run, it ends by itself
     exec('Q=$(command -v qdbus6 || command -v qdbus) && $Q org.kde.KWin /KWin reconfigure', () => {})
-  } catch (e) {}
+  } catch (e) {}   // error: NOT-WORTH — kwinrulesrc not writable: the old rules stay (one-time cleanup)
 }
 
 // --- adaptive album-art color and the Glass backdrop ---
@@ -1057,6 +1070,7 @@ function cleanupWindowPositionMemory() {
 let lastBackdrop = null    // { dark: { url, lumMin, lumMax }, light: {...} } for the current track
 function broadcastPalette(p) {
   const t = themeState()
+  // loop: NOT-WORTH — 3 windows, once per palette change
   for (const w of [miniWindow, lyricsWindow, vizWindow]) {
     if (!w || w.isDestroyed()) continue
     w.webContents.send('palette', p)
@@ -1129,7 +1143,7 @@ function toggleMiniPlayer() {
   }
 }
 
-// lifetime: registered once at module load (see the note at ipcMain 'lyrics-command')
+// lifetime: OK — registered once at module load (see the note at ipcMain 'lyrics-command')
 ipcMain.on('mini-command', (event, command, value) => {
   if (command === 'expand') {
     toggleMiniPlayer()
@@ -1152,21 +1166,21 @@ ipcMain.on('mini-command', (event, command, value) => {
             miniWindow.webContents.send('favorite-state', res)
           }
         })
-        .catch((e) => console.error('toggle favorite failed:', e.message))
+        .catch((e) => console.error('toggle favorite failed:', e.message)) // error: LOGGED-OK — the star stays as it was, so the user sees nothing changed
     }
   }
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainAlive()) {
       appleWC().executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
-        .catch((e) => console.error('seek failed:', e.message))
+        .catch((e) => console.error('seek failed:', e.message)) // error: LOGGED-OK — page mid-load: that seek is lost
     }
   }
   else if (command === 'setVolume') {
     const volume = Math.min(1, Math.max(0, Number(value) || 0))
     if (mainAlive()) {
       appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
-        .catch((e) => console.error('set volume failed:', e.message))
+        .catch((e) => console.error('set volume failed:', e.message)) // error: LOGGED-OK — page mid-load: the volume stays
     }
   }
   else {
@@ -1176,7 +1190,7 @@ ipcMain.on('mini-command', (event, command, value) => {
 
 // --- now-playing consumers: Last.fm scrobbling and Discord presence ---
 
-// lifetime: one artwork fetch + nativeImage + Notification per track change while playing; none are
+// lifetime: OK — one artwork fetch + nativeImage + Notification per track change while playing; none are
 // stored, so they're collected after display. No listeners are attached to the Notification.
 async function notifyTrack(state) {
   if (!settings.notifications || !Notification.isSupported()) return
@@ -1186,18 +1200,19 @@ async function notifyTrack(state) {
       const res = await fetch(state.artwork)
       icon = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()))
     }
-  } catch (e) { /* no art */ }
+  } catch (e) { /* error: NOT-WORTH — no art: the notification shows without it */ }
   const body = state.artist + (state.album ? ' — ' + state.album : '')
+  // lifetime: OK — shown and collected, no listeners kept
   new Notification({ title: state.title, body, icon, silent: true }).show()
 }
 
 function startNowPlayingLoop() {
-  // loop: tray / notifications / Last.fm / Discord now-playing poll · 5000 ms · runs always (the tray
+  // loop: HOT-PATH-OK — tray / notifications / Last.fm / Discord now-playing poll · 5000 ms · runs always (the tray
   // always exists, so the guard below never short-circuits) — this is the ONLY recurring work in the
   // tray-only state · stops on app exit · cost 1 executeJavaScript every 5 s; measured 0.03-0.06 % of one
   // core in the main process (docs/PERFORMANCE.md). Left as is: tray tooltip, track-change notifications,
   // scrobble timing (playedSeconds += 5 per tick) and Discord presence all need it.
-  // error: a failing executeJavaScript skips to the next tick; at 1 per 5 s it can't hammer
+  // error: NOT-WORTH — a failing executeJavaScript skips to the next tick; at 1 per 5 s it can't hammer
   setInterval(async () => {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
@@ -1206,7 +1221,7 @@ function startNowPlayingLoop() {
     let state
     try {
       state = await appleWC().executeJavaScript(nowPlayingScript)
-    } catch (e) {
+    } catch (e) { // error: NOT-WORTH — page mid-load: skipped to the next tick
       return
     }
     if (!state || !state.ok) return
@@ -1240,7 +1255,7 @@ function feedScrobbler(state) {
       scrobbled: false
     }
     lastfm.updateNowPlaying(scrobbleState.track)
-      .catch((e) => console.error('last.fm now playing failed:', e.message))
+      .catch((e) => console.error('last.fm now playing failed:', e.message)) // error: LOGGED-OK — "now playing" is cosmetic; the scrobble is sent separately
   }
   if (state.isPlaying) scrobbleState.playedSeconds += 5
 
@@ -1249,7 +1264,7 @@ function feedScrobbler(state) {
   if (!scrobbleState.scrobbled && scrobbleState.track.duration > 30 && scrobbleState.playedSeconds >= needed) {
     scrobbleState.scrobbled = true
     lastfm.scrobble(scrobbleState.track, scrobbleState.startedAt)
-      .catch((e) => console.error('last.fm scrobble failed:', e.message))
+      .catch((e) => console.error('last.fm scrobble failed:', e.message)) // error: SILENT-BUG — a failed scrobble is lost (marked scrobbled first, no retry, nothing shown)
   }
 }
 
@@ -1266,7 +1281,7 @@ async function feedDiscord(state) {
     try {
       await discord.connect()
       lastPresenceKey = ''
-    } catch (e) {
+    } catch (e) { // error: NOT-WORTH — Discord not running: tried again in 30 s; the rail shows "waiting"
       discord = null
       return
     }
@@ -1307,7 +1322,7 @@ async function feedDiscord(state) {
 function loadDiscordConfig() {
   try {
     discordConfig = { applicationId: '', enabled: false, ...JSON.parse(fs.readFileSync(discordConfigPath, 'utf8')) }
-  } catch (e) { /* keep defaults */ }
+  } catch (e) { /* error: NOT-WORTH — no discord.json yet (or unreadable): defaults; Connect writes a new one */ }
 }
 
 function saveDiscordConfig() {
@@ -1423,7 +1438,7 @@ function showRecovered(what, text, aside) {
 const recoveredAside = {}
 
 // What each notice's buttons do (the notice ids and action ids main itself put there)
-// error: an action for a notice that isn't shown any more, or not one of these, is dropped
+// error: NOT-WORTH — an action for a notice that isn't shown any more, or not one of these, is dropped
 function noticeAction(id, action) {
   const n = notices.get(id)
   if (!n || !n.actions.some((a) => a.id === action && !a.disabled)) return
@@ -1518,7 +1533,7 @@ async function askAlignStatus() {
     const pong = await getAlignHelper().ping()
     console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
     alignStatusText = pong.device === 'cuda' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
-  } catch (e) {
+  } catch (e) { // error: SHOWN — "Helper not working: …" in Settings → Precise timing
     console.log('align: helper not answering: ' + e.message)
     alignStatusText = 'Helper not working: ' + e.message
   } finally { alignAsking = false }
@@ -1570,6 +1585,7 @@ function refreshTrayMenu() {
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'sonata.png'))
     .resize({ width: 22, height: 22 })
+  // lifetime: NOT-WORTH — one tray and its click listener for the app's life
   tray = new Tray(icon)
   tray.setToolTip(appName)
   refreshTrayMenu()
@@ -1712,13 +1728,14 @@ let aboutCache = null     // About's texts (CHANGELOG.md, BACKLOG.md), read when
 let backConfirm = false   // Back to stable: the confirm step is showing
 function createPanelView() {
   if (panelAlive() || !mainAlive()) return
+  // lifetime: OK — created once on first show, kept (hidden), closed with the window
   panelView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-panel.js') })
   panelView.setBackgroundColor('#00000000')
   // between Apple's page and the rail: the rail, opening over the page, stays on top
   mainWindow.contentView.addChildView(panelView, mainWindow.contentView.children.indexOf(railView))
   panelView.webContents.loadFile('panel.html')
   lockDownLocalWindow(panelView)
-  // lifetime: one listener each on the panel's web contents, created once, die with it
+  // lifetime: OK — one listener each on the panel's web contents, created once, die with it
   panelView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
   panelView.webContents.on('focus', () => { focusedView = 'panel' })
   panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = '' })
@@ -1792,7 +1809,7 @@ function aboutData() {
 function panelSnapshot() {
   const u = updater ? updater.state() : { phase: 'idle' }
   const v = {}
-  for (const k of PANEL_SETTABLE) v[k] = settings[k]
+  for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 17 keys per panel snapshot
   Object.assign(v, {
     theme: themePref,
     version: app.getVersion(),
@@ -1848,6 +1865,7 @@ function syncToasts() {
   }
   if (!mainAlive()) return
   if (!toastAlive()) {
+    // lifetime: OK — closed (removeChildView + close) when the last toast goes, at the top of syncToasts
     toastView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-panel.js') })
     toastView.setBackgroundColor('#00000000')
     mainWindow.contentView.addChildView(toastView)   // on top of everything
@@ -1879,7 +1897,7 @@ function focusPanel(where) {
   panelView.webContents.send('panel:take-focus', where)
   return true
 }
-// error: a failing injection (page mid-navigation) only leaves the focus in the window; logged
+// error: LOGGED-OK — a failing injection (page mid-navigation) only leaves the focus in the window; logged
 function focusApple(where) {
   if (!mainAlive()) return
   const code = 'globalThis.__sonataFocus ? globalThis.__sonataFocus.focusApple(' + JSON.stringify(where) + ') : false'
@@ -1903,11 +1921,11 @@ function injectFocusStops() {
   // the wheel-volume maths first (a plain script there: SonataWheelVolume), then the focus stops
   if (!focusCode) focusCode = fs.readFileSync(path.join(__dirname, 'wheel-volume.js'), 'utf8') + '\n' + fs.readFileSync(path.join(__dirname, 'apple-focus.js'), 'utf8')
   appleWC().executeJavaScriptInIsolatedWorld(999, [{ code: focusCode }])
-    .catch((e) => console.error('rail: focus stops failed:', e.message))
+    .catch((e) => console.error('rail: focus stops failed:', e.message))   // error: LOGGED-OK — page mid-load: no focus stops until the next load (Tab still works in the page)
 }
 
-// lifetime: registered once at module load (like every ipcMain handler here)
-// error: a command not from the rail view's top frame, or not one of the rail's names, is dropped
+// lifetime: OK — registered once at module load (like every ipcMain handler here)
+// error: NOT-WORTH — a command not from the rail view's top frame, or not one of the rail's names, is dropped
 ipcMain.on('rail:command', (event, command) => {
   if (!mainAlive() || !railAlive() || event.sender !== railView.webContents) return
   if (!event.senderFrame || event.senderFrame.parent) return
@@ -1925,8 +1943,8 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'pin') toggleRailPin()
   else if (command === 'lock') toggleRailFlag('lock')
 })
-// lifetime: registered once at module load
-// error: only from Apple's view, top frame; anything else is dropped. 'last' (Tab past Apple's end):
+// lifetime: OK — registered once at module load
+// error: NOT-WORTH — only from Apple's view, top frame; anything else is dropped. 'last' (Tab past Apple's end):
 // the next view; 'first' (Shift+Tab before its start, or a fresh page's first Tab): the previous one
 ipcMain.on('rail:focus-in', (event, where) => {
   if (!mainAlive() || event.sender !== appleWC()) return
@@ -1936,8 +1954,8 @@ ipcMain.on('rail:focus-in', (event, where) => {
 
 // The mouse wheel over Apple's own volume control (apple-focus.js): N notches, 5 % each, set through
 // MusicKit like the mini player's volume.
-// lifetime: registered once at module load
-// error: only from Apple's view, top frame, a whole number -20..20; anything else is dropped; a failing
+// lifetime: OK — registered once at module load
+// error: NOT-WORTH — only from Apple's view, top frame, a whole number -20..20; anything else is dropped; a failing
 // script (page mid-navigation) is logged and the wheel does nothing that time
 const wheelVolume = require('./wheel-volume')
 ipcMain.on('apple:volume', (event, steps) => {
@@ -1948,12 +1966,12 @@ ipcMain.on('apple:volume', (event, steps) => {
       const next = wheelVolume.stepVolume(v, steps)
       return appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${next}; })();`)
     })
-    .catch((e) => console.error('wheel volume failed:', e.message))
+    .catch((e) => console.error('wheel volume failed:', e.message)) // error: LOGGED-OK — page mid-load: the wheel does nothing that time
 })
 
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
-// lifetime: registered once at module load
-// error: anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
+// lifetime: OK — registered once at module load
+// error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
 const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
@@ -2035,9 +2053,11 @@ function createWindow() {
     Object.assign(opts, { width: b.width, height: b.height })
     if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
   }
+  // lifetime: NOT-WORTH — the one main window, for the app's life (close quits or hides to the tray)
   mainWindow = new BaseWindow(opts)
   // Apple's page: its preload is only the focus bridge to the rail (preload-apple.js); the security
   // defaults are spelled out, unchanged: no Node, sandboxed, isolated from the page's scripts
+  // lifetime: OK — the views' web contents are closed in the window's 'closed' handler (a BaseWindow doesn't)
   appleView = new WebContentsView({
     webPreferences: { preload: path.join(__dirname, 'preload-apple.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   })
@@ -2058,21 +2078,22 @@ function createWindow() {
   const rememberBounds = () => {
     if (!mainAlive() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return
     clearTimeout(saveBoundsTimer)
+    // lifetime: OK — one 500 ms debounce, cleared before each new one
     saveBoundsTimer = setTimeout(() => {
       if (mainAlive() && mainWindow.isVisible()) { settings.windowBounds = mainWindow.getBounds(); saveSettings() }
     }, 500)
   }
-  // loop: main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
+  // loop: NOT-WORTH — main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
   mainWindow.on('resize', rememberBounds)
   mainWindow.on('move', rememberBounds)
-  // lifetime: one listener each for the views' layout, die with the window · per event one bounds
+  // lifetime: OK — one listener each for the views' layout, die with the window · per event one bounds
   // read + compare; setBounds only when the size or the rail's mode changed (a pinned rail floats
   // below 996 px). Maximize and fullscreen arrive as resizes; the fullscreen events are listened to
   // as well in case a window manager resizes before announcing them.
   mainWindow.on('resize', pushRail)
   mainWindow.on('enter-full-screen', pushRail)
   mainWindow.on('leave-full-screen', pushRail)
-  // lifetime: one listener · the window's focus goes to the view that had it (a BaseWindow has no
+  // lifetime: OK — one listener · the window's focus goes to the view that had it (a BaseWindow has no
   // web contents of its own)
   mainWindow.on('focus', () => {
     if (!mainAlive()) return
@@ -2081,7 +2102,7 @@ function createWindow() {
     else appleWC().focus()
   })
 
-  // lifetime: createWindow runs once (plus macOS 'activate' with no windows), so the views' and the
+  // lifetime: OK — createWindow runs once (plus macOS 'activate' with no windows), so the views' and the
   // window's listeners below are registered once and die with them
   appleWC().on('before-input-event', (event, input) => windowShortcut(input))
   railView.webContents.on('before-input-event', (event, input) => windowShortcut(input))
@@ -2091,6 +2112,7 @@ function createWindow() {
   railView.webContents.on('did-start-loading', () => { railMounted = false; railSent = '' })
 
   // back/forward mouse buttons
+  // lifetime: OK — once per window, dies with it
   mainWindow.on('app-command', (event, command) => {
     if (command === 'browser-backward' && appleWC().navigationHistory.canGoBack()) {
       appleWC().navigationHistory.goBack()
@@ -2100,6 +2122,7 @@ function createWindow() {
     }
   })
 
+  // lifetime: OK — dies with Apple's view
   appleWC().on('will-navigate', (event, url) => {
     if (!url.startsWith(appUrl)) {
       event.preventDefault()
@@ -2112,14 +2135,14 @@ function createWindow() {
     return { action: 'deny' }
   });
 
-  // lifetime: FIXED — this used to call insertCSS directly, which adds a new stylesheet every time;
+  // lifetime: OK — FIXED: this used to call insertCSS directly, which adds a new stylesheet every time;
   // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
   applyCustomCss = createCssReplacer(appleWC(), customCss)
   appleWC().on('did-navigate', () => {
     applyCustomCss()
   });
 
-  // lifetime: one dom-ready listener, dies with the view · per Apple page load (not per SPA route
+  // lifetime: OK — one dom-ready listener, dies with the view · per Apple page load (not per SPA route
   // change: Apple's routes keep the document) one injection of the focus stops
   appleWC().on('dom-ready', injectFocusStops)
 
@@ -2128,9 +2151,9 @@ function createWindow() {
     mainWindow.setTitle(appName);
   });
 
-  // lifetime: a BaseWindow doesn't destroy its views' web contents; they are closed here
+  // lifetime: OK — a BaseWindow doesn't destroy its views' web contents; they are closed here
   mainWindow.on('closed', () => {
-    for (const v of [appleView, railView, panelView, toastView]) if (v && !v.webContents.isDestroyed()) v.webContents.close()
+    for (const v of [appleView, railView, panelView, toastView]) if (v && !v.webContents.isDestroyed()) v.webContents.close() // loop: NOT-WORTH — 4 views, once on close
   })
 
   mainWindow.on("close", (e) => {
@@ -2157,7 +2180,7 @@ const appImagePath = process.env.APPIMAGE || ''
 let installedPath = appImagePath  // the real, versioned AppImage currently in use
 let stablePath = ''               // <dir>/Sonata.AppImage symlink -> installedPath
 if (appImagePath) {
-  try { installedPath = fs.realpathSync(appImagePath) } catch (e) {}
+  try { installedPath = fs.realpathSync(appImagePath) } catch (e) {}   // error: NOT-WORTH — unresolvable: the APPIMAGE path as given is used
   stablePath = path.join(path.dirname(installedPath), 'Sonata.AppImage')
 }
 const appId = 'io.github.MarcelineVPQ.Sonata'
@@ -2177,8 +2200,8 @@ function integrateAppImage() {
         if (fs.existsSync(stablePath) || fs.lstatSync(stablePath, { throwIfNoEntry: false })) {
           fs.rmSync(stablePath, { force: true })
         }
-      } catch (e) {}
-      try { fs.symlinkSync(installedPath, stablePath); launch = stablePath } catch (e) {}
+      } catch (e) {}   // error: NOT-WORTH — nothing to remove; the symlink below says if it can't be made
+      try { fs.symlinkSync(installedPath, stablePath); launch = stablePath } catch (e) {}   // error: NOT-WORTH — folder not writable: the menu entry points at the versioned file instead
     }
     const share = path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'))
     const iconPath = path.join(share, 'icons', 'hicolor', '512x512', 'apps', appId + '.png')
@@ -2195,18 +2218,20 @@ function integrateAppImage() {
     const desktopPath = path.join(appsDir, appId + '.desktop')
     fs.mkdirSync(appsDir, { recursive: true })
     let current = ''
-    try { current = fs.readFileSync(desktopPath, 'utf8') } catch (e) {}
+    try { current = fs.readFileSync(desktopPath, 'utf8') } catch (e) {}   // error: NOT-WORTH — no entry yet: it is written below
     if (current !== entry) {
       fs.writeFileSync(desktopPath, entry)
       // refresh the XDG desktop DB and KDE's menu cache so the new entry lands
+      // lifetime: OK — one short run when the entry changed, it ends by itself
       exec(`update-desktop-database ${JSON.stringify(appsDir)} 2>/dev/null; ` +
            `kbuildsycoca6 2>/dev/null || kbuildsycoca5 2>/dev/null`, () => {})
     }
-  } catch (e) { console.error('menu integration failed:', e.message) }
+  } catch (e) { console.error('menu integration failed:', e.message) }   // error: LOGGED-OK — no menu entry or icon this run; Sonata itself runs
 }
 
 function fetchText(url) {
   return new Promise((resolve, reject) => {
+    // lifetime: OK — one request per feed fetch; its listeners go with it at end or error
     const req = net.request(url)
     req.on('response', (res) => {
       if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return }
@@ -2215,7 +2240,7 @@ function fetchText(url) {
       res.on('end', () => resolve(body))
       res.on('error', reject)
     })
-    req.on('error', reject)
+    req.on('error', reject)   // lifetime: OK — goes with the request
     req.end()
   })
 }
@@ -2223,6 +2248,7 @@ function fetchText(url) {
 // error: PASSES-ON — a failed request or write rejects; updater.js shows it and deletes the .part file
 function downloadFile(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
+    // lifetime: OK — the file stream ends with the response or is closed on failure; one request per download
     const file = fs.createWriteStream(dest)
     const fail = (e) => { file.close(() => fs.unlink(dest, () => {})); reject(e) }
     const req = net.request(url)
@@ -2230,7 +2256,7 @@ function downloadFile(url, dest, onProgress) {
       if (res.statusCode !== 200) { fail(new Error('HTTP ' + res.statusCode)); return }
       const total = Number(res.headers['content-length']) || 0
       let got = 0
-      // loop: download stream · one chunk at a time (~16-64 KB) · once per update · ends at EOF · progress ≤ 4/s (updater.js)
+      // loop: NOT-WORTH — download stream · one chunk at a time (~16-64 KB) · once per update · ends at EOF · progress ≤ 4/s (updater.js)
       res.on('data', (chunk) => { got += chunk.length; file.write(chunk); if (onProgress) onProgress(got, total) })
       res.on('end', () => file.end(resolve))
       res.on('error', fail)
@@ -2246,7 +2272,7 @@ const testFeed = updateFeed.testFeed(process.env)
 if (testFeed) console.log('update: TEST FEED ' + testFeed.prefix + ' (loopback only)')
 let lastPlaying = false          // from the now-playing polls: Restart now waits for a pause
 let updateNotified = ''          // the version a desktop notification was shown for (tray-only state)
-// lifetime: one updater for the app's life (AppImage builds only)
+// lifetime: NOT-WORTH — one updater for the app's life (AppImage builds only)
 const updater = updaterLib.createUpdater({
   version: app.getVersion(),
   channel: () => settings.updateChannel,
@@ -2282,12 +2308,13 @@ function onUpdateState() {
   if ((st.phase === 'available' || st.phase === 'ready') && updateNotified !== st.phase + st.version &&
       !(mainAlive() && mainWindow.isVisible()) && Notification.isSupported()) {
     updateNotified = st.phase + st.version
+    // lifetime: OK — one notification per offered version, collected after display
     const note = new Notification({
       title: st.phase === 'ready' ? 'Sonata ' + st.version + ' is installed' : 'Sonata ' + st.version + ' is available',
       body: st.phase === 'ready' ? 'It starts the next time you open Sonata.' : 'Open Settings → Updates to install it.',
       icon: path.join(__dirname, 'sonata.png'), silent: true
     })
-    // lifetime: one click listener on this notification, collected with it
+    // lifetime: OK — one click listener on this notification, collected with it
     note.on('click', () => showPanel('settings', 'updates'))
     note.show()
   }
@@ -2369,8 +2396,9 @@ function restartIntoUpdate() {
   }
   if (!started) {
     try {
+      // lifetime: OK — detached and unref'd: the new Sonata outlives this one
       spawn('/bin/sh', relaunch.shellArgs(target, args), { detached: true, stdio: 'ignore', env }).unref()
-    } catch (e) { console.error('update: could not start the new version:', e.message) }   // error: logged; the next menu launch starts it
+    } catch (e) { console.error('update: could not start the new version:', e.message) }   // error: LOGGED-OK — the next menu launch starts it
   }
   stopDesktopScheme()
   app.exit(0)
@@ -2384,31 +2412,33 @@ function pruneOldAppImages() {
   try {
     const dir = path.dirname(appImagePath)
     const self = path.basename(appImagePath)
+    // loop: NOT-WORTH — the AppImage folder's entries, once at start
     for (const f of fs.readdirSync(dir)) {
       const m = f.match(/^sonata-(\d+\.\d+\.\d+(?:-dev\.\d+)?)-.*\.AppImage$/i)
       if (m && f !== self && updateFeed.isNewerVersion(app.getVersion(), m[1])) {
-        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
+        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}   // error: NOT-WORTH — not removable now: tried again next start
       }
       // a download a crash or a quit cut short (never a running file: those end in .AppImage)
       else if (/^sonata-\d+\.\d+\.\d+(?:-dev\.\d+)?-x86_64\.AppImage\.part$/.test(f)) {
-        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
+        try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}   // error: NOT-WORTH — not removable now: tried again next start
       }
     }
-  } catch (e) {}
+  } catch (e) {}   // error: NOT-WORTH — folder unreadable: nothing pruned
 }
 
 // Check for updates automatically (Settings → Updates, on by default): 20 s after start, then every 2 h.
 // Off: no timer and nothing online at start; only Check now (or the tray's Check for Updates…) goes online.
-// loop: update check · 20 s one-shot, then every 2 h · AppImage builds with checks on only · stopped when
+// loop: NOT-WORTH — update check · 20 s one-shot, then every 2 h · AppImage builds with checks on only · stopped when
 // checks are turned off, and on app exit · cost two small HTTPS GETs per 2 h (feed + .sig), a download
 // only when a new version is offered and installed; updater.js's busy flag stops overlaps
-// error: a failed check (offline, bad signature, hash mismatch) is shown in Settings → Updates and waits the full 2 h, so it can't hammer
+// error: SHOWN — a failed check (offline, bad signature, hash mismatch) is shown in Settings → Updates and waits the full 2 h, so it can't hammer
 let updateFirstTimer = null
 let updateTimer = null
 function startUpdateChecks() {
   clearTimeout(updateFirstTimer); clearInterval(updateTimer)
   updateFirstTimer = null; updateTimer = null
   if (!appImagePath || !settings.checkForUpdates) return
+  // lifetime: OK — both cleared at the top here (checks off or restarted); they end with the app
   updateFirstTimer = setTimeout(() => checkForUpdates(false), 20 * 1000)
   updateTimer = setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
 }
@@ -2433,7 +2463,7 @@ function applyAutostart() {
     } else if (fs.existsSync(file)) {
       fs.unlinkSync(file)
     }
-  } catch (e) { console.error('autostart update failed:', e.message) }
+  } catch (e) { console.error('autostart update failed:', e.message) }   // error: LOGGED-OK — the login entry stays as it was (read-only config: rare)
 }
 
 // single instance: launching Sonata again just surfaces the running copy
@@ -2443,6 +2473,7 @@ if (!app.requestSingleInstanceLock()) {
 // Launching Sonata again always shows something: the mini player when it's up, else the main window,
 // made now if there is none (a startup that stopped before it, 0.15.35-dev.1). Before the app is ready
 // the startup below makes it.
+// lifetime: NOT-WORTH — app listeners, registered once for the app's life
 app.on('second-instance', () => {
   if (miniWindow && !miniWindow.isDestroyed()) {
     miniWindow.show()
@@ -2464,7 +2495,7 @@ app.on('second-instance', () => {
 // One startup step: a failure is logged and the next step still runs, so a theme, locale or
 // settings problem can't keep the window and the tray from appearing.
 function startupStep(name, fn) {
-  try { fn() } catch (e) { console.error('startup: ' + name + ' failed:', (e && e.stack) || e) }   // error: logged; startup goes on
+  try { fn() } catch (e) { console.error('startup: ' + name + ' failed:', (e && e.stack) || e) }   // error: LOGGED-OK — startup goes on
 }
 
 app.whenReady().then(async () => {
@@ -2484,6 +2515,7 @@ app.whenReady().then(async () => {
         (r.aside ? 'A copy of the damaged file: ' + r.aside : 'No copy of the damaged file could be kept.'), r.aside)
     }
   })
+  // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
     stopDesktopScheme()
     if (listenSession) listenSession.stop()
@@ -2519,16 +2551,18 @@ app.whenReady().then(async () => {
   if (process.argv.includes('--lyrics')) {
     toggleLyricsWindow()
   }
+  // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 }).catch((e) => {
-  // error: a step outside startupStep threw: said, and the window and tray still come up when they can
+  // error: LOGGED-OK — a step outside startupStep threw: said, and the window and tray still come up when they can
   console.error('startup failed:', (e && e.stack) || e)
   if (!mainWindow || mainWindow.isDestroyed()) startupStep('window', createWindow)
   if (!tray) startupStep('tray', createTray)
 })
 
+// lifetime: NOT-WORTH — registered once, for the app's life
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit()
 })

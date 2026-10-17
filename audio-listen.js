@@ -25,13 +25,14 @@ const STALL_MS = 3000         // no audio this long while running: the stream pr
 /** PIDs in the tree under rootPid, from a list of { pid, ppid } (rootPid included). */
 function descendants(rootPid, procs) {
   const kids = new Map()
+  // loop: NOT-WORTH — the process list (our ~10, or all of /proc on the fallback), once per stream search
   for (const p of procs) {
     if (!kids.has(p.ppid)) kids.set(p.ppid, [])
     kids.get(p.ppid).push(p.pid)
   }
   const out = new Set([rootPid])
   const stack = [rootPid]
-  // loop: tree walk · bounded by the process count · each pid visited once (Set guard)
+  // loop: NOT-WORTH — tree walk · bounded by the process count · each pid visited once (Set guard)
   while (stack.length) {
     for (const c of kids.get(stack.pop()) || []) if (!out.has(c)) { out.add(c); stack.push(c) }
   }
@@ -47,6 +48,7 @@ function pickSinkInput(list, pids, opts = {}) {
   if (!Array.isArray(list)) return null
   const name = opts.name || null
   const scored = []
+  // loop: NOT-WORTH — the desktop's sink inputs (a handful), once per stream search
   for (const s of list) {
     if (!s || s.index == null) continue
     const p = s.properties || {}
@@ -71,7 +73,8 @@ function toMidSide(buf) {
   const frames = Math.floor(buf.length / 4)
   const mid = new Float32Array(frames)
   const side = new Float32Array(frames)
-  // loop: one pass over the chunk's frames (~440 per 20 ms chunk) · ends with the buffer
+  // loop: HOT-PATH-OK — one pass over the chunk's frames (~440 per 20 ms chunk) · ends with the buffer
+  // (two small Float32Arrays per chunk, ~50/s while listening: collected young, measured cheap)
   for (let i = 0; i < frames; i++) {
     const l = buf.readInt16LE(i * 4) / 32768
     const r = buf.readInt16LE(i * 4 + 2) / 32768
@@ -86,6 +89,7 @@ function toMidSide(buf) {
 function readChildren(pid) {
   // /proc/<pid>/task/<tid>/children lists direct children (CONFIG_PROC_CHILDREN)
   const out = []
+  // loop: NOT-WORTH — a process's threads and their children, once per stream search
   for (const tid of fs.readdirSync('/proc/' + pid + '/task')) {
     const txt = fs.readFileSync('/proc/' + pid + '/task/' + tid + '/children', 'utf8').trim()
     if (txt) for (const c of txt.split(/\s+/)) out.push({ pid: +c, ppid: pid })
@@ -95,6 +99,8 @@ function readChildren(pid) {
 
 function scanProc() {
   const out = []
+  // loop: NOT-WORTH — every process on the machine, only when /proc/<pid>/task/*/children is missing; once per stream search
+  // error: NOT-WORTH — a process that ended mid-scan is skipped
   for (const name of fs.readdirSync('/proc')) {
     if (!/^\d+$/.test(name)) continue
     try {
@@ -112,7 +118,8 @@ function ownProcessTree(rootPid) {
     const procs = []
     const stack = [rootPid]
     const seen = new Set()
-    // loop: tree walk over our own processes (~10 for Electron) · each pid once
+    // loop: NOT-WORTH — tree walk over our own processes (~10 for Electron) · each pid once
+  // error: NOT-WORTH — a child gone mid-walk is skipped; no children files at all (old kernel): the full /proc scan below
     while (stack.length) {
       const pid = stack.pop()
       if (seen.has(pid)) continue
@@ -122,15 +129,17 @@ function ownProcessTree(rootPid) {
       for (const k of kids) { procs.push(k); stack.push(k.pid) }
     }
     return descendants(rootPid, procs)
-  } catch (e) {
+  } catch (e) {   // error: NOT-WORTH — no children files: the full /proc scan instead
     return descendants(rootPid, scanProc())
   }
 }
 
 // --- listener ---
 
-// lifetime: every live parec child is in this Set until it exits; killed on process exit so a
-// crash or app.exit() never leaves one behind
+// lifetime: OK — every live parec child is in this Set until it exits; killed on process exit so a
+// crash or app.exit() never leaves one behind (one 'exit' listener on process, added at module load)
+// loop: NOT-WORTH — at most one or two live parecs
+// error: NOT-WORTH — a kill at exit of a process already gone has nothing left to do
 const liveProcs = new Set()
 process.on('exit', () => { for (const p of liveProcs) { try { p.kill('SIGKILL') } catch (e) {} } })
 
@@ -161,7 +170,7 @@ function createListener(opts, deps = {}) {
   let gen = 0               // bumps on stop(), so late callbacks from an old run are ignored
 
   function find(cb) {
-    // error: pactl missing or slow -> null (counts as a failed start, retried with backoff)
+    // error: NOT-WORTH — pactl missing, slow or unparsable -> null (counts as a failed start, retried with backoff)
     doExecFile('pactl', ['-f', 'json', 'list', 'sink-inputs'], { timeout: 2000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (err) return cb(null)
       let list = null
@@ -181,7 +190,7 @@ function createListener(opts, deps = {}) {
       log('own audio stream unavailable, listening off until the next start')
       return
     }
-    // loop: re-find · backoff 0.5, 1, 2, 4, 8 s · at most MAX_FAILS consecutive attempts · stops on
+    // loop: SERIAL-REQUIRED — retry/backoff: re-find · backoff 0.5, 1, 2, 4, 8 s · at most MAX_FAILS consecutive attempts · stops on
     // data (resets), on stop(), or at 'unavailable' · cost one pactl call per attempt
     retry = setT(() => { retry = null; attempt(my) }, BACKOFF_MS[Math.min(fails - 1, BACKOFF_MS.length - 1)])
   }
@@ -204,17 +213,19 @@ function createListener(opts, deps = {}) {
       child = doSpawn('parec', ['--monitor-stream=' + idx, '--format=s16le', '--channels=2',
         '--rate=' + rate, '--raw', '--latency-msec=20', '--process-time-msec=10'], { stdio: ['ignore', 'pipe', 'ignore'] })
     } catch (e) {
+      // error: LOGGED-OK — no parec: logged, listening off ('unavailable'; the visualizer falls back to the system mix)
       log('parec not available: ' + e.message)
       state = 'unavailable'
       return
     }
-    // lifetime: one parec child per run · ends on stop() (SIGTERM), on stream removal (parec exits
+    // lifetime: OK — one parec child per run · ends on stop() (SIGTERM), on stream removal (parec exits
     // by itself) or on process exit (liveProcs)
     proc = child
     liveProcs.add(child)
     state = 'running'
     lastData = now()
     let gotData = false
+    // error: LOGGED-OK — a failing chunk handler is logged; the next chunk still comes
     child.stdout.on('data', (chunk) => {
       if (my !== gen || proc !== child) return
       const wallMs = now()
@@ -227,7 +238,8 @@ function createListener(opts, deps = {}) {
       const { mid, side } = toMidSide(buf.subarray(0, whole))
       try { opts.onChunk(mid, wallMs, side) } catch (e) { log('chunk handler failed: ' + e.message) }
     })
-    // error: spawn failure (ENOENT) arrives here; exit handles the retry
+    // error: LOGGED-OK — spawn failure (ENOENT) arrives here; exit handles the retry
+    // lifetime: OK — 'error'/'exit' listeners (and 'data' above) die with the child
     child.on('error', (e) => log('parec error: ' + e.message))
     child.on('exit', () => {
       liveProcs.delete(child)
@@ -244,7 +256,7 @@ function createListener(opts, deps = {}) {
 
   function startWatchdog(my) {
     clearWatchdog()
-    // loop: stall watchdog · every 1 s while running · if no audio for STALL_MS, re-find the stream
+    // loop: HOT-PATH-OK — stall watchdog · every 1 s while running · if no audio for STALL_MS, re-find the stream
     // and switch when its index changed (a corked old stream gives no data) · stops on stop() or
     // parec exit · cost a timer check per second, one pactl call per stall
     watchdog = setT(function check() {
@@ -258,6 +270,7 @@ function createListener(opts, deps = {}) {
           const old = proc
           proc = null
           liveProcs.delete(old)
+          // error: NOT-WORTH — a kill that throws means that parec is already gone
           try { old.kill() } catch (e) {}
           run(my, idx)
         } else watchdog = setT(check, 1000)
@@ -274,7 +287,7 @@ function createListener(opts, deps = {}) {
       fails = 0
       attempt(gen)
     },
-    // lifetime: stop() kills parec and cancels the retry and watchdog timers; nothing outlives it
+    // lifetime: OK — stop() kills parec and cancels the retry and watchdog timers; nothing outlives it
     stop() {
       gen++
       if (retry) { clearT(retry); retry = null }
@@ -282,8 +295,8 @@ function createListener(opts, deps = {}) {
       if (proc) {
         const p = proc
         proc = null
+        // error: NOT-WORTH — a kill that throws means parec is already gone; one that ignores SIGTERM is killed hard after 1 s
         try { p.kill() } catch (e) {}
-        // error: a parec that ignores SIGTERM is killed hard after 1 s
         const hard = setT(() => { if (liveProcs.has(p)) { try { p.kill('SIGKILL') } catch (e) {} } }, 1000)
         if (hard && hard.unref) hard.unref()
       }
@@ -306,7 +319,8 @@ function shareListener(create) {
   let real = null
   const users = new Set()
   function dispatch(mid, wallMs, side) {
-    // loop: one call per started handle (at most 3: visualizer, refine, align) per chunk
+    // loop: HOT-PATH-OK — one call per started handle (at most 3: visualizer, refine, align) per chunk
+    // error: SWALLOWED — one user's throw doesn't stop the others, but unlike createListener it isn't logged
     for (const u of users) { try { u.onChunk(mid, wallMs, side) } catch (e) { /* one user's failure doesn't stop the other */ } }
   }
   return function createShared(opts) {

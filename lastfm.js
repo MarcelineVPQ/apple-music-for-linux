@@ -15,6 +15,7 @@ class LastFm {
     try {
       this.config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
     } catch (e) {
+      // error: NOT-WORTH — no file yet (or unreadable): not configured; Connect in Settings says what to do
       this.config = {}
     }
   }

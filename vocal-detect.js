@@ -56,20 +56,22 @@ function makeFft(n) {
   const levels = Math.round(Math.log2(n))
   if (1 << levels !== n) throw new Error('fft size must be a power of two')
   const rev = new Uint32Array(n)
+  // loop: NOT-WORTH — the FFT tables (n = 1024), once per detector
   for (let i = 0; i < n; i++) {
     let r = 0
     for (let b = 0; b < levels; b++) r |= ((i >>> b) & 1) << (levels - 1 - b)
     rev[i] = r
   }
   const cos = new Float64Array(n / 2), sin = new Float64Array(n / 2)
+  // loop: NOT-WORTH — once per detector
   for (let i = 0; i < n / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / n); sin[i] = -Math.sin(2 * Math.PI * i / n) }
   return function fft(re, im) {
-    // loop: bit-reversal permutation, n steps
+    // loop: HOT-PATH-OK — bit-reversal permutation, n = 1024 steps, per analysis frame (~86/s while listening)
     for (let i = 0; i < n; i++) {
       const j = rev[i]
       if (j > i) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t }
     }
-    // loop: log2(n) butterfly stages, n/2 butterflies each
+    // loop: HOT-PATH-OK — log2(n) = 10 butterfly stages, n/2 butterflies each, per analysis frame; no allocation
     for (let size = 2; size <= n; size <<= 1) {
       const half = size >>> 1, step = n / size
       for (let start = 0; start < n; start += size) {
@@ -99,6 +101,7 @@ function createVocalDetector(opts = {}) {
   const hopSec = H / sr
   const fft = makeFft(N)
   const win = new Float64Array(N)
+  // loop: NOT-WORTH — the window table, once per detector
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N)
   const k0 = Math.max(1, Math.floor(P.bandLo * N / sr)), k1 = Math.min(N / 2 - 1, Math.ceil(P.bandHi * N / sr))
   const B = k1 - k0 + 1
@@ -122,6 +125,7 @@ function createVocalDetector(opts = {}) {
     fluxN = 0; fluxPos = 0; levelN = 0; levelPos = 0
     cand = []; lastOnset = -Infinity; voicedRun = null
     onsetsOut = []; voicedOut = []
+    // loop: NOT-WORTH — ~10 + 3 small arrays, per reset (song start or seek)
     for (const y of ylog) y.fill(0)
     for (const c of cmag) c.fill(0)
   }
@@ -132,6 +136,7 @@ function createVocalDetector(opts = {}) {
   function frameTime(f) { return frameTimes[f % frameTimes.length] }
 
   function processFrame(tCentre) {
+    // loop: HOT-PATH-OK — N = 1024 samples windowed, per analysis frame (~86/s while listening), no allocation
     for (let i = 0; i < N; i++) { re[i] = midBuf[i] * win[i]; im[i] = channels === 2 ? sideBuf[i] * win[i] : 0 }
     fft(re, im)
     const f = frameNo++
@@ -139,7 +144,7 @@ function createVocalDetector(opts = {}) {
     const y = ylog[f % HIST]
     const c = cmag[f % 3]
     let sum = 0
-    // loop: vocal-band bins (~150 at 22050 Hz)
+    // loop: HOT-PATH-OK — vocal-band bins (~150 at 22050 Hz), per analysis frame
     for (let b = 0; b < B; b++) {
       const k = k0 + b
       let mag
@@ -159,6 +164,7 @@ function createVocalDetector(opts = {}) {
     const mean = sum / B
     refLevel = refLevel ? refLevel * 0.995 + mean * 0.005 : mean
     const ref = refLevel + 1e-9
+    // loop: HOT-PATH-OK — the band bins (~150), per analysis frame
     for (let b = 0; b < B; b++) y[b] = Math.log1p(10 * c[b] / ref)
 
     if (f >= HIST - 1) onsetStep(f - P.persist)
@@ -170,6 +176,7 @@ function createVocalDetector(opts = {}) {
   // max of the previous frames (±1 bin), 0 if it fell.
   function rise(hist, g, b) {
     let lo = Infinity, top = 0, fall = 0
+    // loop: HOT-PATH-OK — persist (7) then maxBack (2) frames, per bin per analysis frame (~1,350 steps/frame)
     for (let p = 0; p <= P.persist; p++) {
       const v = hist[(g + p) % HIST][b]
       if (v < lo) lo = v
@@ -178,6 +185,7 @@ function createVocalDetector(opts = {}) {
     }
     if (fall > P.decayMax) return 0                  // falls fast after its peak: a hit, not a note
     let hi = 0
+    // loop: HOT-PATH-OK — maxBack (2) frames, as above
     for (let p = 1; p <= P.maxBack; p++) {
       const yy = hist[(g - p) % HIST]
       const v = Math.max(yy[b], b > 0 ? yy[b - 1] : 0, b < B - 1 ? yy[b + 1] : 0)
@@ -188,7 +196,7 @@ function createVocalDetector(opts = {}) {
 
   function onsetStep(g) {
     let flux = 0
-    // loop: band bins × (persist + maxBack) frames
+    // loop: HOT-PATH-OK — band bins × (persist + maxBack) frames
     for (let b = 0; b < B; b++) flux += rise(ylog, g, b)
     flux /= B
     // adaptive threshold from the past window (median + K·MAD), refreshed every 4 frames.
@@ -197,6 +205,8 @@ function createVocalDetector(opts = {}) {
     if (n < 8) thrNow = P.thrMin
     else if (g % 4 === 0) {
       const med = median(fluxHist, n)
+      // loop: HOT-PATH-OK — the threshold window (~130 values), every 4th frame; median() copies and sorts
+      // ~130 numbers twice there (~20 small sorts/s while listening)
       for (let i = 0; i < n; i++) devScratch[i] = Math.abs(fluxHist[i] - med)
       const mad = median(devScratch, n)
       thrNow = Math.max(P.thrMin, med + P.thrK * mad)
@@ -205,7 +215,7 @@ function createVocalDetector(opts = {}) {
     fluxHist[fluxPos] = flux; fluxPos = (fluxPos + 1) % thrLen; if (fluxN < thrLen) fluxN++
     cand.push({ t: frameTime(g), flux, thr })
     // peak picking once peakHalf frames of look-ahead exist
-    // loop: drains cand down to 2·peakHalf+1 entries; at most a few per frame
+    // loop: HOT-PATH-OK — drains cand down to 2·peakHalf+1 entries; at most a few per frame, each over ≤ 7 candidates
     while (cand.length >= 2 * P.peakHalf + 1) {
       const c = cand[P.peakHalf]
       let isMax = true
@@ -224,9 +234,10 @@ function createVocalDetector(opts = {}) {
   // Voicing of frame g (uses frames g−1, g, g+1).
   function voicedStep(g) {
     const a = cmag[(g + 2) % 3], b0 = cmag[g % 3], c2 = cmag[(g + 1) % 3]
+    // loop: HOT-PATH-OK — the band bins (~150), per analysis frame
     for (let b = 0; b < B; b++) cmin[b] = Math.min(a[b], b0[b], c2[b])
     let total = 0, tonal = 0
-    // loop: band bins with a ±4-bin running sum
+    // loop: HOT-PATH-OK — band bins with a ±4-bin running sum (~150 + 4), per analysis frame
     let win9 = 0
     for (let b = 0; b < Math.min(B, 4); b++) win9 += cmin[b] * cmin[b]
     for (let b = 0; b < B; b++) {
@@ -293,7 +304,7 @@ function createVocalDetector(opts = {}) {
       onsetsOut = pending.onsets; voicedOut = pending.voiced
     }
     let t = typeof t0 === 'number' ? t0 : (nextT != null ? nextT : 0)
-    // loop: one step per sample frame of the chunk; a window is analysed every H samples
+    // loop: HOT-PATH-OK — one step per sample frame of the chunk (~440 per chunk); a window is analysed every H samples
     for (let i = 0; i < frames; i++) {
       let m, s = 0
       if (channels === 2) {

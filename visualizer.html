@@ -98,13 +98,14 @@
     H = canvas.height = Math.floor(innerHeight * dpr)
     ctx.clearRect(0, 0, W, H)
   }
-  // lifetime: resize + ipcRenderer listeners below are added once at load and die with the window
+  // lifetime: OK — resize + ipcRenderer listeners below are added once at load and die with the window
   addEventListener('resize', resize); resize()
 
   // --- realtime band data + derived audio metrics ---
   let bands = [], shown = []
   window.__frames = 0
   ipcRenderer.on('viz-bands', (e, b) => { bands = b; window.__frames++; if (shown.length !== b.length) shown = b.slice() })
+  // loop: HOT-PATH-OK — three passes over the bands (n ≈ 48) per animation frame; no allocation
   function stepBands() {
     const n = shown.length
     for (let i = 0; i < n; i++) shown[i] += ((bands[i] || 0) - shown[i]) * 0.35
@@ -134,6 +135,7 @@
   }
 
   // --- now playing + synced lyrics ---
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('viz-nowplaying', (e, s) => {
     if (!s) return
     document.getElementById('title').textContent = s.title || 'Not playing'
@@ -143,7 +145,8 @@
     art.style.display = s.artwork ? '' : 'none'
   })
   // the lyrics: the same engine and data as the lyrics window (lyrics-view.js), laid out as a stage
-  // loop: its word/dot animation loop lives in lyrics-view.js (woken per word change, not per frame)
+  // loop: HOT-PATH-OK — its word/dot animation loop lives in lyrics-view.js (woken per word change, not per frame)
+  // lifetime: OK — the four lyrics listeners below are added once at load, released with the window
   const lyricsView = require('./lyrics-view').createLyricsView({ container: document.getElementById('lyrics'), layout: 'stage' })
   ipcRenderer.on('lyrics-data', (e, data) => lyricsView.setData(data))
   ipcRenderer.on('lyrics-time', (e, t, playing) => lyricsView.setTime(t, playing))
@@ -153,6 +156,7 @@
   // the sung word in the album's accents, lifted to 4.5:1 on the dark stage (theme.js stageText):
   // singer 1, singer 2 in a duet, and lines sung together (their halfway hue)
   const T = require('./theme')
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('palette', (e, p) => {
     const r = document.documentElement.style
     if (!p || !p.accent) { for (const k of ['--active', '--active-2', '--active-mix']) r.removeProperty(k); return }   // loop: NOT-WORTH — 3 properties
@@ -166,6 +170,7 @@
   // --- mode system ---
   const MODES = ['bars', 'aurora', 'nebula', 'toast']
   let modeIdx = 0
+  // error: NOT-WORTH — storage unavailable (a private profile): the first scene is shown
   try { const s = localStorage.getItem('viz-mode'); if (s && MODES.includes(s)) modeIdx = MODES.indexOf(s) } catch (e) {}
   const labelEl = document.getElementById('mode-label')
   let labelTimer = null
@@ -173,17 +178,18 @@
     labelEl.textContent = MODES[modeIdx]
     labelEl.style.opacity = '0.85'
     clearTimeout(labelTimer)
-    // loop: mode-label fade · 1400 ms one-shot · after a mode switch · cleared before re-arming · cost ~0
+    // loop: NOT-WORTH — mode-label fade · 1400 ms one-shot · after a mode switch · cleared before re-arming · cost ~0
     labelTimer = setTimeout(() => { labelEl.style.opacity = '0' }, 1400)
   }
   function setMode(i) {
     modeIdx = (i + MODES.length) % MODES.length
-    try { localStorage.setItem('viz-mode', MODES[modeIdx]) } catch (e) {}
+    try { localStorage.setItem('viz-mode', MODES[modeIdx]) } catch (e) {}   // error: NOT-WORTH — storage unavailable: the scene isn't remembered for next time
     ctx.clearRect(0, 0, W, H)
     aurora.streamers = null; nebula.parts = null; toast.reset = true   // re-seed on entry (toast: empty sky)
     showLabel()
   }
   window.__mode = () => MODES[modeIdx]   // for testing
+  // lifetime: OK — the page's key and click handlers, set once, released with the window
   document.onkeydown = (e) => {
     if (e.key === 'Escape') ipcRenderer.send('viz-close')
     else if (e.key === 'ArrowRight') setMode(modeIdx + 1)
@@ -215,6 +221,7 @@
     const n = a.n; if (!n) return
     const gap = W * 0.004, bw = (W - gap * (n - 1)) / n
     const baseY = H * 0.82, maxH = H * 0.6
+    // loop: FIX-HOT-PATH — one pass over the bands (n ≈ 48) per frame, but it makes two canvas gradients per bar per frame (~96 allocations/frame)
     for (let i = 0; i < n; i++) {
       const v = shown[i], h = Math.max(2 * dpr, v * maxH), x = i * (bw + gap)
       const hue = 320 - (i / n) * 70
@@ -235,6 +242,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.09)'; ctx.fillRect(0, 0, W, H)   // gentle trails
     if (!aurora.streamers) {
       aurora.streamers = []
+      // loop: NOT-WORTH — 6 streamers, once per scene entry
       for (let i = 0; i < 6; i++) aurora.streamers.push({
         px: Math.random() * 6.28, py: Math.random() * 6.28,
         sx: 0.06 + Math.random() * 0.05, sy: 0.05 + Math.random() * 0.05,
@@ -243,6 +251,7 @@
     }
     aurora.t += 0.016 * (0.6 + a.energy * 2.4)     // music quickens the drift
     ctx.globalCompositeOperation = 'lighter'
+    // loop: HOT-PATH-OK — 6 streamers per frame, two radial gradients each (12 per frame)
     for (const s of aurora.streamers) {
       const t = aurora.t
       const x = W * (0.5 + 0.44 * Math.sin(t * s.sx + s.px))
@@ -261,6 +270,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.20)'; ctx.fillRect(0, 0, W, H)
     if (!nebula.parts) {
       nebula.parts = []
+      // loop: NOT-WORTH — 240 particles, once per scene entry
       for (let i = 0; i < 240; i++) nebula.parts.push({
         ang: Math.random() * 6.28,
         rad: 0.12 + Math.random() * 0.9,          // fills center-to-edge: a cloud, not a ring
@@ -275,6 +285,7 @@
     // always a substantial cloud; bass/beat make it breathe outward
     const base = Math.min(W, H) * (0.30 + a.bass * 0.32 + nebula.pulse * 0.12)
     ctx.globalCompositeOperation = 'lighter'
+    // loop: FIX-HOT-PATH — 240 particles per frame, each a new radial gradient (glow): 240 gradient allocations per frame
     for (const p of nebula.parts) {
       p.ang += p.spd * (1 + a.energy * 2); p.wob += 0.03
       const bandV = shown[p.band] || 0
@@ -298,10 +309,10 @@
   // (tempo, energy) and nudges everyone's speed. The 8 flap frames and the toast are loaded once; a
   // frame is one drawImage per visible flyer (smoothed, scaled to the screen height).
   const TOASTERS = require('./toasters')
-  // lifetime: the 9 images are loaded once at page load and live as long as the window
+  // lifetime: OK — the 9 images are loaded once at page load and live as long as the window
   function loadImage(src) { const img = new Image(); img.src = src; return img }
   const toastImages = { frames: TOASTERS.TOASTER_FILES.map(loadImage), slice: loadImage(TOASTERS.TOAST_FILE) }
-  // lifetime: toast.fl (the flyer pool) is made on the first toast frame and kept for the window's life;
+  // lifetime: OK — toast.fl (the flyer pool) is made on the first toast frame and kept for the window's life;
   // a scene (re)entry empties the sky in place (resetFlight), a resize rescales it (resizeFlight)
   const toast = { fl: null, reset: true, k: 1, w: 0, h: 0, sw: 0, sh: 0, speed: 1, last: 0, time: 0 }
   function sizeToast() {
@@ -336,11 +347,12 @@
     TOASTERS.stepFlight(fl, dt, toast.speed, flapRate)
     // draw slowest (farthest) first, so faster flyers land on top; no allocation per frame
     const pool = fl.pool, order = fl.order, k = toast.k
+    // loop: HOT-PATH-OK — the flyer pool (~50) per frame, one drawImage per visible flyer, no allocation
     for (let i = 0; i < order.length; i++) {
       const f = pool[order[i]]
       if (!f.active) continue
       const img = f.toast ? toastImages.slice : toastImages.frames[TOASTERS.flapFrame(f.flap)]
-      if (!img.naturalWidth) continue          // error: still loading or failed: skip, never throw
+      if (!img.naturalWidth) continue          // error: NOT-WORTH — still loading or failed: skip, never throw
       if (f.toast) {
         const tw = Math.round(TOASTERS.TOAST_SIZE.w * k * f.scale), th = Math.round(TOASTERS.TOAST_SIZE.h * k * f.scale)
         if (f.x - tw >= W || f.y - th >= H || f.x + tw <= 0 || f.y + th <= 0) continue
@@ -359,17 +371,18 @@
   }
 
   const RENDER = { bars: renderBars, aurora: renderAurora, nebula: renderNebula, toast: renderToast }
-  // loop: render loop · requestAnimationFrame (display rate) · runs while the visualizer window is visible ·
+  // loop: HOT-PATH-OK — render loop · requestAnimationFrame (display rate) · runs while the visualizer window is visible ·
   // Chromium stops rAF when the window is hidden/minimized/occluded and the loop ends with the window · cost one
   // 2D canvas frame (dpr capped at 1.5). Left as is: the ambient modes animate even when paused, by design.
   // Toast scene per frame: one stepFlight over a fixed flyer pool (~50 at any size, no allocation) and one
   // cached-frame drawImage per visible flyer; launches cost a few distance checks, only when one launches.
-  // error: drawImage throws on a broken image, which would end this loop; renderToast skips sprites that
+  // error: NOT-WORTH — drawImage throws on a broken image, which would end this loop; renderToast skips sprites that
   // have no pixels (still loading or failed), so a missing file leaves an empty sky, not a dead visualizer.
   function frame() {
     const a = stepBands()
     detectBeat(a)
     RENDER[MODES[modeIdx]](a)
+    // lifetime: OK — one pending frame at a time; Chromium holds it while hidden, it ends with the window
     requestAnimationFrame(frame)
   }
   frame()

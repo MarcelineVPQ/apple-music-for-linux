@@ -157,6 +157,7 @@ function fillSpan(fl) {
 function resetFlight(fl) {
   fl.time = 0
   const span = fillSpan(fl)
+  // loop: NOT-WORTH — the pool (~50 flyers), once per scene (re)entry
   for (const f of fl.pool) {
     f.active = false
     f.born = -1
@@ -172,11 +173,13 @@ function resetFlight(fl) {
 function resizeFlight(fl, W, H, sw, sh) {
   if (fl.W && fl.H && (fl.W !== W || fl.H !== H)) {
     const kx = W / fl.W, ky = H / fl.H
+    // loop: NOT-WORTH — the pool (~50), once per window resize
     for (const f of fl.pool) { f.x *= kx; f.y *= ky }
   }
   fl.W = W; fl.H = H; fl.sw = sw; fl.sh = sh
   fl.limit = poolSize(W, H, sw, sh)
   const span = fillSpan(fl)
+  // loop: NOT-WORTH — grows the pool to its new size (≤ ~50 new flyers), once per resize
   while (fl.pool.length < fl.limit) {
     const f = newFlyer(fl.pool.length)
     f.wait = fl.rand() * span
@@ -189,6 +192,7 @@ function resizeFlight(fl, W, H, sw, sh) {
 function placeInOrder(fl, f, isNew) {
   const o = fl.order
   let i = isNew ? o.push(f.id) - 1 : o.indexOf(f.id)
+  // loop: HOT-PATH-OK — one insertion-sort step over the order (≤ ~50), per launch only
   while (i > 0 && fl.pool[o[i - 1]].cruise > f.cruise) { o[i] = o[i - 1]; o[--i] = f.id }
   while (i < o.length - 1 && fl.pool[o[i + 1]].cruise < f.cruise) { o[i] = o[i + 1]; o[++i] = f.id }
 }
@@ -197,6 +201,7 @@ function placeInOrder(fl, f, isNew) {
 function nearest(fl, x, y) {
   let best = Infinity
   const pool = fl.pool
+  // loop: HOT-PATH-OK — the pool (~50 flyers) per tried spot, only for a flyer whose wait ran out
   for (let i = 0; i < pool.length; i++) {
     const g = pool[i]
     if (!g.active) continue
@@ -207,7 +212,7 @@ function nearest(fl, x, y) {
 }
 
 // try to launch f: the free-est of SPAWN_TRIES spots along the launch line, or wait a moment
-// loop: launch retry · every 0.12–0.3 s of scene time · while every tried spot is within MIN_SEP of a
+// loop: HOT-PATH-OK — launch retry · every 0.12–0.3 s of scene time · while every tried spot is within MIN_SEP of a
 // flyer · ends when the edge clears (flyers there move on within a second) · cost SPAWN_TRIES × pool
 // distance checks per try, only for a flyer whose wait ran out
 function launch(fl, f) {
@@ -246,6 +251,7 @@ function stepFlight(fl, dt, speedMul = 1, flapRate = 1) {
   const v = CRUISE * fl.sh * speedMul
   const W = fl.W, H = fl.H, sw = fl.sw, sh = fl.sh
   const pool = fl.pool
+  // loop: HOT-PATH-OK — two passes over the pool (~50 flyers) per animation frame while the toast scene shows; no allocation
   for (let i = 0; i < pool.length; i++) {
     const f = pool[i]
     if (!f.active) continue
@@ -259,6 +265,7 @@ function stepFlight(fl, dt, speedMul = 1, flapRate = 1) {
       f.wait = reentryDelay(fl.rand)
     }
   }
+  // loop: HOT-PATH-OK — the second pass: waiting flyers count down, launches (see above)
   for (let i = 0; i < pool.length; i++) {
     const f = pool[i]
     if (f.active || i >= fl.limit) continue
@@ -270,6 +277,7 @@ function stepFlight(fl, dt, speedMul = 1, flapRate = 1) {
 /** Flyers whose centre is on screen. */
 function onScreen(fl) {
   let n = 0
+  // loop: NOT-WORTH — the pool (~50); used by the tests, not per frame
   for (const f of fl.pool) if (f.active && f.x >= 0 && f.x < fl.W && f.y >= 0 && f.y < fl.H) n++
   return n
 }

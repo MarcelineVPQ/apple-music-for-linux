@@ -49,6 +49,7 @@ function extractPalette(data, opts) {
   const bn = new Uint32Array(36)
   const pixels = data.length / 4
   const step = 4 * Math.max(1, Math.floor(pixels / 4096))   // sample up to ~4096 px
+  // loop: NOT-WORTH — 1,024 pixels (32×32), once per track change
   for (let i = 0; i + 3 < data.length; i += step) {
     const r = data[i + (bgra ? 2 : 0)], g = data[i + 1], b = data[i + (bgra ? 0 : 2)], a = data[i + 3]
     if (a < 200) continue

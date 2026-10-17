@@ -70,7 +70,7 @@ function alignedLines(lines, msg, key) {
   if (!msg || msg.key !== key || !msg.lines || typeof msg.lines !== 'object') return null
   const next = lines.slice()
   const changed = []
-  // loop: one pass over the message's lines (at most the song's line count) · per 'lyrics-aligned' message
+  // loop: NOT-WORTH — one pass over the message's lines (at most the song's line count) · per 'lyrics-aligned' message
   for (const [k, a] of Object.entries(msg.lines)) {
     const i = Number(k)
     const line = next[i]
@@ -145,6 +145,7 @@ function createLyricsView(opts) {
 
   function wordSpans(parent, words) {
     const spans = []
+    // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
     words.forEach((w, i) => {
       if (i) parent.appendChild(doc.createTextNode(' '))
       const span = doc.createElement('span')
@@ -171,7 +172,7 @@ function createLyricsView(opts) {
     return spans
   }
 
-  // lifetime: setData replaces the container's children, so old line, word and dot elements and
+  // lifetime: OK — setData replaces the container's children, so old line, word and dot elements and
   // their onclick closures are dropped per track
   function setData(data) {
     const prep = prepare(data)
@@ -205,6 +206,7 @@ function createLyricsView(opts) {
     const gaps = prep.gaps
     let g = 0
     container.innerHTML = ''
+    // loop: NOT-WORTH — the song's lines (and the countdowns before them), once per track
     lines.forEach((line, i) => {
       while (g < gaps.length && gaps[g].index === i) {
         const dots = doc.createElement('div')
@@ -232,6 +234,7 @@ function createLyricsView(opts) {
         el.appendChild(bg)
       }
       if (line.t !== null && opts.onSeek) {
+        // lifetime: OK — one click handler per line, dropped with the line on the next setData
         el.onclick = () => {
           opts.onSeek(line.t)
           clock = T.seekClock(clock, line.t, performance.now())
@@ -281,7 +284,7 @@ function createLyricsView(opts) {
     const got = alignedLines(lines, msg, songKey)
     if (!got) return
     lines = got.lines
-    // loop: the aligned lines (at most the song's line count) · per 'lyrics-aligned' message
+    // loop: NOT-WORTH — the aligned lines (at most the song's line count) · per 'lyrics-aligned' message
     for (const i of got.changed) {
       lines[i] = S.lineWithSyllables(lines[i], hyphenate)
       if (lineEls[i]) lineEls[i].pos = null
@@ -297,7 +300,7 @@ function createLyricsView(opts) {
   function relearn() {
     const next = learnFrom(lines)
     if (next === lines) return
-    // loop: one pass over the song's lines · per 'lyrics-refined' / 'lyrics-aligned' message
+    // loop: NOT-WORTH — one pass over the song's lines · per 'lyrics-refined' / 'lyrics-aligned' message
     for (let i = 0; i < next.length; i++) {
       if (next[i] === lines[i]) continue
       lines[i] = S.lineWithSyllables(next[i], hyphenate)
@@ -325,7 +328,7 @@ function createLyricsView(opts) {
   function paintWords(spans, words, time, last, side) {
     const pos = wordState(words, time)
     if (last && last.k === pos.k && last.now === pos.now && last.syl === pos.syl && last.hold === pos.hold) return last
-    // loop: syllables to reset · the previous word's (a handful) per word/syllable change; the whole
+    // loop: HOT-PATH-OK — syllables to reset · the previous word's (a handful) per word/syllable change; the whole
     // line's only when it (re)lights (last null: a seek may have left one marked)
     if (!last) {
       for (const sp of spans) if (sp.syl) for (const s of sp.syl) s.classList.remove('now')
@@ -343,6 +346,7 @@ function createLyricsView(opts) {
       }
       else if (!stage) span.style.transformOrigin = origin
     }
+    // loop: HOT-PATH-OK — one line's words (~5-12) per word/syllable change (returns above when nothing moved)
     for (let i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('sung', i < pos.k && i !== pos.now)
       spans[i].classList.toggle('now', i === pos.now)
@@ -357,6 +361,7 @@ function createLyricsView(opts) {
     const { latest, live: liveNow } = T.liveLines(lines, time)
     // during an interlude nobody sings: the dots take the next line's place
     const next = new Set(gi >= 0 ? [] : liveNow)
+    // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
     for (const i of live) if (!next.has(i)) lineEls[i].el.classList.remove('active')
     for (const i of next) {
       const e = lineEls[i]
@@ -373,6 +378,7 @@ function createLyricsView(opts) {
     if (gi >= 0) {
       const g = interludes[gi]
       const { fills, exit } = T.interludeProgress(g, time)
+      // loop: HOT-PATH-OK — 3 dots per frame, only while a countdown shows
       for (let d = 0; d < 3; d++) {
         g.dots[d].style.opacity = String(0.25 + 0.75 * fills[d])
         g.dots[d].style.transform = 'scale(' + (0.8 + 0.2 * fills[d]).toFixed(3) + ')'
@@ -398,7 +404,7 @@ function createLyricsView(opts) {
     }
   }
 
-  // loop: lyrics word/dot animation · requestAnimationFrame, woken by a setTimeout at the next word/line
+  // loop: HOT-PATH-OK — lyrics word/dot animation · requestAnimationFrame, woken by a setTimeout at the next word/line
   // change (every frame only while a countdown is showing) · runs only while this window is visible, the
   // song is playing and the lyrics have word timing (or a countdown is showing) · stops when hidden
   // (visibilitychange), paused (isPlaying false or the time stops moving), on a new track, or when no
@@ -408,6 +414,8 @@ function createLyricsView(opts) {
     return doc.visibilityState === 'visible' && !!clock && clock.playing &&
       lines.length > 0 && lines[0].t !== null && (wordTimed || shownInterlude >= 0)
   }
+  // lifetime: OK — at most one rAF or one wake-up timeout pending (raf / wake); stopFrames cancels both on
+  // every replan, a new track, hidden and pause
   function schedule(time) {
     if (shownInterlude >= 0) { raf = requestAnimationFrame(frame); return }
     const wait = T.nextChange(lines, time, WORD_LEAD)
@@ -440,7 +448,7 @@ function createLyricsView(opts) {
     updateFrames()   // re-plans the next wake-up from the resynced clock
   }
 
-  // lifetime: one listener per view, views live as long as their window
+  // lifetime: OK — one listener per view, released with its window (views live as long as their window)
   doc.addEventListener('visibilitychange', () => {
     if (doc.visibilityState === 'visible' && clock) render(T.clockTime(clock, performance.now()))
     updateFrames()

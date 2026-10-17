@@ -145,7 +145,7 @@ async function verifyDownload(filePath, update) {
     throw new Error(`update refused: download is ${size} bytes, the feed says ${update.size}`)
   }
   const h = crypto.createHash(update.hash.algo)
-  // loop: stream read of one AppImage (~125 MB) · 64 KB chunks · once per new version · ends at EOF
+  // loop: SERIAL-REQUIRED — the hash is sequential; stream read of one AppImage (~125 MB) · 64 KB chunks · once per new version · ends at EOF
   // error: PASSES-ON — a read error rejects; the caller deletes the .part file and logs
   for await (const chunk of fs.createReadStream(filePath)) h.update(chunk)
   const digest = h.digest(update.hash.encoding)

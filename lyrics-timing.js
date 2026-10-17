@@ -9,6 +9,7 @@ const LINE_LEAD = 0.2       // lines light up this early (as before)
 // without word stamps a guess (LRC_LINE_GUESS or the next start, whichever is shorter).
 function lineEnd(line, next) {
   let end = line.end != null ? line.end : null
+  // loop: HOT-PATH-OK — two lists (words, background), called per view update for a few live lines
   for (const list of [line.words, line.bg]) {
     if (list && list.length) end = Math.max(end === null ? -Infinity : end, list[list.length - 1].end)
   }
@@ -25,6 +26,7 @@ function findInterludes(lines, min = INTERLUDE_MIN) {
   if (!lines || !lines.length || lines[0].t == null) return []
   const out = []
   let sungUntil = 0
+  // loop: NOT-WORTH — the song's lines, once per lyrics data
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (line.t - sungUntil >= min) out.push({ index: i, start: sungUntil, end: line.t })
@@ -35,6 +37,7 @@ function findInterludes(lines, min = INTERLUDE_MIN) {
 
 /** The interlude playing at `time` (-1 if none). It ends when the next line lights up. */
 function interludeAt(interludes, time) {
+  // loop: HOT-PATH-OK — the song's interludes (a few), per view update
   for (let i = 0; i < interludes.length; i++) {
     const g = interludes[i]
     if (time >= g.start && time + LINE_LEAD < g.end) return i
@@ -51,6 +54,7 @@ function interludeProgress(g, time, dots = 3) {
   const span = Math.max(0.001, end - g.start - 0.6)
   const p = Math.min(1, Math.max(0, (time - g.start) / span))
   const fills = []
+  // loop: HOT-PATH-OK — 3 dots, per frame only while an interlude shows
   for (let i = 0; i < dots; i++) fills.push(Math.min(1, Math.max(0, p * dots - i)))
   const exit = Math.min(1, Math.max(0, (end - time) / 0.6))
   return { fills, exit }
@@ -62,6 +66,7 @@ function interludeProgress(g, time, dots = 3) {
  */
 function wordPos(words, time) {
   let k = 0
+  // loop: HOT-PATH-OK — one line's words (≤ ~15), per frame while a word is being sung
   while (k < words.length && words[k].t <= time) k++
   const now = k > 0 && time < words[k - 1].end ? k - 1 : -1
   return { k, now }
@@ -70,6 +75,7 @@ function wordPos(words, time) {
 /** The line that lit up last at `time` (-1 before the first): same rule as before. */
 function latestLine(lines, time) {
   let index = -1
+  // loop: HOT-PATH-OK — the song's lines (tens), stops at the first future line; per view update
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].t <= time + LINE_LEAD) index = i
     else break
@@ -84,6 +90,7 @@ function latestLine(lines, time) {
 function liveLines(lines, time) {
   const latest = latestLine(lines, time)
   const live = []
+  // loop: HOT-PATH-OK — at most 3 earlier lines, per view update
   for (let i = Math.max(0, latest - 3); i < latest; i++) {
     if (time < lineEnd(lines[i], lines[i + 1])) live.push(i)
   }
@@ -99,6 +106,7 @@ function nextChange(lines, time, lead = 0) {
   let best = Infinity
   const consider = (at) => { if (at > time && at - time < best) best = at - time }
   const latest = latestLine(lines, time)
+  // loop: HOT-PATH-OK — ≤ 5 lines × their words and syllables (tens), once per change (the view sleeps until then)
   for (let i = Math.max(0, latest - 3); i <= latest + 1 && i < lines.length; i++) {
     const line = lines[i]
     if (line.t == null) continue
@@ -109,7 +117,7 @@ function nextChange(lines, time, lead = 0) {
       for (const w of list) {
         consider(w.t - lead); consider(w.end - lead)
         if (w.held || w.holdFrom != null) consider((w.holdFrom != null ? w.holdFrom : w.t) + SUSTAIN_AFTER - lead)
-        // loop: a word's syllables (a handful) · only Apple words timed in several spans
+        // loop: HOT-PATH-OK — a word's syllables (a handful) · only Apple words timed in several spans
         if (w.syl) for (const y of w.syl) { consider(y.t - lead); consider(y.end - lead) }
       }
     }
@@ -200,7 +208,7 @@ function clampPace(p) { return p < PACE_MIN ? PACE_MIN : p > PACE_MAX ? PACE_MAX
 /** The song's pace from its line times alone (s per weight unit). */
 function songPace(lines) {
   const r = []
-  // loop: one pass over the song's lines · once per estimate
+  // loop: NOT-WORTH — one pass over the song's lines · once per estimate
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].t == null) continue
     const w = lineWeight(lineParts(lines[i]))
@@ -220,7 +228,7 @@ function songPace(lines) {
  */
 function learnedPace(lines) {
   const r = []
-  // loop: one pass over the song's lines · per estimate / alignment / refine message
+  // loop: NOT-WORTH — one pass over the song's lines · per estimate / alignment / refine message
   for (const line of lines || []) {
     if (!(line.aligned || line.refined) || line.repeat || !line.words || line.words.length < 3) continue
     const ws = line.words
@@ -253,7 +261,7 @@ const ONSET_SHARE = 0.4
  */
 function learnedOnset(lines) {
   const r = []
-  // loop: one pass over the song's lines · per estimate / alignment / refine message
+  // loop: NOT-WORTH — one pass over the song's lines · per estimate / alignment / refine message
   for (const line of lines || []) {
     if (!(line.aligned || line.refined) || line.repeat || line.t == null || !line.words || !line.words.length) continue
     const d = line.words[0].t - line.t
@@ -387,7 +395,7 @@ const HOLD_OVER = 0.6
 function boundHolds(lines) {
   if (!lines || !lines.length) return lines
   let out = lines
-  // loop: one pass over the song's lines · per lyrics data / alignment / refine message
+  // loop: NOT-WORTH — one pass over the song's lines · per lyrics data / alignment / refine message
   for (let i = 0; i < lines.length - 1; i++) {
     const line = lines[i]
     const next = lines[i + 1]
@@ -408,7 +416,7 @@ function boundHolds(lines) {
 function reuseRepeats(lines) {
   if (!lines || !lines.length) return lines
   const src = new Map()   // key -> { line, kind }
-  // loop: two passes over the song's lines · per estimate / alignment / refine message
+  // loop: NOT-WORTH — two passes over the song's lines · per estimate / alignment / refine message
   for (const line of lines) {
     if (line.repeat || !line.words || line.t == null || !(line.aligned || line.refined)) continue
     const key = repeatKey(line.text)
@@ -428,6 +436,7 @@ function reuseRepeats(lines) {
     const limit = next && next.t != null ? next.t : Infinity
     const words = s.line.words.map((w, k) => copyWord(w, shift, line.words[k].text, limit))
     if (words[words.length - 1].t >= limit - 0.05) return line
+    // loop: NOT-WORTH — one line's words, per repeated line
     for (const w of words) if (w.end <= w.t) w.end = w.t + 0.05
     changed = true
     return Object.assign({}, line, { words, repeat: s.kind, repeatOf: sig(s.line) })

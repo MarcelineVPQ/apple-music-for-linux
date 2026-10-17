@@ -16,6 +16,7 @@ function socketCandidates() {
     path.join(base, 'snap.discord')                   // snap
   ]
   const candidates = []
+  // loop: NOT-WORTH — 3 folders × 10 names, once per connect attempt (at most every 30 s while Discord is away)
   for (const dir of dirs) {
     for (let i = 0; i < 10; i++) {
       candidates.push(path.join(dir, 'discord-ipc-' + i))
@@ -48,27 +49,29 @@ class DiscordPresence {
           reject(new Error('Discord IPC socket not found — is Discord running?'))
           return
         }
-        // lifetime: one probe socket per candidate path; a failed probe errors and is destroyed by net.
-        // The probe's 'error' listener stays on the connected socket (theoretical: a later socket error
-        // would walk the remaining candidates). Left as is; never observed.
+        // lifetime: NOT-WORTH — one probe socket per candidate path; a failed probe errors and is destroyed
+        // by net. The probe's 'error' listener stays on the connected socket (theoretical: a later socket
+        // error would walk the remaining candidates). Left as is; never observed.
         const socket = net.createConnection(candidates[i])
         socket.on('connect', () => {
           this.socket = socket
+          // lifetime: OK — data/close/error listeners on the connected socket, gone with it (close() destroys it)
           socket.on('data', (chunk) => this.onData(chunk))
           socket.on('close', () => { this.ready = false; this.socket = null })
           socket.on('error', () => { this.ready = false; this.socket = null })
           this.awaitingReady = { resolve, reject }
           socket.write(encode(OP_HANDSHAKE, { v: 1, client_id: this.applicationId }))
         })
-        socket.on('error', () => tryNext(i + 1))
+        socket.on('error', () => tryNext(i + 1))   // lifetime: NOT-WORTH — see above (the probe's listener)
       }
       tryNext(0)
     })
   }
 
-  // lifetime: this.buffer only holds an incomplete frame; complete frames are sliced off, so it stays tiny
+  // lifetime: OK — this.buffer only holds an incomplete frame; complete frames are sliced off, so it stays tiny
   onData(chunk) {
     this.buffer = Buffer.concat([this.buffer, chunk])
+    // loop: NOT-WORTH — the whole frames in one chunk (usually one); Discord sends a few per track change
     while (this.buffer.length >= 8) {
       const op = this.buffer.readUInt32LE(0)
       const length = this.buffer.readUInt32LE(4)
@@ -77,7 +80,7 @@ class DiscordPresence {
       try {
         payload = JSON.parse(this.buffer.subarray(8, 8 + length).toString())
       } catch (e) {
-        // malformed frame — drop the connection rather than crash
+        // error: NOT-WORTH — malformed frame: drop the connection rather than crash; the 30 s reconnect tries again
         this.close()
         return
       }

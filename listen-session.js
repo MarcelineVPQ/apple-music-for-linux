@@ -108,10 +108,12 @@ function createListenSession(deps) {
     let input = mid
     if (side && side.length === mid.length) {
       input = new Float32Array(mid.length * 2)
-      // loop: one pass over the chunk's frames · ends with the chunk
+      // loop: HOT-PATH-OK — one pass over the chunk's frames (one parec chunk, ~1-2 k) per audio chunk while
+      // listening · ends with the chunk; the interleaved buffer is a new Float32Array per chunk (small, collected)
       for (let i = 0; i < mid.length; i++) { input[2 * i] = mid[i] + side[i]; input[2 * i + 1] = mid[i] - side[i] }
     }
     const res = detector.push(input, t0)
+    // loop: HOT-PATH-OK — the few onsets / voiced spans one chunk adds (0-3)
     if (res) {
       if (res.onsets) for (const o of res.onsets) { onsets.push(o); allOnsets.push(o) }
       if (res.voiced) for (const v of res.voiced) voiced.push(v)
@@ -137,7 +139,7 @@ function createListenSession(deps) {
   function processDue(now) {
     if (coveredFrom == null || expectNext == null) return
     const lines = song.base
-    // loop: due-line scan · per tick (2/s) · over the song's lines (tens) · cost trivial
+    // loop: HOT-PATH-OK — due-line scan · per tick (2/s) · over the song's lines (tens) · cost trivial
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
       if (song.done.has(i) || !line.estimated || !line.words || !line.words.length) continue
@@ -155,6 +157,7 @@ function createListenSession(deps) {
       // song gate: onsets during intro/interludes (guitar chugs in mono mixes) mean low trust
       const gate = deps.noiseRate ? deps.noiseRate(allOnsets, lines, now) : { rate: null }
       const opts = { nextStart: lines[i + 1] && lines[i + 1].t != null ? lines[i + 1].t : undefined, noiseRate: gate.rate, maxShift: MAX_SHIFT }
+      // error: LOGGED-OK — a refine that throws is logged; the line keeps its estimate
       try { res = deps.refineWords(line, evidence, opts) } catch (e) { log('refine failed: ' + e.message); continue }
       if (!res || !res.words || !sameWords(line.words, res.words) || !(res.confidence >= MIN_CONFIDENCE)) continue
       const entry = recordLearned(deps.store.get(learnedKey(song.title, song.artist)), i, line, res.words, deps.mergeLearned)

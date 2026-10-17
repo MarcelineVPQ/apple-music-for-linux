@@ -19,7 +19,7 @@
       clip: 'rect(0 0 0 0)', 'clip-path': 'inset(50%)', opacity: '0', 'pointer-events': 'none', 'z-index': '-1' }
     // loop: NOT-WORTH — 12 style properties, twice per page load
     for (const k in css) e.style.setProperty(k, css[k], 'important')
-    // lifetime: one focus listener per stop, for the document's life
+    // lifetime: OK — one focus listener per stop, released with the document
     // error: a focus not caused by the user (isTrusted false: a page script) is ignored
     e.addEventListener('focus', (ev) => { if (ev.isTrusted) bridge.toRail(where) })
     return e
@@ -29,7 +29,7 @@
 
   // the last real control focused in Apple's page (F6 comes back to it)
   let lastReal = null
-  // lifetime: one capturing focusin listener on Apple's document · one assignment per focus change
+  // lifetime: OK — one capturing focusin listener on Apple's document, released with it · one assignment per focus change
   doc.addEventListener('focusin', (e) => {
     const t = e.composedPath ? e.composedPath()[0] : e.target
     if (t && t.tagName !== 'SONATA-FOCUS') lastReal = t
@@ -54,7 +54,7 @@
   }
 
   // keep the two stops first and last in <body>
-  // loop: none · ONE MutationObserver, childList of <body> only (no subtree) · fires when Apple adds or
+  // lifetime: OK — ONE MutationObserver, childList of <body> only (no subtree) · fires when Apple adds or
   // removes a direct child of <body> (route shells, modals: a few per navigation, none while idle) ·
   // cost one or two element comparisons; moving a stop triggers one more no-op call · lives with the document
   const observer = new MutationObserver(place)
@@ -80,7 +80,7 @@
     const n = steps.feed(e.deltaY, e.deltaMode, e.timeStamp)
     if (n) bridge.volume(n)
   }
-  // lifetime: one capturing, passive pointerover listener on Apple's document · per element boundary
+  // lifetime: OK — one capturing, passive pointerover listener on Apple's document (released with it) · per element boundary
   // crossed, a walk up the event path (≤ ~25 elements) · adds one wheel listener per volume control
   // element, once (WeakSet), which lives and dies with that element
   if (W) doc.addEventListener('pointerover', (e) => {
@@ -91,7 +91,7 @@
       if (el.classList && el.classList.contains('chrome-volume')) {
         if (!hooked.has(el)) {
           hooked.add(el)
-          // lifetime: one wheel listener per volume control element (not passive: it stops the scroll)
+          // lifetime: OK — one wheel listener per volume control element, released with it (not passive: it stops the scroll)
           el.addEventListener('wheel', onVolumeWheel, { passive: false })
         }
         break

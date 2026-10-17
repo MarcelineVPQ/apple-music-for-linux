@@ -62,7 +62,7 @@
       })
       shownUrl = url
     }
-    // lifetime: one 'change' listener on each of the two media queries, for the page's life · fires on
+    // lifetime: OK — one 'change' listener on each of the two media queries, for the page's life · fires on
     // a theme switch (Ctrl+D, the desktop) or a reduced-transparency change only
     dark.addEventListener('change', render)
     plain.addEventListener('change', render)

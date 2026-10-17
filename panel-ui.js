@@ -101,7 +101,7 @@
     setAttr(b, 'aria-labelledby', label.id)
     setAttr(b, 'aria-describedby', desc.id)
     b.dataset.key = key
-    // lifetime: one click listener per switch, dropped with its section's body
+    // lifetime: OK — one click listener per switch, dropped with its section's body
     b.addEventListener('click', (e) => { if (e.isTrusted && !b.disabled) bridge.send('set', key, b.getAttribute('aria-checked') !== 'true') })
     return {
       el: r,
@@ -125,7 +125,7 @@
     setAttr(sel, 'aria-labelledby', label.id)
     setAttr(sel, 'aria-describedby', desc.id)
     sel.dataset.key = key
-    // lifetime: one change listener per select, dropped with its section's body
+    // lifetime: OK — one change listener per select, dropped with its section's body
     sel.addEventListener('change', (e) => { if (e.isTrusted) bridge.send('set', key, sel.value) })
     return {
       el: r,
@@ -148,7 +148,7 @@
     const made = buttons.map((d) => {
       const b = el('button', 'btn' + (d.primary ? ' primary' : ''))
       b.type = 'button'
-      // lifetime: one click listener per button, dropped with its section's body
+      // lifetime: OK — one click listener per button, dropped with its section's body
       b.addEventListener('click', (e) => { if (e.isTrusted && !b.disabled) bridge.send('action', d.action) })
       btns.appendChild(b)
       return { d, b }
@@ -188,7 +188,7 @@
     const a = el('a', cls || 'link', text)
     a.href = url
     setAttr(a, 'title', url)
-    // lifetime: one click listener per link, dropped with its body
+    // lifetime: OK — one click listener per link, dropped with its body
     a.addEventListener('click', (e) => { e.preventDefault(); if (e.isTrusted) bridge.send('open-link', url) })
     return a
   }
@@ -302,7 +302,7 @@
             else if (a.whatsNew.older.length) {
               const more = el('button', 'btn', 'Show older releases (' + a.whatsNew.older.length + ')')
               more.type = 'button'
-              // lifetime: one click listener, replaced with the body's content
+              // lifetime: OK — one click listener, replaced with the body's content
               more.addEventListener('click', () => { olderShown = true; shownKey = ''; this.update(S) })
               box.appendChild(more)
             }
@@ -413,7 +413,7 @@
         b.type = 'button'
         b.disabled = a.disabled
         if (a.tip) setAttr(b, 'title', a.tip)
-        // lifetime: one click listener per action button, dropped with the notice
+        // lifetime: OK — one click listener per action button, dropped with the notice
         b.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('notice-action', n.id, a.id) })
         acts.appendChild(b)
       }
@@ -421,7 +421,7 @@
     }
     if (n.closable) {
       const x = iconButton('icon-btn notice-x', 'close', 'Dismiss')
-      // lifetime: one click listener, dropped with the notice
+      // lifetime: OK — one click listener, dropped with the notice
       x.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('notice-dismiss', n.id) })
       box.appendChild(x)
     }
@@ -475,7 +475,7 @@
       bodyWrap.hidden = true
       root.append(headRow, bodyWrap)
       acc.appendChild(root)
-      // lifetime: one click listener on each header and pin, dropped with the page's accordion
+      // lifetime: OK — one click listener on each header and pin, dropped with the page's accordion
       toggle.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('acc', p, 'toggle', def.id) })
       pin.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('acc', p, 'pin', def.id) })
       return { id: def.id, def, root, toggle, pin, status, dot, bodyWrap, body: null }
@@ -576,7 +576,7 @@
     setAttr(menuBtn, 'aria-expanded', 'false')
     if (refocus) menuBtn.focus({ focusVisible: true })
   }
-  // lifetime: menu button click, menu click and keydown, one each for the page's life
+  // lifetime: OK — menu button click, menu click and keydown, one each for the page's life
   menuBtn.addEventListener('click', (e) => { if (!e.isTrusted) return; if (menu.hidden) openMenu(e.detail === 0); else closeMenu(false) })
   menu.addEventListener('click', (e) => {
     const b = e.target.closest ? e.target.closest('.menu-item') : null
@@ -595,7 +595,7 @@
   // --- keyboard: header arrows, Esc (drawer, menu), Tab out at either end to the next view ---
   const tabbables = () => [...panel.querySelectorAll('button, select, a[href], [tabindex="0"]')]
     .filter((x) => !x.disabled && x.tabIndex >= 0 && !x.closest('[hidden]') && x.getClientRects().length)
-  // lifetime: one keydown listener on the panel and one pointerdown on the document (closes the menu)
+  // lifetime: OK — one keydown listener on the panel and one pointerdown on the document (closes the menu)
   panel.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return
     if (e.key === 'Escape') {
@@ -618,7 +618,7 @@
       if (k >= 0) { e.preventDefault(); heads[k].focus({ focusVisible: true }) }
     }
   })
-  // lifetime: one pointerdown listener on the document for the page's life: a press outside the ⋮ menu closes it
+  // lifetime: OK — one pointerdown listener on the document for the page's life: a press outside the ⋮ menu closes it
   doc.addEventListener('pointerdown', (e) => { if (!menu.hidden && !menu.contains(e.target) && e.target !== menuBtn && !menuBtn.contains(e.target)) closeMenu(false) })
 
   bridge.onState((s) => { S = s; render() })

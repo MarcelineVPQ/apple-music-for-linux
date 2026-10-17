@@ -35,12 +35,14 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f)) {
 }
 
 function isInstalled(paths, io = fs) {
+  // error: NOT-WORTH — missing or not executable means "not installed", which Settings → Precise timing says
   try { io.accessSync(paths.python, fs.constants.X_OK); io.accessSync(paths.server, fs.constants.R_OK); return true } catch (e) { return false }
 }
 
 /** The helper's environment: ours minus anything an AppImage/Electron sets that would break the venv. */
 function helperEnv(env, home) {
   const out = Object.assign({}, env)
+  // loop: NOT-WORTH — six names, once per helper spawn
   for (const k of ['LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'ELECTRON_RUN_AS_NODE']) delete out[k]
   out.SONATA_ALIGN_HOME = home
   out.PYTHONUNBUFFERED = '1'
@@ -54,7 +56,8 @@ function lineParser(onMessage, onBad) {
   return (chunk) => {
     const parts = (rest + chunk).split('\n')
     rest = parts.pop()
-    // loop: one pass over the complete lines in this chunk · ends with the chunk
+    // loop: HOT-PATH-OK — one pass over the complete lines in this chunk (a few messages) · ends with the chunk
+    // error: LOGGED-OK — a non-JSON line goes to onBad (logged as "helper said"); the next line is read
     for (const line of parts) {
       if (!line.trim()) continue
       let msg
@@ -64,7 +67,10 @@ function lineParser(onMessage, onBad) {
   }
 }
 
-// lifetime: the live helper is in this Set until it exits; killed hard on process exit
+// lifetime: OK — the live helper is in this Set until it exits; killed hard on process exit. The one
+// 'exit' listener on process is added once at module load.
+// loop: NOT-WORTH — at most one live helper
+// error: NOT-WORTH — a kill of an already-gone process at exit has nothing left to do
 const live = new Set()
 process.on('exit', () => { for (const p of live) { try { p.kill('SIGKILL') } catch (e) {} } })
 
@@ -147,7 +153,7 @@ function createAlignHelper(opts, deps = {}) {
     if (!installedFn()) throw new Error('sonata-align is not installed (run align/install.sh)')
     const p = opts.paths
     const c = doSpawn(p.python, ['-u', p.server], { stdio: ['pipe', 'pipe', 'pipe'], env: helperEnv(opts.env || process.env, p.home) })
-    // lifetime: one helper child · ends on quit (idle), stop(), a timeout kill, its own crash, or process exit (live)
+    // lifetime: OK — one helper child · ends on quit (idle), stop(), a timeout kill, its own crash, or process exit (live)
     child = c
     live.add(c)
     stderrTail = []
@@ -155,13 +161,16 @@ function createAlignHelper(opts, deps = {}) {
     c.stdout.on('data', lineParser(onMessage, (line) => log('helper said: ' + line.slice(0, 200))))
     c.stderr.setEncoding('utf8')
     // stderr is the helper's log (warnings, tracebacks): keep the last lines for a crash report only
+    // lifetime: OK — the stdout/stderr/stdin/child listeners die with the child
+    // loop: HOT-PATH-OK — the lines of one stderr chunk (a few), kept to the last 20
     c.stderr.on('data', (s) => {
       for (const line of s.split('\n')) if (line.trim()) stderrTail.push(line)
       if (stderrTail.length > 20) stderrTail = stderrTail.slice(-20)
     })
-    // error: a closed pipe while writing (helper died) is handled by 'exit'
-    c.stdin.on('error', () => {})
-    // error: spawn failure (ENOENT, EACCES) arrives here; 'exit' may not follow, so clean up too
+    // error: NOT-WORTH — a closed pipe while writing (helper died) is handled by 'exit'
+    c.stdin.on('error', () => {})   // lifetime: OK — dies with the child
+    // error: LOGGED-OK — spawn failure (ENOENT, EACCES) arrives here; 'exit' may not follow, so clean up too
+    // lifetime: OK — 'error' and 'exit' listeners die with the child
     c.on('error', (e) => { log('helper failed to start: ' + e.message); gone(c, true) })
     c.on('exit', (code, signal) => gone(c, c !== quitting && code !== 0, code, signal))
     return c
@@ -179,6 +188,7 @@ function createAlignHelper(opts, deps = {}) {
     }
     const err = new Error('helper exited')
     pings = []
+    // loop: NOT-WORTH — the pending jobs (1-2)
     for (const id of [...pending.keys()]) fail(id, err)
   }
 
@@ -186,8 +196,10 @@ function createAlignHelper(opts, deps = {}) {
     const c = child
     if (!c) return
     quitting = c
+    // error: NOT-WORTH — a pipe already closed means the helper is leaving anyway; the grace timer below kills it otherwise
     try { c.stdin.write(JSON.stringify({ cmd: 'quit' }) + '\n'); c.stdin.end() } catch (e) {}
-    // error: a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL)
+    // error: NOT-WORTH — a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL);
+    // a kill that throws means it is already gone
     const t = setT(() => {
       if (!live.has(c)) return
       try { c.kill() } catch (e) {}
@@ -201,12 +213,15 @@ function createAlignHelper(opts, deps = {}) {
     const c = child
     if (!c) return
     quitting = c
+    // error: NOT-WORTH — a kill that throws means the helper is already gone; SIGKILL after 2 s otherwise
     try { c.kill() } catch (e) {}
     const h = setT(() => { if (live.has(c)) { try { c.kill('SIGKILL') } catch (e) {} } }, 2000)
     if (h && h.unref) h.unref()
   }
 
   // writes the messages one line at a time, waiting for the pipe to drain (a song is ~28 MB of base64)
+  // loop: SERIAL-REQUIRED — one pipe, messages in protocol order, waiting for drain
+  // lifetime: OK — the drain/exit listeners remove each other (off), one pair at a time
   async function write(c, messages) {
     for (const m of messages) {
       if (child !== c) throw new Error('helper exited')
@@ -223,11 +238,12 @@ function createAlignHelper(opts, deps = {}) {
   function request(id, messages, ms) {
     return new Promise((resolve, reject) => {
       let c
+      // error: PASSES-ON — not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it)
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
       pending.set(id, { resolve, reject, timer: null, ms })
       touch(id)
-      write(c, messages).catch((e) => fail(id, e))
+      write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
     })
   }
 
@@ -238,6 +254,7 @@ function createAlignHelper(opts, deps = {}) {
     ping() {
       const id = '__ping' + (++pingN)
       pings.push(id)
+      // error: PASSES-ON — rethrown to askAlignStatus (main.js), which shows it in Settings
       return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e })
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
@@ -248,6 +265,7 @@ function createAlignHelper(opts, deps = {}) {
       const c = child
       if (!c) return
       quit()
+      // error: NOT-WORTH — a kill that throws means the helper is already gone
       try { c.kill() } catch (e) {}
     },
     get running() { return !!child }

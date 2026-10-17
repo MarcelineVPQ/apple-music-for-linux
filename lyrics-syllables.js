@@ -38,7 +38,7 @@ function hyphenatorFor(lang) {
   if (!file) return null
   if (!hyphenators.has(file)) {
     let h = null
-    // error: a missing or broken pattern file means no estimated syllables, never a broken view
+    // error: NOT-WORTH — a missing or broken pattern file means no estimated syllables, never a broken view
     try {
       const createHyphenator = require('hyphen')
       h = createHyphenator(require('hyphen/patterns/' + file), { hyphenChar: SEP, minWordLength: MIN_WORD, html: false })
@@ -69,7 +69,7 @@ function splitWord(text, hyphenate) {
   if (!hyphenate || !text || text.includes(SEP) || NON_LATIN_LETTER.test(text)) return null
   const pieces = INNER_HYPHEN.test(text) ? text.split(INNER_HYPHEN).map((p, i, all) => i < all.length - 1 ? p + '-' : p) : [text]
   const parts = []
-  // loop: a word's hyphen pieces (a handful) · once per word per load or timing change
+  // loop: NOT-WORTH — a word's hyphen pieces (a handful) · once per word per load or timing change
   for (const piece of pieces) parts.push(...hyphenParts(piece, hyphenate))
   return parts.length > 1 && parts.join('') === text ? parts : null
 }
@@ -88,7 +88,7 @@ function spread(t, end, parts) {
   const out = []
   let at = t
   let acc = 0
-  // loop: one pass over a word's parts (a handful) · once per word per load or timing change
+  // loop: NOT-WORTH — one pass over a word's parts (a handful) · once per word per load or timing change
   for (let i = 0; i < parts.length; i++) {
     acc += weights[i]
     const to = i === parts.length - 1 ? end : t + (end - t) * acc / total

@@ -29,7 +29,7 @@
     }
     if (paused || rec.timer) return
     rec.started = Date.now()
-    // loop: toast timer · one-shot per toast (5-8 s, longer for long words) · stops when it fires or the toast pauses/ends · cost ~0
+    // loop: NOT-WORTH — toast timer · one-shot per toast (5-8 s, longer for long words) · stops when it fires or the toast pauses/ends · cost ~0
     rec.timer = setTimeout(() => bridge.send('toast-done', t.id), rec.left)
   }
   function pauseAll(on) {
@@ -62,7 +62,7 @@
         b.type = 'button'
         b.className = 'btn'
         b.textContent = t.action.label
-        // lifetime: one click listener per toast's action, dropped with the toast
+        // lifetime: OK — one click listener per toast's action, dropped with the toast
         b.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('toast-action', t.id) })
         li.appendChild(b)
       }
@@ -72,7 +72,7 @@
       x.setAttribute('aria-label', 'Close')
       x.setAttribute('title', 'Close')
       x.appendChild(globalThis.SonataIcons.icon(doc, 'close'))
-      // lifetime: one click listener per toast's ×, dropped with the toast
+      // lifetime: OK — one click listener per toast's ×, dropped with the toast
       x.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('toast-done', t.id) })
       li.appendChild(x)
       return li
@@ -83,7 +83,7 @@
     const h = Math.ceil(list.getBoundingClientRect().height)
     if (h !== sentHeight) { sentHeight = h; bridge.send('toast-size', h) }
   }
-  // lifetime: pointerenter/pointerleave/focusin/focusout on the list, one each for the page's life
+  // lifetime: OK — pointerenter/pointerleave/focusin/focusout on the list, one each for the page's life
   list.addEventListener('pointerenter', () => pauseAll(true))
   list.addEventListener('pointerleave', () => pauseAll(list.contains(doc.activeElement)))
   list.addEventListener('focusin', () => pauseAll(true))

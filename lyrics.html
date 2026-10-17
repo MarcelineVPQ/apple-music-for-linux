@@ -171,12 +171,13 @@
   const { ipcRenderer } = require('electron')
   // loop: the word highlight / countdown rAF loop lives in lyrics-view.js (shared with the visualizer);
   // otherwise this page reacts to 'lyrics-time' pushes (2/s) and 'lyrics-data' (per track)
-  // lifetime: the seven ipcRenderer.on listeners and the visibilitychange listener are added once at
+  // lifetime: OK — the seven ipcRenderer.on listeners and the visibilitychange listener are added once at
   // load and die with the window; per-track elements are owned and replaced by the view
 
   // the one theme system (theme.js): the card's colours and Glass material follow the album; the
   // sung line glows in the album's accent
   const theme = require('./theme-apply').attach({ surfaces: [document.getElementById('card')] })
+  // lifetime: OK — 'theme' and 'palette' listeners, added once at load, released with the window
   ipcRenderer.on('theme', (event, t) => theme.set(t))
   ipcRenderer.on('palette', (event, p) => {
     // the album's accents, as the theme made them readable on this card (never the raw colours):
@@ -189,7 +190,7 @@
 
   // album art in the header: the URL the mini player shows, so it usually comes from Chromium's
   // cache. A new cover flips in (rotateY, transform only) once it has loaded.
-  // lifetime: one Image per art change, dropped after load; one flip animation at a time
+  // lifetime: OK — one Image per art change, dropped after load; one flip animation at a time
   const artEl = document.getElementById('art')
   const thumb = document.getElementById('thumb')
   const ringFill = artEl.querySelector('.fill')
@@ -197,6 +198,7 @@
   ringFill.style.strokeDasharray = String(RING)
   ringFill.style.strokeDashoffset = String(RING)
   let artUrl = ''
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('lyrics-art', (event, url) => {
     artUrl = url || ''
     if (!artUrl) {
@@ -205,6 +207,7 @@
       return
     }
     const img = new Image()
+    // lifetime: OK — the onload handler goes with its Image (collected after the load)
     img.onload = async () => {
       if (img.src !== artUrl) return                   // a newer track won
       const wasShown = artEl.classList.contains('shown') && thumb.getAttribute('src')
@@ -215,12 +218,13 @@
       }
       try {
         await thumb.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(90deg)' }], { duration: 250, easing: 'ease-in' }).finished
-      } catch (e) { /* cancelled */ }
+      } catch (e) { /* error: NOT-WORTH — the flip was cancelled (a newer cover or the window closing); the cover is set below anyway */ }
       thumb.src = artUrl
       thumb.animate([{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0deg)' }], { duration: 250, easing: 'ease-out' })
     }
     img.src = artUrl
   })
+  // lifetime: OK — one click handler on the header art, released with the window
   artEl.onclick = () => ipcRenderer.send('lyrics-command', 'show-album')
 
   // progress ring: song position / duration, written at most 4×/s and only when it moved
@@ -249,6 +253,7 @@
     const turn = (single ? 60 / 45 : 60 / (100 / 3)) * (relaxed ? 4 : 1)
     document.body.style.setProperty('--turn', turn.toFixed(3) + 's')
   }
+  // lifetime: OK — added once at load, released with the window
   ipcRenderer.on('lyrics-settings', (event, s) => {
     relaxed = !(s && s.speed === 'true')
     applyTurn()
@@ -260,6 +265,7 @@
     document.body.classList.toggle('still', document.visibilityState !== 'visible' || !view.playing)
   }
 
+  // lifetime: OK — one click handler, released with the window
   document.getElementById('close').onclick = () => ipcRenderer.send('lyrics-command', 'close')
 
   // the lyrics engine (model, clock, word timing, rendering) is shared with the visualizer overlay
@@ -273,6 +279,7 @@
     emptyText: (data) => !data.title ? 'Play a song to see its lyrics' : data.status === 'busy' ? 'Lyrics service busy, trying again…' : 'No lyrics available for this song'
   })
 
+  // lifetime: OK — the lyrics feed's listeners ('lyrics-data', '-refined', '-aligned', '-time'), added once at load, released with the window
   ipcRenderer.on('lyrics-data', (event, data) => {
     // record speed for the spin: singles and EPs were 7" 45s, albums 33⅓ LPs
     single = / - (Single|EP)$/i.test(data.album || '')
@@ -287,6 +294,7 @@
     view.setData(data)
   })
 
+  // lifetime: OK — see 'lyrics-data' above
   ipcRenderer.on('lyrics-refined', (event, msg) => view.refine(msg))
   ipcRenderer.on('lyrics-aligned', (event, msg) => view.align(msg))
 
@@ -296,7 +304,7 @@
     if (document.visibilityState === 'visible') updateRing(view.time())
   })
 
-  // lifetime: one listener for the window's life (the view keeps its own for the word animation)
+  // lifetime: OK — one listener for the window's life (the view keeps its own for the word animation)
   document.addEventListener('visibilitychange', updateStill)
 </script>
 </body>

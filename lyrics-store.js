@@ -88,7 +88,7 @@ function createLyricsStore(opts) {
     set(key, value) {
       load()
       add(key, value)
-      // loop: cache write debounce · one-shot 2 s per burst of changes · stops after the write · cost one file write
+      // loop: NOT-WORTH — cache write debounce · one-shot 2 s per burst of changes · stops after the write · cost one file write
       if (!timer) timer = setTimeout(save, debounceMs)
     },
     flush() {

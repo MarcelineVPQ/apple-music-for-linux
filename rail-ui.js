@@ -183,10 +183,10 @@
 
   // --- listeners: all on our own nodes (inside the closed root) or the one media query; they live
   // as long as this document (a reload or navigation drops the document and them with it) ---
-  // lifetime: panel pointerenter/pointerleave · one each, for the document's life · cost one render per crossing
+  // lifetime: OK — panel pointerenter/pointerleave · one each, for the document's life · cost one render per crossing
   panel.addEventListener('pointerenter', () => update('enter'))
   panel.addEventListener('pointerleave', () => update('leave'))
-  // lifetime: panel focusin/focusout · one each · keyboard focus opens the rail, a click's focus doesn't
+  // lifetime: OK — panel focusin/focusout · one each · keyboard focus opens the rail, a click's focus doesn't
   panel.addEventListener('focusin', (e) => {
     const i = buttons.indexOf(e.target)
     if (i >= 0) focusIndex = i
@@ -195,11 +195,11 @@
   panel.addEventListener('focusout', (e) => {
     if (!e.relatedTarget || !panel.contains(e.relatedTarget)) update('blur')
   })
-  // lifetime: panel transitionend/transitioncancel · one each · the slide is over: narrow the view if it closed
+  // lifetime: OK — panel transitionend/transitioncancel · one each · the slide is over: narrow the view if it closed
   const slideDone = (e) => { if (e.target === panel && e.propertyName === 'transform') { sliding = false; render() } }
   panel.addEventListener('transitionend', slideDone)
   panel.addEventListener('transitioncancel', slideDone)
-  // lifetime: panel keydown · one · arrows/Home/End move focus (roving tabindex), Esc closes, Tab and
+  // lifetime: OK — panel keydown · one · arrows/Home/End move focus (roving tabindex), Esc closes, Tab and
   // Shift+Tab hand focus back to Apple's page (the rail is one Tab stop between the two views)
   panel.addEventListener('keydown', (e) => {
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -217,7 +217,7 @@
     buttons[focusIndex].focus({ focusVisible: true })
     update('key')
   })
-  // lifetime: panel click · one (delegated) · a real click or Enter/Space on a button sends its command
+  // lifetime: OK — panel click · one (delegated) · a real click or Enter/Space on a button sends its command
   // error: synthetic events (isTrusted false: a page script) are ignored; unknown ids never leave here
   panel.addEventListener('click', (e) => {
     if (!e.isTrusted) return
