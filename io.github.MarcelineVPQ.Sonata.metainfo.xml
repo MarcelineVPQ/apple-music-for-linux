@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.37-dev.1" date="2026-10-16" type="development">
+      <description>
+        <p>Your desktop's media controls show the song's length and progress under the name Sonata, and the words still to come in the sung line stay readable in light mode.</p>
+      </description>
+    </release>
     <release version="0.15.36-dev.1" date="2026-10-16" type="development">
       <description>
         <p>After an update, "Restart now" always brings Sonata back with its window and tray icon, and opening Sonata again always shows its window.</p>

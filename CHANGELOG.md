@@ -7,6 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.37-dev.1] — Track length in your media controls, readable lyrics ahead
+
+### Fixed
+
+- **Your desktop's media controls show the song's length and progress, under the name Sonata.** The media widget (KDE's, GNOME's and others that use MPRIS) listed Sonata as "apple-music-for-linux" with no track length and no progress bar, because Apple's player doesn't give the length to the browser engine. Sonata now tells it the song's length and position from Apple Music itself, when a song starts, plays, pauses or is moved to another point, so the widget shows the progress bar and follows a seek. Your settings, login and lyrics cache stay where they are.
+- **The words still to come in the sung line are readable in light mode.** They were faded so far that on the light lyrics card they looked nearly white (as low as 1.7:1). They now fade only as far as the theme allows them to stay readable (at least 4.5:1) in light and dark, with or without album colours and Glass; the words already sung keep the singer's colour.
+
+### Changed
+
+- **Built and checked the 42 Pixel Studios way.** Every push is now tested on GitHub. The version is set in one step for every file that carries it, and a release whose tag doesn't match it stops. Every loop, timer, listener and error path in the app carries a written verdict, checked automatically. Nothing changes in use.
+
 ## [0.15.36-dev.1] — Sonata comes back after Restart now
 
 ### Fixed
