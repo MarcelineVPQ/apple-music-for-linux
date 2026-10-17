@@ -118,3 +118,18 @@
   background: var(--sing);
   opacity: 0.25;
 }
+
+/* prefers-reduced-motion: the sung word still lights (its colour, bold copy and glow) but doesn't
+   pop, its syllables don't bounce and a held note doesn't lift; the countdown dots only fill
+   (lyrics-view.js dotKeyframes still) and nothing slides or scrolls smoothly (lyrics-view.js still()).
+   Same selectors as above, so these win by coming later. */
+@media (prefers-reduced-motion: reduce) {
+  .w { transition: opacity 0.25s ease; }
+  .w .s { transition: none; }
+  .line.active .w.now,
+  .line.active .bgv .w.now,
+  .line.active .w.now.hold:not(.hs),
+  .line.active .w.now .s.now,
+  .line.active .w.now.hold .s.now,
+  .line.active .bgv .w.now .s.now { transform: none; transition: none; }
+}

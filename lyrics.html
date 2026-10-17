@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="theme.css">
@@ -128,6 +128,14 @@
     cursor: pointer;
   }
   #close:hover { background: var(--s-hover); color: var(--s-text); }
+  /* the keyboard's focus ring (the theme's ring colour, >= 3:1); a click shows none, so the look with
+     a mouse is unchanged */
+  #close:focus, #art:focus, #lines:focus, .line:focus { outline: none; }
+  #close:focus-visible, #lines:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+  #art:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; border-radius: 50%; }
+  .line:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; border-radius: 8px; }
+  /* for screen readers only: the lyrics' status ("No lyrics available…") */
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   #close svg { width: 12px; height: 12px; fill: currentColor; }
   #lines {
     -webkit-app-region: no-drag;
@@ -137,6 +145,7 @@
     scroll-behavior: smooth;
   }
   #lines::-webkit-scrollbar { width: 0; }
+  @media (prefers-reduced-motion: reduce) { #lines { scroll-behavior: auto; } }
   .line {
     display: grid;
     font-size: 21px;
@@ -206,12 +215,13 @@
         </div>
       </div>
       <div id="song"><span class="t">Lyrics</span><span class="a"></span></div>
-      <button id="close" title="Close">
+      <button id="close" title="Close (Esc)" aria-label="Close lyrics">
         <svg viewBox="0 0 16 16"><path d="M3.28 2.22a.75.75 0 0 0-1.06 1.06L6.94 8l-4.72 4.72a.75.75 0 1 0 1.06 1.06L8 9.06l4.72 4.72a.75.75 0 1 0 1.06-1.06L9.06 8l4.72-4.72a.75.75 0 0 0-1.06-1.06L8 6.94 3.28 2.22z"/></svg>
       </button>
     </div>
-    <div id="lines"><div id="empty">Play a song to see its lyrics</div></div>
+    <div id="lines" role="group" aria-label="Lyrics" aria-description="Up and Down move between lines, Enter plays from a line"><div id="empty">Play a song to see its lyrics</div></div>
   </div>
+  <div id="say" class="sr-only" role="status"></div>
 <script>
   const { ipcRenderer } = require('electron')
   // loop: the word highlight / countdown rAF loop lives in lyrics-view.js (shared with the visualizer);
@@ -261,6 +271,7 @@
         artEl.classList.add('shown')
         return
       }
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { thumb.src = artUrl; return }   // reduced motion: no flip
       try {
         await thumb.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(90deg)' }], { duration: 250, easing: 'ease-in' }).finished
       } catch (e) { /* error: NOT-WORTH — the flip was cancelled (a newer cover or the window closing); the cover is set below anyway */ }
@@ -271,11 +282,12 @@
   })
   // lifetime: OK — one click handler on the header art, released with the window
   artEl.onclick = () => ipcRenderer.send('lyrics-command', 'show-album')
-  // lifetime: OK — one keydown and one contextmenu listener on the header art, released with the window.
-  // A button for the keyboard (Enter / Space shows the album); its menu (View Album Cover, Show Album)
-  // opens on right-click, the Menu key or Shift+F10
-  artEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ipcRenderer.send('lyrics-command', 'show-album') } })
+  // lifetime: OK — the art's keydown (Enter/Space, a button for the keyboard) and contextmenu, and the page's
+  // keydown (Esc closes, as in the visualizer), one each, released with the window. The art's menu (View Album
+  // Cover, Show Album) opens on right-click, the Menu key or Shift+F10
+  artEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); artEl.click() } })
   artEl.addEventListener('contextmenu', (e) => { e.preventDefault(); if (artUrl) ipcRenderer.send('lyrics-command', 'art-menu') })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey) ipcRenderer.send('lyrics-command', 'close') })
 
   // progress ring: song position / duration, written at most 4×/s and only when it moved
   let duration = 0
@@ -412,6 +424,11 @@
     songEl.title = data.title ? data.title + (data.artist ? ' — ' + data.artist : '') : ''
     linesEl.scrollTop = 0
     view.setData(data)
+    // screen readers hear the lyrics' state once per song (no lyrics, service busy), never the lines
+    const empty = linesEl.querySelector('#empty')
+    const say = document.getElementById('say')
+    const text = data.title && empty ? empty.textContent : ''
+    if (say.textContent !== text) say.textContent = text
   })
 
   // lifetime: OK — see 'lyrics-data' above

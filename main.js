@@ -797,6 +797,9 @@ function createLyricsWindow() {
   persistBounds(lyricsWindow, 'lyricsBounds')
   lockDownLocalWindow(lyricsWindow)
   pushRail()
+  // the lyrics and visualizer shortcuts work in the lyrics window too (Ctrl+Shift+L closes it again)
+  // lifetime: OK — registered once per lyrics window, dies with its webContents
+  lyricsWindow.webContents.on('before-input-event', (event, input) => { viewShortcut(input) })
 
   // lifetime: OK — fires once per load
   lyricsWindow.webContents.once('did-finish-load', () => {
@@ -946,6 +949,9 @@ function createVizWindow() {
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
   pushRail()
+  // the lyrics and visualizer shortcuts in the visualizer too (Ctrl+Shift+V closes it again)
+  // lifetime: OK — registered once per visualizer window, dies with its webContents
+  vizWindow.webContents.on('before-input-event', (event, input) => { viewShortcut(input) })
 
   // lifetime: OK — one Visualizer (FFT) and one handle on the shared own-stream listener (the one parec,
   // see getSharedListener) per visualizer window; both stopped and dropped on 'closed'

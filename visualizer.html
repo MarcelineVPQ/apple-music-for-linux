@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="theme.css">
@@ -74,6 +74,8 @@
   #lyrics .dots i { box-shadow: 0 0 0.6em var(--s-stage-shade-soft); }
   @keyframes lv-in { from { opacity: 0; transform: translateY(0.25em); } }
   @keyframes lv-next { from { opacity: 0; } }
+  /* reduced motion: a new line fades in without rising (lyrics-view.css stops the pops) */
+  @media (prefers-reduced-motion: reduce) { #lyrics .line.active { animation-name: lv-next; } }
   #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
   /* the sound capture's state, when it isn't fine (visualizer.js fallback parec): plain words, top right */
   #audio-note {
@@ -98,8 +100,8 @@
     <div><div id="title">Not playing</div><div id="artist"></div></div>
   </div>
   <div id="lyrics"></div>
-  <div id="mode-label"></div>
-  <div id="hint">Click to change scene · Esc to exit</div>
+  <div id="mode-label" role="status"></div>
+  <div id="hint">Click or ← → to change scene · Esc to exit</div>
   <div id="audio-note" role="status" aria-live="polite"></div>
 <script>
   const { ipcRenderer } = require('electron')
@@ -213,6 +215,15 @@
     r.setProperty('--active-mix', T.stageText(hex(T.hueBlend(T.hexRgb(p.accent), T.hexRgb(a2)))))
   })
 
+  // prefers-reduced-motion: the scenes that travel (aurora's drift, the nebula's spin and beat bloom, the
+  // flying toasters) move at REDUCED_PACE of their speed; the bars, which only rise and fall, stay as they are
+  const REDUCED_PACE = 0.3
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)')
+  let pace = motionQuery.matches ? REDUCED_PACE : 1
+  // lifetime: OK — one change listener for the window's life
+  motionQuery.addEventListener('change', () => { pace = motionQuery.matches ? REDUCED_PACE : 1 })
+  window.__pace = () => pace   // for testing
+
   // --- mode system ---
   const MODES = ['bars', 'aurora', 'nebula', 'toast']
   let modeIdx = 0
@@ -307,7 +318,7 @@
         sy2: 0.02 + Math.random() * 0.03, hue: STAGE.aurora.h + i * 14
       })
     }
-    aurora.t += 0.016 * (0.6 + a.energy * 2.4)     // music quickens the drift
+    aurora.t += 0.016 * (0.6 + a.energy * 2.4) * pace     // music quickens the drift
     ctx.globalCompositeOperation = 'lighter'
     // loop: HOT-PATH-OK — 6 streamers per frame, two radial gradients each (12 per frame)
     for (const s of aurora.streamers) {
@@ -337,8 +348,8 @@
         band: (i * 7) % 48                         // each particle tracks a frequency band
       })
     }
-    nebula.pulse += ((beat.hit ? 1 : 0) - nebula.pulse) * (beat.hit ? 0.6 : 0.06)
-    nebula.rot += 0.001 + a.energy * 0.012
+    nebula.pulse += ((beat.hit && pace === 1 ? 1 : 0) - nebula.pulse) * (beat.hit ? 0.6 : 0.06)   // reduced motion: no bloom
+    nebula.rot += (0.001 + a.energy * 0.012) * pace
     const cx = W / 2, cy = H / 2
     // always a substantial cloud; bass/beat make it breathe outward
     const base = Math.min(W, H) * (0.30 + a.bass * 0.32 + nebula.pulse * 0.12)
@@ -346,7 +357,7 @@
     // loop: HOT-PATH-OK — 240 particles per frame, a radial gradient each: measured, caching them (per hue, mapped
     // with the transform) made frames dearer to rasterise than making them (docs/PERFORMANCE.md "Visualizer paint")
     for (const p of nebula.parts) {
-      p.ang += p.spd * (1 + a.energy * 2); p.wob += 0.03
+      p.ang += p.spd * (1 + a.energy * 2) * pace; p.wob += 0.03 * pace
       const bandV = shown[p.band] || 0
       const rad = base * (p.rad + bandV * 0.28) + Math.sin(p.wob) * 8 * dpr
       const x = cx + Math.cos(p.ang + nebula.rot) * rad
@@ -390,7 +401,7 @@
     }
     if (toast.reset) { TOASTERS.resetFlight(toast.fl); toast.reset = false; toast.last = 0 }
     const now = performance.now()
-    const dt = toast.last ? Math.min(0.05, (now - toast.last) / 1000) : 0
+    const dt = (toast.last ? Math.min(0.05, (now - toast.last) / 1000) : 0) * pace   // reduced motion: slower flight and flaps
     toast.last = now
     toast.time += dt
     ctx.globalCompositeOperation = 'source-over'

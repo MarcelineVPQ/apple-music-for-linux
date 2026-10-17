@@ -147,13 +147,14 @@ const DOT_STEP = Math.PI / BREATHE / 4   // s between breathe keyframes (8 per b
  * 0.25 opacity / scale 0.8 to 1 / 1 in turn, and the row breathes with the song time and fades and
  * shrinks out over the last 0.6 s. Time runs from g.start to the interlude's end (duration, s);
  * an animation's currentTime is (song time - g.start) in ms.
+ * still (prefers-reduced-motion): the dots only fill (opacity) and the row only fades out, no scale.
  * -> { duration, dots: [keyframes] x3, row: keyframes }
  */
-function dotKeyframes(g) {
+function dotKeyframes(g, still) {
   const end = g.end - T.LINE_LEAD
   const duration = Math.max(0.001, end - g.start)
   const at = (t) => Math.min(1, Math.max(0, (t - g.start) / duration))
-  const dot = (fill) => ({ opacity: +(0.25 + 0.75 * fill).toFixed(4), transform: 'scale(' + (0.8 + 0.2 * fill).toFixed(4) + ')' })
+  const dot = (fill) => ({ opacity: +(0.25 + 0.75 * fill).toFixed(4), transform: 'scale(' + (still ? 1 : 0.8 + 0.2 * fill).toFixed(4) + ')' })
   const span = Math.max(0.001, end - g.start - 0.6)
   const dots = [0, 1, 2].map((d) => [
     Object.assign({ offset: 0 }, dot(0)),
@@ -168,7 +169,7 @@ function dotKeyframes(g) {
   const row = [...times].sort((a, b) => a - b).map((t) => {
     const exit = T.interludeProgress(g, t).exit
     const breathe = 1 + 0.06 * Math.sin(t * BREATHE)
-    return { offset: at(t), opacity: +exit.toFixed(4), transform: 'scale(' + (breathe * exit).toFixed(4) + ')' }
+    return { offset: at(t), opacity: +exit.toFixed(4), transform: 'scale(' + (still ? 1 : breathe * exit).toFixed(4) + ')' }
   })
   return { duration, dots, row }
 }
@@ -217,6 +218,14 @@ function createLyricsView(opts) {
   let alignState = ''       // e.g. "Precise timing paused while you play" (gaming guard, main.js)
   let notesEl = null
   let notes = []
+  let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
+  // prefers-reduced-motion: no pop, bounce, slide or smooth scroll (lyrics-view.css has the CSS half);
+  // read when used, so a change of the desktop setting applies from the next word
+  const motion = doc.defaultView.matchMedia ? doc.defaultView.matchMedia('(prefers-reduced-motion: reduce)') : null
+  const still = () => !!motion && motion.matches
+  // the keyboard in the lyrics window's list: the timed lines are buttons (Enter/Space plays from that
+  // line, like a click), one Tab stop for the list (roving tabindex), Up/Down/Home/End move between lines
+  const keys = !stage && !!opts.onSeek
 
   // a word: its regular text (.r) and, stacked on it, the bold copy the sung word shows (.b): the
   // switch is a visibility change, so a word change never lays the line out (lyrics-view.css). With
@@ -279,7 +288,10 @@ function createLyricsView(opts) {
     shownInterlude = -1
     shownNext = -1
     scrollTarget = null
+    roving = null
     stopFrames()
+    if (data.lang) container.lang = data.lang
+    else container.removeAttribute('lang')
     if (!lines.length) {
       wordTimed = false
       const text = opts.emptyText ? opts.emptyText(data) : null
@@ -349,6 +361,11 @@ function createLyricsView(opts) {
           render(line.t)
           updateFrames()
         }
+        if (keys) {
+          el.tabIndex = -1
+          el.setAttribute('role', 'button')
+          el.setAttribute('aria-label', line.text || '')
+        }
       }
       container.appendChild(el)
       lineEls.push(entry)
@@ -361,6 +378,7 @@ function createLyricsView(opts) {
       credits.textContent = by
       container.appendChild(credits)
     }
+    if (keys) setRoving(lineEls.find((e, i) => lines[i].t !== null) || null)
     notes = []
     if (opts.notes) {
       if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '') + (data.appleFailed ? ", as Apple Music's didn't load" : ''))
@@ -496,10 +514,10 @@ function createLyricsView(opts) {
     // during an interlude nobody sings: the dots take the next line's place
     const next = new Set(gi >= 0 ? [] : liveNow)
     // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
-    for (const i of live) if (!next.has(i)) lineEls[i].el.classList.remove('active')
+    for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current') }
     for (const i of next) {
       const e = lineEls[i]
-      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null }
+      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null; if (keys) e.el.setAttribute('aria-current', 'true') }
       if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos, e.side)
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
@@ -527,14 +545,19 @@ function createLyricsView(opts) {
     if (gi >= 0) syncDots(interludes[gi], time)
     if (!stage) {
       const target = gi >= 0 ? interludes[gi].el : (latest >= 0 ? lineEls[latest].el : null)
-      if (target !== scrollTarget) {
+      // the keyboard is choosing a line: the list stays where the keyboard is (a mouse click's
+      // focus isn't :focus-visible, so pointer users keep the follow-along scroll); asked only when
+      // the target changes (per line, not per word)
+      if (target !== scrollTarget && !(keys && container.querySelector('.line:focus-visible'))) {
         scrollTarget = target
-        if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        if (target) target.scrollIntoView({ block: 'center', behavior: still() ? 'auto' : 'smooth' })
       }
+      // Tab into the list lands on the sung line, unless the keyboard is already in it
+      if (keys && latest >= 0 && !container.contains(doc.activeElement)) setRoving(lineEls[latest])
     }
-    // after the scroll target is taken (it reads positions with transforms)
+    // after the scroll target is taken (it reads positions with transforms); reduced motion: no slide
     // loop: NOT-WORTH — the elements a dots row moved (at most the window's lines), per open/close
-    if (slides) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
+    if (slides && !still()) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
   }
 
   const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }
@@ -562,7 +585,7 @@ function createLyricsView(opts) {
   // dots open, kept in step with the song clock (re-synced only when it drifts), paused with the song
   function syncDots(g, time) {
     if (!g.anims) {
-      const k = dotKeyframes(g)
+      const k = dotKeyframes(g, still())
       const opts = { duration: k.duration * 1000, fill: 'both' }
       g.anims = g.dots.map((d, i) => d.animate(k.dots[i], opts)).concat([g.row.animate(k.row, opts)])
     }
@@ -626,6 +649,40 @@ function createLyricsView(opts) {
     }
     render(T.clockTime(clock, performance.now()))
     updateFrames()   // re-plans the next wake-up from the resynced clock
+  }
+
+  // the one line with tabindex 0 (roving tabindex): two attribute writes when it moves, no layout
+  function setRoving(entry) {
+    if (!entry || entry === roving) return
+    if (roving) roving.el.tabIndex = -1
+    entry.el.tabIndex = 0
+    roving = entry
+  }
+  if (keys) {
+    // lifetime: OK — one keydown and one focusin listener on the list, released with its window
+    container.addEventListener('focusin', (e) => {
+      // loop: NOT-WORTH — one pass over the song's lines, per focus move inside the list
+      const entry = lineEls.find((x) => x.el === e.target)
+      if (entry) setRoving(entry)
+    })
+    container.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return
+      // loop: NOT-WORTH — one pass over the song's lines, per key press in the list
+      const timed = lineEls.filter((x, i) => lines[i] && lines[i].t !== null)
+      const at = timed.findIndex((x) => x.el === doc.activeElement)
+      if (at < 0) return
+      let to = -1
+      if (e.key === 'ArrowDown') to = Math.min(timed.length - 1, at + 1)
+      else if (e.key === 'ArrowUp') to = Math.max(0, at - 1)
+      else if (e.key === 'Home') to = 0
+      else if (e.key === 'End') to = timed.length - 1
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); timed[at].el.click(); return }
+      else return
+      e.preventDefault()
+      setRoving(timed[to])
+      timed[to].el.focus({ focusVisible: true })
+      timed[to].el.scrollIntoView({ block: 'nearest', behavior: still() ? 'auto' : 'smooth' })
+    })
   }
 
   // lifetime: OK — one listener per view, released with its window (views live as long as their window)
