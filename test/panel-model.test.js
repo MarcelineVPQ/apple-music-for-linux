@@ -189,7 +189,7 @@ test('about: What\'s new = this version\'s CHANGELOG section, older ones after; 
   assert.ok(real.credits.some((g) => g.rows.some((r) => /castlabs/.test(r.text))))
   assert.ok(real.credits.some((g) => g.rows.some((r) => /LRCLIB/.test(r.what))))
   assert.ok(real.credits.some((g) => g.rows.some((r) => /Poly Haven/.test(r.text) && /CC0/.test(r.text))))
-  assert.equal(real.patterns.length, 22)
+  assert.equal(real.patterns.length, 20)
   assert.match(real.notAffiliated, /not affiliated/)
   assert.ok(real.links.every((l) => /^https:\/\//.test(l.url)))
   // every shipped hyphenation pattern file has its licence listed

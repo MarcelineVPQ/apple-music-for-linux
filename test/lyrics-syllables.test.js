@@ -102,3 +102,21 @@ test('a hyphen run is still ONE word: same t/end/text, its syllables pop in turn
   assert.equal(p.lines[0].words.length, 1)
   assert.equal(p.lines[0].words[0].syl.length, 5)
 })
+
+test('Romanian and Indonesian ship no patterns (no licence to ship them): their words stay whole', () => {
+  for (const lang of ['ro', 'ro-RO', 'id', 'id-ID']) {
+    assert.equal(S.patternFor(lang), null, lang)
+    assert.equal(S.hyphenatorFor(lang), null, lang)
+  }
+  const line = S.lineWithSyllables({ t: 0, end: 2, text: 'Placeholder', words: [{ t: 0, end: 2, text: 'Placeholder' }] }, S.hyphenatorFor('ro'))
+  assert.ok(!line.words[0].syl, 'no estimated syllables')
+  // every language the map names has a pattern file that ships, and its notice ships too
+  const pkg = require('../package.json')
+  const shipped = /!\(([^)]+)\)/.exec(pkg.build.files.find((f) => f.includes('patterns/!(')))[1].split('|')
+  assert.ok(!shipped.includes('ro') && !shipped.includes('id'))
+  for (const lang of ['en', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'sv', 'da', 'nb', 'fi', 'pl', 'cs', 'sk', 'hu', 'tr', 'ca', 'hr', 'sl', 'en-gb']) assert.ok(shipped.includes(S.patternFor(lang)), lang)
+  assert.ok(pkg.build.files.includes('licenses/hyphenation-NOTICES.txt'))
+  const notices = require('fs').readFileSync(require('path').join(__dirname, '..', 'licenses', 'hyphenation-NOTICES.txt'), 'utf8')
+  for (const code of shipped) assert.ok(notices.includes(`(${code}): hyph-${code}.tex`), code + ' notice')
+  assert.ok(!/\((ro|id)\): hyph-/.test(notices))
+})

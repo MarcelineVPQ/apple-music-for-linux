@@ -51,10 +51,13 @@ function comingSoon(md) {
 }
 
 const LRCLIB = 'https://lrclib.net'
+// the notices file in the source of this version (its tag; About passes the running version)
+const NOTICES = 'https://github.com/MarcelineVPQ/apple-music-for-linux/blob/v{version}/licenses/hyphenation-NOTICES.txt'
 // hyphenation patterns Sonata ships (package.json build.files; lyrics-syllables.js), with the licence
 // each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16,
-// versions confirmed 2026-10-17 against tex-hyphen master (BACKLOG "Hyphenation pattern licences":
-// ro states no licence and id is GPL-2.0 without "or later", both flagged before a stable release).
+// versions confirmed 2026-10-17 against tex-hyphen master. Each file's original notice ships in
+// licenses/hyphenation-NOTICES.txt (tools/hyph-notices.js). Romanian (no licence stated) and Indonesian
+// (GPL-2.0 only) are not shipped: their words pop whole (BACKLOG).
 const PATTERNS = [
   ['en-us', 'English (US)', 'Gerard D. C. Kuiken', 'Permissive (copy and use with the copyright notice kept)'],
   ['en-gb', 'English (UK)', 'Dominik Wujastyk, Graham Toal', 'MIT'],
@@ -72,9 +75,7 @@ const PATTERNS = [
   ['cs', 'Czech', 'Pavel Ševeček', 'GPL 2.0 or later'],
   ['sk', 'Slovak', 'Jana Chlebíková', 'MIT'],
   ['hu', 'Hungarian', 'Bence Nagy', 'MPL 1.1, GPL 2.0 or LGPL 2.1, at your option'],
-  ['ro', 'Romanian', 'Adrian Rezus', 'none stated in the file'],
   ['tr', 'Turkish', 'Pierre A. MacKay, TUG', 'LPPL 1.0 or later'],
-  ['id', 'Indonesian', 'Jörg Knappen, Terry Mart', 'GPL 2.0 ("or later" not stated)'],
   ['ca', 'Catalan', 'Gonçal Badenes', 'LPPL 1.0 or later'],
   ['hr', 'Croatian', 'Igor Marinović', 'LPPL 1.0 or later, or a permissive licence'],
   ['sl', 'Slovenian', 'Matjaž Vrečko', 'LPPL 1.0 or later, or MIT']
@@ -91,7 +92,8 @@ const CREDITS = [
   ['Lyrics', [
     ['LRCLIB', 'Lyrics for songs Apple has none for, from lrclib.net, a free lyrics database run by its community.', LRCLIB],
     ['hyphen', 'Syllables for the karaoke pop, by Yevhen Tiurin (ISC).', 'https://github.com/ytiurin/hyphen'],
-    ['Hyphenation patterns', 'TeX hyphenation patterns from hyph-utf8, one file per language, each under its own licence (below).', 'https://github.com/hyphenation/tex-hyphen']
+    ['Hyphenation patterns', 'TeX hyphenation patterns from hyph-utf8, one file per language, each under its own licence (below). Romanian and Indonesian have no estimated syllables: their pattern files carry no licence Sonata can ship under.', 'https://github.com/hyphenation/tex-hyphen'],
+    ['Hyphenation pattern notices', 'Each pattern file\'s original copyright and licence notice, unchanged (licenses/hyphenation-NOTICES.txt, also inside the app).', NOTICES]
   ]],
   ['Precise word timing (sonata-align, installed separately)', [
     ['Demucs v4 (htdemucs)', 'Separates the vocals. Meta, MIT.', 'https://github.com/facebookresearch/demucs'],
@@ -120,7 +122,7 @@ function aboutData(changelogMd, backlogMd, version, alignInstalled) {
   return {
     whatsNew: whatsNew(changelogMd, version),
     soon: comingSoon(backlogMd),
-    credits: CREDITS.map(([title, rows]) => ({ title, rows: rows.map(([what, text, url]) => ({ what, text, url })) })),
+    credits: CREDITS.map(([title, rows]) => ({ title, rows: rows.map(([what, text, url]) => ({ what, text, url: url.replace('{version}', String(version || '').replace(/^v/, '')) })) })),
     patterns: PATTERNS.map(([code, lang, by, licence]) => ({ code, lang, by, licence })),
     alignInstalled: !!alignInstalled,
     notAffiliated: NOT_AFFILIATED,

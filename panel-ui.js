@@ -351,7 +351,7 @@
               if (/^Lyrics$/.test(g.title)) {
                 const ul = el('ul', 'patterns')
                 setAttr(ul, 'aria-label', 'Hyphenation pattern licences')
-                // loop: NOT-WORTH — 22 pattern files, once
+                // loop: NOT-WORTH — 20 pattern files, once
                 for (const p of a.patterns) ul.appendChild(el('li', '', p.lang + ': ' + p.by + ' · ' + p.licence))
                 box.appendChild(ul)
               }

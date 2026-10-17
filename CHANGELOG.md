@@ -17,7 +17,8 @@ See docs/RELEASING.md.
 
 - **Newer engine: Electron 45 (castlabs 45.0.0-alpha.14, Chromium 156), an alpha for the Development channel only.** Sonata still uses castlabs' Electron, so Apple Music's protected (Widevine) playback keeps working; Stable stays on its current engine until castlabs ships 45 as a stable release. Startup time is the same and Sonata uses about 7 % less memory (about 800 instead of 860 MB on a test copy). The Copy Link menu item, the mini player, the lyrics window and the visualizer were adjusted for the new engine's changes (Linux windows without a frame would otherwise get rounded corners), so they look and work as before.
 - **The visualizer's bars scene is lighter.** It used to make two new colour gradients for every bar on every frame; it now makes them once and reuses them. That is about 13 % less drawing work for the visualizer page at the same frame rate, and the bars look the same. The visualizer's colours now come from Sonata's one theme system, like the rest of the app. Nothing changes in the picture.
-- **About → Credits lists each hyphenation pattern's exact licence and version**, after a check of every file.
+- **About → Credits lists each hyphenation pattern's exact licence and version**, after a check of every file, and links the original copyright and licence notice of every pattern file, which now ships with Sonata (`licenses/hyphenation-NOTICES.txt`).
+- **Romanian and Indonesian lyrics no longer get estimated syllables.** Their hyphenation pattern files carry no licence Sonata can ship them under, so they were removed; words in those languages light up whole, as in other languages without patterns. We'll ask the authors and bring them back if they agree.
 
 ### Fixed
 

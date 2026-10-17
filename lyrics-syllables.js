@@ -14,11 +14,14 @@
 const MIN_WORD = 4
 
 // lyrics language (BCP 47, e.g. Apple TTML xml:lang) -> hyphen pattern file. Latin-script languages only.
+// Romanian and Indonesian are left out on purpose (2026-10-17): their pattern files can't ship (ro
+// states no licence, id is GPL-2.0 only, BACKLOG "Hyphenation patterns: ro, id and notices"), so
+// their words pop whole, like any language without patterns.
 const PATTERNS = {
   en: 'en-us', 'en-us': 'en-us', 'en-gb': 'en-gb', 'en-au': 'en-gb', 'en-nz': 'en-gb', 'en-ie': 'en-gb',
   de: 'de-1996', fr: 'fr', es: 'es', it: 'it', pt: 'pt', nl: 'nl', sv: 'sv', da: 'da',
-  nb: 'nb', no: 'nb', nn: 'nb', fi: 'fi', pl: 'pl', cs: 'cs', sk: 'sk', hu: 'hu', ro: 'ro',
-  tr: 'tr', id: 'id', ca: 'ca', hr: 'hr', sl: 'sl'
+  nb: 'nb', no: 'nb', nn: 'nb', fi: 'fi', pl: 'pl', cs: 'cs', sk: 'sk', hu: 'hu',
+  tr: 'tr', ca: 'ca', hr: 'hr', sl: 'sl'
 }
 const SEP = '­'
 
