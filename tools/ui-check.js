@@ -121,7 +121,8 @@ const PAGE_AUDIT = (rootSel) => `(async () => {
     if (!name && el.getAttribute('aria-labelledby')) name = el.getAttribute('aria-labelledby').split(' ').map((id) => (document.getElementById(id) || {}).textContent || '').join(' ').trim()
     if (!name) name = (el.textContent || '').trim() || el.getAttribute('title') || ''
     const inline = el.tagName === 'A' && getComputedStyle(el).display === 'inline' && !!el.closest('p, li, dd, dt')
-    return { tag: el.tagName, id: el.id || el.dataset.key || el.dataset.rail || el.className.toString().slice(0, 24), name: name.slice(0, 40), w: r.width, h: r.height, inline, rect: [r.left, r.top, r.right, r.bottom] }
+    const sec = el.closest('[data-section]')
+    return { tag: el.tagName, id: el.id || el.dataset.key || el.dataset.rail || el.className.toString().slice(0, 24), name: name.slice(0, 40), w: r.width, h: r.height, inline, disabled: !!el.disabled, section: sec ? sec.dataset.section : (el.closest('.head') ? 'header' : ''), rect: [r.left, r.top, r.right, r.bottom] }
   })
   const rr = root.getBoundingClientRect()
   return { texts, controls, backdrop, root: [rr.left, rr.top, rr.right, rr.bottom], vw: innerWidth, vh: innerHeight, glass: root.classList.contains('glass-on'), dark: matchMedia('(prefers-color-scheme: dark)').matches }
@@ -222,6 +223,11 @@ async function matrix() {
           judge(tag, a)
           const pstate = await panel.ev('globalThis.__sonataPanel.state()')
           check(tag + ' every section open (pinned) for the audit', pstate.acc[state].pins.length === P.sectionIds(state).length)
+          // the panel's header holds the ⋮ menu only: the rail item shows and hides the panel (no header hide button)
+          const headerButtons = a.controls.filter((c) => c.section === 'header')
+          check(tag + ' header: only the ⋮ menu (no hide button)', headerButtons.length === 1 && /menu-btn/.test(headerButtons[0].id), headerButtons.map((c) => c.name))
+          // no permanently greyed-out controls: from source (this isolated copy) Updates shows a status line, not dead buttons
+          if (state === 'settings') { const dead = a.controls.filter((c) => c.disabled && c.section === 'updates'); check(tag + ' Updates: no greyed-out controls (from source: a status line instead)', !dead.length, dead.map((c) => c.name)) }
           panel.c.close()
         } else {
           xshot(path.join(OUT, tag + '.png'), W, H)
@@ -406,30 +412,77 @@ async function perf() {
   panel.c.close(); rail.c.close(); mp.c.close()
 }
 
-// the mini player (run the app with --mini): hover and not, light and dark
+// the mini player (run the app with --mini): hover and not, light and dark; the star and the ⋯ always
+// reachable; the scrubber only over the song's words, never when nothing plays; the keyboard path
 async function mini() {
   const mp = await mainProc()
   const page = await target('miniplayer.html')
   await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Mini')); w.setPosition(0, 0); return true })()`)
   await sleep(500)
+  // a playing song, as the 1 s poll would send it (resent before each look: the logged-out poll says "nothing")
+  const SONG = { ok: true, isPlaying: true, title: 'Say You Love Me', artist: 'Fleetwood Mac', album: 'Greatest Hits (Deluxe Edition)', duration: 250, playbackTime: 140, artwork: '', shuffle: false, repeat: 0, volume: 0.6, contentRating: '' }
+  // while playing is simulated, the logged-out poll's "nothing playing" pushes are held back (this
+  // checker's own patch of the mini window's send, in the test copy only; undone at the end)
+  const hold = (on) => mp.ev(`(() => { const wc = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Mini')).webContents
+    if (${on} && !wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if (ch === 'now-playing' && !(a[0] && a[0].__test)) return; return wc.__origSend.call(wc, ch, ...a) } }
+    if (!${on} && wc.__origSend) { wc.send = wc.__origSend; delete wc.__origSend }
+    return true })()`)
+  const play = () => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Mini')); w.webContents.send('now-playing', Object.assign(${JSON.stringify(SONG)}, { __test: true })); return true })()`)
+  const rects = () => page.ev('Object.fromEntries(["mid", "fav", "more", "art", "volume"].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return [id, [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]] }))')
+  const look = () => page.ev(`(() => {
+    const at = (id) => { const r = document.getElementById(id).getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && (e === document.getElementById(id) || document.getElementById(id).contains(e)) }
+    const cs = (id) => getComputedStyle(document.getElementById(id))
+    return { idle: document.getElementById('center').classList.contains('idle'), hot: document.getElementById('mid').classList.contains('hot'),
+      np: +cs('np').opacity, scrub: cs('scrub').display === 'none' ? 'none' : +cs('scrub').opacity,
+      favVisible: cs('fav').visibility === 'visible', favHit: at('fav'), moreHit: at('more'), moreVisible: cs('more').visibility === 'visible' }
+  })()`)
   for (const dark of [false, true]) {
     for (let i = 0; i < 3 && (await page.ev('matchMedia("(prefers-color-scheme: dark)").matches')) !== dark; i++) {
       await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(600)
     }
-    for (const hover of [false, true]) {
-      const tag = `mini-${dark ? 'dark' : 'light'}-${hover ? 'hover' : 'rest'}`
-      x('move', hover ? 300 : 700, hover ? 40 : 200); await sleep(500)
-      xshot(path.join(OUT, tag + '.png'), 720, 80)
-      const a = await page.ev(PAGE_AUDIT('#pill'))
-      const st = await page.ev('[getComputedStyle(document.getElementById("np")).opacity, getComputedStyle(document.getElementById("scrub")).opacity, getComputedStyle(document.getElementById("pill")).borderRadius, getComputedStyle(document.getElementById("pill")).borderTopWidth]')
-      check(tag + ' the song or the scrubber shows (crossfade on hover)', hover ? +st[0] === 0 && +st[1] === 1 : +st[0] === 1 && +st[1] === 0, st)
-      check(tag + ' one pill (round ends) with a 1 px outline', /999px|36px/.test(st[2]) || parseFloat(st[2]) >= 32, st.slice(2))
-      judge(tag, a, { minHit: 24 })
-      check(tag + ' main controls >= 32 px', a.controls.filter((c) => /playpause|prev|next|shuffle|repeat|lyrics|queue|mute/.test(c.id)).every((c) => c.w >= 31.5 && c.h >= 31.5))
-    }
+    const t = dark ? 'dark' : 'light'
+    // nothing playing (the logged-out page): no scrubber even over the words; the ⋯ usable, no star
+    x('move', 700, 200); await sleep(1300)
+    let R = await rects()
+    x('move', R.mid[0], R.mid[1]); await sleep(500)
+    let l = await look()
+    xshot(path.join(OUT, `mini-${t}-not-playing.png`), 720, 80)
+    check(`mini-${t} not playing: no scrubber (no 0:00 bar) even with the pointer on the words; the ⋯ clickable`, l.idle && l.scrub === 'none' && l.np === 1 && l.moreHit && !l.favVisible, l)
+    // playing, the pointer on the ⋯, then the star: the scrubber stays shut, both buttons are hit
+    await hold(true)
+    await play(); x('move', 700, 200); await sleep(250); R = await rects()
+    await play(); x('move', R.more[0], R.more[1]); await sleep(400)
+    l = await look()
+    check(`mini-${t} playing, pointer on the ⋯: the words stay, the ⋯ and the star are there to click`, !l.idle && !l.hot && l.np === 1 && l.moreHit && l.favHit && l.favVisible, l)
+    await play(); x('move', R.fav[0], R.fav[1]); await sleep(400)
+    l = await look()
+    check(`mini-${t} playing, pointer on the star: no scrubber, the star hit`, !l.hot && l.np === 1 && l.favHit, l)
+    xshot(path.join(OUT, `mini-${t}-rest.png`), 720, 80)
+    // a quick pass over the words on the way to the buttons (< 120 ms): no flicker
+    await play(); x('move', R.mid[0] - 60, R.mid[1]); await sleep(50); x('move', R.more[0], R.more[1]); await sleep(300)
+    l = await look()
+    check(`mini-${t} passing over the words quickly doesn't open the scrubber (hover intent)`, !l.hot && l.np === 1, l)
+    // resting on the words: the scrubber, with the ⋯ and the star still in place
+    await play(); x('move', R.mid[0], R.mid[1]); await sleep(450)
+    l = await look()
+    xshot(path.join(OUT, `mini-${t}-hover.png`), 720, 80)
+    check(`mini-${t} resting on the words: the scrubber shows; the ⋯ and the star stay visible and clickable`, l.hot && l.scrub === 1 && l.np === 0 && l.moreHit && l.favHit && l.favVisible && l.moreVisible, l)
+    const a = await page.ev(PAGE_AUDIT('#pill'))
+    judge(`mini-${t}-hover`, a, { minHit: 24 })
+    check(`mini-${t} main controls >= 32 px`, a.controls.filter((c) => /playpause|prev|next|shuffle|repeat|lyrics|queue|mute|fav|more/.test(c.id)).every((c) => c.w >= 31.5 && c.h >= 31.5), a.controls.map((c) => c.id + ' ' + Math.round(c.w) + 'x' + Math.round(c.h)).join(', '))
+    const st = await page.ev('[getComputedStyle(document.getElementById("pill")).borderRadius, getComputedStyle(document.getElementById("pill")).borderTopWidth]')
+    check(`mini-${t} one pill (round ends) with a 1 px outline`, (/999px/.test(st[0]) || parseFloat(st[0]) >= 32) && st[1] === '1px', st)
+    // the keyboard: from the artwork, Tab reaches the bar (the scrubber opens), then the star and the ⋯ (it shuts)
+    x('move', 700, 200); await sleep(300); await play(); await sleep(200)
+    await page.ev('(document.getElementById("art").focus({ focusVisible: true }), true)')
+    await mp.ev(`(${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Mini')).webContents.focus(), true)`)
+    const order = []
+    for (let i = 0; i < 3; i++) { x('key', 'tab'); await sleep(250); order.push(await page.ev('document.activeElement.id + ":" + (+getComputedStyle(document.getElementById("scrub")).opacity)')) }
+    check(`mini-${t} keyboard: Tab goes bar (scrubber open) -> star -> ⋯ (scrubber shut)`, order.join('|') === 'seek:1|fav:0|more:0', order)
+    await hold(false); await sleep(1300)
   }
   // the wheel over the volume: 5 % per notch, the page doesn't scroll
-  const vr = await page.ev('(() => { const r = document.getElementById("volume").getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] })()')
+  const vr = (await rects()).volume
   const v0 = await page.ev('+document.getElementById("volume").value')
   x('wheel', vr[0], vr[1], -2); await sleep(400)
   const v1 = await page.ev('[+document.getElementById("volume").value, document.getElementById("volume").getAttribute("aria-valuetext"), document.getElementById("volume").title]')
@@ -444,7 +497,13 @@ async function lyrics() {
   const page = await target('lyrics.html')
   const data = { title: 'Contrast check', artist: 'Sonata', album: 'Test', duration: 60, source: 'apple', status: '', estimate: false, refined: false, aligned: false, lang: 'en',
     lines: [0, 1, 2, 3, 4, 5].map((i) => ({ t: i * 6, end: i * 6 + 5, text: 'Line number ' + (i + 1) + ' of the song', words: [] })) }
-  const send = (ch, ...a) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}); return true })()`)
+  // the lyrics feed's own pushes (logged out: no song, time 0) are held back while this checker drives
+  // the window (its own patch of the window's send, in the test copy only)
+  await mp.ev(`(() => { const wc = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')).webContents
+    wc.__origSend = wc.send
+    wc.send = function (ch, ...a) { if (/^lyrics-(time|data)$/.test(ch) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) }
+    return true })()`)
+  const send = (ch, ...a) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'); return true })()`)
   for (const dark of [false, true]) {
     await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(800)
     await send('lyrics-data', data); await send('lyrics-time', 13, false); await sleep(800)
@@ -456,6 +515,30 @@ async function lyrics() {
     const active = a.texts.filter((t) => /Line number 3/.test(t.text))
     check(tag + ' the current line is there', active.length >= 1)
     judge(tag, a, { minHit: 24 })
+    // a duet (0.15.33): singer 1 left, singer 2 right, both together centred; each sings in its own
+    // colour, each >= 4.5:1, and the sides differ too (colour is never the only cue)
+    const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.5, end: t + i * 0.5 + 0.45, text: w }))
+    const duet = Object.assign({}, data, { title: 'Duet check', lines: [
+      { t: 0, end: 4, text: 'First singer sings here', agent: 'v1', words: word(0, 'First singer sings here') },
+      { t: 5, end: 9, text: 'Second singer answers back', agent: 'v2', words: word(5, 'Second singer answers back') },
+      { t: 10, end: 14, text: 'Both of them together now', agent: 'v1000', words: word(10, 'Both of them together now') },
+      { t: 15, end: 19, text: 'First singer once again', agent: 'v1', words: word(15, 'First singer once again') }] })
+    duet.lines[2].agent = 'group'
+    await send('lyrics-data', duet); await sleep(500)
+    const seen = {}
+    for (const [who, t] of [['singer 1', 1.2], ['singer 2', 6.2], ['together', 11.2]]) {
+      await send('lyrics-time', t, true); await sleep(600)
+      const st = await page.ev(`(() => { const l = document.querySelector('.line.active'); const w = l && l.querySelector('.w.now'); return l ? { side: [...l.classList].filter((c) => ['left', 'right', 'center'].includes(c)).join(''), color: getComputedStyle(w || l).color } : null })()`)
+      seen[who] = st
+      xshot(path.join(OUT, tag.replace('lyrics-', 'duet-') + '-' + who.replace(' ', '') + '.png'), b.width, b.height)
+      const da = await page.ev(PAGE_AUDIT('#card'))
+      judge(tag + ' duet ' + who, da, { minHit: 24 })
+    }
+    check(tag + ' duet: the singers sit on their own sides (left, right, centre)', seen['singer 1'] && seen['singer 1'].side === 'left' && seen['singer 2'].side === 'right' && seen['together'].side === 'center', seen)
+    if (process.env.SONATA_TEST_ARTWORK || LABEL.includes('artwork')) {
+      check(tag + ' duet: three different colours for singer 1, singer 2 and together', new Set(Object.values(seen).map((x) => x && x.color)).size === 3, seen)
+    }
+    await send('lyrics-data', data); await sleep(300)
   }
   mp.c.close(); page.c.close()
 }

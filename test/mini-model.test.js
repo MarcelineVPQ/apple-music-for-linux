@@ -47,7 +47,12 @@ test('mini page: one pill with a hairline, scrubber on hover with a crossfade, r
   const html = fs.readFileSync(path.join(__dirname, '..', 'miniplayer.html'), 'utf8')
   assert.match(html, /#pill \{[^}]*border: 1px solid var\(--s-edge\);[^}]*border-radius: 999px;/)
   assert.doesNotMatch(html, /id="lcd"/, 'no inner boxed card')
-  assert.match(html, /#center:hover #scrub/)
+  assert.match(html, /#mid\.hot #scrub/)
+  // the star and the ⋯ sit outside the hover area (#mid), so they never vanish under the pointer
+  const mid = html.slice(html.indexOf('<div id="mid">'), html.indexOf('<button id="fav"'))
+  assert.doesNotMatch(mid, /id="fav"|id="more"/)
+  assert.match(html, /hotTimer = setTimeout\(\(\) => mid\.classList\.add\('hot'\), 120\)/)
+  assert.match(html, /#center\.idle #scrub \{ display: none; \}/)
   assert.match(html, /transition: opacity 0\.15s ease/)
   assert.match(html, /prefers-reduced-motion: reduce/)
   assert.match(html, /id="seek" role="slider" tabindex="0" aria-label="Song position"/)

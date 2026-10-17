@@ -60,19 +60,29 @@
   button.active, button.small.active { color: var(--s-ring); }
   #controls, #right { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
 
-  /* the middle: the song (not pointed at) or the scrubber (pointed at / keyboard on the bar) */
+  /* the middle: the artwork, then the song's words with their thin progress line, which turn into the
+     scrubber while the pointer rests on them (~120 ms hover intent, so passing over on the way to the
+     buttons doesn't flicker) or the keyboard is on the bar; then the star and the ⋯, which always stay
+     where they are, clickable. Nothing playing: no scrubber at all. */
   #center {
     -webkit-app-region: no-drag;
-    position: relative;
     flex: 1;
     min-width: 0;
     height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
+  #mid { position: relative; flex: 1; min-width: 0; height: 100%; }
   #np, #scrub { position: absolute; inset: 0; transition: opacity 0.15s ease; }
-  #np { display: flex; align-items: center; gap: 10px; }
+  #np { display: flex; flex-direction: column; justify-content: center; }
   #scrub { display: flex; flex-direction: column; justify-content: center; gap: 2px; opacity: 0; pointer-events: none; }
-  #center:hover #np, #center:focus-within #np, #center.scrubbing #np { opacity: 0; pointer-events: none; }
-  #center:hover #scrub, #center:focus-within #scrub, #center.scrubbing #scrub { opacity: 1; pointer-events: auto; }
+  #mid.hot #np, #mid:focus-within #np, #mid.scrubbing #np { opacity: 0; }
+  #mid.hot #scrub, #mid:focus-within #scrub, #mid.scrubbing #scrub { opacity: 1; pointer-events: auto; }
+  #center.idle #scrub { display: none; }
+  #center.idle #np { opacity: 1; }
+  /* nothing playing, nothing to favourite: the star steps aside (its place stays) */
+  #center.idle #fav { visibility: hidden; }
   #art {
     width: 40px;
     height: 40px;
@@ -82,8 +92,6 @@
     flex-shrink: 0;
     cursor: pointer;
   }
-  #textblock { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
-  #info { flex: 1; min-width: 0; }
   .title-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
   #title { font-size: 13px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #subtitle { font-size: 12px; line-height: 1.3; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -97,12 +105,12 @@
     color: var(--s-soft);
     background: var(--s-hover);
   }
-  #fav { width: 24px; height: 24px; color: var(--s-soft); }
+  #fav { color: var(--s-soft); }
   #fav:hover { color: var(--s-text); }
-  #fav svg { width: 13px; height: 13px; }
-  #more svg { width: 15px; height: 15px; }
+  #fav svg { width: 15px; height: 15px; }
+  #more svg { width: 17px; height: 17px; }
   /* the thin progress line under the words, as wide as the text block (Apple's) */
-  #line { position: absolute; left: 0; right: 0; bottom: -7px; height: 2px; border-radius: 1px; background: var(--s-track); overflow: hidden; }
+  #line { height: 2px; margin-top: 5px; border-radius: 1px; background: var(--s-track); overflow: hidden; }
   #line i, #seek-fill { display: block; height: 100%; width: 100%; background: var(--s-text); transform-origin: left center; transform: scaleX(0); }
   /* the scrubber: bigger, brighter times over a longer, thicker bar */
   #times { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--s-text); padding: 0 1px; }
@@ -121,7 +129,7 @@
     opacity: 0;
     transition: opacity 0.15s ease;
   }
-  #seek:hover #seek-knob, #seek:focus-visible #seek-knob, #center.scrubbing #seek-knob { opacity: 1; }
+  #seek:hover #seek-knob, #seek:focus-visible #seek-knob, #mid.scrubbing #seek-knob { opacity: 1; }
   #volume {
     -webkit-app-region: no-drag;
     -webkit-appearance: none;
@@ -162,34 +170,32 @@
       </button>
     </div>
 
-    <div id="center">
-      <div id="np">
-        <img id="art" title="Open full player" alt="" role="button" tabindex="0" aria-label="Open full player">
-        <div id="textblock">
-          <div id="info">
-            <div class="title-row">
-              <span id="title">Not playing</span>
-              <span id="rating-badge" style="display:none">E</span>
-              <button id="fav" title="Favorite" aria-label="Favorite" aria-pressed="false">
-                <svg id="icon-fav-off" viewBox="0 0 16 16"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
-            <svg id="icon-fav-on" viewBox="0 0 16 16" style="display:none"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z"/></svg>
-              </button>
-            </div>
-            <div id="subtitle"></div>
+    <div id="center" class="idle">
+      <img id="art" title="Open full player" alt="" role="button" tabindex="0" aria-label="Open full player">
+      <div id="mid">
+        <div id="np">
+          <div class="title-row">
+            <span id="title">Not playing</span>
+            <span id="rating-badge" style="display:none">E</span>
           </div>
-          <button id="more" class="small" title="More" aria-label="More">
-            <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
-          </button>
+          <div id="subtitle"></div>
           <div id="line"><i id="line-fill"></i></div>
         </div>
-      </div>
-      <div id="scrub">
-        <div id="times"><span id="time-elapsed">0:00</span><span id="time-remaining">-0:00</span></div>
+        <div id="scrub">
+          <div id="times"><span id="time-elapsed">0:00</span><span id="time-remaining">-0:00</span></div>
         <div id="seek" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00">
           <div id="seek-track"><i id="seek-fill"></i></div>
           <span id="seek-knob"></span>
+          </div>
         </div>
       </div>
+      <button id="fav" class="small" title="Favorite" aria-label="Favorite" aria-pressed="false">
+                <svg id="icon-fav-off" viewBox="0 0 16 16"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            <svg id="icon-fav-on" viewBox="0 0 16 16" style="display:none"><path d="M8 1.6l1.86 3.95 4.14.5-3.06 2.86.83 4.19L8 11.6l-3.77 1.5.83-4.19L2 6.05l4.14-.5z"/></svg>
+              </button>
+      <button id="more" class="small" title="More" aria-label="More">
+            <svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="13" cy="8" r="1.5"/></svg>
+          </button>
     </div>
 
     <div id="right">
@@ -253,7 +259,18 @@
   let currentTime = 0
   let seekHoldUntil = 0      // after a seek, the 1 s push waits a moment so the bar doesn't jump back
   const center = document.getElementById('center')
+  const mid = document.getElementById('mid')
   const seek = document.getElementById('seek')
+  // hover intent: the scrubber opens once the pointer has rested ~120 ms on the song's words, so
+  // passing over them on the way to the star or the ⋯ doesn't flicker; it closes when the pointer leaves
+  let hotTimer = null
+  // lifetime: pointerenter / pointerleave on the words, one each for the window's life
+  mid.addEventListener('pointerenter', () => {
+    clearTimeout(hotTimer)
+    // loop: hover intent · one 120 ms one-shot per pointer entry · cleared on leave · cost ~0
+    hotTimer = setTimeout(() => mid.classList.add('hot'), 120)
+  })
+  mid.addEventListener('pointerleave', () => { clearTimeout(hotTimer); hotTimer = null; mid.classList.remove('hot') })
   const fills = [document.getElementById('line-fill'), document.getElementById('seek-fill')]
   const knob = document.getElementById('seek-knob')
   function showTime(t, d) {
@@ -280,14 +297,14 @@
     if (!currentDuration || e.button !== 0) return
     dragging = true
     seek.setPointerCapture(e.pointerId)
-    center.classList.add('scrubbing')
+    mid.classList.add('scrubbing')
     showTime(at(e), currentDuration)
   })
   seek.addEventListener('pointermove', (e) => { if (dragging) showTime(at(e), currentDuration) })
   seek.addEventListener('pointerup', (e) => {
     if (!dragging) return
     dragging = false
-    center.classList.remove('scrubbing')
+    mid.classList.remove('scrubbing')
     seekTo(at(e))
   })
   seek.addEventListener('keydown', (e) => {
@@ -370,6 +387,8 @@
     document.getElementById('rating-badge').style.display =
       state.contentRating === 'explicit' ? '' : 'none'
     currentDuration = state.duration || 0
+    // nothing playing: the words only ("Not playing"), no scrubber; the star and the ⋯ stay usable
+    center.classList.toggle('idle', !state.title || !currentDuration)
     if (!dragging && performance.now() > seekHoldUntil) {
       currentTime = state.playbackTime || 0
       showTime(currentTime, currentDuration)

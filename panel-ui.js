@@ -51,8 +51,9 @@
   const menuBtn = iconButton('icon-btn menu-btn', 'more', 'More: collapse all, clear pins')
   setAttr(menuBtn, 'aria-haspopup', 'menu')
   setAttr(menuBtn, 'aria-expanded', 'false')
-  const hideBtn = iconButton('icon-btn hide-btn', 'pinClose', 'Hide the panel')
-  head.append(titles, menuBtn, hideBtn)
+  // no hide button here (0.15.33, as in the DS5 app): the rail item of the page shown is the one way
+  // to show or hide the panel, plus Esc for the drawer in narrow windows
+  head.append(titles, menuBtn)
   const menu = el('ul', 'menu')
   menu.id = 'panel-menu'
   setAttr(menu, 'role', 'menu')
@@ -136,11 +137,13 @@
         sel.disabled = !!off
         r.classList.toggle('disabled', !!off)
         setText(desc, (off && opt.why) || (opt.desc ? opt.desc(v) : descText) || '')
+        r.hidden = opt.hidden ? !!opt.hidden(v) : false
       }
     }
   }
   // a status line with buttons: buttons [{ label(v), action, primary, disabled(v), hidden(v) }]
-  function actionRow(labelText, statusFn, buttons) {
+  function actionRow(labelText, statusFn, buttons, o) {
+    const opt = o || {}
     const btns = el('div', 'btns')
     const made = buttons.map((d) => {
       const b = el('button', 'btn' + (d.primary ? ' primary' : ''))
@@ -156,6 +159,7 @@
       el: r,
       update(s) {
         const v = s.v || {}
+        r.hidden = opt.hidden ? !!opt.hidden(v) : false
         setText(desc, statusFn ? statusFn(v) : '')
         // loop: NOT-WORTH — ≤ 3 buttons
         for (const { d, b } of made) {
@@ -215,7 +219,6 @@
   }
 
   // --- the sections' bodies (built only while open) ---
-  const VERSION_DESC = (v) => (v.appImage ? '' : 'Only the AppImage updates itself; from source, update with git pull.')
   const BODY = {
     settings: {
       playback: () => [
@@ -252,20 +255,23 @@
           [{ label: (v) => (v.discordEnabled ? 'Disconnect' : 'Connect…'), action: 'discord' }])
       ],
       updates: () => [
+        // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls
+        textBlock('note', (v) => (v.appImage ? '' : 'Sonata ' + (v.version || '') + ', running from source: only the AppImage updates itself. Update with git pull.')),
         actionRow('Sonata ' + ((S && S.v && S.v.version) || ''), (v) => v.updateLine || '',
-          [{ label: 'Check now', action: 'check-now', disabled: (v) => !v.appImage || v.updateBusy, tip: (v) => (v.appImage ? 'Check the update feed now' : VERSION_DESC(v)) }]),
+          [{ label: 'Check now', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
         selectRow('updateChannel', 'Update channel', '', [['stable', 'Stable'], ['dev', 'Development']],
           { desc: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone.'),
-            disabled: (v) => !v.appImage, why: 'Only the AppImage updates itself; from source, update with git pull.' }),
+            hidden: (v) => !v.appImage }),
         switchRow('checkForUpdates', 'Check for updates automatically', 'At start and every 2 hours. Off: Sonata goes online for updates only when you press Check now',
-          { disabled: (v) => !v.appImage, why: 'Only the AppImage updates itself; from source, update with git pull.' }),
+          { hidden: (v) => !v.appImage }),
         switchRow('autoInstallUpdates', 'Install updates automatically', 'Downloads and checks them in the background; the new version starts the next time you open Sonata',
-          { disabled: (v) => !v.appImage || !v.checkForUpdates, why: 'Needs Check for updates automatically (above) on' }),
+          { hidden: (v) => !v.appImage, disabled: (v) => !v.checkForUpdates, why: 'Needs Check for updates automatically (above) on' }),
+        // only where it can do something: on the Development channel or a development build
         actionRow('Back to stable', (v) => (v.backConfirm
           ? 'Install the newest stable release, even though it is older than this build? Settings stay. It starts the next time you open Sonata.'
-          : 'From the Development channel: install the newest stable release, even if it is older'),
+          : 'Install the newest stable release, even if it is older than this build'),
         [{ label: (v) => (v.backConfirm ? 'Install stable' : 'Back to stable…'), action: 'back-to-stable', primary: false, disabled: (v) => v.updateBusy },
-          { label: 'Cancel', action: 'back-cancel', hidden: (v) => !v.backConfirm }])
+          { label: 'Cancel', action: 'back-cancel', hidden: (v) => !v.backConfirm }], { hidden: (v) => !v.appImage || !v.backToStable })
       ],
       startup: () => [
         switchRow('closeToTray', 'Close to tray', 'Closing the window hides it; music keeps playing'),
@@ -545,7 +551,6 @@
     setText(title, M.PAGES[page].title)
     setText(sub, 'Sonata ' + (S.v.version || '') + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
-    setAttr(hideBtn, 'title', 'Hide the panel (' + M.PAGES[page].title + ' in the rail shows it again)' + (S.mode === 'drawer' ? ', or Esc' : ''))
     renderMenu()
     renderNotices(topNotices, (S.notices || []).filter((n) => n.place === 'top'))
     topNotices.hidden = !topNotices.children.length
@@ -586,8 +591,6 @@
     const k = M.headerKey(e.key, i, items.length)
     if (k >= 0) { e.preventDefault(); items[k].focus({ focusVisible: true }) }
   })
-  // lifetime: one click listener on the hide button
-  hideBtn.addEventListener('click', (e) => { if (e.isTrusted) bridge.send('hide') })
 
   // --- keyboard: header arrows, Esc (drawer, menu), Tab out at either end to the next view ---
   const tabbables = () => [...panel.querySelectorAll('button, select, a[href], [tabindex="0"]')]
@@ -631,6 +634,6 @@
   globalThis.__sonataPanel = Object.freeze({
     panel, state: () => S, page: () => page,
     theme: () => theme.state(),
-    counts: () => ({ sections: sections.length, bodies: sections.filter((x) => x.body).length, nodes: doc.getElementsByTagName('*').length, listeners: 7 })
+    counts: () => ({ sections: sections.length, bodies: sections.filter((x) => x.body).length, nodes: doc.getElementsByTagName('*').length, listeners: 6 })
   })
 })()

@@ -91,6 +91,12 @@ test('panel and toast pages: local scripts only (CSP), no Node, no HTML strings,
   assert.ok(clicks.length >= 6)
   for (const c of clicks) assert.match(c, /e\.isTrusted/, c)
   assert.doesNotMatch(ui, /<details|'details'/)
+  // the rail item is the one way to show or hide the panel (plus Esc for the drawer): no header hide button
+  assert.doesNotMatch(ui, /hide-btn|Hide the panel|'pinClose'/)
+  assert.match(ui, /head\.append\(titles, menuBtn\)/)
+  // from source the Updates section shows a status line, not greyed-out controls
+  assert.match(ui, /running from source: only the AppImage updates itself/)
+  assert.doesNotMatch(ui, /disabled: \(v\) => !v\.appImage/)
 })
 
 test('accessibility in the markup: headers are buttons with aria-expanded/controls, pins aria-pressed, switches role=switch and named', () => {
