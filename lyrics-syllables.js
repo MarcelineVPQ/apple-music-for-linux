@@ -6,7 +6,8 @@
 // whole word pops, as before).
 //
 // Edges: hyphen never splits off fewer than 2 letters at either end (leftmin = rightmin = 2), and
-// words shorter than MIN_WORD letters stay whole.
+// words shorter than MIN_WORD letters stay whole. A hyphen inside a word (0.15.35) is always a
+// boundary: "(Hey-hey-ay-ay-ay)" pops syllable by syllable; each piece is then hyphenated as usual.
 //
 // Cost: one pattern file per language, loaded on first use (en-us ~100 KB) and kept; the split runs
 // once per line when lyrics load or a line's timing changes, never per frame.
@@ -49,10 +50,27 @@ function hyphenatorFor(lang) {
 
 const NON_LATIN_LETTER = /(?=\p{L})\P{Script=Latin}/u
 
-/** A word's text -> syllable texts (joined they are the word), or null when it stays whole. */
+// a hyphen between two letters: a syllable boundary of its own ("(Hey-hey-ay-ay-ay)", which the
+// patterns leave whole). The hyphen stays on the piece before it, brackets on the outer pieces.
+const INNER_HYPHEN = /(?<=\p{L})-(?=\p{L})/u
+
+// one piece's hyphenation parts (the piece itself when the patterns leave it whole)
+function hyphenParts(piece, hyphenate) {
+  const parts = String(hyphenate(piece)).split(SEP).filter(Boolean)
+  return parts.length > 1 && parts.join('') === piece ? parts : [piece]
+}
+
+/**
+ * A word's text -> syllable texts (joined they are the word), or null when it stays whole. Hyphens
+ * inside the word split first ("(Hey-", "hey-", "ay-", "ay-", "ay)"), then each piece is hyphenated
+ * by the patterns when it's long enough. Still one word: only its syllables change.
+ */
 function splitWord(text, hyphenate) {
   if (!hyphenate || !text || text.includes(SEP) || NON_LATIN_LETTER.test(text)) return null
-  const parts = String(hyphenate(text)).split(SEP).filter(Boolean)
+  const pieces = INNER_HYPHEN.test(text) ? text.split(INNER_HYPHEN).map((p, i, all) => i < all.length - 1 ? p + '-' : p) : [text]
+  const parts = []
+  // loop: a word's hyphen pieces (a handful) · once per word per load or timing change
+  for (const piece of pieces) parts.push(...hyphenParts(piece, hyphenate))
   return parts.length > 1 && parts.join('') === text ? parts : null
 }
 

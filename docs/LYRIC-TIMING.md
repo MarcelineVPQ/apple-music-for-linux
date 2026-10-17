@@ -313,3 +313,69 @@ The aligner rows come from two `align/bench.py` runs on the RTX 5080, `--param h
 bench file now stores the aligner's word ends and holds. In the app, `tools/ui-check.js lyrics` checks a held
 word over the next line's start: both lines lit, the held word lit and settled into its sustain, and released
 0.6 s past an anchor-only next line.
+
+## Onset (0.15.35)
+
+Marcy's report on 0.15.34: in The Goo Goo Dolls' "So Alive (Live)", estimated sections ran early on a first
+listen. Her cache showed why: Apple's line stamps on this live cut come a median 0.75 s before the first
+sung word (aligned entry, 51 lines; range 0–1.66 s), and `learnedPace` learned only the pace from the lines
+already aligned, never where in the line the singing starts.
+
+**Change** (`lyrics-timing.js`): `learnedOnset` takes the median of (first word − line stamp) over the
+song's aligned/refined lines (not mapped repeats), from at least 3 lines, clamped to [0, 1.5 s], and 0 when
+under 0.15 s. `repace` re-estimates the plain estimated lines with their words starting that much after the
+stamp (at most 40 % of the line's time, so a short line is squeezed, never pushed into the next). Lines with
+real word timing (Apple syllables, aligned, refined, mapped repeats) are never touched. The line still lights
+at its stamp − `LINE_LEAD` (0.2 s), so the line now leads its first word by about onset + 0.2 s, as Apple's
+own line-timed lyrics do. The last word's hold is unchanged: it still lets go `HOLD_GAP` (0.1 s) before the
+next line's stamp, or at Apple's end minus `TIGHT_TAIL`. Extending the hold to the next line's shifted first
+word was measured and not taken: held "ended early" 38 % → 37 % but the end error mean got 2 ms worse.
+
+The dead zone: on JamendoLyrics the line stamps are the annotated line starts, so the learned onsets are
+0–0.14 s; shifting by them cost the bench 2 ms of median error (93 → 95 ms, ≤ 0.1 s 52 % → 51 %). With the
+0.15 s dead zone the bench is unchanged.
+
+**Numbers** (`progressive`: the first play with precise timing; `estimate` doesn't learn, unchanged).
+Her library: a copy of her cache taken 2026-10-16 20:44 (33 aligned songs, the newest entry per song: 4
+of the 7 live songs still version 1; Slide, Long Way Down and Home (Live) version 2, Home partial, 23 of 41
+lines). Live = titles with "(Live)" (The Goo Goo Dolls, "The Audience Is This Way"); Marcy's aim is to
+nail live recordings first.
+
+| set | words | median | mean | bias | ≤ 0.1 s | ≤ 0.3 s | frames lit |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| "So Alive (Live)", before | 370 | 569 | 686 | −655 | 3 % | 19 % | 14 % |
+| "So Alive (Live)", after | 370 | 369 | 467 | −375 | 8 % | 39 % | 19 % |
+| live, 7 songs, before | 1,770 | 582 | 672 | −579 | 10 % | 26 % | 27 % |
+| live, after | 1,770 | 366 | 490 | −304 | 16 % | 43 % | 33 % |
+| studio, 26 songs, before | 7,056 | 174 | 337 | −150 | 35 % | 67 % | 52 % |
+| studio, after | 7,056 | 167 | 320 | −103 | 36 % | 69 % | 53 % |
+| her library, 33 songs, before | 8,826 | 218 | 404 | −236 | 30 % | 58 % | 47 % |
+| her library, after | 8,826 | 194 | 354 | −144 | 32 % | 64 % | 49 % |
+| JamendoLyrics LRC, 79 songs, before | 21,580 | 93 | 243 | −61 | 52 % | 78 % | 59 % |
+| JamendoLyrics LRC, after | 21,580 | 93 | 243 | −61 | 52 % | 78 % | 59 % |
+
+Live songs, median before → after (ms): Big Machine 871 → 675, January Friend 666 → 365, The Pin 606 → 349,
+So Alive 569 → 369, Slide 567 → 302, Home 359 → 316, Long Way Down 293 → 287.
+
+**Not covered: "Home (Live)", "A million miles, but I will find you" → "So take me home"** (Marcy's
+screenshot on 0.15.34-dev.1: "So take me home" lit, "me" mid-pop, while the singer was still on the line
+before). Apple stamps line 15 at 95.10 s but ends line 14 at 97.13 s: a 2.04 s overlap, the largest of the
+21 overlapping pairs in her library (median 0.52 s). On that first play lines 14–15 were estimated (their
+section, lines 9–16, can only be aligned after 110 s of audio), so line 15 lit at its stamp and its words
+were spread from 95.10 to 100.72 ("me" 97.62–98.88), while line 14's "you" was held to 96.93 by the
+0.15.34 overlap rule. The aligner (version 2, cached since) disagrees with her ears too: "you" ends 94.91
+s, not held, and "So take me home" is placed at 95.17–96.83 with "home" only 0.47 s long, although Apple's
+line runs to 100.92. So the aligner likely placed line 15 too early and missed a held "you"; that can't be
+checked without the audio (the drift check takes the aligner as the truth). The learned onset here is
+0.34 s, which moves "me" only ~0.2 s. A rule "an estimated line waits for the previous line's Apple end"
+would fit this pair, but on the other overlapping pairs the aligner has the next line start 0.16 s after
+its stamp (median), before the previous end, so it would measure worse; left for Marcy to decide.
+
+Per song in her library: 12 songs better (six of the seven live ones), 18 unchanged, 3 worse: Ache With Me and Sofa King +8 ms, and Headstrong +250 ms, whose aligned
+"truth" is itself off by up to 11 s (median error 1.6 s before the change; its bias improved −891 → −749).
+
+What's left on "So Alive": the first section is sung before anything is learned (lines 0–10 keep the full
+early bias), choruses mapped from an aligned line inherit that instance's delay (`reuseRepeats` shifts by the
+stamps only), and the "I'm so alive, I'm so alive" lines drift (sung slower than the learned pace). The
+"(Hey-hey-ay-ay-ay)" lines were rejected by the aligner (low confidence) and are estimated; they now bounce
+by syllable (`splitWord`: a hyphen between letters is a boundary) and take the onset too.

@@ -7,6 +7,15 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.35-dev.1] — Hyphenated syllables bounce, and estimated lines wait for the singer
+
+### Fixed
+
+- **"Hey-hey-ay-ay-ay" bounces syllable by syllable.** A word made of hyphenated parts was one block to the syllable pop, so it lit up without any bounce. Each hyphen is now a syllable boundary ("(Hey-", "hey-", "ay-", "ay-", "ay)"), and the brackets stay on the outer parts. It is still one word, so the word highlight, saved precise timing and repeated lines work as before.
+- **Estimated lines no longer start early on songs whose singer comes in late.** On some songs, live recordings especially, the lyrics' line times come up to about a second before the voice. With precise word timing or Refine timing by listening on, Sonata now learns how far behind the line times the singer comes in (from at least three lines it has heard), and the lines it still has to estimate start their words that much later. The line itself still lights at its usual time.
+
+Measured on a first listen with precise word timing: on "So Alive (Live)" (The Goo Goo Dolls) the estimated words went from 0.66 s early on average to 0.38 s, and words within 0.3 s from 19 % to 39 %. Across the seven live songs in the library cache the median error went from 0.58 s to 0.37 s (words within 0.3 s from 26 % to 43 %), on the 26 studio songs it stayed at 0.17 s (69 % within 0.3 s, was 67 %), and the 79-song benchmark is unchanged. Details in docs/LYRIC-TIMING.md.
+
 ## [0.15.34-dev.1] — Held notes stay lit
 
 ### Fixed

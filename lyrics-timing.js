@@ -233,6 +233,47 @@ function learnedPace(lines) {
   return clampPace(r[Math.floor(r.length / 2)])
 }
 
+// The onset (0.15.35): Apple's (and LRCLIB's) line stamps often come a little before the voice does,
+// by a song-specific amount (~0.75 s on a live cut: "So Alive (Live)", docs/LYRIC-TIMING.md "Onset").
+// Learned like the pace, from the song's aligned/refined lines: the median of (first word − line
+// start), clamped to [0, ONSET_MAX], from at least ONSET_MIN_LINES lines; under ONSET_MIN it's 0
+// (stamps on the voice: the JamendoLyrics bench's onsets are 0–0.14 s, and shifting by them cost it
+// 2 ms of median error; with the dead zone the bench is unchanged). Plain estimated lines then
+// start their words that much after their stamp (at most ONSET_SHARE of the line's time); the line
+// itself still lights at its stamp − LINE_LEAD, and the last word's hold still ends HOLD_GAP before
+// the next line (or at Apple's end minus TIGHT_TAIL), so the shift squeezes the line, never moves it.
+const ONSET_MIN = 0.15
+const ONSET_MAX = 1.5
+const ONSET_MIN_LINES = 3
+const ONSET_SHARE = 0.4
+
+/**
+ * The song's onset (s from a line's stamp to its first sung word) from the lines whose words were
+ * placed from the audio (aligned or refined, not mapped repeats). null for fewer than ONSET_MIN_LINES.
+ */
+function learnedOnset(lines) {
+  const r = []
+  // loop: one pass over the song's lines · per estimate / alignment / refine message
+  for (const line of lines || []) {
+    if (!(line.aligned || line.refined) || line.repeat || line.t == null || !line.words || !line.words.length) continue
+    const d = line.words[0].t - line.t
+    if (Number.isFinite(d)) r.push(d)
+  }
+  if (r.length < ONSET_MIN_LINES) return null
+  r.sort((a, b) => a - b)
+  const m = r.length % 2 ? r[(r.length - 1) / 2] : (r[r.length / 2 - 1] + r[r.length / 2]) / 2
+  return m < ONSET_MIN ? 0 : m > ONSET_MAX ? ONSET_MAX : m
+}
+
+/** One line's estimated words at `pace`, the first starting `onset` s after the line's stamp (see
+ * ONSET_SHARE; 0 by default). */
+function estimateLineAt(line, next, pace, onset = 0, h) {
+  const d = onset > 0 ? Math.min(onset, ONSET_SHARE * lineTime(line, next)) : 0
+  if (!(d > 0)) return estimateLine(line, next, pace, h)
+  // the line as if stamped at its first word: same end, same next line
+  return estimateLine(Object.assign({}, line, { t: line.t + d }), next, pace, h)
+}
+
 /** One line's estimated words at `pace` (null when it has no words). h: hold options, for the drift
  * check's comparisons only (lastHold s, toNext, overlap: the defaults are the shipped rules) */
 function estimateLine(line, next, pace, h = {}) {
@@ -280,21 +321,25 @@ function estimateWords(lines, opts = {}) {
 }
 
 /**
- * Re-estimates the plain estimated lines (not refined, not mapped repeats) at the pace learned from
- * the song's aligned/refined lines. Same array when there's nothing to learn from or nothing changes.
+ * Re-estimates the plain estimated lines (not refined, not mapped repeats) at the pace and onset
+ * learned from the song's aligned/refined lines (each only once known; lines with real word timing
+ * are never touched). Same array when there's nothing to learn from or nothing changes.
  */
 function repace(lines) {
-  const pace = learnedPace(lines)
-  if (!pace) return lines
+  const learned = learnedPace(lines)
+  const onset = learnedOnset(lines)
+  if (!learned && onset == null) return lines
   let changed = false
   const out = lines.map((line, i) => {
     if (!line.estimated || line.refined || line.repeat || !line.words || line.t == null) return line
-    if (line.pace && Math.abs(line.pace - pace) < 0.005) return line
+    const pace = learned || line.pace || PACE
+    const at = onset != null ? onset : (line.onset || 0)
+    if (line.pace && Math.abs(line.pace - pace) < 0.005 && Math.abs((line.onset || 0) - at) < 0.005) return line
     // the next line's start is all estimateLine reads from it
-    const words = estimateLine(line, lines[i + 1], pace)
+    const words = estimateLineAt(line, lines[i + 1], pace, at)
     if (!words || words.length !== line.words.length) return line
     changed = true
-    return Object.assign({}, line, { words, pace })
+    return Object.assign({}, line, { words, pace, onset: at })
   })
   return changed ? out : lines
 }
@@ -436,5 +481,5 @@ module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
   lineSides, hasWordTiming, estimateWords, syllables, wordWeight, syncClock, seekClock, clockTime,
-  PACE, songPace, learnedPace, estimateLine, repace, repeatKey, reuseRepeats
+  PACE, songPace, learnedPace, learnedOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }

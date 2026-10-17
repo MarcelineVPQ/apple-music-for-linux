@@ -48,6 +48,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.35-dev.1" date="2026-10-16" type="development">
+      <description>
+        <p>Hyphenated words such as "Hey-hey-ay-ay-ay" bounce syllable by syllable, and estimated lines start their words when the singer comes in, learned from the lines already heard.</p>
+      </description>
+    </release>
     <release version="0.15.34-dev.1" date="2026-10-16" type="development">
       <description>
         <p>A held note stays lit for the whole hold, also over the start of the next line, with a gentle sustain on its last syllable.</p>

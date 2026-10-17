@@ -68,3 +68,37 @@ test('prepare: estimated words get estimated syllables (bg too); a language with
   const w = p.lines[0].words.find((x) => x.text === 'beautiful')
   assert.equal(V.wordState([w], w.syl[1].t + 0.001).syl, 1)
 })
+
+test('hyphens inside a word are syllable boundaries (0.15.35): brackets stay on the outer pieces', () => {
+  assert.deepEqual(S.splitWord('(Hey-hey-ay-ay-ay)', en), ['(Hey-', 'hey-', 'ay-', 'ay-', 'ay)'])
+  assert.deepEqual(S.splitWord('Hey-hey-ay-ay-ay-ay', en), ['Hey-', 'hey-', 'ay-', 'ay-', 'ay-', 'ay'])
+  // each piece is then hyphenated as usual
+  assert.equal(split('self-control'), 'self-·con·trol')
+  // a hyphen not between two letters is not a boundary
+  for (const w of ['-ay', 'ay-', 'a--b', 'hey']) assert.equal(split(w), w)
+  assert.equal(S.splitWord('(Hey-hey)', null), null)
+})
+
+test('a hyphen run is still ONE word: same t/end/text, its syllables pop in turn (estimated and timed)', () => {
+  const words = [{ t: 10, end: 12.5, text: '(Hey-hey-ay-ay-ay)' }]
+  const out = S.withSyllables(words, en)
+  assert.equal(out.length, 1)
+  assert.equal(out[0].t, 10)
+  assert.equal(out[0].end, 12.5)
+  assert.equal(out[0].text, '(Hey-hey-ay-ay-ay)')
+  assert.equal(out[0].syl.map((y) => y.text).join(''), '(Hey-hey-ay-ay-ay)')
+  assert.equal(out[0].syl[0].t, 10)
+  assert.equal(out[0].syl[4].end, 12.5)
+  // the view: the word is lit and its syllables take turns
+  const seen = []
+  for (let t = 10.01; t < 12.5; t += 0.05) {
+    const st = V.wordState(out, t)
+    assert.equal(st.now, 0)
+    if (seen[seen.length - 1] !== st.syl) seen.push(st.syl)
+  }
+  assert.deepEqual(seen, [0, 1, 2, 3, 4])
+  // a line-only "(Hey-hey-ay-ay-ay)" line, estimated: one word, five syllables
+  const p = V.prepare({ lines: [{ t: 37.5, end: 40.4, text: '(Hey-hey-ay-ay-ay)' }, { t: 40.5, text: 'next' }], estimate: true, lang: 'en' })
+  assert.equal(p.lines[0].words.length, 1)
+  assert.equal(p.lines[0].words[0].syl.length, 5)
+})
