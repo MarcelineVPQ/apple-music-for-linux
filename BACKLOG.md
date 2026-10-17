@@ -24,6 +24,7 @@ One list for planned work. Status words: **Planned**, **Building**, **Done** (an
 | After 0.15.10: gate tests | **Planned** | Every loop has a `// loop:` verdict; no duplicate code. |
 | After 0.15.10: CHANGELOG and release checklist | **Planned** | Same release discipline as the other projects. |
 | After 0.15.10: karaoke mode | **Idea** | A full karaoke experience built on word timing, countdown dots and duets. Design first. |
+| **Sonata's +1: lyrics follow the singer's voice** | **Idea** | Marcy 2026-10-16: the one standout beyond "the best". The separated vocal stem (already made on this PC for alignment) drives the highlight: the glow swells with the singer's loudness and softens when quiet; a held note shimmers while the voice sustains and lets go when it stops; crowd sing-along and backing vocals read differently from the lead. Builds on held notes (0.15.34) and the onset work (0.15.35). Design first (mock-up for Marcy), then measure CPU/GPU at idle and while playing; visible-only, GPU-friendly, no per-frame layout. Build only when Marcy says "now". |
 | Light mode active-line contrast | **Planned** | With album colours off, the active line is near-white on the light card (existing issue). |
 | View the album cover | **Planned** | Soon: open the album cover large. Open the cover large (click or menu), as most players do. A missing basic feature. |
 | Feature comparison vs other players | **Done** | docs/FEATURE-COMPARISON.md: what common music players offer vs Sonata; gaps become backlog rows. |
