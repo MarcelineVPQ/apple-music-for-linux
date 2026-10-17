@@ -44,6 +44,13 @@ case "$cmd" in
   start)
     [ -x "$bin" ] || { echo "start: <sonata binary> missing or not executable: $bin" >&2; exit 2; }
     case "$(readlink -f "$bin")" in "$HOME/Downloads"/*) echo "start: never from ~/Downloads" >&2; exit 2 ;; esac
+    # another copy (another agent's) on this display: starting would wipe its HOME and runtime dir under it,
+    # so refuse before anything is removed: its unit is active, an X server holds the display, or the X lock
+    # names a live process (a lock left by a killed Xvfb names a dead one: Xvfb replaces it)
+    lockpid="$( { tr -dc 0-9 < "/tmp/.X$disp-lock"; } 2>/dev/null || true)"
+    if systemctl --user is-active --quiet "$unit" 2>/dev/null || pgrep -f "^X[a-z]* :$disp( |\$)" >/dev/null || { [ -n "$lockpid" ] && kill -0 "$lockpid" 2>/dev/null; }; then
+      echo "start: display :$disp is in use (unit $unit active, an X server, or /tmp/.X$disp-lock); pick another --display" >&2; exit 2
+    fi
     # the private bus may have started the document portal, whose FUSE mount sits in the runtime dir
     [ -f "$root/cleanup.sh" ] && bash "$root/cleanup.sh"
     { fusermount3 -u "$root/run/doc" || fusermount3 -uz "$root/run/doc"; } 2>/dev/null || true
