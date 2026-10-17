@@ -259,6 +259,14 @@ function createAlignHelper(opts, deps = {}) {
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
     align(id, messages) { return request(id, messages, jobTimeoutMs) },
+    /** Separate once per song: drop that song's kept sections in the helper (queued behind its jobs; no reply). */
+    forget(song) {
+      if (!child || quitting === child) return
+      // error: NOT-WORTH — a closed pipe: the helper is gone and its sections with it
+      try { child.stdin.write(JSON.stringify({ cmd: 'forget', song }) + '\n') } catch (e) {}
+    },
+    /** The helper's process id (the gaming guard leaves our own GPU use out), or 0. */
+    get pid() { return child ? child.pid || 0 : 0 },
     /** lifetime: app quit / setting off: fails pending jobs, ends the helper now */
     stop() {
       if (idle) { clearT(idle); idle = null }

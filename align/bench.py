@@ -156,6 +156,9 @@ def main():
                 import numpy as np
                 os.makedirs(os.path.dirname(cache), exist_ok=True)
                 np.save(cache, al.last_emissions)
+            # as the helper does after each job (server.py): drop the GPU stem, hand the cache back
+            al.last_stem = None
+            al.release_cache()
         for r, g in zip(res, gt):
             if r['words']:
                 line_rows.append({'song': row['Filepath'], 'line': r['line'], 'conf': r['confidence'],
@@ -208,6 +211,14 @@ def main():
         'mean_emissions_s': round(sum(s['emissions_s'] for s in per_song) / max(1, len(per_song)), 2),
         'mean_align_s': round(sum(s['align_s'] for s in per_song) / max(1, len(per_song)), 2),
     }
+    import resource
+    ru = resource.getrusage(resource.RUSAGE_SELF)
+    total['process_cpu_s'] = round(ru.ru_utime + ru.ru_stime, 1)
+    if al.device.startswith('cuda'):
+        import torch
+        total['torch_threads'] = torch.get_num_threads()
+        total['vram_peak_reserved_mb'] = round(torch.cuda.max_memory_reserved() / 2**20)
+        total['vram_rest_reserved_mb'] = round(torch.cuda.memory_reserved() / 2**20)   # models resident, after the last job
     print(json.dumps(total, indent=1))
     if a.out:
         with open(a.out, 'w') as f:

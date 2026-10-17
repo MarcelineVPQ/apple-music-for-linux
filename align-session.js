@@ -33,6 +33,8 @@ const STREAM_CHUNK = 256 * 1024  // PCM bytes per `chunk` message (base64 ≈ 34
 const ENTRY_VERSION = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
+const FRAME = 0.02             // the aligner's frame hop: section slices start on it, so the helper can stitch
+                               // the kept sections into the whole-song pass without moving a frame (0.15.37)
 
 function alignedKey(title, artist) { return 'aligned|' + title + '|' + artist }
 
@@ -211,6 +213,9 @@ function * alignMessages(id, raw, pcm, opts = {}) {
   const step = size - (size % FRAME_BYTES)
   const head = { cmd: 'align', id, lines: requestLines(raw), audio: { stream: true, format: 's16le', rate: opts.rate || RATE, channels: CHANNELS } }
   if (opts.language) head.language = opts.language
+  // separate once per song (0.15.37): the helper keeps a section's stem under its song id and offset
+  if (opts.song != null) { head.song = opts.song; head.offset = opts.offset || 0 }
+  if (opts.final) head.final = true
   yield head
   // loop: SERIAL-REQUIRED — the helper reads its stdin in order; one message per 256 KB of PCM · ≤ ~330 for a 15 min song · ends with the buffer
   for (let o = 0; o < pcm.length; o += step) {
@@ -306,9 +311,19 @@ function sections(raw) {
   return out
 }
 
-/** A section's helper request: its lines (shifted to the slice) and where its audio slice starts. */
+/**
+ * The final whole-song pass from the sections the helper kept (no audio: it only runs the Viterbi
+ * again on the stitched stems and emissions). The helper answers code 'no-cache' when it no longer
+ * has them; the caller then sends the audio as before.
+ */
+function finalMessages(id, raw, song) {
+  return [{ cmd: 'align', id, song, final: true, lines: requestLines(raw) }]
+}
+
+/** A section's helper request: its lines (shifted to the slice) and where its audio slice starts
+ * (on the aligner's 20 ms frame grid, so the helper can stitch the sections without a shift). */
 function sectionRequest(raw, sec, first) {
-  const offset = first ? 0 : Math.max(0, sec.start - SECTION_PRE)
+  const offset = first ? 0 : Math.max(0, Math.round(Math.floor((sec.start - SECTION_PRE) / FRAME + 1e-9) * FRAME * 1000) / 1000)
   const lines = requestLines(raw.slice(sec.from, sec.to + 1)).map((l) => {
     const r = { t: Math.max(0, l.t - offset), text: l.text }
     if (l.end != null) r.end = l.end - offset
@@ -366,6 +381,7 @@ function createAlignSession(deps) {
   let clock = null
   let expectNext = null
   let jobs = 0
+  let songs = 0
   // lifetime: one promise chain of helper jobs (each holds one section's PCM until it is sent)
   let queue = Promise.resolve()
 
@@ -396,11 +412,16 @@ function createAlignSession(deps) {
     return s.buf.coverage(sec.start, sec.end) >= MIN_COVERAGE
   }
 
-  // all sections handed over (or missed): stop recording and drop the audio
+  // all sections handed over (or missed): stop recording and drop the audio. Without a final pass
+  // queued, the helper is told to drop the sections it kept for this song, after its last job.
   function wrapUp(s) {
     s.sent = true
     if (s === song) stopCapture()
     s.buf.clear()
+    if (!s.finalQueued && s.kept.size && deps.helper.forget) {
+      const job = queue.then(() => deps.helper.forget(s.id))
+      queue = job.then(() => {}, () => {})
+    }
   }
 
   // queues one helper job: a section (sec) or, with sec null, the whole song (the final pass, as
@@ -409,6 +430,7 @@ function createAlignSession(deps) {
   // sent to the lyric views (lyrics window, visualizer).
   function submit(s, sec) {
     const req = sec ? sectionRequest(s.raw, sec, sec === s.secs[0]) : { offset: 0, lines: requestLines(s.raw) }
+    if (!sec) s.finalQueued = true
     const until = Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
     const spans = s.buf.spans
     let pcm = s.buf.pcm(until, req.offset)
@@ -422,15 +444,29 @@ function createAlignSession(deps) {
     // error: LOGGED-OK — helper missing, crashed, timed out or refused (no model for the language) -> one log
     // line and no further jobs for this song; its lines keep what they have (aligned sections stay).
     // A no-model refusal is remembered so the song isn't recorded again for nothing.
+    // Separate once per song: a section's stem stays in the helper (song id + offset); the final pass
+    // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
+    const fromKept = () => !sec && s.secs.every((x) => s.kept.has(x.from))
     const run = () => {
       if (s.failed) { pcm = null; return null }
       const started = deps.now()
-      let messages = alignMessages(id, req.lines, pcm, { rate })
-      pcm = null
+      const audio = () => { const m = alignMessages(id, req.lines, pcm, sec ? { rate, song: s.id, offset: req.offset } : { rate, song: s.id, final: true }); pcm = null; return m }
+      const kept = fromKept()
+      let messages = kept ? finalMessages(id, req.lines, s.id) : audio()
       return Promise.resolve()
         .then(() => deps.helper.align(id, messages))
+        // error: a final pass the helper can't build from kept sections (no-cache) is sent again with
+        // the audio; any other error goes on to the handler below
+        .catch((e) => {
+          if (!(kept && e && e.code === 'no-cache')) throw e
+          log('the helper no longer has the sections of "' + s.title + '": the whole song again from the audio')
+          messages = audio()
+          return deps.helper.align(id, messages)
+        })
         .then((result) => {
           messages = null
+          pcm = null
+          if (sec && result && result.stats && result.stats.kept) s.kept.add(sec.from)
           const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount) : mergeWhole(s.entry, add, s.secs)
           deps.store.set(alignedKey(s.title, s.artist), s.entry)
@@ -440,6 +476,7 @@ function createAlignSession(deps) {
         })
         .catch((e) => {   // error: LOGGED-OK — see the comment above run()
           messages = null
+          pcm = null
           s.failed = true
           log('alignment failed for "' + s.title + '": ' + (e && e.message))
           if (e && e.code === 'no-model') {
@@ -503,7 +540,7 @@ function createAlignSession(deps) {
       const secs = sections(raw)
       const skip = new Set(have && have.partial ? have.done || [] : [])
       if (!secs.some((sec) => !skip.has(sec.from))) return
-      song = { key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null }
+      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
@@ -528,6 +565,6 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, sectionResult, mergeEntry, mergeWhole,
+  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
   createSongBuffer, requestLines, alignMessages, entryFromResult, createAlignSession
 }

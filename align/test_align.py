@@ -135,3 +135,94 @@ class Holds(unittest.TestCase):
         self.assertEqual(SA.extend_holds(None, res, SA.DEFAULTS, db=self.db([(1.0, 1.3)])), 0)
         self.assertEqual(res[0]['words'][0]['end'], 1.3)
 
+
+
+class GpuBudget(unittest.TestCase):
+    def test_threads(self):
+        self.assertEqual(SA.gpu_threads({}, 32), 4)
+        self.assertEqual(SA.gpu_threads({}, 8), 2)
+        self.assertEqual(SA.gpu_threads({}, 2), 1)
+        self.assertEqual(SA.gpu_threads({'SONATA_ALIGN_THREADS': '6'}, 32), 6)
+        self.assertIsNone(SA.gpu_threads({'SONATA_ALIGN_THREADS': '0'}, 32))     # torch's default
+        self.assertEqual(SA.gpu_threads({'SONATA_ALIGN_THREADS': 'x'}, 32), 4)
+
+    def test_vram_need(self):
+        self.assertEqual(SA.vram_need(True, 0), SA.WORK_BYTES + SA.VRAM_MARGIN_BYTES)
+        self.assertEqual(SA.vram_need(False, 10), SA.WORK_BYTES + 10 + SA.VRAM_MARGIN_BYTES)
+        self.assertGreaterEqual(SA.VRAM_MARGIN_BYTES, int(1e9))
+
+
+def piece(offset_s, seconds, value):
+    """A section piece as the helper keeps it: (offset in 20 ms frames, stem at 16 kHz)."""
+    return (int(round(offset_s / SA.FRAME)), np.full(int(seconds * 16000), float(value), dtype=np.float32))
+
+
+class Stitch(unittest.TestCase):
+    """Separate once per song: the final pass is built from the sections' kept stems."""
+
+    def test_one_piece_is_itself(self):
+        p = piece(0, 10, 1)
+        stem, cov = SA.stitch([p])
+        self.assertTrue(np.array_equal(stem, p[1]))
+        self.assertEqual(len(cov), 500)
+        self.assertTrue(cov.all())
+
+    def test_overlap_cut_in_the_middle_and_gap_is_silent(self):
+        a = piece(0, 10, 1)            # frames 0..500
+        b = piece(7, 10, 2)            # frames 350..850: overlap 350..500, cut at 425
+        c = piece(30, 5, 3)            # frames 1500..1750, a gap before it
+        stem, cov = SA.stitch([c, a, b])          # any order
+        frame = stem.reshape(-1, 320)[:, 0]
+        self.assertTrue((frame[:425] == 1).all())
+        self.assertTrue((frame[425:850] == 2).all())
+        self.assertTrue((frame[850:1500] == 0).all())         # silent where nothing was heard
+        self.assertFalse(cov[850:1500].any())
+        self.assertTrue(cov[:850].all() and cov[1500:].all())
+        self.assertTrue((frame[1500:] == 3).all())
+        self.assertEqual(len(stem), 1750 * 320)
+
+    def test_song_cache(self):
+        c = SA.SongCache()
+        self.assertTrue(c.add('s1', ('en', True), 0.0, np.zeros(16000, np.float32)))
+        self.assertTrue(c.add('s1', ('en', True), 0.98, np.zeros(16000, np.float32)))
+        self.assertEqual([p[0] for p in c.take('s1', ('en', True))], [0, 49])
+        self.assertIsNone(c.take('s1', ('xlsr-de', True)))      # other models: no reuse
+        self.assertIsNone(c.take('s2', ('en', True)))
+        c.add('s2', ('en', True), 0.0, np.zeros(160, np.float32))
+        self.assertIsNone(c.take('s1', ('en', True)))            # one song at a time
+        c.MAX_SECONDS = 1.5
+        c.clear()
+        self.assertTrue(c.add('s3', ('en', True), 0.0, np.zeros(16000, np.float32)))
+        self.assertFalse(c.add('s3', ('en', True), 1.0, np.zeros(16000, np.float32)))   # bounded
+
+    def test_holds_ignore_unheard_frames(self):
+        d = np.full(600, -70.0, dtype=np.float32)
+        d[50:225] = -10.0
+        d[300:] = np.nan                        # not heard
+        res = [{'words': [{'t': 1.0, 'end': 1.3, 'text': 'home'}]}]
+        self.assertEqual(SA.extend_holds(None, res, SA.DEFAULTS, db=d), 1)
+        self.assertAlmostEqual(res[0]['words'][0]['end'], 4.5, delta=0.03)
+
+
+class ProtocolCache(unittest.TestCase):
+    def test_final_without_pieces_asks_for_audio_and_forget_is_silent(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        env = dict(os.environ, SONATA_ALIGN_DEVICE='cpu')
+        p = subprocess.Popen([sys.executable, os.path.join(here, 'server.py')], stdin=subprocess.PIPE,
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env)
+        try:
+            p.stdin.write('{"cmd":"forget","song":"s1"}\n'
+                          '{"cmd":"align","id":"f1","song":"s1","final":true,"lines":[{"t":1,"text":"hello there"}]}\n')
+            p.stdin.flush()
+            first = json.loads(p.stdout.readline())       # forget has no reply: the first line is f1's
+            p.stdin.write('{"cmd":"ping"}\n')
+            p.stdin.flush()
+            pong = json.loads(p.stdout.readline())
+            p.stdin.write('{"cmd":"quit"}\n')
+            p.stdin.flush()
+            p.wait(timeout=60)
+        finally:
+            if p.poll() is None:
+                p.kill()
+        self.assertEqual((first['id'], first['type'], first['code']), ('f1', 'error', 'no-cache'))
+        self.assertIn('song-cache', pong['features'])

@@ -14,7 +14,21 @@ Requests (stdin):
      then {"cmd":"chunk","id":"a2","data":"<base64 PCM>"} ... {"cmd":"end","id":"a2"}
   {"cmd":"transcribe", "id":"t1", "language":"en"?, "audio":{...same as align...}}
   {"cmd":"cancel", "id":"a1"}
+  {"cmd":"forget", "song":"s3"}       drop that song's kept sections (queued behind its jobs, no reply)
   {"cmd":"quit"}
+
+Separate once per song (0.15.37): an align job with "song":"<id>" and "offset":<s> (where its audio
+slice starts in the song, a multiple of 0.02 s) keeps its vocal stem and emissions on the CPU
+(SongCache). {"cmd":"align","id":"f1","song":"<id>","final":true,"lines":[...song times...]} without
+"audio" runs the whole-song pass from those pieces (Viterbi + held notes only); if they are gone
+(another song, the helper restarted, other models) it answers code "no-cache" and the caller sends
+the audio as before. One song is kept at a time; the final pass and "forget" free it.
+
+Before each GPU job the free graphics memory is checked (sonata_align.vram_need: working set +
+models still to load + 1 GB margin); too little -> code "low-vram", nothing runs. After each job
+the allocator's cache is handed back (torch.cuda.empty_cache). Env: SONATA_ALIGN_THREADS (CPU
+threads in GPU mode, default 4), SONATA_ALIGN_VRAM_MARGIN_GB (default 1), SONATA_ALIGN_VRAM_FRACTION
+(a hard cap on this process's share of the GPU memory; tests and benches use it).
 
 Replies (stdout):
   {"type":"pong","version":"0.1.0","device":"cuda","gpu":"NVIDIA ...","models":{"htdemucs":true,...}}
@@ -66,6 +80,7 @@ class Server:
         self.cancelled = set()
         self.al = None             # SA.Aligner (models stay loaded between songs)
         self.current = None
+        self.songs = SA.SongCache()  # the current song's section stems + emissions (CPU)
 
     def pick(self, req):
         """Aligner for a request: explicit 'aligner', else by language (req 'language' or guessed
@@ -88,6 +103,9 @@ class Server:
         # one Aligner: the separator stays loaded, the alignment model is swapped per language
         if self.al is None or self.al.use_separation != req.get('separate', True):
             self.al = SA.Aligner(name, separate=req.get('separate', True))
+            frac = os.environ.get('SONATA_ALIGN_VRAM_FRACTION')
+            if frac and self.al.device.startswith('cuda'):
+                self.al.torch.cuda.set_per_process_memory_fraction(float(frac))
         al = self.al.use(name)
         al.progress = lambda stage, p, detail=None: send(
             {'type': 'progress', 'id': job_id, 'stage': stage, 'p': round(p, 3), **({'detail': detail} if detail else {})})
@@ -103,6 +121,10 @@ class Server:
                 self.cancelled.discard(jid)
                 send({'type': 'error', 'id': jid, 'message': 'cancelled'})
                 continue
+            if req.get('cmd') == 'forget':
+                if self.songs.song == req.get('song'):
+                    self.songs.clear()
+                continue
             self.current = jid
             try:
                 name, lang = (self.pick(req) if req['cmd'] == 'align' or (req['cmd'] == 'prepare' and req.get('mode', 'align') == 'align')
@@ -116,11 +138,27 @@ class Server:
                         al.load()
                     send({'type': 'result', 'id': jid, 'ready': True, 'device': al.device})
                     continue
+                key = (al.aligner_name, al.use_separation)
+                ok, free, need = al.vram_ok()
+                if not ok:
+                    send({'type': 'error', 'id': jid, 'code': 'low-vram',
+                          'message': 'not enough free graphics memory (%.1f GB free, %.1f GB needed)' % (free / 1e9, need / 1e9)})
+                    continue
+                cancelled = (lambda j=jid: j in self.cancelled)
+                if req['cmd'] == 'align' and req.get('final') and audio is None and not req.get('audio'):
+                    pieces = self.songs.take(req.get('song'), key)
+                    self.songs.clear()
+                    if pieces is None:
+                        send({'type': 'error', 'id': jid, 'code': 'no-cache', 'message': 'the song\'s sections are not kept here (send the audio)'})
+                        continue
+                    lines, st = al.run_stitched(pieces, req.get('lines') or [], cancelled=cancelled)
+                    st['language'] = lang
+                    send({'type': 'result', 'id': jid, 'source': 'aligned', 'lines': lines, 'stats': st})
+                    continue
                 spec = dict(req.get('audio') or {})
                 if audio is not None:
                     spec['bytes'] = audio
                 wav, sr = SA.read_audio(spec)
-                cancelled = (lambda j=jid: j in self.cancelled)
                 if req['cmd'] == 'transcribe':
                     lines, st = al.transcribe(wav, sr, language=req.get('language'),
                                               size=req.get('size', 'turbo'), allow_nc=bool(req.get('allow_nc')),
@@ -129,6 +167,11 @@ class Server:
                 else:
                     lines, st = al.run(wav, sr, req.get('lines') or [], cancelled=cancelled)
                     st['language'] = lang
+                    if req.get('final'):
+                        self.songs.clear()
+                    elif req.get('song') is not None:
+                        st['kept'] = self.songs.add(req['song'], key, float(req.get('offset') or 0),
+                                                    al.last_stem.float().cpu().numpy())
                     send({'type': 'result', 'id': jid, 'source': 'aligned', 'lines': lines, 'stats': st})
             except NoModel as e:
                 send({'type': 'error', 'id': jid, 'code': 'no-model', 'message': str(e)})
@@ -140,12 +183,21 @@ class Server:
             finally:
                 self.cancelled.discard(jid)
                 self.current = None
+                if self.al is not None:
+                    self.al.last_stem = None          # the GPU copy of the stem: free before the cache goes back
+                    self.al.last_emissions = None
+                    try:
+                        self.al.release_cache()
+                    except Exception:  # error: NOT-WORTH — a failed empty_cache only keeps memory reserved
+                        pass
 
     def handle(self, req):
         cmd = req.get('cmd')
         jid = req.get('id')
         if cmd == 'ping':
             send(self.pong())
+        elif cmd == 'forget':
+            self.jobs.put((req, None))     # in order: after the song's queued jobs
         elif cmd in ('align', 'transcribe', 'prepare'):
             if (req.get('audio') or {}).get('stream'):
                 self.streams[jid] = (req, [])
@@ -168,7 +220,7 @@ class Server:
         return True
 
     def pong(self):
-        info = {'type': 'pong', 'version': SA.VERSION,
+        info = {'type': 'pong', 'version': SA.VERSION, 'features': ['song-cache', 'vram-check'],
                 'models': {k: SA.have_model(k) for k in SA.MODELS},
                 'whisper': {k: os.path.exists(os.path.join(SA.MODEL_DIR, 'whisper-' + k, 'model.bin')) for k in SA.WHISPER}}
         try:

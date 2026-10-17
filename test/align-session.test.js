@@ -217,7 +217,8 @@ function setup(helperImpl) {
       const msgs = [...messages]
       calls.push(msgs)
       return helperImpl ? helperImpl(id, msgs) : RESULT
-    }
+    },
+    forget: (song) => calls.push([{ cmd: 'forget', song }])
   }
   const s = A.createAlignSession({
     createListener: (opts) => {
@@ -504,4 +505,73 @@ test('shared listener: one real listener for two users, stopped when the last st
   b.stop()
   assert.equal(real.stopped, 1)
   assert.equal(a.state, 'idle')
+})
+
+// --- separate once per song (0.15.37) ---
+
+// echoHelper that keeps sections like align/server.py (stats.kept) and can forget them
+function keepingHelper(state = { lost: false }) {
+  return (id, msgs) => {
+    const head = msgs[0]
+    if (head.final && !head.audio) {
+      if (state.lost) { const e = new Error('not kept'); e.code = 'no-cache'; throw e }
+      return Object.assign(echoHelper(id, msgs), { stats: { stitched: 2 } })
+    }
+    return Object.assign(echoHelper(id, msgs), { stats: head.song != null && !head.final ? { kept: true } : {} })
+  }
+}
+
+test('sectionRequest: later slices start on the 20 ms frame grid (the helper stitches without a shift)', () => {
+  const raw = [{ t: 1, text: 'a b' }, { t: 20.517, text: 'c d' }]
+  const s = A.sections(raw)
+  const r = A.sectionRequest(raw, s[1], false)
+  assert.equal(r.offset, 17.5)                       // 20.517 - 3 = 17.517 -> down to 17.50
+  assert.ok(Math.abs(r.offset / 0.02 - Math.round(r.offset / 0.02)) < 1e-9)
+  assert.equal(r.lines[0].t, 20.517 - 17.5)
+})
+
+test('session: separate once per song: sections carry the song id and offset; the final pass sends no audio', async () => {
+  const env = setup(keepingHelper())
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  await play(env, 0, secs[0].at + 1)
+  const e = await play(env, secs[0].at + 1, secs[1].at + 1)
+  assert.equal(env.calls.length, 3)
+  const [h1, h2, h3] = env.calls.map((c) => c[0])
+  assert.equal(h1.song, h2.song)
+  assert.deepEqual([h1.offset, h2.offset], [0, 27])
+  assert.ok(h1.audio && h2.audio)
+  assert.deepEqual(env.calls[2].length, 1, 'the final pass is one message: no audio chunks')
+  assert.equal(h3.final, true)
+  assert.equal(h3.song, h1.song)
+  assert.equal(h3.audio, undefined)
+  assert.equal(h3.lines.length, 4)
+  assert.equal(e.partial, false)
+  assert.equal(e.aligned, 4)
+})
+
+test('session: final pass falls back to the audio when the helper lost the sections (no-cache)', async () => {
+  const env = setup(keepingHelper({ lost: true }))
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  await play(env, 0, secs[0].at + 1)
+  const e = await play(env, secs[0].at + 1, secs[1].at + 1)
+  assert.equal(env.calls.length, 4)                 // 2 sections, the kept try, then with the audio
+  assert.equal(env.calls[2].length, 1)
+  assert.ok(env.calls[3][0].audio && env.calls[3][0].final)
+  assert.ok(env.calls[3].length > 2, 'the audio follows as chunks')
+  assert.equal(e.aligned, 4)
+  assert.ok(env.logs.some((l) => /no longer has the sections/.test(l)))
+})
+
+test('session: a song not heard to the end: the helper is told to forget its kept sections', async () => {
+  const env = setup(keepingHelper())
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  const job = play(env, 0, secs[0].at + 1)
+  await job
+  env.s.setLyrics('x|y', 'x', 'y', [], true)         // track change before the second verse
+  await new Promise((r) => setImmediate(r))
+  const last = env.calls[env.calls.length - 1][0]
+  assert.deepEqual(last, { cmd: 'forget', song: env.calls[0][0].song })
 })

@@ -22,9 +22,43 @@ import urllib.request
 
 VERSION = '0.1.0'
 
+
 DATA_DIR = os.environ.get('SONATA_ALIGN_HOME') or os.path.join(
     os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share'), 'sonata-align')
 MODEL_DIR = os.path.join(DATA_DIR, 'models')
+
+
+def gpu_threads(env=None, cores=None):
+    """CPU threads for torch while the work runs on the GPU. torch's default (one per core) makes
+    every thread spin while Demucs waits for the GPU: 10 CPU s per song on 16 threads, 3.6 CPU s on
+    4 at the same wall time (docs/research/gpu-lyrics-pipeline-2026-10.md). SONATA_ALIGN_THREADS
+    sets it; 0 keeps torch's default. The CPU-only path is left alone (it needs the cores)."""
+    env = os.environ if env is None else env
+    v = env.get('SONATA_ALIGN_THREADS')
+    if v is not None and str(v).strip() != '':
+        try:
+            n = int(v)
+        except ValueError:
+            n = -1
+        if n == 0:
+            return None
+        if n > 0:
+            return n
+    cores = cores or os.cpu_count() or 4
+    return max(1, min(4, cores // 4))
+
+
+# Free graphics memory a job needs, checked before each GPU job (torch.cuda.mem_get_info): the
+# working set (Demucs + wav2vec2 activations, 3.1 GB peak with the models resident, 1.37 GB of
+# which are the models) plus whatever model still has to be loaded, plus a margin so a game or the
+# desktop never runs out because of us. SONATA_ALIGN_VRAM_MARGIN_GB changes the margin.
+WORK_BYTES = int(1.8e9)
+VRAM_MARGIN_BYTES = int(float(os.environ.get('SONATA_ALIGN_VRAM_MARGIN_GB') or 1.0) * 1e9)
+
+
+def vram_need(loaded, to_load_bytes):
+    """Bytes of free VRAM a job needs: working set + models still to load + margin."""
+    return WORK_BYTES + (0 if loaded else int(to_load_bytes)) + VRAM_MARGIN_BYTES
 
 FRAME = 0.02            # wav2vec2 frame hop (320 samples at 16 kHz)
 FRAME_OFFSET = 0.01     # centre of a frame's receptive field vs its start
@@ -289,6 +323,10 @@ class Aligner:
         if device in (None, 'auto'):
             device = os.environ.get('SONATA_ALIGN_DEVICE') or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.device = device
+        if device.startswith('cuda'):
+            n = gpu_threads()
+            if n:
+                torch.set_num_threads(n)
         self.aligner_name = aligner
         self.use_separation = separate
         self.params = dict(DEFAULTS, **(params or {}))
@@ -307,6 +345,23 @@ class Aligner:
             if self.device.startswith('cuda'):
                 self.torch.cuda.empty_cache()
         return self
+
+    def release_cache(self):
+        """After each job: hand the caching allocator's peak back to the driver. Without it the
+        helper keeps its peak (3.0 GB) reserved between songs; the models alone are 1.37 GB."""
+        if self.device.startswith('cuda'):
+            self.torch.cuda.empty_cache()
+
+    def vram_ok(self):
+        """(ok, free_bytes, need_bytes) before a GPU job; always ok on the CPU."""
+        if not self.device.startswith('cuda'):
+            return True, 0, 0
+        free, _total = self.torch.cuda.mem_get_info()
+        loaded = self.w2v is not None and (self.demucs is not None or not self.use_separation)
+        to_load = (0 if self.w2v is not None else MODELS[self.aligner_name]['bytes']) + (
+            0 if self.demucs is not None or not self.use_separation else MODELS['htdemucs']['bytes'])
+        need = vram_need(loaded, to_load)
+        return free >= need, free, need
 
     # -- models ---------------------------------------------------------------------------------
     def ensure_models(self):
@@ -515,6 +570,7 @@ class Aligner:
         t = time.time()
         em = self.emissions(mono)
         self.last_emissions = em
+        self.last_stem = mono
         st['emissions_s'] = round(time.time() - t, 2)
         if cancelled():
             raise Cancelled()
@@ -531,6 +587,42 @@ class Aligner:
         st['separation'] = 'htdemucs' if self.use_separation else 'none'
         st['aligned_lines'] = sum(1 for r in res if r['aligned'])
         st['lines'] = len(res)
+        return res, st
+
+    def run_stitched(self, piece_list, lines, cancelled=lambda: False):
+        """The whole-song pass from the sections' kept vocal stems (SongCache): no separation. The
+        emissions run again on the stitched stem (0.3 s per song; reusing each section's own
+        emissions measured 2 ms worse in median), then the global Viterbi and the held notes.
+        Frames no section covered stay blank. -> (results, stats)"""
+        torch = self.torch
+        st = {}
+        t = time.time()
+        self.load()
+        st['load_s'] = round(time.time() - t, 2)
+        stem, covered = stitch(piece_list)
+        t = time.time()
+        em = self.emissions(torch.from_numpy(stem).to(self.device))
+        n = min(len(em), len(covered))
+        em = em[:n]
+        em[~covered[:n]] = -30.0
+        em[~covered[:n], 0] = 0.0
+        st['emissions_s'] = round(time.time() - t, 2)
+        if cancelled():
+            raise Cancelled()
+        duration = n * FRAME
+        t = time.time()
+        self.progress('align', 0.0)
+        res = self.align_lines(em, lines, duration)
+        if self.params.get('hold', 1):
+            import numpy as np
+            db = vocal_db(stem)
+            db[~covered[:len(db)]] = np.nan          # nothing heard there: never part of a hold
+            st['held'] = extend_holds(None, res, self.params, db=db)
+        st['align_s'] = round(time.time() - t, 2)
+        self.progress('align', 1.0)
+        st.update({'separate_s': 0, 'duration_s': round(duration, 2), 'device': self.device,
+                   'aligner': self.aligner_name, 'separation': 'htdemucs' if self.use_separation else 'none',
+                   'aligned_lines': sum(1 for r in res if r['aligned']), 'lines': len(res), 'stitched': len(piece_list)})
         return res, st
 
 
@@ -641,6 +733,67 @@ class Cancelled(Exception):
     pass
 
 
+# ---------------------------------------------------------------------------------------------
+# Separate once per song (0.15.37): each section job's vocal stem is kept, so the final whole-song
+# pass doesn't separate the song a second time (Demucs is ~85 % of a job's GPU time).
+
+class SongCache:
+    """The current song's section stems, on the CPU (float32 numpy at 16 kHz: a 26 s section is
+    1.7 MB, a 15 min song at most ~58 MB). One song at a time: a job for another song drops the old one.
+    Bounded to MAX_SECONDS of audio; past that nothing more is kept (the final pass then needs the
+    audio again). lifetime: until the song's final pass, a 'forget', another song or the helper's exit."""
+    MAX_SECONDS = 20 * 60
+
+    def __init__(self):
+        self.song = None
+        self.key = None            # (aligner, separate): the final pass must use the same models
+        self.pieces = []           # [(offset_frames, stem16 np.float32)]
+        self.seconds = 0.0
+
+    def clear(self):
+        self.song, self.key, self.pieces, self.seconds = None, None, [], 0.0
+
+    def add(self, song, key, offset_s, stem16):
+        if song != self.song or key != self.key:
+            self.clear()
+            self.song, self.key = song, key
+        secs = len(stem16) / 16000.0
+        if self.seconds + secs > self.MAX_SECONDS:
+            return False
+        self.pieces.append((int(round(offset_s / FRAME)), stem16))
+        self.seconds += secs
+        return True
+
+    def take(self, song, key):
+        """The pieces for the final pass, or None (another song, other models, nothing kept)."""
+        if song is None or song != self.song or key != self.key or not self.pieces:
+            return None
+        return list(self.pieces)
+
+
+def stitch(pieces):
+    """Song-length vocal stem (16 kHz) from section pieces [(offset_frames, stem)], plus a per-frame
+    (20 ms) `covered` mask. Overlapping pieces (a section's 3 s tail and the next one's 3 s
+    pre-roll) are cut at the middle of the overlap, so every frame comes from the piece it is
+    farthest inside (Demucs is weakest at a slice's edges). Frames no piece covers are silent."""
+    import numpy as np
+    hop = 320
+    pieces = sorted(pieces, key=lambda p: p[0])
+    spans = [(o, o + len(st) // hop) for o, st in pieces]
+    T = max(b for _, b in spans)
+    stem = np.zeros(T * hop, dtype=np.float32)
+    covered = np.zeros(T, dtype=bool)
+    # loop: one pass over the song's pieces (≤ ~12 sections) · once per final pass
+    for i, ((o, st), (a, b)) in enumerate(zip(pieces, spans)):
+        lo = a if i == 0 else max(a, (a + spans[i - 1][1]) // 2)
+        hi = b if i == len(pieces) - 1 else min(b, (spans[i + 1][0] + b) // 2)
+        if hi <= lo:
+            continue
+        stem[lo * hop:hi * hop] = st[(lo - o) * hop:(hi - o) * hop]
+        covered[lo:hi] = True
+    return stem, covered
+
+
 def vocal_db(mono16):
     """Loudness of the separated vocals per 20 ms frame (dB, numpy)."""
     import numpy as np
@@ -662,7 +815,9 @@ def extend_holds(mono16, results, p, db=None):
     if n == 0:
         return 0
     # within hold_db of the loud singing, and clearly above the stem's quiet frames (bleed, breaths)
-    thr = max(float(np.percentile(db, 95)) - float(p.get('hold_db', 24.0)), float(np.percentile(db, 10)) + 15.0)
+    # nanpercentile: frames nobody heard are NaN in a stitched song (Aligner.run_stitched)
+    with np.errstate(invalid='ignore'):
+        thr = max(float(np.nanpercentile(db, 95)) - float(p.get('hold_db', 24.0)), float(np.nanpercentile(db, 10)) + 15.0)
     gap_max = int(p.get('hold_gap', 4))
     hold_max = float(p.get('hold_max', 8.0))
     words = [w for r in results for w in r.get('words', []) if w.get('t') is not None and w.get('end') is not None]
