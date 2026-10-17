@@ -11,6 +11,14 @@ See docs/RELEASING.md.
 
 - **The stage: the lyrics as the centrepiece.** The lyrics window can grow into a full now-playing stage: the lyrics big in the middle, the cover, the song, "Track 13 of 24", the live venue for live albums and the controls (play, previous, next, shuffle, repeat, position, volume) on the left, and on the right Up Next or the whole album or playlist, with a "Next · in 1:22" countdown and the time left. Click a song in the list to play it. Open it with the new button in the lyrics window's header, the rail's Stage item or Ctrl+Shift+S; the same button or key shrinks it back to the lyrics window. Sonata remembers which one you used last, and the size of each. Everything follows your theme, album colour and Glass; the keyboard and screen readers reach every control, and nothing moves on its own while the music is paused.
 
+### Changed
+
+- **Backing vocals come in under the words they answer.** The smaller line of backing vocals under a lyric line now starts right under the word where the backing voices come in, or under the words they echo, so you can see where in the line they answer. They're set in italics with a small ↳, light up word by word as before, and follow the singer's side in duets. When they come in after the line, they start where it ends.
+
+### Fixed
+
+- **Backing vocals are easier to read.** Backing vocals not sung yet were fainter than the rest of the lyrics (as low as 2.1:1 contrast). They now meet the same 3:1 as the lines not being sung, in every theme, album colour and with Glass, and still look quieter than the main line.
+
 ## [0.15.40-dev.1] — The lyrics window drags again
 
 ### Fixed

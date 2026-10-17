@@ -138,7 +138,75 @@ function stageNext(lineCount, latest, interlude) {
   return latest + 1 < lineCount ? latest + 1 : -1
 }
 
-const BREATHE = 2.6        // rad/s: the countdown row's gentle breathe, 1 + 0.06 sin(2.6 t), t = song time
+// Backing vocals under the words they answer (mock-up B, after 0.15.40): the backing line (x-bg) starts
+// under the main-line word it comes in on. backingAnchor picks that word from the timing and the text,
+// backingOffset turns it and the measured line into the backing row's side paddings (px). The view
+// measures once per line when it's laid out (setData, a resize, a stage line shown, new timing), never
+// per frame.
+const BG_TOL = 0.05   // s: a backing line starting this close before a word starts on it
+const BG_SPARE = 1    // px
+const bgNorm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+
+/**
+ * Which main word the backing line starts under: { index, after } or null (no main words or backing,
+ * or the backing starts before the line: it starts at the line's start, as before). An echo (the
+ * backing repeats the line's words: "Took a couple months" / "(Took a couple months)") starts under the
+ * word it echoes; when the text repeats in several places, the longest match closest in time wins.
+ * Otherwise it starts under the main word being sung when it comes in; after: true when it comes in
+ * after the line's last word ends (it starts where that word ends).
+ */
+function backingAnchor(words, bg) {
+  if (!Array.isArray(words) || !words.length || !Array.isArray(bg) || !bg.length) return null
+  const start = bg[0] && typeof bg[0].t === 'number' ? bg[0].t : null
+  const B = bg.map((w) => bgNorm(w && w.text))
+  const M = words.map((w) => bgNorm(w && w.text))
+  let best = null
+  // loop: NOT-WORTH — main words x backing words (a line's, ~5-12 each), once per line laid out
+  for (let j = 0; j < M.length; j++) {
+    let run = 0
+    while (run < B.length && j + run < M.length && B[run] && B[run] === M[j + run]) run++
+    if (!run || run < Math.min(2, B.length, M.length - j)) continue
+    const dt = start === null || typeof words[j].t !== 'number' ? 0 : Math.abs(words[j].t - start)
+    if (!best || run > best.run || (run === best.run && dt < best.dt)) best = { index: j, run, dt }
+  }
+  if (best) return { index: best.index, after: false }
+  if (start === null) return null
+  const last = words[words.length - 1]
+  const lastEnd = typeof last.end === 'number' ? last.end : last.t
+  if (typeof lastEnd === 'number' && start >= lastEnd) return { index: words.length - 1, after: true }
+  let at = -1
+  // loop: NOT-WORTH — a line's main words, once per line laid out
+  for (let i = 0; i < words.length; i++) if (typeof words[i].t === 'number' && words[i].t <= start + BG_TOL) at = i
+  return at >= 0 ? { index: at, after: false } : null
+}
+
+/**
+ * The backing row's paddings so its first word starts under the anchor word: { start, end } in px
+ * (physical left and right). box: { align: 'left'|'right'|'center' (the row's text-align), width (the
+ * line's content width), words: [{ left, right, top }] (main words, px from the line's left edge),
+ * anchor (backingAnchor), lead (px from the row's start to its first word's box), bgWidth (the row's
+ * width on one line) }. { 0, 0 } (the line's own alignment, as before) when there's no anchor, the
+ * anchor word isn't on the line's last row (a wrapped line: the backing sits under the last row), or
+ * the backing doesn't fit on one row (it wraps as before). A backing row that would run past the line's
+ * end moves back just enough to fit. Right-aligned rows are padded from the right (mirrored), centred
+ * rows on the side that moves them.
+ */
+function backingOffset(box) {
+  const none = { start: 0, end: 0 }
+  if (!box || !box.anchor || !Array.isArray(box.words) || !box.words.length) return none
+  const w = box.words[box.anchor.index]
+  const lastRow = box.words[box.words.length - 1].top
+  const free = box.width - box.bgWidth
+  if (!w || !(free > BG_SPARE) || Math.abs(w.top - lastRow) > 1) return none
+  // BG_SPARE: layout widths are whole pixels, so a row fitted to the line's end keeps a pixel spare (never wraps)
+  const x = Math.min(free - BG_SPARE, Math.max(0, (box.anchor.after ? w.right : w.left) - (box.lead || 0)))
+  const r = (v) => Math.round(Math.max(0, v) * 2) / 2
+  if (box.align === 'right') return { start: 0, end: r(free - x) }
+  if (box.align === 'center') return { start: r(2 * x - free), end: r(free - 2 * x) }
+  return { start: r(x), end: 0 }
+}
+
+const BREATHE = 2.6       // rad/s: the countdown row's gentle breathe, 1 + 0.06 sin(2.6 t), t = song time
 const DOT_STEP = Math.PI / BREATHE / 4   // s between breathe keyframes (8 per breath; linear in between)
 
 /**
@@ -217,8 +285,9 @@ function createLyricsView(opts) {
   // function read at each scroll, so the page can change it with its layout.
   const anchor = () => { const a = typeof opts.anchor === 'function' ? opts.anchor() : opts.anchor; return Number.isFinite(a) ? a : 0.5 }
   let lines = []
-  let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos }; a word span
-                            // with syllables has span.syl = [syllable span]
+  let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos, bgKey }; a word span
+                            // with syllables has span.syl = [syllable span]; bgKey: the layout the backing
+                            // row was placed for (placeBacking), null when it needs placing
   let interludes = []       // [{ index, start, end, el, dots: [i], row, anims }]
   let wordTimed = false
   let live = new Set()      // lines currently .active
@@ -344,7 +413,7 @@ function createLyricsView(opts) {
       el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
       const ly = doc.createElement('div')   // the line's content (the FLIP slide target in the stage)
       ly.className = 'ly'
-      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null }
+      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null, bgKey: null }
       if (line.words && line.words.length) {
         const main = doc.createElement('div')
         entry.words = wordSpans(main, line.words, line.text)
@@ -398,6 +467,7 @@ function createLyricsView(opts) {
       container.appendChild(credits)
     }
     if (keys) setRoving(lineEls.find((e, i) => lines[i].t !== null) || null)
+    placeBacking()   // the lyrics window's lines are all laid out now; the stage's when they show
     notes = []
     if (opts.notes) {
       if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '') + (data.appleFailed ? ", as Apple Music's didn't load" : ''))
@@ -426,7 +496,9 @@ function createLyricsView(opts) {
     if (!entry) return
     lines[msg.lineIndex] = S.lineWithSyllables(line, hyphenate)
     entry.pos = null
+    entry.bgKey = null
     relearn()
+    placeBacking()
     if (!refined) { refined = true; if (opts.notes) showNotes() }
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
   }
@@ -448,9 +520,10 @@ function createLyricsView(opts) {
     // loop: NOT-WORTH — the aligned lines (at most the song's line count) · per 'lyrics-aligned' message
     for (const i of got.changed) {
       lines[i] = S.lineWithSyllables(lines[i], hyphenate)
-      if (lineEls[i]) lineEls[i].pos = null
+      if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
     }
     relearn()
+    placeBacking()
     aligned = true
     if (opts.notes) showNotes()
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
@@ -465,8 +538,55 @@ function createLyricsView(opts) {
     for (let i = 0; i < next.length; i++) {
       if (next[i] === lines[i]) continue
       lines[i] = S.lineWithSyllables(next[i], hyphenate)
-      if (lineEls[i]) lineEls[i].pos = null
+      if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
     }
+  }
+
+  // Backing vocals under the words they answer (backingAnchor/backingOffset): each backing row's side
+  // paddings, set as --bgv-start/--bgv-end on its line (all three stacked copies take them). One batch:
+  // the lines' measuring class on (.bgm: the row on one line, unpadded), one layout read for all, the
+  // class off and the paddings written. Layout positions (offsetLeft/offsetWidth), so the pop, a
+  // slide or the stage's rise (transforms) don't move it. Placed once per layout a line is shown in:
+  // the lyrics window's lines when the lyrics load, a stage line when it shows as current or next
+  // (its sizes differ), again after a resize or new word timing (bgKey null); never per frame.
+  const xOf = (n) => { let x = 0; for (; n; n = n.offsetParent) x += n.offsetLeft; return x }   // loop: NOT-WORTH — a node's few offset parents
+  const alignOf = (a) => a === 'right' || a === 'end' ? 'right' : a === 'center' || a === '-webkit-center' ? 'center' : 'left'
+  function placeBacking(only) {
+    const todo = []
+    // loop: NOT-WORTH — the song's lines (or the stage's 1-3 shown ones) · when lyrics load, after a resize or new
+    // timing, and per frame on the stage, where it only compares a key until a shown line's layout changes
+    for (const i of only || lineEls.keys()) {
+      const e = lineEls[i]
+      if (!e || !e.bg.length || !e.words.length) continue
+      const key = stage ? (e.el.classList.contains('active') ? 'a' : e.el.classList.contains('next') ? 'n' : '') : 's'
+      if (key && key !== e.bgKey) todo.push({ i, e, key })
+    }
+    if (!todo.length) return
+    for (const t of todo) t.e.el.classList.add('bgm')   // loop: NOT-WORTH — the lines to place (above)
+    // loop: NOT-WORTH — the lines to place, each its words (~5-12): one layout read for the batch
+    const got = todo.map(({ i, e }) => {
+      const main = e.words[0].parentElement
+      const row = e.bg[0].parentElement
+      if (!main.offsetWidth) return null   // not laid out (a hidden window): placed when it is
+      const base = xOf(main)
+      return backingOffset({
+        align: alignOf(getComputedStyle(row).textAlign),
+        width: main.clientWidth,
+        words: e.words.map((s) => { const l = xOf(s) - base; return { left: l, right: l + s.offsetWidth, top: s.offsetTop } }),
+        anchor: backingAnchor(lines[i].words, lines[i].bg),
+        lead: xOf(e.bg[0]) - xOf(row),
+        bgWidth: row.offsetWidth
+      })
+    })
+    // loop: NOT-WORTH — the lines to place (above): class off, two style writes each
+    todo.forEach(({ e, key }, k) => {
+      e.el.classList.remove('bgm')
+      const o = got[k]
+      if (!o) return
+      e.bgKey = key
+      if (o.start) e.el.style.setProperty('--bgv-start', o.start + 'px'); else e.el.style.removeProperty('--bgv-start')
+      if (o.end) e.el.style.setProperty('--bgv-end', o.end + 'px'); else e.el.style.removeProperty('--bgv-end')
+    })
   }
 
   // scaled words at a row's edge grow inward, so they stay inside the window padding. The row edges
@@ -484,8 +604,12 @@ function createLyricsView(opts) {
   // lifetime: OK — one resize listener per view; views live as long as their window (the row edges change)
   doc.defaultView.addEventListener('resize', () => {
     // loop: NOT-WORTH — the song's lines, once per resize
-    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins }
+    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; e.bgKey = null }
+    // the backing rows again, once per frame of a resize (rows wrap differently)
+    // lifetime: OK — at most one pending frame (bgFrame), cleared when it runs
+    if (!bgFrame) bgFrame = requestAnimationFrame(() => { bgFrame = 0; placeBacking() })
   })
+  let bgFrame = 0
 
   // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
   // edge, last at the right edge)
@@ -550,6 +674,8 @@ function createLyricsView(opts) {
         if (nx >= 0) lineEls[nx].el.classList.add('next')
         shownNext = nx
       }
+      // a backing row is placed for the size the stage shows its line at (current or next), when it shows
+      placeBacking(nx >= 0 ? [...next, nx] : next)
     }
     if (gi !== shownInterlude) {
       // the dots row opens/closes at once (no height animation: that laid out every frame); what it
@@ -711,11 +837,13 @@ function createLyricsView(opts) {
   })
 
   // the page's layout changed (the lyrics window grown into the stage or shrunk back, a band folded
-  // away): scroll the sung line back to its anchor on the next render
-  // (merge hook, backing-vocals-b: re-place backing lines here too, as the page's font sizes changed:
-  // for (const e of lineEls) e.bgKey = null; placeBacking())
+  // away): scroll the sung line back to its anchor on the next render, and place the backing rows
+  // again, as the page's font sizes changed (rows wrap differently)
   function recenter() {
     scrollTarget = null
+    // loop: NOT-WORTH — the song's lines, once per layout change
+    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; e.bgKey = null }
+    placeBacking()
     if (clock && lines.length) render(T.clockTime(clock, performance.now()))
   }
 
@@ -731,4 +859,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }

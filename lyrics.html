@@ -210,6 +210,14 @@
   .line.active .w { opacity: 1; }
   .line.active > :where(.ly-main) .w { color: var(--s-upcoming); transition: transform 0.18s ease-out; }
   .line.active > :where(.ly-main) .w.sung { color: var(--sing); }
+  /* backing vocals (after 0.15.40): secondary by size, weight and italics, and by colour, but never below the
+     dim lines' 3:1 (lyrics-view.css's opacity 0.7 over the faded colour left "(ooh yeah)" at 2.1-2.4:1).
+     Not sung yet, on any line: the dim lines' colour (theme.js --s-dim, fitted to >= 3:1 in every
+     theme, album colour and Glass), so on the sung line they stay quieter than its own words still to
+     come (--s-upcoming, 4.5:1). Being sung and sung: the singer's colour, as the main words. The ↳ takes
+     the row's quiet colour. */
+  .line .bgv { opacity: 1; }
+  .line.active > :where(.ly-main) .bgv .w:not(.sung):not(.now), .line.active > .ly-main .bgv::before { color: var(--fg-dim); }
   /* the songwriter credit after the last line (lyrics-view.js writtenBy): quiet, like a booklet's credit */
   #credits {
     padding: 22px 0 0;
