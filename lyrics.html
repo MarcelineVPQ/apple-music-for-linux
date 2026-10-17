@@ -294,7 +294,11 @@
     notes: true,
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
     onFrame: (time) => updateRing(time),
-    emptyText: (data) => !data.title ? 'Play a song to see its lyrics' : data.status === 'busy' ? 'Lyrics service busy, trying again…' : 'No lyrics available for this song'
+    emptyText: (data) => !data.title ? 'Play a song to see its lyrics'
+      : data.status === 'busy' ? 'Lyrics service busy, trying again…'
+      : data.status === 'apple' ? "Apple Music's lyrics didn't load, trying again…"
+      : data.status === 'apple-failed' ? "Apple Music's lyrics didn't load. Sonata asks again the next time this song plays."
+      : 'No lyrics available for this song'
   })
 
   // lifetime: OK — the lyrics feed's listeners ('lyrics-data', '-refined', '-aligned', '-time'), added once at load, released with the window

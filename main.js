@@ -4,7 +4,7 @@ const path = require('path');
 const os = require('os');
 const { exec, execFile, spawn, execFileSync } = require('child_process');
 const { extractPalette } = require('./palette');
-const { LastFm } = require('./lastfm');
+const { LastFm, createScrobbleQueue } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer, RATE: VIZ_RATE } = require('./visualizer');
 const { createListenSession } = require('./listen-session')
@@ -61,6 +61,7 @@ let lyricsRetry = null  // { key, attempt, at } after a failed lyrics lookup
 let lyricsArt = ''
 let shuttingDown = false
 let lastfm = null
+let scrobbleQueue = null   // scrobbles waiting for Last.fm (lastfm.js createScrobbleQueue; lastfm-pending.json)
 let scrobbleState = null
 let discord = null
 let discordConfig = { applicationId: '', enabled: false }
@@ -434,8 +435,12 @@ const lyricsFetchScriptFor = (offset) => `(async () => {
     const attrs = item.attributes || {};
     const pp = attrs.playParams || {};
     const id = pp.catalogId || pp.id || item.id;
+    if (attrs.hasLyrics === false) return { ok: true, ttml: '' };   /* Apple says the song has none: nothing to ask */
     // Word timing lives in /syllable-lyrics (what Apple's web player uses);
     // /lyrics has line timing only, so it's the fallback.
+    // A 404 (Apple has no such lyrics) is "no lyrics"; any other failure (offline, Apple's API
+    // erring) is reported as failed, so it isn't mistaken for a song without lyrics.
+    let failed = '';
     const get = async (kind) => {
       try {
         const res = await mk.api.music('/v1/catalog/{{storefront}}/songs/' + id + '/' + kind);
@@ -443,12 +448,18 @@ const lyricsFetchScriptFor = (offset) => `(async () => {
         const a = (data && data.attributes) || {};
         const t = a.ttml || a.ttmlLocalizations;
         return typeof t === 'string' ? t : '';
-      } catch (e) { /* error: SWALLOWED — a failed Apple lookup reads as no lyrics (as lyrics-sources.js:315 says) */ return ''; }
+      } catch (e) { /* error: PASSES-ON — a 404 is no lyrics; anything else goes back as failed (lyrics-sources.js retries, then LRCLIB) */
+        const code = String((e && (e.errorCode || e.status)) || '');
+        const text = String((e && (e.description || e.message)) || '');
+        const none = (e && e.status === 404) || /^(404|NOT_FOUND|CONTENT_UNAVAILABLE)$/i.test(code) || /404|not found/i.test(text);
+        if (!none) failed = failed || code || text || 'error';
+        return '';
+      }
     };
     const ttml = (await get('syllable-lyrics')) || (await get('lyrics'));
-    return { ok: true, ttml };
-  } catch (e) { /* error: SWALLOWED — no MusicKit (page loading): no Apple lyrics this time, LRCLIB is tried */
-    return { ok: true, ttml: '' };
+    return ttml || !failed ? { ok: true, ttml } : { ok: true, ttml: '', failed };
+  } catch (e) { /* error: PASSES-ON — no MusicKit (page loading): goes back as failed (lyrics-sources.js retries, then LRCLIB) */
+    return { ok: true, ttml: '', failed: 'no MusicKit' };
   }
 })()`
 const lyricsFetchScript = lyricsFetchScriptFor(0)
@@ -500,6 +511,7 @@ let lyricsStore = null
 const getLyrics = lyricsSources.createLyricsResolver({
   fetchApple: async (state) => {
     const res = await appleWC().executeJavaScript(state.queueOffset ? lyricsFetchScriptFor(state.queueOffset) : lyricsFetchScript)
+    if (res && res.failed) throw new Error('Apple lyrics lookup failed: ' + res.failed)
     return (res && res.ttml) || ''
   },
   store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
@@ -697,15 +709,19 @@ async function lyricsTick() {
   const key = state.title + '|' + state.artist
   // loop: NOT-WORTH — lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
   // 30 s, 60 s, then every 120 s · only while a lyric view is open and the song unchanged ·
-  // stops on success, track change or when the last view closes · cost one lookup per retry
+  // stops on success, track change or when the last view closes · cost one lookup per retry.
+  // A failed Apple lookup with nothing standing in (error 'apple') is retried 3 times (30, 60, 120 s),
+  // then the window says Apple's lyrics didn't load (status 'apple-failed'); the next play asks again.
   // error: NOT-WORTH — backoff capped at 120 s, so a down service is never hammered
   const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
   if (key !== lyricsKey || retryDue) {
     lyricsKey = key
     const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
+    let status = got.error || ''
     if (got.error) {
       const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
-      lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
+      if (got.error === 'apple' && attempt >= 3) { lyricsRetry = null; status = 'apple-failed' }
+      else lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
     } else {
       lyricsRetry = null
       prefetchNextLyrics(key)
@@ -727,7 +743,7 @@ async function lyricsTick() {
       if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
     } else if (listenSession) listenSession.stop()
     alignNote = alignNoteNow()
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status: got.error || '', estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
+    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -926,10 +942,28 @@ const trackInfoScript = `(async () => {
   }
 })()`
 
-function musicApiCall(script, label) {
+// action: 'favorite' | 'undo-favorite' | 'library' (the words: mini-model.js actionFailedText)
+function musicApiCall(script, action, title) {
   if (!mainAlive()) return
   appleWC().executeJavaScript(script)
-    .catch((e) => console.error(label + ' failed:', e.message))   // error: SILENT-BUG — Favorite / Add to Library from the ⋯ menu: a failure is only logged, the user is never told
+    .then(() => notices.clear('mini-action'))   // a later one that works takes an old failure notice away
+    .catch((e) => {   // error: SHOWN — Favorite / Undo Favorite / Add to Library from the ⋯ menu: logged, and the user is told (actionFailed)
+      console.error(action + ' failed:', e.message)
+      actionFailed(miniModel.actionFailedText(action, title))
+    })
+}
+// A ⋯ menu action that failed. The menu lives in the mini player, which hides the main window, so
+// the panel's notices and the toasts aren't seen: a desktop notification says it (not gated by the
+// track-notification setting: the user just asked for this). With the main window showing (or no
+// desktop notifications), an error notice at the top of the side panel says it instead.
+function actionFailed(text) {
+  if (!text) return
+  if ((!mainAlive() || !mainWindow.isVisible()) && Notification.isSupported()) {
+    // lifetime: OK — shown and collected, no listeners kept (as notifyTrack's)
+    new Notification({ title: text.title, body: text.body, silent: true }).show()
+    return
+  }
+  notices.show({ id: 'mini-action', place: 'top', kind: 'error', text: text.title + '. ' + text.body })
 }
 
 // Read the current song's favorite rating. The id never leaves the page, so
@@ -1012,9 +1046,9 @@ async function showMoreMenu() {
     { label: info.title || 'Not playing', enabled: false },
     { type: 'separator' },
     info.rating === 1
-      ? { label: 'Undo Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(null), 'undo favorite') }
-      : { label: 'Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(1), 'favorite') },
-    { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'add to library') },
+      ? { label: 'Undo Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(null), 'undo-favorite', info.title) }
+      : { label: 'Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(1), 'favorite', info.title) },
+    { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'library', info.title) },
     { type: 'separator' },
     // Electron 44+: clipboard.writeText returns a Promise
     // error: LOGGED-OK — a refused write (no clipboard owner) is logged; the menu just closes
@@ -1286,6 +1320,8 @@ function startNowPlayingLoop() {
     const wantLastfm = lastfm && lastfm.connected
     const wantDiscord = discordConfig.enabled && discordConfig.applicationId
     const wantNotify = settings.notifications
+    // scrobbles that failed before (or waited at the last quit) go out when their backoff is over
+    if (wantLastfm && scrobbleQueue) scrobbleQueue.tick()
     if ((!wantLastfm && !wantDiscord && !wantNotify && !tray) || !mainAlive()) return
     let state
     try {
@@ -1331,9 +1367,11 @@ function feedScrobbler(state) {
   // last.fm rules: track longer than 30s, played for half its length or 4 minutes
   const needed = Math.min(scrobbleState.track.duration / 2, 240)
   if (!scrobbleState.scrobbled && scrobbleState.track.duration > 30 && scrobbleState.playedSeconds >= needed) {
+    // queued once per play (scrobbled), sent now; a failed send stays queued and is retried with a
+    // backoff, across restarts (lastfm.js createScrobbleQueue: its error verdict is LOGGED-OK)
     scrobbleState.scrobbled = true
-    lastfm.scrobble(scrobbleState.track, scrobbleState.startedAt)
-      .catch((e) => console.error('last.fm scrobble failed:', e.message)) // error: SILENT-BUG — a failed scrobble is lost (marked scrobbled first, no retry, nothing shown)
+    scrobbleQueue.add(scrobbleState.track, scrobbleState.startedAt)
+    scrobbleQueue.tick()
   }
 }
 
@@ -2588,6 +2626,18 @@ app.whenReady().then(async () => {
   await components.whenReady()
   startupStep('locale and theme', initLocaleAndTheme)
   lastfm = new LastFm(path.join(app.getPath('userData'), 'lastfm.json'))
+  const pendingPath = path.join(app.getPath('userData'), 'lastfm-pending.json')
+  scrobbleQueue = createScrobbleQueue({
+    send: (entries) => lastfm.scrobbleBatch(entries),
+    load: () => JSON.parse(fs.readFileSync(pendingPath, 'utf8')),
+    // written whole and renamed into place, so a quit mid-write can't leave half a file
+    save: (list) => {
+      if (!list.length) { fs.rmSync(pendingPath, { force: true }); return }
+      fs.writeFileSync(pendingPath + '.tmp', JSON.stringify(list) + '\n')
+      fs.renameSync(pendingPath + '.tmp', pendingPath)
+    },
+    log: (msg) => console.error(msg)
+  })
   discordConfigPath = path.join(app.getPath('userData'), 'discord.json')
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')

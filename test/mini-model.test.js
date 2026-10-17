@@ -60,3 +60,18 @@ test('mini page: one pill with a hairline, scrubber on hover with a crossfade, r
   assert.match(html, /send\('seek', t\)/, 'seeks through the same mini-command path')
   assert.match(html, /addEventListener\('wheel', onWheel, \{ passive: false \}\)/)
 })
+
+test('⋯ menu: a failed Favorite / Undo Favorite / Add to Library is told in words, with the song', () => {
+  assert.deepEqual(M.actionFailedText('favorite', 'Spanish Moss'),
+    { title: "Favorite didn't go through", body: '“Spanish Moss” isn\'t in your favorites yet. Try again in a moment.' })
+  assert.equal(M.actionFailedText('undo-favorite', 'X').body, '“X” is still in your favorites. Try again in a moment.')
+  assert.equal(M.actionFailedText('library', '').title, "Add to Library didn't go through")
+  assert.match(M.actionFailedText('library', '').body, /^This song isn't in your library yet/)
+  assert.ok(M.actionFailedText('favorite', 'a'.repeat(200)).body.length < 120, 'a long title is shortened')
+  assert.equal(M.actionFailedText('other', 'X'), null)
+  // main.js tells the user (no longer only logged)
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  const call = main.slice(main.indexOf('function musicApiCall'), main.indexOf('function actionFailed('))
+  assert.match(call, /actionFailed\(miniModel\.actionFailedText\(action, title\)\)/)
+  assert.match(call, /error: SHOWN/)
+})

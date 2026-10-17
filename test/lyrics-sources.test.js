@@ -125,9 +125,10 @@ test('resolver: Apple throwing still falls back; empty results are retried next 
   const getLyrics = L.createLyricsResolver({
     fetchApple: async () => { throw new Error('no session') },
     fetchLrclib: async () => [],
-    lrclibEnabled: () => true
+    lrclibEnabled: () => true,
+    sleep: async () => {}
   })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'apple' })   // a failure, not "no lyrics"
   let lrclibCalls = 0
   const again = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => { lrclibCalls++; return [] }, lrclibEnabled: () => true })
   await again(song); await again(song)
@@ -271,7 +272,7 @@ test('resolver + store: an Apple entry from the older parser is fetched again on
   await L.createLyricsResolver({ fetchApple: async () => { apple++; return '' }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })(song)
   assert.equal(apple, 1)                                    // current parse: served from the store
   store.m.set('T|A', { lines: [{ t: 1, text: 'old' }], source: 'apple' })
-  const down = L.createLyricsResolver({ fetchApple: async () => { throw new Error('offline') }, fetchLrclib: async () => [], lrclibEnabled: () => true, store })
+  const down = L.createLyricsResolver({ fetchApple: async () => { throw new Error('offline') }, fetchLrclib: async () => [], lrclibEnabled: () => true, store, sleep: async () => {} })
   assert.deepEqual(await down(song), { lines: [{ t: 1, text: 'old' }], source: 'apple' })
 })
 
@@ -287,4 +288,65 @@ test('ttmlLang + resolver: the lyrics language is read from <tt xml:lang>, store
   assert.deepEqual(store.m.get('T|A'), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de', parse: 3 })
   assert.deepEqual(await get(), { lines: [{ t: 1, text: 'Hallo' }], source: 'apple', lang: 'de' })
   assert.equal(apple, 1)
+})
+
+// --- a failed Apple lookup (BACKLOG "Apple lyrics lookup failure is retried") ---
+
+// fetchApple fails `fails` times (throws), then answers `apple`; the waits are recorded, not slept
+function flaky(fails, over) {
+  const calls = { apple: 0, lrclib: 0, waits: [], logs: [] }
+  const getLyrics = L.createLyricsResolver({
+    fetchApple: async () => { calls.apple++; if (calls.apple <= fails) throw new Error('Apple lyrics lookup failed: SERVER_ERROR'); return over.apple || '' },
+    fetchLrclib: async () => { calls.lrclib++; if (over.lrclibError) throw new Error(over.lrclibError); return over.lrclib || [] },
+    lrclibEnabled: () => over.enabled !== false,
+    store: over.store,
+    log: (m) => calls.logs.push(m),
+    sleep: async (ms) => { calls.waits.push(ms) }
+  })
+  return { getLyrics, calls }
+}
+
+test('apple failure: tried again after 1 s and 3 s; a later success is Apple lyrics as usual', async () => {
+  const { getLyrics, calls } = flaky(2, { apple: '<p begin="1">x</p>', lrclib: [{ t: 1, text: 'other' }] })
+  assert.deepEqual(await getLyrics(song), { lines: [{ t: 1, text: 'x' }], source: 'apple' })
+  assert.equal(calls.apple, 3)
+  assert.deepEqual(calls.waits, L.APPLE_RETRY_MS)
+  assert.equal(calls.lrclib, 0)
+  assert.equal(calls.logs.length, 0)
+})
+
+test('apple failure: bounded (3 attempts), then LRCLIB stands in, marked, not stored, not cached', async () => {
+  const store = memStore()
+  const { getLyrics, calls } = flaky(99, { lrclib: [{ t: 3, text: 'y' }], store })
+  assert.deepEqual(await getLyrics(song), { lines: [{ t: 3, text: 'y' }], source: 'lrclib', appleFailed: true })
+  assert.equal(calls.apple, 1 + L.APPLE_RETRY_MS.length)
+  assert.equal(store.m.size, 0)                         // the next play asks Apple again
+  assert.match(calls.logs[0], /apple lyrics lookup failed: .*SERVER_ERROR/)
+  await getLyrics(song)
+  assert.equal(calls.apple, 2 * (1 + L.APPLE_RETRY_MS.length))
+})
+
+test('apple failure: LRCLIB off or without the song -> error apple (not "no lyrics"); LRCLIB failing -> busy', async () => {
+  assert.deepEqual(await flaky(99, { enabled: false }).getLyrics(song), { lines: [], source: '', error: 'apple' })
+  const none = flaky(99, {})
+  assert.deepEqual(await none.getLyrics(song), { lines: [], source: '', error: 'apple' })
+  assert.equal(none.calls.lrclib, 1)
+  assert.deepEqual(await flaky(99, { lrclibError: 'lrclib HTTP 503' }).getLyrics(song), { lines: [], source: '', error: 'busy' })
+})
+
+test('apple: no lyrics ("" without a throw) is still plain "no lyrics", asked once', async () => {
+  const { getLyrics, calls } = flaky(0, { enabled: false })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
+  assert.equal(calls.apple, 1)
+  assert.deepEqual(calls.waits, [])
+})
+
+test('apple failure: the views say so truthfully (lyrics.html words, LRCLIB note)', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const html = fs.readFileSync(path.join(__dirname, '..', 'lyrics.html'), 'utf8')
+  assert.match(html, /status === 'apple' \? "Apple Music's lyrics didn't load, trying again…"/)
+  assert.match(html, /status === 'apple-failed' \? "Apple Music's lyrics didn't load\./)
+  const view = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.js'), 'utf8')
+  assert.match(view, /data\.appleFailed \? ", as Apple Music's didn't load"/)
 })

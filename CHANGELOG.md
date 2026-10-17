@@ -10,6 +10,11 @@ See docs/RELEASING.md.
 ### Changed
 
 - **Newer engine: Electron 45 (castlabs 45.0.0-alpha.14, Chromium 156), an alpha for the Development channel only.** Sonata still uses castlabs' Electron, so Apple Music's protected (Widevine) playback keeps working; Stable stays on its current engine until castlabs ships 45 as a stable release. Startup time is the same and Sonata uses about 7 % less memory (about 800 instead of 860 MB on a test copy). The Copy Link menu item, the mini player, the lyrics window and the visualizer were adjusted for the new engine's changes (Linux windows without a frame would otherwise get rounded corners), so they look and work as before.
+### Fixed
+
+- **A failed Favorite or Add to Library now says so.** When Apple Music didn't take a Favorite, Undo Favorite or Add to Library from the mini player's ⋯ menu, nothing told you: the song just wasn't in your favorites or library. Sonata now shows a desktop notification ("Favorite didn't go through"), or a notice at the top of the side panel when the main window is open.
+- **Scrobbles are no longer lost when Last.fm can't be reached.** A scrobble that failed (offline, Last.fm down or busy) used to be dropped. It now waits and is sent again later, also after a restart, until Last.fm has it. Last.fm takes scrobbles up to 14 days old, so one waiting longer than that is let go. Nothing is scrobbled twice.
+- **Lyrics that didn't load are no longer shown as "no lyrics".** When Apple Music's lyrics lookup failed (for example while the page was loading), the song read as having no lyrics until the next track. Sonata now asks Apple again a few times. With LRCLIB lyrics on, LRCLIB stands in, and the note says Apple Music's didn't load; otherwise the window says they didn't load and asks again later, instead of claiming there are none.
 
 ## [0.15.38-dev.1] — Leaner lyrics, precise timing pauses while you game
 

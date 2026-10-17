@@ -1,5 +1,6 @@
-// The mini player's pure logic (no DOM, no Electron): the scrubber's seek maths and keys, and the
-// KWin blur-behind region for its pill shape. Used by miniplayer.html (require) and main.js.
+// The mini player's pure logic (no DOM, no Electron): the scrubber's seek maths and keys, the
+// KWin blur-behind region for its pill shape, and the words for a ⋯ menu action that failed.
+// Used by miniplayer.html (require) and main.js.
 ;(function (root) {
   'use strict'
   const KEY_STEP = 5   // ← / → on the scrubber: 5 s
@@ -53,7 +54,22 @@
     return out
   }
 
-  const api = { KEY_STEP, seekAt, keySeek, clock, blurRegion }
+  // the ⋯ menu's song actions, when Apple Music refuses one or doesn't answer: what the user is told
+  // (main.js musicApiCall). action: 'favorite' | 'undo-favorite' | 'library'; title: the song's name.
+  // -> { title, body } (a notification's two lines; joined for a notice)
+  function actionFailedText(action, title) {
+    const song = String(title || '').trim()
+    const it = song ? '\u201c' + (song.length > 60 ? song.slice(0, 59) + '\u2026' : song) + '\u201d' : 'This song'
+    const what = {
+      favorite: { title: "Favorite didn't go through", body: it + " isn't in your favorites yet" },
+      'undo-favorite': { title: "Undo Favorite didn't go through", body: it + ' is still in your favorites' },
+      library: { title: "Add to Library didn't go through", body: it + " isn't in your library yet" }
+    }[action]
+    if (!what) return null
+    return { title: what.title, body: what.body + '. Try again in a moment.' }
+  }
+
+  const api = { KEY_STEP, seekAt, keySeek, clock, blurRegion, actionFailedText }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataMiniModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

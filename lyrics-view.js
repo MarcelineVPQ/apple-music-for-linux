@@ -344,7 +344,7 @@ function createLyricsView(opts) {
     })
     notes = []
     if (opts.notes) {
-      if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : ''))
+      if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '') + (data.appleFailed ? ", as Apple Music's didn't load" : ''))
       if (lines.some((l) => l.estimated || l.aligned)) notes.push(null)   // word timing note, see showNotes
       showNotes()
     }

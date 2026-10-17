@@ -281,13 +281,21 @@ async function fetchLrclib(state, deps) {
  * Lyrics for a song: Apple first, then LRCLIB when enabled. Results are
  * cached per title|artist (max 50) so several windows share one lookup;
  * empty results are not cached, so the next play retries.
- * deps: { fetchApple(state) -> ttml string, fetchLrclib(state) -> lines,
- *         lrclibEnabled() -> bool, log(msg), store? ({ get(key), set(key, value) }, on disk) }
+ * deps: { fetchApple(state) -> ttml string ('' = Apple has none; throws when the lookup failed),
+ *         fetchLrclib(state) -> lines, lrclibEnabled() -> bool, log(msg),
+ *         store? ({ get(key), set(key, value) }, on disk), sleep?(ms) (tests) }
+ * An Apple lookup that fails is tried again APPLE_RETRY_MS.length times (a page mid-navigation is
+ * back within seconds), then LRCLIB (when on) stands in, marked appleFailed and kept off the disk
+ * store, so the next play asks Apple again. Neither: error 'apple' (main.js retries a few times).
  */
 // Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25),
 // 3 = the lyrics language (xml:lang) is stored too (0.15.26). A stored Apple entry from an older parser
 // is fetched again once (served as is when that fails).
 const TTML_PARSE = 3
+// the waits before the 2nd and 3rd Apple attempt of one lookup
+const APPLE_RETRY_MS = [1000, 3000]
+// lifetime: OK — a one-shot wait inside one lookup, settled after ms (nothing holds it)
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
@@ -307,17 +315,32 @@ function createLyricsResolver(deps) {
         if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source })
         return result
       }
-      try {
-        const ttml = await deps.fetchApple(state)
-        const lines = ttml ? parseTtml(ttml) : []
-        const lang = ttml ? ttmlLang(ttml) : ''
-        if (lines.length) return remember(lang ? { lines, source: 'apple', lang } : { lines, source: 'apple' })
-      } catch (e) { /* error: SWALLOWED — an Apple lookup that fails (page mid-navigation) reads as "no Apple lyrics": LRCLIB is tried, else the song shows no lyrics until the next track (no retry) */ }
+      let appleFailed = ''
+      const sleep = deps.sleep || realSleep
+      // loop: SERIAL-REQUIRED — at most 1 + APPLE_RETRY_MS.length (3) Apple attempts per lookup, each after the last failed
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const ttml = await deps.fetchApple(state)
+          appleFailed = ''
+          const lines = ttml ? parseTtml(ttml) : []
+          const lang = ttml ? ttmlLang(ttml) : ''
+          if (lines.length) return remember(lang ? { lines, source: 'apple', lang } : { lines, source: 'apple' })
+          break
+        } catch (e) {
+          // error: SHOWN — a failed Apple lookup (page mid-navigation, Apple's API erring) is tried again; then
+          // LRCLIB stands in with a note that Apple's didn't load, or the window says they didn't load (main.js retries)
+          appleFailed = (e && e.message) || 'failed'
+          if (attempt >= APPLE_RETRY_MS.length) break
+          await sleep(APPLE_RETRY_MS[attempt])
+        }
+      }
+      if (appleFailed && deps.log) deps.log('apple lyrics lookup failed: ' + appleFailed)
       if (stale) return { lines: stored.lines, source: 'apple' }   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
-          if (lines.length) return remember({ lines, source: 'lrclib' })
+          // standing in for Apple's that didn't load: shown, not stored (the next play asks Apple again)
+          if (lines.length) return appleFailed ? { lines, source: 'lrclib', appleFailed: true } : remember({ lines, source: 'lrclib' })
         } catch (e) {
           // error: SHOWN — logged, and the window says the lyrics service is busy; main.js retries (30 s, 60 s, 120 s)
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
@@ -325,14 +348,15 @@ function createLyricsResolver(deps) {
           return { lines: [], source: '', error: 'busy' }
         }
       }
-      return { lines: [], source: '' }
+      // Apple's lookup failed and nothing stood in: not "no lyrics"
+      return appleFailed ? { lines: [], source: '', error: 'apple' } : { lines: [], source: '' }
     })()
     cache.set(key, job)
     if (cache.size > 50) cache.delete(cache.keys().next().value)
     const result = await job
-    if (!result.lines.length) cache.delete(key)
+    if (!result.lines.length || result.appleFailed) cache.delete(key)
     return result
   }
 }
 
-module.exports = { parseTtml, parseTtmlClock, ttmlLang, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, parseLrc, lrcWords, lrclibLines, cleanAlbum, pickHit, fetchLrclib, createLyricsResolver }
