@@ -5,6 +5,12 @@ section named after its version (`## [X.Y.Z] — Short title`; the title after
 the dash becomes the release title), or from `[Unreleased]` when there is none.
 See docs/RELEASING.md.
 
+## [Unreleased]
+
+### Changed
+
+- **Every window is checked, and Sonata's appetite has limits.** An automatic check now goes through every Sonata window and view (the rail, Settings and About with every section open, notices, toasts, the lyrics window, the mini player and every visualizer scene, in light and dark, with a song playing) for unreadable text, buttons that do nothing, colours outside the theme, and text that spills out or is cut off. Sonata's resource use now has written limits: processor use with the window shown and in the tray, frames and redraws per window, memory, and listeners that must not pile up; a 30-minute playback soak checks that memory and listeners don't grow. Each development release is measured against them before it ships. Nothing changes in use.
+
 ## [0.15.38-dev.1] — Leaner lyrics, precise timing pauses while you game
 
 ### Added

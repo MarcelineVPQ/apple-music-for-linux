@@ -25,7 +25,8 @@ npm run gates              # tools/verdicts.js --check + tools/set-version.js --
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
 tools/isolated.sh start|run|stop                        # an isolated copy for checks (see Test runs)
-node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics> --cdp … --insp … --display :N --out DIR
+node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|every> --cdp … --insp … --display :N --out DIR
+tools/check_budgets.sh [--soak]                         # resource budgets on its own isolated copy (docs/BUDGETS.md)
 node tools/rail-check.js <matrix|keys|loops|perf> …     # the rail's own checks (same isolated copy)
 node tools/drift-check/drift-check.js …                 # word-timing accuracy (docs/LYRIC-TIMING.md)
 ```
@@ -122,9 +123,11 @@ Every Electron run for a check uses `tools/isolated.sh` (or the same recipe):
   Sonata; restarting it, or anything on her machine, is "say first, then wait".
 
 The UI checker runs against Apple's logged-out page (nothing plays); `SONATA_TEST_ARTWORK=tools/worst-artwork.png`
-stands in for album art. Gate levels: every change: `npm test` + `npm run gates`; every dev release: the
-UI checker phases on an isolated copy and a packaged AppImage smoke start; a stable release candidate: all
-of that plus Marcy's own QC.
+stands in for album art, and `tools/stand-in.js` (a stand-in MusicKit in the test copy's page, a looped set of
+local test tracks, no sound) plays a song for `every` and the budget check. Gate levels: every change: `npm test`
++ `npm run gates`; every dev release: the UI checker phases on an isolated copy, `tools/check_budgets.sh` (quick)
+and a packaged AppImage smoke start; a stable release candidate: all of that plus `tools/check_budgets.sh --soak`
+and Marcy's own QC. Use your own `--display`/ports: `tools/isolated.sh start` refuses a display in use.
 
 ## Releases (Marcy says "release"; never commit or push unless asked)
 
