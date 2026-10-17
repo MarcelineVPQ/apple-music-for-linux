@@ -151,8 +151,8 @@ function createGfx(o) {
       if (on && used && e.key === 'expHdrOutput' && screens && !screens.some((x) => x.hdr)) note[e.key] = 'On, but no HDR screen found (KDE Plasma: kscreen-doctor).'
       else if (on && used) note[e.key] = 'On now.'
       else if (on && idle) note[e.key] = 'Not used this start: ' + M.reasonText(idle).replace(/^Off for this start: /, '') + '.'
-      else if (on) note[e.key] = 'Applies at restart.'
-      else if (used || idle) note[e.key] = 'Off after a restart.'
+      else if (on) note[e.key] = 'Turns on at the next start.'
+      else if (used || idle) note[e.key] = 'Turns off at the next start.'
     }
     return {
       keys: M.EXPERIMENTS.map((e) => e.key),

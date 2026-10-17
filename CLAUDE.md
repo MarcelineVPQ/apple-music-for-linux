@@ -25,7 +25,7 @@ npm run gates              # tools/verdicts.js --check + tools/set-version.js --
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
 tools/isolated.sh start|run|stop                        # an isolated copy for checks (see Test runs)
-node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|a11y|stage|liner|every> --cdp … --insp … --display :N --out DIR
+node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|a11y|stage|liner|experimental|every> --cdp … --insp … --display :N --out DIR
 tools/check_budgets.sh [--soak]                         # resource budgets on its own isolated copy (docs/BUDGETS.md)
 node tools/rail-check.js <matrix|keys|loops|perf> …     # the rail's own checks (same isolated copy)
 node tools/drift-check/drift-check.js …                 # word-timing accuracy (docs/LYRIC-TIMING.md)

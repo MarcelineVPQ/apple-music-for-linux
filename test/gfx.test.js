@@ -233,8 +233,8 @@ test('gfx runtime: the panel snapshot says what each switch does this start and 
   settings.expRiskA = false
   settings.expRiskB = true
   s = gfx.snapshot({ gpu_compositing: 'enabled' })
-  assert.equal(s.note.expRiskA, 'Off after a restart.')
-  assert.equal(s.note.expRiskB, 'Applies at restart.')
+  assert.equal(s.note.expRiskA, 'Turns off at the next start.')
+  assert.equal(s.note.expRiskB, 'Turns on at the next start.')
   assert.deepEqual(s.pending, ['Switch A', 'Switch B'])
   s = gfx.snapshot({ gpu_compositing: 'disabled_software' })
   assert.equal(s.blocked.expRiskA, G.REASONS['gpu-off'], 'no graphics card: the restart switches are disabled with the reason')
