@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stage View</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="../../lyrics-view.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-early.jpg); }
+
+  /* the stage: the lyrics window grown into the now-playing screen */
+  .stage {
+    inset: 22px 28px 22px 28px;
+    display: grid;
+    grid-template-columns: 292px minmax(0, 1fr) 312px;
+    transition: inset .45s var(--ease-out);
+  }
+  .stage.compact { inset: 22px calc(50% - 270px) 22px calc(50% - 270px); grid-template-columns: 0 minmax(0, 1fr) 0; }
+  .stage.compact .np, .stage.compact .queue { opacity: 0; pointer-events: none; }
+  .np, .queue { transition: opacity .25s ease; min-width: 0; overflow: hidden; }
+  .stage.compact .pin:not(.c) { display: none; }
+  .stage.compact .lyrics-box { --ly-size: 24px; padding: 0 24px; }
+  .stage.compact .centre-top { padding-left: 24px; }
+  .np { border-right: 1px solid var(--s-edge); }
+  .queue { border-left: 1px solid var(--s-edge); }
+
+  /* --- left: now playing --- */
+  .np { display: flex; flex-direction: column; padding: 22px 22px 16px; gap: 0; }
+  .cover {
+    width: 248px; height: 248px; border-radius: 10px; object-fit: cover; align-self: center;
+    box-shadow: 0 18px 40px var(--s-art-shadow), 0 0 0 1px var(--s-edge);
+  }
+  .np h1 { margin: 18px 0 2px; font-size: 21px; line-height: 1.2; font-weight: 800; letter-spacing: -.01em; }
+  .np .artist { font-size: 15px; font-weight: 600; color: var(--s-accent-text); }
+  .np .album { margin-top: 2px; font-size: 12.5px; color: var(--s-soft); }
+  .np .album em { font-style: normal; color: var(--s-dim); }
+  .where { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px;
+    font: 700 11px/1.1 var(--font-text); color: var(--s-text); background: var(--s-field); border: 1px solid var(--s-edge);
+  }
+  .chip.count i { display: inline-block; width: 30px; height: 4px; border-radius: 2px; background: var(--s-track); position: relative; overflow: hidden; }
+  .chip.count i::after { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(13 / 24 * 100%); background: var(--s-ring); }
+  .chip.live { color: var(--s-soft); font-weight: 600; }
+
+  .seek { margin-top: 16px; }
+  .seek .bar { position: relative; height: 4px; border-radius: 2px; background: var(--s-track); cursor: pointer; }
+  .seek .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--s-ring); transform-origin: left; width: 100%; transform: scaleX(0); }
+  .seek .bar b { position: absolute; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--s-knob); box-shadow: 0 1px 3px var(--s-shadow); }
+  .seek .times { display: flex; justify-content: space-between; margin-top: 6px; font: 600 11px var(--font-text); color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  .transport { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 4px; }
+  .vol { display: flex; align-items: center; gap: 8px; color: var(--s-soft); }
+  .vol svg { width: 15px; height: 15px; fill: currentColor; display: block; }
+  .vol .bar { flex: 1; height: 4px; border-radius: 2px; background: var(--s-track); position: relative; }
+  .vol .bar i { position: absolute; inset: 0 30% 0 0; border-radius: 2px; background: var(--s-soft); }
+
+  .layers { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--s-edge); }
+  .layers .k { font: 700 10px var(--font-text); letter-spacing: .08em; text-transform: uppercase; color: var(--s-dim); margin-bottom: 8px; display: block; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tile {
+    display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 4px 8px;
+    border-radius: 10px; border: 1px solid var(--s-edge); background: var(--s-field); cursor: pointer;
+    font: 700 11px var(--font-text); color: var(--s-soft); text-decoration: none;
+    transition: background .15s ease, color .15s ease, transform .12s ease;
+  }
+  .tile:hover { background: var(--s-hover); color: var(--s-text); }
+  .tile:active { transform: scale(.97); }
+  .tile svg { width: 18px; height: 18px; fill: currentColor; }
+  .tile small { font-weight: 600; font-size: 10px; color: var(--s-dim); }
+  .tile[aria-pressed="true"] { background: var(--s-active); color: var(--s-text); border-color: var(--s-ring); }
+  .tile[aria-pressed="true"] small { color: var(--s-text); }
+
+  /* --- centre: the lyrics --- */
+  .centre { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .centre-top { position: relative; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 14px 18px 0 40px; }
+  .centre-top .ctx { flex: 1; font: 600 12px var(--font-text); color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .centre-top .ctx b { color: var(--s-text); }
+  .notes-band { position: relative; z-index: 5; margin: 6px 18px 0 22px; height: 150px; margin-bottom: 8px; transition: height .4s var(--ease-out), opacity .3s ease, margin .4s var(--ease-out); }
+  .notes-band.off { height: 0; opacity: 0; margin-top: 0; }
+  .notes-band .lbl { position: absolute; right: 4px; top: 0; z-index: 3; display: flex; gap: 8px; align-items: center; font: 600 10.5px var(--font-text); color: var(--s-dim); }
+  .notes-band .lbl .exp { padding: 2px 6px; border-radius: 4px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); color: var(--s-text); }
+  .notes-band .seg button { padding: 2px 8px; font-size: 10.5px; }
+  #staff { position: absolute; left: 0; right: 0; top: 16px; }
+  .lyrics-box { position: relative; z-index: 5; flex: 1; min-height: 0; padding: 0 56px 0 40px; --ly-size: 31px; -webkit-mask-image: linear-gradient(transparent 0, #000 56px, #000 calc(100% - 70px), transparent 100%); }
+  .lyrics-box .line { padding: 9px 0; letter-spacing: -.005em; }
+  .lyrics-box .bgv { font-size: .6em; }
+  .lyrics-box::after { content: ''; position: absolute; inset: auto 0 0 0; height: 90px; background: linear-gradient(transparent, var(--s-surface)); opacity: 0; pointer-events: none; }
+  .montage-wrap { position: absolute; inset: 0; z-index: 1; opacity: 0; transition: opacity .8s ease; }
+  .montage-wrap.on { opacity: 1; }
+
+  /* --- right: Up Next / Playlist --- */
+  .queue { display: flex; flex-direction: column; padding: 14px 0 0; }
+  .q-head { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 18px; }
+  .q-head h2 { margin: 0; font-size: 17px; font-weight: 800; flex: 1; }
+  .q-tabs { padding: 10px 18px 12px; }
+  .q-tabs .seg { width: 100%; }
+  .q-tabs .seg button { flex: 1; }
+  .next-card {
+    margin: 0 14px 10px; padding: 12px; border-radius: 12px;
+    background: var(--s-field); border: 1px solid var(--s-edge);
+    display: grid; grid-template-columns: 56px 1fr; gap: 4px 12px; align-items: center;
+  }
+  .next-card img { grid-row: 1 / span 3; width: 56px; height: 56px; border-radius: 7px; object-fit: cover; box-shadow: 0 4px 10px var(--s-art-shadow); }
+  .next-card .k { font: 800 10px var(--font-text); letter-spacing: .08em; text-transform: uppercase; color: var(--s-accent-text); font-variant-numeric: tabular-nums; }
+  .next-card .t { font-size: 14px; font-weight: 700; line-height: 1.2; }
+  .next-card .s { font-size: 11.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-list { flex: 1; overflow: auto; padding: 0 8px 8px; scrollbar-width: thin; scrollbar-color: var(--s-track) transparent; }
+  .q-row {
+    display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px;
+    padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .q-row:hover { background: var(--s-hover); }
+  .q-row .n { font: 600 11px var(--font-text); color: var(--s-dim); text-align: right; font-variant-numeric: tabular-nums; }
+  .q-row .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-row .t small { display: block; font-size: 11px; font-weight: 500; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-row .d { font: 600 11px var(--font-text); color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  .q-row.cur { background: var(--s-active); }
+  .q-row.cur .n { color: var(--s-accent-text); }
+  .q-row.played .t { color: var(--s-soft); }
+  .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 11px; }
+  .eq i { width: 3px; background: var(--s-accent-text); border-radius: 1px; animation: eq 0.9s ease-in-out infinite alternate; transform-origin: bottom; height: 11px; }
+  .eq i:nth-child(2) { animation-delay: -.3s; } .eq i:nth-child(3) { animation-delay: -.6s; }
+  @keyframes eq { from { transform: scaleY(.3); } to { transform: scaleY(1); } }
+  body.paused .eq i { animation-play-state: paused; }
+  .q-foot { padding: 10px 18px 12px; border-top: 1px solid var(--s-edge); font: 600 11px var(--font-text); color: var(--s-soft); display: flex; justify-content: space-between; }
+
+  .reopen { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; }
+  .reopen button { padding: 10px 16px; border-radius: 999px; border: 1px solid var(--s-edge); background: var(--s-over-page); color: var(--s-text); font-weight: 700; cursor: pointer; box-shadow: 0 10px 30px var(--s-shadow); }
+  .closed .stage { display: none; }
+  .closed .reopen { display: block; }
+</style>
+</head>
+<body>
+<div class="desktop" id="desk">
+  <div class="win stage" id="stage" data-glass>
+    <!-- left: now playing -->
+    <section class="np">
+      <img class="cover" src="img/cover-gorge.jpg" alt="">
+      <h1 id="np-title">Oh My Darling, Clementine</h1>
+      <div class="artist" id="np-artist">The Juniper Lane Band</div>
+      <div class="album">Wayfarers: Live at the Gorge <em>· 2026</em></div>
+      <div class="where">
+        <span class="chip count" title="Where this song sits in the album or playlist"><i></i>Track 13 of 24</span>
+        <span class="chip live">● Live · Aug 30, 2025 · The Gorge</span>
+      </div>
+      <div class="seek">
+        <div class="bar" id="seek"><i id="seek-fill"></i><b id="seek-knob"></b></div>
+        <div class="times"><span id="t-el">0:00</span><span id="t-rem">-0:00</span></div>
+      </div>
+      <div class="transport">
+        <button class="ib small" title="Shuffle" id="b-shuf"></button>
+        <button class="ib" title="Previous" id="b-prev"></button>
+        <button class="ib big fill" title="Play / Pause" id="b-play"></button>
+        <button class="ib" title="Next" id="b-next"></button>
+        <button class="ib small" title="Repeat" id="b-rep"></button>
+      </div>
+      <div class="vol"><span id="i-vol"></span><div class="bar"><i></i></div></div>
+      <div class="layers">
+        <span class="k">On the stage</span>
+        <div class="tiles">
+          <button class="tile" id="t-notes" aria-pressed="true" title="+1: the sung melody as notes on a staff, in sync (Experimental)"><span id="i-note"></span>Sheet notes<small>Experimental</small></button>
+          <button class="tile" id="t-montage" aria-pressed="false" title="Related photos drifting behind the lyrics"><span id="i-photo"></span>Montage<small>Off</small></button>
+          <a class="tile" href="liner-notes.html" title="Open the album's booklet: credits, notes, the venue"><span id="i-book"></span>Liner notes<small>Booklet</small></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- centre: the lyrics, the reason for the window -->
+    <section class="centre">
+      <div class="montage-wrap" id="montage-wrap"><div id="montage"></div><div class="mt-scrim"></div><a class="mt-credit" id="credit" target="_blank" rel="noopener"></a></div>
+      <div class="centre-top">
+        <div class="ctx">Playing from <b>Wayfarers: Live at the Gorge</b> · word timing aligned on this PC</div>
+        <button class="ib small" id="b-compact" title="Shrink to the lyrics window"></button>
+        <button class="ib small" id="b-close" title="Close"></button>
+      </div>
+      <div class="notes-band" id="band">
+        <div class="lbl"><span class="exp">Experimental</span><span id="mode-seg"></span></div>
+        <div id="staff"></div>
+      </div>
+      <div class="lyrics-box" id="lyrics"></div>
+    </section>
+
+    <!-- right: what comes next -->
+    <section class="queue">
+      <div class="q-head"><h2 id="q-title">Up Next</h2></div>
+      <div class="q-tabs" id="q-tabs"></div>
+      <div class="next-card" id="next-card">
+        <img src="img/cover-gorge.jpg" alt="">
+        <span class="k" id="next-in">Next · in 0:00</span>
+        <span class="t" id="next-t"></span>
+        <span class="s" id="next-s"></span>
+      </div>
+      <div class="q-list" id="q-list"></div>
+      <div class="q-foot"><span id="q-foot-l"></span><span id="q-foot-r"></span></div>
+    </section>
+
+    <span class="pin c" style="left:46%;top:46%">1</span>
+    <span class="pin" style="left:calc(292px + 150px);top:96px">2</span>
+    <span class="pin" style="right:300px;top:150px">3</span>
+    <span class="pin" style="left:252px;top:440px">4</span>
+    <span class="pin" style="left:262px;bottom:118px">5</span>
+    <span class="pin c" style="right:390px;top:14px">6</span>
+  </div>
+  <div class="reopen"><button id="b-reopen">Open the stage again</button></div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li><b>The lyrics own the window.</b> Big, left-set like today's lyrics window, the sung line held a third of the way down.</li>
+    <li>The <b>sheet-notes band</b> sits above the words, not on them. Off: it folds away and the lyrics take the room.</li>
+    <li><b>Next song</b> and its countdown always in view; Up Next and the whole playlist one click apart.</li>
+    <li><b>Track 13 of 24</b> and the live date/venue under the title.</li>
+    <li>The three stage layers: notes, montage, liner notes. Each one visibly does something.</li>
+    <li>The stage shrinks back into today's lyrics window (button top right).</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/songs.js"></script>
+<script src="data/photos.js"></script>
+<script src="kit/mock.js"></script>
+<script src="kit/staff.js"></script>
+<script src="kit/montage.js"></script>
+<script>
+  const { icon, fmt, el, esc } = Mock
+  const S = MOCK_SONGS
+  const song = S.song({ duet: false, echo: true })
+  const lines = Mock.timeLines(song.lines)
+  const clock = Mock.Clock(song.duration, { start: 26.2 })
+  Mock.glassSurface(document.getElementById('stage'))
+  Mock.applyTheme()
+
+  // bar extras: none; the album / theme / Glass / play controls come from the kit
+  Mock.bar({ title: 'Stage view', clock })
+
+  // icons
+  const setI = (id, name) => { document.getElementById(id).innerHTML = icon(name) }
+  setI('b-shuf', 'shuffle'); setI('b-prev', 'prev'); setI('b-next', 'next'); setI('b-rep', 'repeat')
+  setI('i-vol', 'vol'); setI('i-note', 'note'); setI('i-photo', 'photo'); setI('i-book', 'book')
+  setI('b-compact', 'expand'); setI('b-close', 'close')
+  const bPlay = document.getElementById('b-play')
+  bPlay.onclick = () => clock.toggle()
+  document.getElementById('b-prev').onclick = () => clock.seek(0)
+  document.getElementById('b-next').onclick = () => clock.seek(song.duration - 6)
+  const toggleOn = (b) => { b.classList.toggle('on') }
+  document.getElementById('b-shuf').onclick = (e) => toggleOn(e.currentTarget)
+  document.getElementById('b-rep').onclick = (e) => toggleOn(e.currentTarget)
+
+  // seek bar
+  const seek = document.getElementById('seek')
+  seek.onclick = (e) => { const r = seek.getBoundingClientRect(); clock.seek((e.clientX - r.left) / r.width * song.duration) }
+
+  // lyrics
+  const lyr = Mock.LyricList(document.getElementById('lyrics'), lines, { anchor: 0.34, side: false })
+
+  // +1 staff: illustrative melody (the real one comes from the song's analysed notes)
+  const mel = S.melody(song.lines, song.duration)
+  const staff = MockStaff.create(document.getElementById('staff'), { notes: mel.notes, f0: mel.f0, key: { fifths: -1 }, clef: 'treble', h: 6.5, pps: 110, playhead: 0.34, mode: 'notes', duration: song.duration, top: 30, height: 134 })
+  const modeSeg = Mock.seg([['line', 'First play', 'The first time a song plays: the sung pitch line'], ['notes', 'Later plays', 'From the second play: notes on a staff with the syllables']], 'notes', (m) => staff.setMode(m))
+  document.getElementById('mode-seg').appendChild(modeSeg)
+
+  // stage layers
+  const band = document.getElementById('band')
+  const tNotes = document.getElementById('t-notes')
+  tNotes.onclick = () => {
+    const on = tNotes.getAttribute('aria-pressed') !== 'true'
+    tNotes.setAttribute('aria-pressed', String(on))
+    tNotes.querySelector('small').textContent = on ? 'Experimental' : 'Off'
+    band.classList.toggle('off', !on)
+    setTimeout(() => lyrRefresh(), 420)
+  }
+  const mWrap = document.getElementById('montage-wrap')
+  const credit = document.getElementById('credit')
+  const montage = MockMontage.create(document.getElementById('montage'), MOCK_PHOTOS, {
+    hold: 11,
+    onPhoto: (p) => {
+      curPhoto = p
+      credit.href = p.page
+      setTimeout(() => shade(p))
+      credit.innerHTML = icon('photo') + '<span><b>' + esc(p.author) + '</b> · ' + esc(p.licence) + ' · Wikimedia Commons</span>'
+    }
+  })
+  // the shade over the photo: raised for each photo until the words pass (as in ken-burns.html)
+  function shade(p) {
+    const T = SonataTheme; const v = Mock.theme.last.vars
+    const rgb = (x) => (/rgba?\(([^)]+)\)/.exec(x) || [0, '0,0,0'])[1].split(',').slice(0, 3).map(Number)
+    const ph = MOCK_ALBUMS.photos[p.file.replace('img/', '').replace('.jpg', '')]
+    const surf = rgb(v['--s-surface']); const bds = [ph.lo, ph.hi]
+    const ok = (a) => T.worstContrast(rgb(v['--s-text']), [[surf, a]], bds) >= 4.5 && T.worstContrast(rgb(v['--s-dim']), [[surf, a]], bds) >= 3
+    let a = 0.6
+    while (a < 0.98 && !ok(a)) a += 0.02
+    mWrap.style.setProperty('--scrim', a.toFixed(2))
+  }
+  let curPhoto = MOCK_PHOTOS[0]
+  Mock.theme.subs.push(() => shade(curPhoto))
+  const tMont = document.getElementById('t-montage')
+  tMont.onclick = () => {
+    const on = tMont.getAttribute('aria-pressed') !== 'true'
+    tMont.setAttribute('aria-pressed', String(on))
+    tMont.querySelector('small').textContent = on ? 'On' : 'Off'
+    mWrap.classList.toggle('on', on)
+  }
+
+  // compact / close
+  const stage = document.getElementById('stage')
+  document.getElementById('b-compact').onclick = () => {
+    const c = stage.classList.toggle('compact')
+    document.getElementById('b-compact').title = c ? 'Grow into the stage' : 'Shrink to the lyrics window'
+    setTimeout(() => lyrRefresh(), 480)
+  }
+  document.getElementById('b-close').onclick = () => document.getElementById('desk').classList.add('closed')
+  document.getElementById('b-reopen').onclick = () => document.getElementById('desk').classList.remove('closed')
+
+  // Up Next / Playlist
+  const A = S.album
+  const qList = document.getElementById('q-list')
+  const minLeft = A.tracks.slice(A.current).reduce((a, t) => a + t.dur, 0)
+  function renderQueue(which) {
+    document.getElementById('q-title').textContent = which === 'next' ? 'Up Next' : 'Playlist'
+    const rows = which === 'next' ? A.tracks.slice(A.current + 1) : A.tracks
+    qList.innerHTML = rows.map((t) => {
+      const cur = t.n === A.current
+      return '<div class="q-row' + (cur ? ' cur' : '') + (t.n < A.current && which !== 'next' ? ' played' : '') + '" data-n="' + t.n + '">' +
+        '<span class="n">' + (cur ? '<span class="eq"><i></i><i></i><i></i></span>' : t.n) + '</span>' +
+        '<span class="t">' + esc(t.title) + '<small>The Juniper Lane Band · Live at the Gorge</small></span>' +
+        '<span class="d">' + fmt(t.dur) + '</span></div>'
+    }).join('')
+    document.getElementById('next-card').style.display = which === 'next' ? '' : 'none'
+    if (which === 'all') {
+      const c = qList.querySelector('.cur')
+      qList.scrollTop = c.offsetTop - qList.clientHeight * 0.35
+    } else qList.scrollTop = 0
+  }
+  const tabs = Mock.seg([['next', 'Up Next'], ['all', 'Playlist · 24']], 'next', renderQueue)
+  document.getElementById('q-tabs').appendChild(tabs)
+  renderQueue('next')
+  const nx = A.tracks[A.current]
+  document.getElementById('next-t').textContent = nx.title
+  document.getElementById('next-s').textContent = 'Track 14 · ' + fmt(nx.dur) + ' · Live at the Gorge'
+  document.getElementById('q-foot-l').textContent = 'Track 13 of 24'
+  document.getElementById('q-foot-r').textContent = Math.floor(minLeft / 3600) + ' h ' + Math.round(minLeft % 3600 / 60) + ' min left'
+
+  // the clock drives everything; nothing runs while paused
+  const fill = document.getElementById('seek-fill'); const knob = document.getElementById('seek-knob')
+  const tEl = document.getElementById('t-el'); const tRem = document.getElementById('t-rem'); const nextIn = document.getElementById('next-in')
+  let lastT = 0
+  function lyrRefresh() { lyr.update(lastT + 0.0001); const c = lyr.current(); if (c) { const y = lyr.roll.parentNode.clientHeight * 0.34 - c.el.offsetTop; lyr.roll.style.transform = 'translateY(' + Math.min(24, y) + 'px)' } }
+  clock.on((t, playing) => {
+    lastT = t
+    const p = t / song.duration
+    fill.style.transform = 'scaleX(' + p.toFixed(4) + ')'
+    knob.style.left = (p * 100).toFixed(2) + '%'
+    tEl.textContent = fmt(t); tRem.textContent = '-' + fmt(song.duration - t)
+    nextIn.textContent = 'Next · in ' + fmt(song.duration - t)
+    const want = playing ? 'pause' : 'play'
+    if (bPlay.dataset.i !== want) { bPlay.innerHTML = icon(want); bPlay.dataset.i = want }
+    document.body.classList.toggle('paused', !playing)
+    lyr.update(t)
+    staff.update(t)
+    if (mWrap.classList.contains('on') || !playing) montage.update(t)
+  })
+  clock.play()
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheet Notes In Lyrics</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="../../lyrics-view.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-windy.jpg); }
+  .nw { left: 40px; top: 30px; bottom: 30px; width: 840px; }
+  .nw .win-head, .nw .tools, .nw .band, .nw .lyr-area, .nw .foot { position: relative; z-index: 2; }
+  .tools { display: flex; align-items: center; gap: 10px; padding: 2px 16px 8px; flex-wrap: wrap; }
+  .tools .k { font: 700 10px var(--font-text); letter-spacing: .08em; text-transform: uppercase; color: var(--s-dim); }
+  .tools .seg button { font-size: 11.5px; padding: 4px 10px; }
+  .tools .grow { flex: 1; }
+  .exp { padding: 2px 7px; border-radius: 4px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); font: 700 10.5px var(--font-text); color: var(--s-text); }
+
+  /* placement 1: a band under the header */
+  .band { margin: 0 14px; border-radius: 12px; background: var(--s-field); border: 1px solid var(--s-edge); transition: opacity .3s ease; }
+  .band .meta { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px 0; font: 600 11px var(--font-text); color: var(--s-soft); }
+  .band .meta b { color: var(--s-text); }
+  .band .meta .learn { color: var(--s-accent-text); }
+  #staff { position: relative; }
+  /* placement 2: the staff rides directly above the sung line */
+  .nw.over .band { position: absolute; left: 0; right: 0; margin: 0 14px; z-index: 6; top: var(--over-top, 300px); height: 112px; overflow: hidden; background: transparent; border-color: transparent; }
+  .nw.over .staff .syls { display: none; }
+  .nw.over .band .meta { display: none; }
+  .nw.over .lyr-area .line.active { padding-top: 138px; }
+  .lyr-area .line { transition: padding .5s var(--ease-out), color .3s ease; }
+
+  .lyr-area { flex: 1; min-height: 0; padding: 0 26px; --ly-size: 26px; -webkit-mask-image: linear-gradient(transparent 0, #000 24px, #000 calc(100% - 40px), transparent 100%); }
+  .nw .foot { padding: 8px 18px 12px; font: 600 11px var(--font-text); color: var(--s-soft); display: flex; justify-content: space-between; gap: 10px; }
+
+  /* the side notes: what's real here */
+  .side { right: 40px; top: 30px; width: calc(100% - 960px); min-width: 360px; bottom: 30px; overflow: auto; padding: 18px 20px; }
+  .side h3 { margin: 0 0 6px; font-size: 15px; font-weight: 800; position: relative; z-index: 2; }
+  .side p, .side li { font: 12.5px/1.55 var(--font-text); color: var(--s-soft); position: relative; z-index: 2; }
+  .side p b, .side li b { color: var(--s-text); }
+  .side ul { padding-left: 18px; margin: 6px 0 12px; }
+  .side figure { margin: 10px 0 12px; position: relative; z-index: 2; }
+  .side figure img { width: 100%; border-radius: 8px; border: 1px solid var(--s-edge); display: block; }
+  .side figcaption { font: 600 11px/1.4 var(--font-text); color: var(--s-dim); margin-top: 6px; }
+  .side .src { position: relative; z-index: 2; }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="win nw" id="nw" data-glass>
+    <div class="win-head">
+      <div class="vinyl"><svg class="ring" viewBox="0 0 34 34" width="62" height="62"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" id="ring" cx="17" cy="17" r="16" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg><div class="disc"><img src="img/cover-windy.jpg" alt=""></div></div>
+      <div class="song"><span class="t">Clementine</span><span class="a">vocadito #11 · solo voice, unaccompanied</span></div>
+      <button class="close" title="Close" id="b-close"></button>
+    </div>
+    <div class="tools">
+      <span class="exp">Experimental · +1</span>
+      <span class="k">This song</span><span id="seg-mode"></span>
+      <span class="grow"></span>
+      <span class="k">Staff</span><span id="seg-place"></span>
+    </div>
+    <div class="band" id="band">
+      <div class="meta"><span id="meta-l"></span><span id="meta-r"></span></div>
+      <div id="staff"></div>
+    </div>
+    <div class="lyr-area" id="lyrics"></div>
+    <div class="foot"><span>Word timing aligned on this PC · notes from the voice, analysed on this PC</span><span id="foot-r"></span></div>
+    <span class="pin" style="left:12px;top:150px">1</span>
+    <span class="pin" style="right:14px;top:96px">2</span>
+    <span class="pin" style="right:200px;top:96px">3</span>
+  </div>
+
+  <div class="win side" data-glass>
+    <h3>Real data, real voice</h3>
+    <p>Press play: this is the <b>vocadito #11</b> recording (CC BY 4.0), and every note, syllable and the pitch line come from Sonata's own prototype run on it: RMVPE pitch, our note model with the word timing forced in, key by Krumhansl–Schmuckler.</p>
+    <ul>
+      <li><b>First play:</b> the song has never been heard, so there are no notes yet. The voice draws its own line as it sings, only up to now.</li>
+      <li><b>Later plays:</b> notes on a real staff (treble 8vb, A major), each as long as it was held, the syllable under its first note, melismas with an extender.</li>
+      <li>The sung note glows in the album colour, like the sung word.</li>
+    </ul>
+    <figure><img src="img/proto-clementine.png" alt="Prototype render of the notes for vocadito 11"><figcaption>The prototype's offline render of the same notes (docs/research/notes-proto), for comparison.</figcaption></figure>
+    <a class="src" target="_blank" rel="noopener" href="https://zenodo.org/records/5578807"><b>vocadito</b> · Bittner et al. 2021 · CC BY 4.0</a>
+  </div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li>Where the staff lives: <b>a band under the header</b> (always in the same place) or <b>riding over the sung line</b> (notes and words in one glance). Switch with "Staff".</li>
+    <li><b>First play vs later plays</b>: the live pitch line, then the notes. Is the first play's line worth showing on its own?</li>
+    <li>Real notation details: key signature, accidentals (D♯, C♮), ledger lines, the 8 under the clef. Enough music, not too much?</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/clementine.js"></script>
+<script src="kit/mock.js"></script>
+<script src="kit/staff.js"></script>
+<script>
+  const { icon, esc } = Mock
+  const D = window.CLEMENTINE
+  const audio = new Audio('data/clementine.ogg')
+  audio.preload = 'auto'
+  const clock = Mock.Clock(D.duration_s, { audio, start: 0 })
+  Mock.glassSurface(document.getElementById('nw'))
+  Mock.glassSurface(document.querySelector('.side'))
+  Mock.applyTheme()
+  Mock.bar({ title: 'Sheet notes in the lyrics', clock })
+  document.getElementById('b-close').innerHTML = icon('close')
+  document.getElementById('b-close').onclick = () => clock.pause()
+
+  // the lyric lines and their words, from the aligned syllables
+  const lines = D.lines.map((l) => {
+    const sy = D.syllables.filter((s) => s.line === l.index)
+    const words = []
+    sy.forEach((s) => {
+      if (!words[s.word]) words[s.word] = { text: s.word_text, t: s.t, end: s.end }
+      words[s.word].end = s.end
+    })
+    const w = words.filter(Boolean)
+    return { i: l.index, text: l.text, t: w[0].t, end: w[w.length - 1].end, words: w, side: '' }
+  })
+  const lyr = Mock.LyricList(document.getElementById('lyrics'), lines, { anchor: 0.3, side: false, dotsBefore: false })
+
+  const notes = MockStaff.fromProto(D)
+  const staff = MockStaff.create(document.getElementById('staff'), {
+    notes, f0: D.f0, key: { fifths: D.key.fifths }, clef: 'treble8', h: 7, pps: 160, playhead: 0.32, mode: 'notes', duration: D.duration_s, top: 34, height: 158
+  })
+  const metaL = document.getElementById('meta-l'); const metaR = document.getElementById('meta-r')
+  function setMode(m) {
+    staff.setMode(m)
+    metaL.innerHTML = m === 'line' ? '<span class="learn">First play · drawing the voice as it’s heard</span>' : '<b>A major</b> · A4 = 441 Hz · no bar lines (unaccompanied)'
+    metaR.textContent = m === 'line' ? 'Notes from the next play' : 'confidence 0.79 · RMVPE'
+    document.getElementById('foot-r').textContent = m === 'line' ? 'Play 1' : 'Play 2 and later'
+  }
+  document.getElementById('seg-mode').appendChild(Mock.seg([['line', 'First play'], ['notes', 'Later plays']], 'notes', setMode))
+  setMode('notes')
+  const nw = document.getElementById('nw')
+  function place(p) {
+    nw.classList.toggle('over', p === 'over')
+    requestAnimationFrame(() => { lyr.update(clock.t + 0.0001); positionOver() })
+  }
+  document.getElementById('seg-place').appendChild(Mock.seg([['band', 'Band on top'], ['over', 'Over the sung line']], 'band', place))
+  // in "over" mode, the staff sits in the room the sung line opens above itself
+  function positionOver() {
+    if (!nw.classList.contains('over')) return
+    const c = lyr.current()
+    if (!c) return
+    const y = c.el.getBoundingClientRect().top - nw.getBoundingClientRect().top + 22
+    nw.style.setProperty('--over-top', y.toFixed(1) + 'px')
+  }
+  const ring = document.getElementById('ring')
+  clock.on((t) => {
+    lyr.update(t)
+    staff.update(t)
+    positionOver()
+    ring.setAttribute('stroke-dashoffset', (100.5 * (1 - t / D.duration_s)).toFixed(1))
+  })
+  positionOver()
+</script>
+</body>
+</html>

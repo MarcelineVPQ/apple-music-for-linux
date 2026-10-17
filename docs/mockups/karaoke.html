@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke Mode</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  /* karaoke is a night-time stage, like the visualizer: always dark (the --s-stage tokens), the
+     singers' colours lifted to read on black (theme.js stageText) */
+  .kstage {
+    position: fixed; inset: 44px 0 0 0; overflow: hidden;
+    background: var(--s-stage); color: var(--s-stage-text);
+    --c1: var(--s-stage-text); --c2: var(--s-stage-text); --cm: var(--s-stage-text);
+  }
+  .kstage .glow { position: absolute; inset: -20%; background: url(img/cover-gorge.jpg) center / cover; filter: blur(80px) saturate(1.5); opacity: .32; transform: scale(1.1); }
+  .kstage .glow::after { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 60%, transparent 20%, var(--s-stage-vignette) 80%); }
+  .ktop { position: absolute; left: 40px; right: 40px; top: 26px; display: flex; align-items: flex-start; gap: 18px; z-index: 3; }
+  .ktop .art { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; box-shadow: 0 6px 20px var(--s-stage-shade); }
+  .ktop .ti { flex: 1; }
+  .ktop .ti b { display: block; font-size: 20px; font-weight: 800; }
+  .ktop .ti span { font-size: 14px; font-weight: 600; opacity: .7; }
+  .legend { display: flex; gap: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px 6px 9px; border-radius: 999px; font: 700 12.5px var(--font-text); background: var(--s-stage-scrim); border: 1px solid var(--s-vinyl-rim); transition: transform .25s ease, background .25s ease; }
+  .legend i { width: 10px; height: 10px; border-radius: 50%; }
+  .legend .s1 i { background: var(--c1); } .legend .s2 i { background: var(--c2); } .legend .sm i { background: var(--cm); }
+  .legend span.on { transform: scale(1.08); background: var(--s-stage-shade-soft); box-shadow: 0 0 0 1px var(--s-stage-text); }
+  .legend .arrow { opacity: .55; font-weight: 600; }
+
+  /* the pitch lane: the +1 staff, karaoke style (target bars, the voice drawn as it's heard) */
+  .lane { position: absolute; left: 40px; right: 40px; top: 120px; height: 190px; z-index: 2; border-radius: 14px; background: var(--s-stage-scrim); border: 1px solid var(--s-vinyl-rim); overflow: hidden; }
+  .lane .lab { position: absolute; left: 14px; bottom: 9px; font: 700 10.5px var(--font-text); letter-spacing: .1em; text-transform: uppercase; opacity: .55; z-index: 3; }
+  #lane { position: absolute; left: 0; right: 0; top: 8px; color: var(--s-stage-text); }
+  .kstage .staff .sl { stroke: var(--s-vinyl-sheen); }
+  .kstage .staff .clef-glyph, .kstage .staff .acc.key { fill: var(--s-stage-text); opacity: .6; }
+  .kstage .staff[data-mode="karaoke"] .head, .kstage .staff[data-mode="karaoke"] .ledger, .kstage .staff[data-mode="karaoke"] .acc:not(.key), .kstage .staff[data-mode="karaoke"] .syls { display: none; }
+  .kstage .staff[data-mode="karaoke"] .n .bar { opacity: .3; }
+  .kstage .staff .n.s1 { color: var(--c1); } .kstage .staff .n.s2 { color: var(--c2); } .kstage .staff .n.sm { color: var(--cm); }
+  .kstage .staff[data-mode="karaoke"] .n.now .bar { opacity: .95; filter: drop-shadow(0 0 6px currentColor); }
+  .kstage .staff[data-mode="karaoke"] .n.past .bar { opacity: .5; }
+  .kstage .staff[data-mode="karaoke"] .pl { stroke: var(--s-stage-text); stroke-width: 3; opacity: .95; }
+  .kstage .staff[data-mode="karaoke"] .pl-glow { display: inline; fill: none; stroke: var(--s-stage-text); stroke-width: 10; opacity: .14; stroke-linecap: round; }
+  .kstage .staff-playhead { background: var(--s-stage-text); box-shadow: 0 0 10px var(--s-stage-text); }
+
+  /* the words */
+  .words { position: absolute; left: 60px; right: 60px; top: 372px; bottom: 120px; z-index: 2; }
+  .slot { position: absolute; left: 0; right: 0; white-space: nowrap; }
+  .slot.prev { top: 0; font-size: 26px; font-weight: 700; opacity: .32; }
+  .slot.cur { top: 64px; font-size: 70px; font-weight: 800; letter-spacing: -.01em; }
+  .slot.next { top: 196px; font-size: 38px; font-weight: 700; opacity: .55; }
+  .slot.left { text-align: left; } .slot.right { text-align: right; } .slot.center { text-align: center; }
+  .kline { position: relative; display: inline-block; }
+  .kline .base { color: var(--s-stage-text); opacity: .42; }
+  .kline .clip { position: absolute; left: 0; top: 0; bottom: -0.2em; width: 100%; overflow: hidden; will-change: transform; }
+  .kline .clip > span { display: block; will-change: transform; color: var(--sing); text-shadow: 0 0 .35em var(--sing); }
+  .slot.cur .who { display: block; font: 800 12px var(--font-text); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 4px; color: var(--sing); opacity: .9; }
+  .slot.s1 { --sing: var(--c1); } .slot.s2 { --sing: var(--c2); } .slot.sm { --sing: var(--cm); }
+  .slot.next .who { display: inline-block; font: 800 11px var(--font-text); letter-spacing: .14em; text-transform: uppercase; color: var(--sing); margin-right: 12px; vertical-align: middle; }
+
+  /* countdown: big dots on the coming singer's side, emptying one per beat */
+  .count { position: absolute; top: 112px; display: flex; gap: 18px; opacity: 0; transition: opacity .25s ease; }
+  .count.on { opacity: 1; }
+  .count i { width: 26px; height: 26px; border-radius: 50%; background: var(--sing); box-shadow: 0 0 16px var(--sing); transition: transform .2s ease, opacity .2s ease; }
+  .count i.gone { opacity: .12; transform: scale(.6); box-shadow: none; }
+  .count.left { left: 0; } .count.right { right: 0; } .count.center { left: 50%; transform: translateX(-50%); }
+  .count .lbl { position: absolute; top: -26px; left: 0; white-space: nowrap; font: 800 12px var(--font-text); letter-spacing: .14em; text-transform: uppercase; color: var(--sing); }
+  .count.right .lbl { left: auto; right: 0; }
+  .count.center .lbl { left: 50%; transform: translateX(-50%); }
+
+  .kbot { position: absolute; left: 40px; right: 40px; bottom: 26px; z-index: 3; display: flex; align-items: center; gap: 14px; }
+  .kbot .ib { color: var(--s-stage-text); }
+  .kbot .ib:hover { background: var(--s-stage-scrim); }
+  .sections { flex: 1; position: relative; height: 26px; }
+  .sections .tr { position: absolute; left: 0; right: 0; top: 11px; height: 4px; border-radius: 2px; background: var(--s-vinyl-sheen); }
+  .sections .fill { position: absolute; left: 0; top: 11px; height: 4px; border-radius: 2px; background: var(--s-stage-text); width: 100%; transform-origin: left; }
+  .sections .sec { position: absolute; top: 0; font: 700 9.5px var(--font-text); letter-spacing: .08em; text-transform: uppercase; opacity: .55; transform: translateX(2px); }
+  .sections .sec::before { content: ''; position: absolute; left: -2px; top: 9px; width: 2px; height: 8px; background: var(--s-stage-text); opacity: .5; }
+  .sections .sec.s1 { color: var(--c1); } .sections .sec.s2 { color: var(--c2); } .sections .sec.sm { color: var(--cm); }
+  .kbot .tm { font: 600 12px var(--font-text); opacity: .7; font-variant-numeric: tabular-nums; min-width: 84px; text-align: right; }
+  .kbtn { border: 1px solid var(--s-vinyl-rim); background: var(--s-stage-scrim); color: var(--s-stage-text); border-radius: 999px; padding: 7px 14px; font: 700 12px var(--font-text); cursor: pointer; text-decoration: none; }
+  .kbtn:hover { background: var(--s-stage-shade-soft); }
+  .kbtn[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--s-stage-text); }
+</style>
+</head>
+<body>
+<div class="kstage" id="stage">
+  <div class="glow"></div>
+  <div class="ktop">
+    <img class="art" src="img/cover-gorge.jpg" alt="">
+    <div class="ti"><b>Oh My Darling, Clementine</b><span>The Juniper Lane Band · duet arrangement (sample)</span></div>
+    <div class="legend"><span class="s1" id="lg1"><i></i>Ada <span class="arrow">· left</span></span><span class="s2" id="lg2"><i></i>Ben <span class="arrow">· right</span></span><span class="sm" id="lgm"><i></i>Together <span class="arrow">· centre</span></span></div>
+  </div>
+  <div class="lane"><div id="lane"></div><span class="lab">Melody · sung pitch</span></div>
+  <div class="words" id="words">
+    <div class="slot prev" id="s-prev"></div>
+    <div class="slot cur" id="s-cur"></div>
+    <div class="slot next" id="s-next"></div>
+    <div class="count" id="count"><span class="lbl" id="count-lbl"></span><i></i><i></i><i></i><i></i></div>
+  </div>
+  <div class="kbot">
+    <button class="ib" id="b-restart" title="From the top"></button>
+    <button class="ib" id="b-play" title="Play / pause"></button>
+    <div class="sections" id="sections"><div class="tr"></div><div class="fill" id="fill"></div></div>
+    <span class="tm" id="tm"></span>
+    <button class="kbtn" id="b-lane" aria-pressed="true" title="Show or hide the melody lane">Melody lane</button>
+    <a class="kbtn" href="stage-view.html" title="Leave karaoke">Exit karaoke</a>
+  </div>
+  <span class="pin" style="left:30px;top:116px">1</span>
+  <span class="pin" style="right:30px;top:20px">2</span>
+  <span class="pin" style="left:14px;top:470px">3</span>
+  <span class="pin" style="left:14px;top:380px">4</span>
+  <span class="pin" style="left:50%;bottom:58px">5</span>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li>The <b>melody lane</b>: the +1's pitch line, karaoke style. Bars are the tune, the bright line is the voice, drawn as it's heard.</li>
+    <li><b>Singers</b> keep their own colour and side (Ada left, Ben right, together centre); the legend lights up for whoever sings.</li>
+    <li>The sung line, <b>big</b>, filling word by word (a wipe, compositor-only); the next line waits underneath with its singer's name.</li>
+    <li><b>Countdown dots</b> before an entry (the intro, and the fiddle break at 1:00): on the coming singer's side, one per beat.</li>
+    <li>The bottom bar: verses and choruses as sections in the singers' colours.</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/songs.js"></script>
+<script src="kit/mock.js"></script>
+<script src="kit/staff.js"></script>
+<script>
+  const { icon, fmt, esc } = Mock
+  const T = SonataTheme
+  const S = MOCK_SONGS
+  const song = S.song({ duet: true, echo: false })
+  const lines = Mock.timeLines(song.lines)
+  const clock = Mock.Clock(song.duration, { start: 5.2 })
+  Mock.bar({ title: 'Karaoke', clock })
+  const stage = document.getElementById('stage')
+  const sideCls = { left: 's1', right: 's2', center: 'sm' }
+  const who = { left: 'Ada', right: 'Ben', center: 'Together' }
+
+  // singer colours on the dark stage: the album's two accents, lifted to read on black
+  function colours() {
+    const a = Mock.theme.album ? MOCK_ALBUMS.covers[Mock.theme.album].palette : null
+    const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+    const c1 = a ? a.accent : hex(T.DEFAULT_ACCENT)
+    const c2 = a ? a.accent2 : '#3e8fe0'
+    const m = hex(T.hueBlend(T.hexRgb(c1), T.hexRgb(c2)))
+    stage.style.setProperty('--c1', T.stageText(c1))
+    stage.style.setProperty('--c2', T.stageText(c2))
+    stage.style.setProperty('--cm', T.stageText(m))
+  }
+  Mock.theme.subs.push(colours)
+  colours()
+
+  // the melody lane
+  const mel = S.melody(song.lines, song.duration)
+  mel.notes.forEach((n) => { n.cls = sideCls[song.lines[n.line].side] })
+  const lane = MockStaff.create(document.getElementById('lane'), { notes: mel.notes, f0: mel.f0, key: { fifths: -1 }, h: 8, pps: 150, playhead: 0.3, mode: 'karaoke', duration: song.duration, top: 18, height: 170, lyrics: false })
+  document.getElementById('b-lane').onclick = (e) => {
+    const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'
+    e.currentTarget.setAttribute('aria-pressed', String(on))
+    document.querySelector('.lane').style.display = on ? '' : 'none'
+    document.getElementById('words').style.top = on ? '372px' : '200px'
+  }
+
+  // sections on the progress bar
+  const secs = document.getElementById('sections')
+  const stanzas = []
+  song.lines.forEach((l) => { if (!stanzas[l.stanza]) stanzas[l.stanza] = l })
+  stanzas.forEach((l) => {
+    const d = document.createElement('span')
+    d.className = 'sec ' + sideCls[l.side]
+    d.style.left = (l.t / song.duration * 100) + '%'
+    d.textContent = l.stanza % 2 ? 'Chorus' : 'Verse ' + (l.stanza / 2 + 1)
+    secs.appendChild(d)
+  })
+
+  // the three line slots
+  const slot = { prev: document.getElementById('s-prev'), cur: document.getElementById('s-cur'), next: document.getElementById('s-next') }
+  function fillSlot(el, l, kind) {
+    el.className = 'slot ' + kind + (l ? ' ' + (l.side || 'left') + ' ' + sideCls[l.side] : '')
+    if (!l) { el.innerHTML = ''; return }
+    const label = '<span class="who">' + who[l.side] + '</span>'
+    if (kind === 'cur') el.innerHTML = label + '<span class="kline"><span class="base">' + esc(l.text) + '</span><span class="clip"><span>' + esc(l.text) + '</span></span></span>'
+    else if (kind === 'next') el.innerHTML = label + esc(l.text)
+    else el.innerHTML = esc(l.text)
+  }
+  // word edges of the current line (measured once per line) for the wipe
+  let edges = []
+  function measure() {
+    const k = slot.cur.querySelector('.kline .base')
+    if (!k) { edges = []; return }
+    const range = document.createRange()
+    const text = k.firstChild
+    const words = []
+    let at = 0
+    k.textContent.split(' ').forEach((w) => {
+      range.setStart(text, at); range.setEnd(text, at + w.length)
+      const r = range.getBoundingClientRect(); const base = k.getBoundingClientRect()
+      words.push([r.left - base.left, r.right - base.left])
+      at += w.length + 1
+    })
+    edges = words
+  }
+  let curIdx = -2
+  const countEl = document.getElementById('count')
+  const dots = countEl.querySelectorAll('i')
+  const lg = { left: document.getElementById('lg1'), right: document.getElementById('lg2'), center: document.getElementById('lgm') }
+  clock.on((t, playing) => {
+    lane.update(t)
+    document.getElementById('fill').style.transform = 'scaleX(' + (t / song.duration).toFixed(4) + ')'
+    document.getElementById('tm').textContent = fmt(t) + ' / ' + fmt(song.duration)
+    const bp = document.getElementById('b-play'); const want = playing ? 'pause' : 'play'
+    if (bp.dataset.i !== want) { bp.innerHTML = icon(want); bp.dataset.i = want }
+    // the current line: sung now, or held until the next starts (unless a long gap: then the countdown)
+    let idx = -1
+    lines.forEach((l, i) => { if (t >= l.t - 0.05) idx = i })
+    const nextL = lines[idx + 1]
+    const gap = idx >= 0 && nextL ? nextL.t - lines[idx].end : 0
+    const inGap = idx === -1 || (gap > 2.5 && t > lines[idx].end + 0.4)
+    const showIdx = inGap ? -1 : idx
+    const key = showIdx + ':' + idx
+    if (key !== curIdx) {
+      curIdx = key
+      fillSlot(slot.prev, idx >= 0 ? lines[inGap ? idx : idx - 1] : null, 'prev')
+      fillSlot(slot.cur, showIdx >= 0 ? lines[showIdx] : null, 'cur')
+      fillSlot(slot.next, nextL || null, 'next')
+      measure()
+      Object.keys(lg).forEach((k) => lg[k].classList.toggle('on', showIdx >= 0 && lines[showIdx].side === k))
+      if (showIdx >= 0) slot.cur.animate([{ transform: 'translateY(16px)', opacity: 0.4 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'ease-out' })
+    }
+    // the wipe
+    if (showIdx >= 0 && edges.length) {
+      const l = lines[showIdx]
+      let x = 0
+      l.words.forEach((w, i) => {
+        if (t >= w.end) x = edges[i][1]
+        else if (t >= w.t) x = edges[i][0] + (edges[i][1] - edges[i][0]) * ((t - w.t) / (w.end - w.t))
+      })
+      const W = slot.cur.querySelector('.kline').offsetWidth
+      const clip = slot.cur.querySelector('.clip')
+      clip.style.transform = 'translateX(' + (x - W).toFixed(1) + 'px)'
+      clip.firstChild.style.transform = 'translateX(' + (W - x).toFixed(1) + 'px)'
+    }
+    // countdown: 4 beats (one per ~0.78 s at this tempo) before an entry after a gap
+    const comingIdx = inGap ? idx + 1 : -1
+    const coming = lines[comingIdx]
+    const beat = 3.1 / 4
+    if (coming && coming.t - t <= beat * 4 + 0.05 && coming.t - t > 0) {
+      countEl.className = 'count on ' + (coming.side || 'left') + ' ' + sideCls[coming.side]
+      countEl.style.setProperty('--sing', 'var(--' + { s1: 'c1', s2: 'c2', sm: 'cm' }[sideCls[coming.side]] + ')')
+      document.getElementById('count-lbl').textContent = who[coming.side] + ' in'
+      const left = Math.ceil((coming.t - t) / beat)
+      dots.forEach((d, i) => d.classList.toggle('gone', i >= left))
+    } else countEl.className = 'count'
+  })
+  document.getElementById('b-play').onclick = () => clock.toggle()
+  document.getElementById('b-restart').innerHTML = icon('prev')
+  document.getElementById('b-restart').onclick = () => clock.seek(5.2)
+  secs.onclick = (e) => { const r = secs.getBoundingClientRect(); clock.seek((e.clientX - r.left) / r.width * song.duration) }
+  clock.play()
+</script>
+</body>
+</html>

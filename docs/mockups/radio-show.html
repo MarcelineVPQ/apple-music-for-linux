@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radio Show</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="../../lyrics-view.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-windy.jpg); }
+  .radio { inset: 22px 28px 22px 28px; display: grid; grid-template-columns: 290px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr) auto; }
+  .radio > section { position: relative; z-index: 2; min-width: 0; min-height: 0; }
+
+  /* --- left: the show --- */
+  .show { padding: 22px 22px 16px; border-right: 1px solid var(--s-edge); display: flex; flex-direction: column; }
+  .art { position: relative; width: 246px; height: 246px; align-self: center; border-radius: 12px; overflow: hidden; box-shadow: 0 18px 40px var(--s-art-shadow), 0 0 0 1px var(--s-edge); background: url(img/cover-windy.jpg) center / cover; }
+  .art::before { content: ''; position: absolute; inset: 0; background: linear-gradient(160deg, var(--s-stage-scrim), var(--s-stage-shade) 85%); }
+  .art .nm { position: absolute; left: 18px; right: 18px; bottom: 16px; color: var(--s-stage-text); }
+  .art .nm small { display: block; font: 800 10px var(--font-text); letter-spacing: .28em; text-transform: uppercase; opacity: .8; }
+  .art .nm b { display: block; font: 800 34px/0.95 var(--font); letter-spacing: -.02em; margin-top: 6px; }
+  .art .nm span { display: block; font: 600 12px var(--font-text); opacity: .85; margin-top: 6px; }
+  .onair { position: absolute; left: 14px; top: 14px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px 5px 8px; border-radius: 6px; background: var(--s-fill); color: var(--s-on-fill); font: 800 11px var(--font-text); letter-spacing: .14em; }
+  .onair i { width: 8px; height: 8px; border-radius: 50%; background: var(--s-on-fill); animation: pulse 1.6s ease-in-out infinite; }
+  body.paused .onair i { animation-play-state: paused; }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(.7); } }
+  .show h1 { margin: 16px 0 2px; font-size: 20px; font-weight: 800; }
+  .show .ep { font-size: 13px; color: var(--s-soft); font-weight: 600; }
+  .hosts { margin-top: 14px; display: grid; gap: 8px; }
+  .host { display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center; padding: 7px 9px; border-radius: 10px; background: var(--s-field); border: 1px solid var(--s-edge); transition: background .25s ease, border-color .25s ease; }
+  .host .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 800 13px var(--font-text); color: var(--s-surface); }
+  .host.a .av { background: var(--active); } .host.b .av { background: var(--active-2, var(--active)); }
+  .host b { font-size: 13px; display: block; } .host small { font-size: 11px; color: var(--s-soft); }
+  .host .lvl { display: flex; gap: 2px; align-items: flex-end; height: 14px; }
+  .host .lvl i { width: 3px; height: 14px; border-radius: 1px; background: currentColor; transform-origin: bottom; transform: scaleY(.15); }
+  .host.a { color: var(--active); } .host.b { color: var(--active-2, var(--active)); }
+  .host b, .host small { color: var(--s-text); } .host small { color: var(--s-soft); }
+  .host.on { background: var(--s-active); border-color: currentColor; }
+  .cap-src { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--s-edge); font: 12px/1.45 var(--font-text); color: var(--s-soft); }
+  .cap-src b { color: var(--s-text); }
+
+  /* --- centre: the captions over the visualizer or the montage --- */
+  .talk { display: flex; flex-direction: column; overflow: hidden; }
+  .behind { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+  .viz { position: absolute; left: 0; right: 0; bottom: 0; height: 48%; display: flex; align-items: flex-end; gap: 5px; padding: 0 22px; opacity: .24; -webkit-mask-image: linear-gradient(transparent, #000 60%); }
+  .viz i { flex: 1; height: 100%; border-radius: 4px 4px 0 0; background: linear-gradient(var(--active), transparent); transform-origin: bottom; transform: scaleY(.05); will-change: transform; }
+  .viz i.b { background: linear-gradient(var(--active-2, var(--active)), transparent); }
+  .behind .montage { opacity: 0; transition: opacity .8s ease; }
+  .behind.m-mont .montage { opacity: 1; }
+  .behind.m-mont .viz, .behind.m-none .viz { display: none; }
+  .behind .mt-scrim { opacity: 0; } .behind.m-mont .mt-scrim { opacity: 1; }
+  .talk-top { position: relative; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 14px 18px 4px 34px; }
+  .talk-top .ctx { flex: 1; font: 600 12px var(--font-text); color: var(--s-soft); }
+  .talk-top .ctx b { color: var(--s-text); }
+  .talk-top .seg button { font-size: 11px; padding: 3px 9px; }
+  .caps { position: relative; z-index: 2; flex: 1; min-height: 0; padding: 0 40px 0 34px; --ly-size: 27px; -webkit-mask-image: linear-gradient(transparent 0, #000 60px, #000 calc(100% - 60px), transparent 100%); }
+  .caps .line { font-weight: 650; }
+  .caps .line.right { padding-left: 22%; } .caps .line.left { padding-right: 22%; }
+  .caps .spk { display: block; font: 800 10.5px var(--font-text); letter-spacing: .14em; text-transform: uppercase; color: var(--sing); margin-bottom: 3px; opacity: .9; }
+  .caps .line.aside { font-style: italic; font-weight: 600; font-size: .8em; }
+  .caps .line.active .w.now { transform: none; text-shadow: none; }
+
+  /* --- right: the songs played in this episode --- */
+  .played { border-left: 1px solid var(--s-edge); display: flex; flex-direction: column; padding: 16px 0 0; }
+  .played h2 { margin: 0 18px 2px; font-size: 17px; font-weight: 800; }
+  .played .sub { margin: 0 18px 12px; font: 600 11.5px var(--font-text); color: var(--s-soft); }
+  .plist { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 10px 10px; }
+  .pr { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 9px; }
+  .pr img, .pr .tk { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; }
+  .pr .tk { display: grid; place-items: center; background: var(--s-field); border: 1px solid var(--s-edge); color: var(--s-soft); }
+  .pr .tk svg { width: 18px; height: 18px; fill: currentColor; }
+  .pr b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr small { display: block; font-size: 11.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr time { font: 600 11px var(--font-text); color: var(--s-dim); font-variant-numeric: tabular-nums; }
+  .pr.talkrow b { font-weight: 600; color: var(--s-soft); }
+  .pr.now { background: var(--s-active); }
+  .pr.now b { color: var(--s-text); }
+  .pr.now time { color: var(--s-accent-text); font-weight: 800; }
+  .played .note { padding: 10px 18px 12px; border-top: 1px solid var(--s-edge); font: 12px/1.45 var(--font-text); color: var(--s-soft); }
+
+  /* --- bottom: the episode timeline, talk and music --- */
+  .tl { grid-column: 1 / -1; position: relative; z-index: 2; border-top: 1px solid var(--s-edge); padding: 10px 18px 12px; display: flex; align-items: center; gap: 14px; }
+  .tl .bar { flex: 1; position: relative; height: 22px; }
+  .tl .blk { position: absolute; top: 6px; height: 10px; border-radius: 3px; background: var(--s-track); }
+  .tl .blk.talk { background: repeating-linear-gradient(135deg, var(--active) 0 3px, transparent 3px 6px); opacity: .75; }
+  .tl .ph { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--s-text); border-radius: 1px; box-shadow: 0 0 6px var(--s-text); }
+  .tl .lg { display: flex; gap: 12px; font: 600 11px var(--font-text); color: var(--s-soft); }
+  .tl .lg i { display: inline-block; width: 14px; height: 8px; border-radius: 2px; vertical-align: middle; margin-right: 5px; background: var(--s-track); }
+  .tl .lg i.t { background: repeating-linear-gradient(135deg, var(--active) 0 3px, transparent 3px 6px); }
+  .tl time { font: 600 12px var(--font-text); color: var(--s-soft); font-variant-numeric: tabular-nums; min-width: 98px; text-align: right; }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="win radio" id="radio" data-glass>
+    <section class="show">
+      <div class="art"><span class="onair"><i></i>On air</span><div class="nm"><small>Apple Music Radio</small><b>Night<br>Shift</b><span>Sample show</span></div></div>
+      <h1>Night Shift Radio</h1>
+      <div class="ep">Episode 42 · Summer stages · live now</div>
+      <div class="hosts">
+        <div class="host a" id="h-a"><span class="av">R</span><div><b>Rae</b><small>host · left</small></div><span class="lvl"><i></i><i></i><i></i><i></i></span></div>
+        <div class="host b" id="h-b"><span class="av">J</span><div><b>Jonah</b><small>guest host · right</small></div><span class="lvl"><i></i><i></i><i></i><i></i></span></div>
+      </div>
+      <div class="cap-src"><b>Captions transcribed on this PC</b> from the stream, speakers told apart by voice. Placeholder names and dialogue. Nothing leaves your computer.</div>
+    </section>
+
+    <section class="talk">
+      <div class="behind" id="behind"><div class="viz" id="viz"></div><div id="montage"></div><div class="mt-scrim"></div></div>
+      <div class="talk-top"><div class="ctx"><b>Talk segment</b> · 23:10 into the episode · captions</div><span id="seg-behind"></span></div>
+      <div class="caps" id="caps"></div>
+    </section>
+
+    <section class="played">
+      <h2>Played in this episode</h2>
+      <div class="sub">Every song so far, as it airs</div>
+      <div class="plist" id="plist"></div>
+      <div class="note">Only what has aired: Sonata adds each song as the stream announces it.</div>
+    </section>
+
+    <div class="tl">
+      <div class="lg"><span><i class="t"></i>Talk</span><span><i></i>Music</span></div>
+      <div class="bar" id="tl"></div>
+      <time id="tl-t"></time>
+    </div>
+
+    <span class="pin" style="left:46%;top:48%">1</span>
+    <span class="pin" style="left:262px;top:330px">2</span>
+    <span class="pin" style="right:300px;top:56px">3</span>
+    <span class="pin" style="left:16px;top:14px">4</span>
+    <span class="pin" style="left:50%;bottom:10px">5</span>
+  </div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li><b>Live captions</b> of the hosts in speaker colours and sides, exactly like duets: Rae left, Jonah right, both together centred. The sentence being said is lit word by word.</li>
+    <li>The <b>host cards</b> light up and show a level for whoever is talking.</li>
+    <li>A <b>running list of the songs played</b> in this episode, the talk you're in marked "now".</li>
+    <li>The <b>On air</b> treatment: show art, the pulsing badge, the visualizer (or a slow montage) behind the words. Switch top right of the captions.</li>
+    <li>The <b>episode timeline</b>: talk and music blocks at a glance.</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/photos.js"></script>
+<script src="kit/mock.js"></script>
+<script src="kit/montage.js"></script>
+<script>
+  const { icon, esc } = Mock
+  // placeholder dialogue (not a real transcript): a, b = the two hosts, both = together
+  const SAY = [
+    ['a', 'Okay. That was Clementine, live from the Gorge, and I need a minute.', 0.6, 3.4],
+    ['b', 'The whole hillside singing the chorus back at them.', 4.3, 2.6],
+    ['a', 'That’s the thing with these old songs. Everybody already knows the words.', 7.3, 3.4],
+    ['b', 'Even the verse about the herring boxes?', 11.2, 2.0],
+    ['a', 'Especially the herring boxes.', 13.4, 1.6],
+    ['both', '[both laughing]', 15.2, 1.6],
+    ['b', 'So for the next hour we’re staying outdoors. Summer stages, big skies.', 17.4, 3.6],
+    ['a', 'And later a guest drops by with a story about a broken amp.', 21.4, 3.0],
+    ['b', 'Before that, one more from the vault. Nineteen sixty-something, we think.', 24.9, 3.5],
+    ['a', 'We genuinely don’t know. The tape box just says “Tuesday”.', 28.8, 3.0],
+    ['b', 'Here it is.', 32.4, 1.1]
+  ]
+  const SIDE = { a: 'left', b: 'right', both: 'center' }
+  const NAME = { a: 'Rae', b: 'Jonah', both: 'Rae & Jonah' }
+  const lines = Mock.timeLines(SAY.map(([who, text, t, d]) => ({ who, text, t, d, side: SIDE[who] })))
+  const clock = Mock.Clock(36, { start: 3.2 })
+  Mock.glassSurface(document.getElementById('radio'))
+  Mock.applyTheme()
+  Mock.bar({ title: 'Radio show', clock })
+
+  let prevWho = null
+  const caps = Mock.LyricList(document.getElementById('caps'), lines, {
+    anchor: 0.42, side: true, dotsBefore: false,
+    onLine: (e, l) => {
+      if (l.who !== prevWho && l.who !== 'both') e.insertAdjacentHTML('afterbegin', '<span class="spk">' + NAME[l.who] + '</span>')
+      if (l.who === 'both') e.classList.add('aside')
+      prevWho = l.who
+    }
+  })
+
+  // behind the words
+  const viz = document.getElementById('viz')
+  const BARS = 40
+  for (let i = 0; i < BARS; i++) { const b = document.createElement('i'); if (i >= BARS / 2) b.className = 'b'; viz.appendChild(b) }
+  const bars = viz.children
+  const montage = MockMontage.create(document.getElementById('montage'), MOCK_PHOTOS, { hold: 12 })
+  const behind = document.getElementById('behind')
+  document.getElementById('seg-behind').appendChild(Mock.seg([['viz', 'Visualizer'], ['mont', 'Montage'], ['none', 'Plain']], 'viz', (v) => { behind.className = 'behind m-' + v }))
+  behind.className = 'behind m-viz'
+
+  // played in this episode
+  const PLAYED = [
+    ['00:02', 'Wayfaring Stranger', 'The Juniper Lane Band', 'img/cover-gorge.jpg'],
+    ['04:51', 'The Water Is Wide', 'Marisol Vance', 'img/cover-lilith.jpg'],
+    ['09:30', 'Red River Valley', 'The Hollow Pines', 'img/cover-windy.jpg'],
+    ['13:12', 'Talk', 'Rae & Jonah · 3 min', null],
+    ['16:40', 'Shenandoah', 'Kit Avery', 'img/cover-lilith.jpg'],
+    ['21:05', 'Oh My Darling, Clementine', 'The Juniper Lane Band · Live at the Gorge', 'img/cover-gorge.jpg'],
+    ['23:10', 'Talk', 'Rae & Jonah · now', null]
+  ]
+  document.getElementById('plist').innerHTML = PLAYED.map(([tm, t, a, img], i) =>
+    '<div class="pr' + (img ? '' : ' talkrow') + (i === PLAYED.length - 1 ? ' now' : '') + '">' +
+    (img ? '<img src="' + img + '" alt="">' : '<span class="tk">' + icon('mic') + '</span>') +
+    '<div><b>' + esc(t) + '</b><small>' + esc(a) + '</small></div><time>' + tm + '</time></div>').join('')
+
+  // the episode timeline (60 min)
+  const EP = 3600; const START = 23 * 60 + 10
+  const BL = [[2, 290, 0], [291, 279, 0], [570, 222, 0], [792, 208, 1], [1000, 265, 0], [1265, 125, 0], [1390, 240, 1]]
+  const tl = document.getElementById('tl')
+  BL.forEach(([s, d, talk]) => { const b = document.createElement('span'); b.className = 'blk' + (talk ? ' talk' : ''); b.style.left = (s / EP * 100) + '%'; b.style.width = (d / EP * 100) + '%'; tl.appendChild(b) })
+  const ph = document.createElement('span'); ph.className = 'ph'; tl.appendChild(ph)
+  const mmss = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0')
+
+  const hA = document.getElementById('h-a'); const hB = document.getElementById('h-b')
+  const lvA = hA.querySelectorAll('.lvl i'); const lvB = hB.querySelectorAll('.lvl i')
+  clock.on((t, playing) => {
+    document.body.classList.toggle('paused', !playing)
+    caps.update(t)
+    const cur = lines.find((l) => t >= l.t && t < l.end + 0.15)
+    const who = cur ? cur.who : null
+    hA.classList.toggle('on', who === 'a' || who === 'both'); hB.classList.toggle('on', who === 'b' || who === 'both')
+    // a speech-like level and spectrum, from the clock (no audio in the mock)
+    const env = (k) => (cur && (who === k || who === 'both')) ? 0.45 + 0.5 * Math.abs(Math.sin(t * 9.1 + k.length) * Math.sin(t * 3.7)) : 0.08
+    lvA.forEach((b, i) => { b.style.transform = 'scaleY(' + Math.min(1, env('a') * (0.5 + 0.5 * Math.abs(Math.sin(t * 11 + i)))).toFixed(2) + ')' })
+    lvB.forEach((b, i) => { b.style.transform = 'scaleY(' + Math.min(1, env('b') * (0.5 + 0.5 * Math.abs(Math.sin(t * 13 + i)))).toFixed(2) + ')' })
+    if (behind.classList.contains('m-viz')) {
+      for (let i = 0; i < BARS; i++) {
+        const side = i < BARS / 2 ? 'a' : 'b'
+        const f = Math.abs(i - (side === 'a' ? BARS * 0.25 : BARS * 0.75)) / (BARS / 4)
+        const v = env(side) * (1 - 0.6 * f) * (0.55 + 0.45 * Math.abs(Math.sin(t * (4 + i % 5) + i * 1.7)))
+        bars[i].style.transform = 'scaleY(' + Math.max(0.03, v).toFixed(3) + ')'
+      }
+    } else if (behind.classList.contains('m-mont')) montage.update(t)
+    ph.style.left = ((START + t) / EP * 100) + '%'
+    document.getElementById('tl-t').textContent = mmss(START + t) + ' / 60:00'
+  })
+  clock.play()
+</script>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liner Notes</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-amphitheatre.jpg); }
+  .book-win { inset: 20px 40px 20px 40px; }
+  .book-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px 6px 18px; position: relative; z-index: 2; }
+  .book-head .song { flex: 1; min-width: 0; }
+  .book-head .song .t { font-size: 16px; font-weight: 800; }
+  .book-head .song .a { font-size: 12.5px; color: var(--s-soft); font-weight: 600; }
+  .book-head .pages { font: 600 12px var(--font-text); color: var(--s-soft); font-variant-numeric: tabular-nums; }
+  .cover-mini { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 8px var(--s-art-shadow); }
+
+  /* the booklet: an open spread of two square pages */
+  .stagebox { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; perspective: 2600px; z-index: 1; }
+  .spread { position: relative; display: grid; grid-template-columns: var(--pg) var(--pg); --pg: min(560px, calc((100vh - 270px)), calc((100vw - 240px) / 2)); filter: drop-shadow(0 24px 40px var(--s-shadow)); }
+  .page {
+    position: relative; width: var(--pg); height: var(--pg); overflow: hidden;
+    background: var(--s-noise), var(--s-surface);
+    color: var(--s-text);
+  }
+  .page.l { border-radius: 6px 0 0 6px; }
+  .page.r { border-radius: 0 6px 6px 0; }
+  /* the fold: a soft shade into the spine on both pages */
+  .page::after { content: ''; position: absolute; top: 0; bottom: 0; width: 9%; pointer-events: none; z-index: 5; }
+  .page.l::after { right: 0; background: linear-gradient(90deg, transparent, var(--s-shadow)); opacity: .55; }
+  .page.r::after { left: 0; background: linear-gradient(270deg, transparent, var(--s-shadow)); opacity: .55; }
+  .page.blank { background: var(--s-noise), var(--s-material); }
+  .pg { position: absolute; inset: 0; padding: 40px 44px 46px; display: flex; flex-direction: column; }
+  .pg.bleed { padding: 0; }
+  .kicker { font: 800 10px/1 var(--font-text); letter-spacing: .16em; text-transform: uppercase; color: var(--s-accent-text); }
+  .pg h2 { margin: 10px 0 14px; font: 600 30px/1.08 var(--serif); letter-spacing: -.01em; }
+  .pg h3 { margin: 0 0 4px; font: 700 14px/1.25 var(--font); }
+  .pg p { margin: 0 0 11px; font: 14px/1.6 var(--serif); color: var(--s-text); }
+  .pg p.dek { font-size: 16.5px; line-height: 1.5; font-style: italic; color: var(--s-soft); }
+  .pg .foot { margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 10px; }
+  .pg .folio { position: absolute; bottom: 16px; font: 600 10px var(--font-text); color: var(--s-dim); letter-spacing: .1em; }
+  .page.l .folio { left: 44px; } .page.r .folio { right: 44px; }
+  .sample { font: 700 9.5px var(--font-text); letter-spacing: .08em; text-transform: uppercase; color: var(--s-dim); border: 1px dashed var(--s-dim); padding: 2px 5px; border-radius: 4px; }
+
+  /* front and back cover */
+  .front { position: absolute; inset: 0; background: url(img/cover-gorge.jpg) center / cover; }
+  .front::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, var(--s-stage-shade) 100%); }
+  .front .ttl { position: absolute; left: 34px; right: 34px; bottom: 30px; color: var(--s-stage-text); }
+  .front .ttl .k { font: 800 11px var(--font-text); letter-spacing: .3em; text-transform: uppercase; opacity: .85; }
+  .front .ttl .t { font: 600 44px/1 var(--serif); margin: 8px 0 6px; letter-spacing: -.01em; }
+  .front .ttl .s { font: 600 13px var(--font-text); letter-spacing: .2em; text-transform: uppercase; opacity: .9; }
+  .back { position: absolute; inset: 0; background: url(img/gorge-early.jpg) center / cover; }
+  .back::before { content: ''; position: absolute; inset: 0; background: var(--s-stage-shade); }
+  .back .list { position: absolute; inset: 34px 36px 60px; columns: 2; column-gap: 26px; color: var(--s-stage-text); font: 12px/1.62 var(--font-text); }
+  .back .list div { break-inside: avoid; display: flex; gap: 8px; }
+  .back .list b { width: 18px; text-align: right; opacity: .6; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .back .list .cur { font-weight: 800; }
+  .back .fine { position: absolute; left: 36px; right: 36px; bottom: 22px; color: var(--s-stage-text); opacity: .75; font: 600 9.5px/1.4 var(--font-text); letter-spacing: .06em; display: flex; justify-content: space-between; align-items: end; }
+  .barcode { display: flex; gap: 1px; height: 26px; align-items: stretch; }
+  .barcode i { background: var(--s-stage-text); }
+
+  /* the disc in the tray */
+  .tray { position: absolute; inset: 0; display: grid; place-items: center; background: var(--s-noise), var(--s-material); }
+  .disc {
+    width: 78%; aspect-ratio: 1; border-radius: 50%; position: relative;
+    background:
+      radial-gradient(circle, transparent 0 15.5%, var(--s-edge) 15.6% 16%, transparent 16.1%),
+      conic-gradient(from 30deg, var(--s-specular), transparent 12%, var(--s-specular) 25%, transparent 40%, var(--s-specular) 55%, transparent 70%, var(--s-specular) 85%, transparent),
+      url(img/cover-gorge.jpg) center / cover;
+    box-shadow: 0 10px 30px var(--s-shadow), inset 0 0 0 1px var(--s-edge);
+    animation: spin 14s linear infinite;
+  }
+  body.paused .disc { animation-play-state: paused; }
+  .disc::after { content: ''; position: absolute; inset: 42%; border-radius: 50%; background: var(--s-surface); box-shadow: inset 0 0 0 5px var(--s-field), inset 0 0 0 1px var(--s-edge); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tray .cap { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; font: 600 10.5px var(--font-text); color: var(--s-dim); letter-spacing: .08em; text-transform: uppercase; }
+
+  /* recording page */
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font: 13px/1.4 var(--font-text); margin-bottom: 14px; }
+  .facts dt { color: var(--s-dim); font-weight: 700; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; padding-top: 2px; }
+  .facts dd { margin: 0; font-weight: 600; }
+  .setlist { columns: 2; column-gap: 20px; font: 12px/1.6 var(--font-text); color: var(--s-soft); margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  .setlist li { counter-increment: s; break-inside: avoid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .setlist li::before { content: counter(s) '  '; color: var(--s-dim); font-variant-numeric: tabular-nums; display: inline-block; width: 20px; text-align: right; margin-right: 6px; }
+  .setlist li.cur { color: var(--s-accent-text); font-weight: 800; }
+  .setlist li.enc::after { content: ' · encore'; color: var(--s-dim); font-weight: 600; }
+
+  /* photo page */
+  .photo { position: absolute; inset: 0; background-size: cover; background-position: center; }
+  .photo-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 50px 30px 22px; background: linear-gradient(transparent, var(--s-stage-shade)); color: var(--s-stage-text); font: 13px/1.45 var(--serif); }
+  .photo-cap .src { margin-top: 8px; background: var(--s-stage-scrim); color: var(--s-stage-text); border-color: var(--s-vinyl-rim); }
+  .photo-cap .src b { color: var(--s-stage-text); }
+
+  /* credits */
+  .people { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; margin-bottom: 16px; }
+  .people div { font: 13px/1.35 var(--font-text); }
+  .people b { display: block; font-weight: 700; }
+  .people span { color: var(--s-soft); font-size: 12px; }
+  .prod { font: 12.5px/1.6 var(--font-text); color: var(--s-soft); }
+  .prod b { color: var(--s-text); font-weight: 700; }
+  .tracks { font: 12px/1.35 var(--font-text); overflow: hidden; }
+  .tracks .tr { display: grid; grid-template-columns: 20px 1fr; gap: 0 8px; padding: 4px 0; border-bottom: 1px solid var(--s-edge); }
+  .tracks .tr > b { color: var(--s-dim); font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .tracks .tr span { font-weight: 700; }
+  .tracks .tr small { display: block; color: var(--s-soft); font-size: 11px; font-weight: 500; }
+  .tracks .tr.cur { background: var(--s-active); border-radius: 6px; padding: 7px 6px; margin: 2px -6px; border-bottom-color: transparent; }
+  .tracks .tr.cur > b { color: var(--s-accent-text); }
+  .tracks .tr.cur dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 5px 0 0; font-size: 11px; }
+  .tracks .tr.cur dt { color: var(--s-dim); font-weight: 700; }
+  .tracks .tr.cur dd { margin: 0; color: var(--s-text); }
+
+  /* lyrics as booklet pages, following the song */
+  .lyr-page h2 { margin-bottom: 4px; }
+  .lyr-page .by { font: 600 11.5px var(--font-text); color: var(--s-soft); margin-bottom: 16px; }
+  .stz { margin: 0 0 13px; font: 15px/1.5 var(--serif); }
+  .stz.chorus { font-style: italic; padding-left: 16px; border-left: 2px solid var(--s-edge); }
+  .stz span { display: block; transition: color .35s ease; }
+  .stz span.now { color: var(--s-accent-text); }
+  .stz span.now::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--s-accent-text); margin: 0 8px 2px -14px; }
+  .chorus span.now::before { margin-left: -30px; }
+  .stz .rep { font: 600 11px var(--font-text); color: var(--s-dim); font-style: normal; }
+  .wiki-note { margin-top: auto; padding: 12px 14px; border-radius: 8px; background: var(--s-field); border: 1px solid var(--s-edge); }
+  .wiki-note p { font-size: 12.5px; line-height: 1.5; margin: 0 0 8px; }
+
+  /* sources page */
+  .srcs { display: grid; gap: 9px; font: 12.5px/1.4 var(--font-text); }
+  .srcs div { display: grid; grid-template-columns: 112px 1fr; gap: 10px; align-items: baseline; }
+  .srcs b { font-weight: 700; }
+  .srcs span { color: var(--s-soft); }
+  .srcs .no { opacity: .7; }
+
+  /* the page turn: one leaf, two faces, rotateY about the spine (compositor only) */
+  @property --shade { syntax: "<number>"; inherits: true; initial-value: 0; }
+  .leaf { position: absolute; top: 0; width: var(--pg); height: var(--pg); transform-style: preserve-3d; z-index: 20; }
+  .leaf.fwd { left: var(--pg); transform-origin: left center; }
+  .leaf.back { left: 0; transform-origin: right center; }
+  .leaf .face { position: absolute; inset: 0; backface-visibility: hidden; overflow: hidden; }
+  .leaf .face.b { transform: rotateY(180deg); }
+  .leaf .face::before { content: ''; position: absolute; inset: 0; z-index: 9; pointer-events: none; background: var(--s-shadow); opacity: var(--shade, 0); }
+
+  /* navigation */
+  .nav { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 0 14px; }
+  .thumbs { display: flex; gap: 6px; }
+  .thumbs button {
+    border: 1px solid var(--s-edge); background: var(--s-field); border-radius: 7px; cursor: pointer;
+    padding: 5px 10px; font: 700 11px var(--font-text); color: var(--s-soft);
+  }
+  .thumbs button:hover { color: var(--s-text); background: var(--s-hover); }
+  .thumbs button[aria-current="true"] { background: var(--s-active); color: var(--s-text); border-color: var(--s-ring); }
+  .navbtn { width: 38px; height: 38px; border: 1px solid var(--s-edge); background: var(--s-field); }
+  .navbtn:disabled { opacity: .35; cursor: default; }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="win book-win" id="win" data-glass>
+    <div class="book-head">
+      <img class="cover-mini" src="img/cover-gorge.jpg" alt="">
+      <div class="song"><div class="t">Wayfarers: Live at the Gorge</div><div class="a">The Juniper Lane Band · 2026 · 24 tracks · liner notes</div></div>
+      <span class="pages" id="pages"></span>
+      <button class="close" title="Close the booklet" id="b-close"></button>
+    </div>
+    <div class="stagebox"><div class="spread" id="spread"></div></div>
+    <div class="nav">
+      <button class="ib navbtn" id="b-prev" title="Previous pages (←)"></button>
+      <div class="thumbs" id="thumbs"></div>
+      <button class="ib navbtn" id="b-next" title="Next pages (→)"></button>
+    </div>
+    <span class="pin" style="left:50%;top:62px;margin-left:-11px">1</span>
+  </div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li><b>The booklet metaphor:</b> square CD pages, a spread at a time, the page turning on the spine. Click the arrows, the section buttons, or press ← →.</li>
+    <li><b>Cover → tray → notes → venue → credits → lyrics → back cover.</b> Is that the order you'd read a real booklet in?</li>
+    <li>Every block carries its <b>source chip</b> (Apple, setlist.fm, MusicBrainz, Discogs, Wikipedia + licence). A section with no real data just isn't printed.</li>
+    <li>The <b>Wikipedia</b> page is the real article text (CC BY-SA, trimmed, linked), matched through Wikidata, never a title guess.</li>
+    <li>The <b>lyrics pages follow the song</b>: the line being sung is marked as it plays (press play).</li>
+    <li>Paper = the theme's surface: try Light, and the album colours.</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/songs.js"></script>
+<script src="data/photos.js"></script>
+<script src="kit/mock.js"></script>
+<script>
+  const { icon, fmt, esc } = Mock
+  const S = MOCK_SONGS; const A = S.album
+  const song = S.song({ duet: false, echo: false })
+  const clock = Mock.Clock(song.duration, { start: 9 })
+  Mock.glassSurface(document.getElementById('win'))
+  Mock.applyTheme()
+  Mock.bar({ title: 'Liner notes', clock })
+  document.getElementById('b-close').innerHTML = icon('close')
+  document.getElementById('b-close').onclick = () => go(0)
+  document.getElementById('b-prev').innerHTML = icon('chevL')
+  document.getElementById('b-next').innerHTML = icon('chevR')
+
+  const photo = MOCK_PHOTOS[0]
+  const chip = (who, what, href) => (href ? '<a class="src" target="_blank" rel="noopener" href="' + href + '">' : '<span class="src">') + '<b>' + who + '</b>' + (what ? ' · ' + what : '') + (href ? '</a>' : '</span>')
+  const setlist = A.tracks.map((t) => '<li' + (t.n === A.current ? ' class="cur"' : '') + (t.n >= 23 ? ' class="enc"' : '') + '>' + esc(t.title) + '</li>').join('')
+
+  // ---- the pages (left, right) of each spread ----
+  const P = {}
+  P.tray = '<div class="tray"><div class="disc"></div><div class="cap">Disc 1 · 24 tracks · 2 h 31 min</div></div>'
+  P.front = '<div class="front"><div class="ttl"><div class="k">The Juniper Lane Band</div><div class="t">Wayfarers</div><div class="s">Live at the Gorge · 08.30.25</div></div></div>'
+  P.editorial = '<div class="pg"><div class="kicker">Editorial notes</div><h2>Twenty-four songs older than the amplifiers</h2>' +
+    '<p class="dek">Placeholder for Apple Music’s own editorial notes on the album, shown as Apple writes them.</p>' +
+    '<p>Sample text: on the last Saturday of August the band played two and a half hours of traditional songs to a sold-out hillside, with the Columbia River going gold behind the stage. This recording keeps the crowd in: the choruses on “Clementine” belong to them.</p>' +
+    '<p>Sample text: the set moves from the hush of “Wayfaring Stranger” to a twelve-minute “Will the Circle Be Unbroken” that closes the night.</p>' +
+    '<div class="foot">' + chip('Apple Music', 'editorial notes') + '<span class="sample">sample text</span></div><div class="folio">2</div></div>'
+  P.recording = '<div class="pg"><div class="kicker">The recording</div><h2>Live at the Gorge</h2>' +
+    '<dl class="facts"><dt>Date</dt><dd>Saturday, August 30, 2025</dd><dt>Venue</dt><dd>The Gorge Amphitheatre, George, Washington</dd><dt>Tour</dt><dd>Wayfarers Summer Tour 2025 <span class="sample">sample</span></dd><dt>Set</dt><dd>24 songs · 2 h 31 min · encore of 2</dd></dl>' +
+    '<ol class="setlist">' + setlist + '</ol>' +
+    '<div class="foot">' + chip('setlist.fm', 'setlist, venue, date') + chip('MusicBrainz', 'CC0') + '</div><div class="folio">3</div></div>'
+  P.venue = '<div class="pg"><div class="kicker">About the venue</div><h2>The Gorge Amphitheatre</h2>' +
+    '<p>The Gorge Amphitheatre, originally known as Champs de Brionne Music Theatre and commonly referred to as The Gorge, is an outdoor concert venue in Grant County, Washington, United States. It is situated near the Columbia River in Central Washington, nine miles (14 km) west of George and 150 miles (240 km) east of Seattle. The venue is managed by Live Nation.</p>' +
+    '<p>The original amphitheater was owned and operated by Dr. Vincent Bryan and Carol Bryan, along with the adjoining Champs de Brionne winery, for which it was named. It opened in 1986 and seated 3,000 people, but had expanded to 19,000 by the time of its purchase by MCA in 1993. […]</p>' +
+    '<div class="foot">' + chip('Wikipedia', 'CC BY-SA 4.0 · “The Gorge Amphitheatre”, trimmed', 'https://en.wikipedia.org/wiki/The_Gorge_Amphitheatre') + chip('Wikidata', 'match') + '</div><div class="folio">4</div></div>'
+  P.photo = '<div class="pg bleed"><div class="photo" style="background-image:url(' + photo.file + ')"></div><div class="photo-cap">' + esc(photo.desc) + '<br>' +
+    '<a class="src" target="_blank" rel="noopener" href="' + photo.page + '"><b>' + esc(photo.author) + '</b> · ' + photo.licence + ' · Wikimedia Commons</a></div></div>'
+  P.personnel = '<div class="pg"><div class="kicker">Personnel</div><h2>The band</h2>' +
+    '<div class="people"><div><b>June Halloway</b><span>lead vocals, acoustic guitar</span></div><div><b>Theo Marsh</b><span>fiddle, harmony vocals</span></div><div><b>Rosa Delgado</b><span>upright bass</span></div><div><b>Ike Brennan</b><span>banjo, dobro</span></div><div><b>Mae Okafor</b><span>drums, washboard</span></div><div><b>The Gorge</b><span>choruses</span></div></div>' +
+    '<div class="prod"><b>Produced by</b> June Halloway &amp; Sam Whitley · <b>Recorded by</b> Lena Petrov · <b>Mixed by</b> Sam Whitley · <b>Mastered by</b> Ada Cruz</div>' +
+    '<div class="foot">' + chip('MusicBrainz', 'credits · CC0') + chip('Discogs', 'release notes · CC0 data') + '<span class="sample">sample names</span></div><div class="folio">6</div></div>'
+  const near = A.tracks.slice(9, 16)
+  P.tracks = '<div class="pg"><div class="kicker">Track by track</div><h2 style="font-size:24px;margin-bottom:10px">Songs &amp; writers</h2><div class="tracks">' +
+    near.map((t) => t.n === A.current
+      ? '<div class="tr cur"><b>' + t.n + '</b><div><span>' + esc(t.title) + '</span><small>Percy Montrose (1884) · traditional melody · arr. The Juniper Lane Band</small><dl><dt>Lead vocal</dt><dd>June Halloway</dd><dt>Fiddle</dt><dd>Theo Marsh</dd><dt>Choruses</dt><dd>the audience</dd><dt>Recorded</dt><dd>08.30.25, 9:42 pm</dd></dl></div></div>'
+      : '<div class="tr"><b>' + t.n + '</b><div><span>' + esc(t.title) + '</span><small>Traditional · arr. The Juniper Lane Band</small></div></div>').join('') +
+    '</div><div class="folio">7</div></div>'
+  // lyrics pages: Clementine, stanza by stanza, marked as it plays
+  const stz = (k) => {
+    const ls = song.lines.filter((l) => l.stanza === k)
+    return '<div class="stz' + (k % 2 ? ' chorus' : '') + '">' + ls.map((l) => '<span data-i="' + song.lines.indexOf(l) + '">' + esc(l.text) + '</span>').join('') + '</div>'
+  }
+  P.lyrics1 = '<div class="pg lyr-page"><div class="kicker">Track 13</div><h2>Oh My Darling, Clementine</h2><div class="by">Words: Percy Montrose, 1884 · traditional melody</div>' +
+    stz(0) + stz(1) + stz(2) + '<div class="stz chorus"><span class="rep">Chorus</span></div>' +
+    '<div class="foot">' + chip('Apple Music', 'lyrics') + '</div><div class="folio">8</div></div>'
+  P.lyrics2 = '<div class="pg lyr-page"><div class="kicker" style="margin-bottom:18px">Track 13, continued</div>' + stz(4) + '<div class="stz chorus"><span class="rep">Chorus</span></div>' + stz(6) + '<div class="stz chorus"><span class="rep">Chorus</span></div>' +
+    '<div class="wiki-note"><p>“Oh My Darling, Clementine” (Roud 9611, sometimes simply “Clementine”) is a traditional American, tragic but sometimes comic, Western folk ballad in trochaic meter usually credited to Percy Montross (or Montrose) (1884), although it is sometimes credited to Barker Bradford (1885).</p>' +
+    chip('Wikipedia', 'CC BY-SA 4.0', 'https://en.wikipedia.org/wiki/Oh_My_Darling,_Clementine') + '</div><div class="folio">9</div></div>'
+  P.sources = '<div class="pg"><div class="kicker">Sources</div><h2 style="font-size:24px">Where these pages come from</h2><div class="srcs">' +
+    '<div><b>Apple Music</b><span>editorial notes, lyrics, track list</span></div>' +
+    '<div><b>MusicBrainz</b><span>credits, release details · CC0</span></div>' +
+    '<div><b>Cover Art Archive</b><span>front, back and booklet scans · shown, never shared</span></div>' +
+    '<div><b>Discogs</b><span>release notes, printed credits · CC0 data, attribution</span></div>' +
+    '<div><b>Wikidata</b><span>the match: Apple album ID (P2281) or MusicBrainz ID · CC0</span></div>' +
+    '<div><b>Wikipedia</b><span>album, song and venue articles · CC BY-SA 4.0, linked</span></div>' +
+    '<div><b>setlist.fm</b><span>live albums: setlist, venue, date · your own free key</span></div>' +
+    '<div><b>Wikimedia Commons</b><span>photos, each with its author and licence</span></div>' +
+    '<div class="no"><b>Not used</b><span>AllMusic (no public API), Genius (terms)</span></div>' +
+    '</div><div class="foot"><span class="src">Cached per album · in your UI language where an article exists</span></div><div class="folio">10</div></div>'
+  const bars = Array.from({ length: 46 }, (_, i) => '<i style="width:' + [1, 2, 1, 3, 1, 1, 2][i % 7] + 'px"></i>').join('')
+  P.back = '<div class="back"><div class="list">' + A.tracks.map((t) => '<div' + (t.n === A.current ? ' class="cur"' : '') + '><b>' + t.n + '</b>' + esc(t.title) + '</div>').join('') + '</div>' +
+    '<div class="fine"><span>Recorded live 08.30.25 · The Gorge Amphitheatre, George, WA<br>Sample album for the Sonata mock-ups · traditional songs, public domain</span><span class="barcode">' + bars + '</span></div></div>'
+
+  const SPREADS = [
+    { name: 'Cover', l: P.tray, r: P.front, lc: 'blank' },
+    { name: 'Notes', l: P.editorial, r: P.recording },
+    { name: 'Venue', l: P.venue, r: P.photo },
+    { name: 'Credits', l: P.personnel, r: P.tracks },
+    { name: 'Lyrics', l: P.lyrics1, r: P.lyrics2 },
+    { name: 'Back', l: P.sources, r: P.back }
+  ]
+
+  const spreadEl = document.getElementById('spread')
+  const mkPage = (side, html, extra) => { const d = document.createElement('div'); d.className = 'page ' + side + (extra ? ' ' + extra : ''); d.innerHTML = html; return d }
+  let cur = 0
+  let L = mkPage('l', SPREADS[0].l, SPREADS[0].lc)
+  let R = mkPage('r', SPREADS[0].r)
+  spreadEl.append(L, R)
+  const thumbs = document.getElementById('thumbs')
+  SPREADS.forEach((s, i) => { const b = document.createElement('button'); b.textContent = s.name; b.onclick = () => go(i); thumbs.appendChild(b) })
+  function chrome() {
+    thumbs.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-current', String(i === cur)))
+    document.getElementById('b-prev').disabled = cur === 0
+    document.getElementById('b-next').disabled = cur === SPREADS.length - 1
+    document.getElementById('pages').textContent = 'Pages ' + (cur * 2) + '–' + (cur * 2 + 1) + ' of ' + (SPREADS.length * 2 - 1)
+    markLyrics(clock.t)
+  }
+  chrome()
+
+  let busy = false
+  function go(to) {
+    if (busy || to === cur || to < 0 || to >= SPREADS.length) return
+    busy = true
+    const fwd = to > cur
+    const next = SPREADS[to]
+    const leaf = document.createElement('div')
+    leaf.className = 'leaf ' + (fwd ? 'fwd' : 'back')
+    const fa = document.createElement('div'); fa.className = 'face a'
+    const fb = document.createElement('div'); fb.className = 'face b'
+    // forward: the right page lifts and lands as the next left page; back: the reverse
+    fa.appendChild(fwd ? R.cloneNode(true) : L.cloneNode(true))
+    fb.appendChild(fwd ? mkPage('l', next.l, next.lc) : mkPage('r', next.r))
+    leaf.append(fa, fb)
+    spreadEl.appendChild(leaf)
+    const under = fwd ? mkPage('r', next.r) : mkPage('l', next.l, next.lc)
+    if (fwd) { R.replaceWith(under); R = under } else { L.replaceWith(under); L = under }
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const anim = leaf.animate(
+      fwd ? [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(-180deg)' }] : [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(180deg)' }],
+      { duration: reduce ? 1 : 720, easing: 'cubic-bezier(.45,.05,.25,1)' })
+    fa.animate([{ '--shade': 0 }, { '--shade': 0.5 }], { duration: reduce ? 1 : 720 })
+    anim.onfinish = () => {
+      const landed = fwd ? mkPage('l', next.l, next.lc) : mkPage('r', next.r)
+      if (fwd) { L.replaceWith(landed); L = landed } else { R.replaceWith(landed); R = landed }
+      leaf.remove()
+      cur = to
+      busy = false
+      chrome()
+    }
+  }
+  document.getElementById('b-prev').onclick = () => go(cur - 1)
+  document.getElementById('b-next').onclick = () => go(cur + 1)
+  document.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1) })
+
+  // the lyrics pages follow the song
+  function markLyrics(t) {
+    const idx = song.lines.findIndex((l) => t >= l.t && t < l.t + 3.1)
+    spreadEl.querySelectorAll('.stz span[data-i]').forEach((s) => s.classList.toggle('now', +s.dataset.i === idx || (idx >= 0 && song.lines[idx].stanza % 2 === 1 && song.lines[+s.dataset.i].stanza === 1 && song.lines[+s.dataset.i].row === song.lines[idx].row)))
+  }
+  let lastIdx = -2
+  clock.on((t, playing) => {
+    document.body.classList.toggle('paused', !playing)
+    const idx = song.lines.findIndex((l) => t >= l.t && t < l.t + 3.1)
+    if (idx !== lastIdx) { lastIdx = idx; markLyrics(t) }
+  })
+  if (location.hash) { const i = SPREADS.findIndex((s) => '#' + s.name.toLowerCase() === location.hash); if (i > 0) { busy = false; cur = 0; setTimeout(() => go(i), 50) } }
+</script>
+</body>
+</html>

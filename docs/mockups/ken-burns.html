@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ken Burns Montage</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="../../lyrics-view.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-doors-open.jpg); filter: none; }
+  .lyw { left: calc(50% - 520px); top: 34px; width: 600px; bottom: 34px; }
+  .lyw .win-head { position: relative; z-index: 5; }
+  .lyw .lyr-area { position: relative; z-index: 5; flex: 1; min-height: 0; padding: 0 22px; --ly-size: 23px; -webkit-mask-image: linear-gradient(transparent 0, #000 30px, #000 calc(100% - 50px), transparent 100%); }
+  .lyw .montage, .lyw .mt-scrim { border-radius: inherit; }
+  .lyw .foot { position: relative; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px 10px 18px; font: 600 11px var(--font-text); color: var(--s-soft); }
+  .lyw .mt-credit { position: static; max-width: 64%; }
+  .lyw.off .montage, .lyw.off .mt-scrim, .lyw.off .mt-credit { display: none; }
+
+  /* the option, as it would sit in Settings → Playback & lyrics */
+  .set { left: calc(50% + 110px); top: 34px; width: 410px; }
+  .set .hd { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; border-bottom: 1px solid var(--s-edge); position: relative; z-index: 2; }
+  .set .hd b { font-size: 14px; }
+  .set .hd span { font: 600 11.5px var(--font-text); color: var(--s-soft); flex: 1; }
+  .set .body { padding: 6px 16px 16px; position: relative; z-index: 2; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--s-edge); }
+  .row:last-child { border-bottom: 0; }
+  .row .lb { font-size: 13px; font-weight: 700; }
+  .row .ds { grid-column: 1 / -1; font: 12px/1.45 var(--font-text); color: var(--s-soft); }
+  .srcs { grid-column: 1 / -1; display: grid; gap: 6px; margin-top: 4px; }
+  .srcs label { display: flex; gap: 9px; align-items: flex-start; font: 12.5px/1.35 var(--font-text); cursor: pointer; }
+  .srcs input { accent-color: var(--s-fill); margin-top: 2px; }
+  .srcs small { display: block; color: var(--s-soft); font-size: 11px; }
+  .check { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 2px; }
+  .check div { padding: 8px 9px; border-radius: 8px; background: var(--s-field); border: 1px solid var(--s-edge); font: 600 11px/1.3 var(--font-text); color: var(--s-soft); }
+  .check b { display: block; font-size: 17px; color: var(--s-text); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .check b.ok::after { content: ' ✓'; color: var(--s-ok); font-size: 13px; }
+  .check b.low::after { content: ' low'; color: var(--s-error-text); font-size: 11px; }
+  .row .seg button { font-size: 11.5px; padding: 4px 9px; }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="win lyw" id="lyw" data-glass>
+    <div class="montage-host" id="montage"></div>
+    <div class="mt-scrim" id="scrim"></div>
+    <div class="win-head">
+      <div class="vinyl"><svg class="ring" viewBox="0 0 34 34" width="62" height="62"><circle class="track" cx="17" cy="17" r="16"/><circle class="fill" id="ring" cx="17" cy="17" r="16" stroke-dasharray="100.5" stroke-dashoffset="100.5"/></svg><div class="disc"><img src="img/cover-gorge.jpg" alt=""></div></div>
+      <div class="song"><span class="t">Oh My Darling, Clementine (Live at the Gorge Amphitheatre, George, WA, 08.30.25)</span><span class="a">The Juniper Lane Band</span></div>
+      <button class="close" id="b-close" title="Close"></button>
+    </div>
+    <div class="lyr-area" id="lyrics"></div>
+    <div class="foot"><span>Word timing aligned on this PC</span><a class="mt-credit" id="credit" target="_blank" rel="noopener"></a></div>
+    <span class="pin" style="right:20px;top:40%">1</span>
+    <span class="pin" style="right:16px;bottom:44px">2</span>
+  </div>
+
+  <div class="win set" id="set" data-glass>
+    <div class="hd"><b>Playback &amp; lyrics</b><span>Settings · one new option</span></div>
+    <div class="body">
+      <div class="row">
+        <span class="lb">Montage behind the lyrics</span><span id="sw-on"></span>
+        <span class="ds">Photos of the artist, the venue and the album drift slowly behind the words while a song plays. Off by default. Stops when the music pauses.</span>
+      </div>
+      <div class="row">
+        <span class="lb">Photos from</span><span></span>
+        <div class="srcs">
+          <label><input type="checkbox" checked id="src-commons"> <span>Wikimedia Commons <small>Artist and venue photos, each with its author and licence</small></span></label>
+          <label><input type="checkbox" checked id="src-album"> <span>The album <small>Cover, back and booklet scans (Cover Art Archive); the cover is the fallback</small></span></label>
+          <label><input type="checkbox" id="src-fanart"> <span>fanart.tv / TheAudioDB <small id="fanart-note">Artist backdrops · needs your own free key</small></span></label>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lb">Shade behind the words</span><span id="seg-scrim"></span>
+        <span class="ds">The least of the window's colour that lies over the photo. Sonata adds more when a photo needs it, so the words never drop below 4.5:1 (other lines 3:1). Now: <span id="raised"></span></span>
+        <div class="check">
+          <div>Sung line<b id="c-sung">–</b></div>
+          <div>Other lines<b id="c-dim">–</b></div>
+          <div>Photo credit<b id="c-soft">–</b></div>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lb">Pace</span><span id="seg-pace"></span>
+        <span class="ds">How long each photo stays before the next fades in.</span>
+      </div>
+    </div>
+    <span class="pin" style="right:190px;top:328px">3</span>
+    <span class="pin" style="right:64px;top:56px">4</span>
+  </div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li><b>Readability first:</b> the photo is atmosphere, the words stay the lyrics window you know. Is the motion calm enough to read over?</li>
+    <li>The <b>photo credit</b> sits in the window's footer and changes with each photo (author · licence · Commons link).</li>
+    <li>The <b>shade</b> (Soft / Medium / Strong) is the theme's own surface colour, and the contrast is checked live against the photo's darkest and lightest part.</li>
+    <li>An <b>option, off by default</b>. Press pause: the drift freezes with the music.</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/songs.js"></script>
+<script src="data/photos.js"></script>
+<script src="kit/mock.js"></script>
+<script src="kit/montage.js"></script>
+<script>
+  const { icon, esc } = Mock
+  const T = SonataTheme
+  const S = MOCK_SONGS
+  const song = S.song({ duet: false, echo: true })
+  const lines = Mock.timeLines(song.lines)
+  const clock = Mock.Clock(song.duration, { start: 40 })
+  Mock.glassSurface(document.getElementById('lyw'))
+  Mock.glassSurface(document.getElementById('set'))
+  Mock.applyTheme()
+  Mock.bar({ title: 'Ken Burns montage', clock })
+  document.getElementById('b-close').innerHTML = icon('close')
+  document.getElementById('b-close').onclick = () => setOn(false)
+
+  const lyw = document.getElementById('lyw')
+  const credit = document.getElementById('credit')
+  let photo = MOCK_PHOTOS[0]
+  let hold = 10
+  let montage = null
+  const COVER = { file: 'img/cover-gorge.jpg', author: 'Album cover', licence: 'Cover Art Archive', page: 'https://coverartarchive.org/', focus: [0.5, 0.5], key: 'gorge-amphitheatre' }
+  function build() {
+    const host = document.getElementById('montage')
+    host.innerHTML = ''
+    const list = (document.getElementById('src-commons').checked ? MOCK_PHOTOS : []).concat(document.getElementById('src-album').checked ? [COVER] : [])
+    if (!list.length) list.push(COVER)
+    montage = MockMontage.create(host, list, {
+      hold,
+      onPhoto: (p) => {
+        photo = p
+        credit.href = p.page
+        credit.innerHTML = icon('photo') + '<span><b>' + esc(p.author) + '</b> · ' + esc(p.licence) + (p === COVER ? '' : ' · Wikimedia Commons') + '</span>'
+        setTimeout(check)
+      }
+    })
+    montage.update(clock.t)
+  }
+  build()
+  document.getElementById('src-commons').onchange = build
+  document.getElementById('src-album').onchange = build
+  document.getElementById('src-fanart').onchange = (e) => {
+    document.getElementById('fanart-note').innerHTML = e.target.checked ? 'Paste your key in Integrations → fanart.tv to add artist backdrops' : 'Artist backdrops · needs your own free key'
+  }
+  const lyr = Mock.LyricList(document.getElementById('lyrics'), lines, { anchor: 0.36, side: false })
+
+  // options
+  const swOn = Mock.sw('', true, (v) => setOn(v))
+  document.getElementById('sw-on').appendChild(swOn)
+  function setOn(v) { lyw.classList.toggle('off', !v); swOn.setAttribute('aria-checked', String(v)) }
+  let scrim = 0.62
+  document.getElementById('seg-scrim').appendChild(Mock.seg([[0.46, 'Soft'], [0.62, 'Medium'], [0.78, 'Strong']], scrim, (v) => { scrim = v; lyw.style.setProperty('--scrim', v); check() }))
+  document.getElementById('seg-pace').appendChild(Mock.seg([[10, 'Slow'], [16, 'Slower'], [24, 'Slowest']], hold, (v) => { hold = v; build() }))
+  lyw.style.setProperty('--scrim', scrim)
+
+  // the contrast check: words over (photo darkest / lightest) + the window's surface at the scrim's alpha
+  const rgba = (s) => { const m = /rgba?\(([^)]+)\)/.exec(s); return m ? m[1].split(',').map(Number) : [0, 0, 0, 1] }
+  function check() {
+    const v = Mock.theme.last && Mock.theme.last.vars
+    if (!v) return
+    const surf = rgba(v['--s-surface']).slice(0, 3)
+    const ph = MOCK_ALBUMS.photos[photo.key || photo.file.replace('img/', '').replace('.jpg', '')]
+    const bds = [ph.lo, ph.hi]
+    const sung = rgba(getComputedStyle(document.documentElement).getPropertyValue('--active').includes('accent') ? v['--s-accent-text'] : v['--s-text']).slice(0, 3)
+    const dim = rgba(v['--s-dim']).slice(0, 3); const soft = rgba(v['--s-soft']).slice(0, 3)
+    // the chosen shade is the least Sonata uses: raised for this photo until every word passes
+    let a = scrim
+    const ok = (al) => T.worstContrast(sung, [[surf, al]], bds) >= 4.5 && T.worstContrast(dim, [[surf, al]], bds) >= 3 && T.worstContrast(soft, [[surf, al]], bds) >= 4.5
+    while (a < 0.98 && !ok(a)) a += 0.02
+    lyw.style.setProperty('--scrim', a.toFixed(2))
+    document.getElementById('raised').textContent = a > scrim + 0.001 ? 'For this photo Sonata raised the shade from ' + Math.round(scrim * 100) + ' % to ' + Math.round(a * 100) + ' %.' : 'This photo needs no more shade than you chose.'
+    const layers = [[surf, a]]
+    const put = (id, c, min) => { const e = document.getElementById(id); const x = T.worstContrast(c, layers, bds); e.textContent = x.toFixed(1) + ':1'; e.className = x >= min ? 'ok' : 'low' }
+    put('c-sung', sung, 4.5)
+    put('c-dim', dim, 3)
+    put('c-soft', soft, 4.5)
+  }
+  Mock.theme.subs.push(check)
+  check()
+
+  const ring = document.getElementById('ring')
+  clock.on((t) => {
+    lyr.update(t)
+    if (!lyw.classList.contains('off')) montage.update(t)
+    ring.setAttribute('stroke-dashoffset', (100.5 * (1 - t / song.duration)).toFixed(1))
+  })
+  clock.play()
+</script>
+</body>
+</html>

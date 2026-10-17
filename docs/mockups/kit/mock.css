@@ -1,0 +1,303 @@
+/* Shared look for the wave-2 mock-ups (design only: none of this ships). Every colour is a Sonata
+   theme token (--s-*, from the real theme.js via kit/mock.js), so each mock-up follows the album
+   colour, dark / light and Glass exactly as the app does. The only literal values here are sizes. */
+
+:root {
+  --font: -apple-system, 'SF Pro Display', 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+  --font-text: 'SF Pro Text', -apple-system, 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+  --serif: 'Noto Serif Display', 'Noto Serif', 'Iowan Old Style', Georgia, serif;
+  --fg-dim: var(--s-dim);
+  --active: var(--s-text);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: var(--font);
+  color: var(--s-text);
+  background: var(--s-stage);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; }
+a { color: var(--s-accent-text); }
+
+/* --- the desktop behind the windows: a wallpaper photo, as on Marcy's screen --- */
+.desktop {
+  position: fixed;
+  inset: 44px 0 0 0;
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+.desktop::after {            /* keeps the eye on the window: a soft vignette, stage token */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 45%, transparent 40%, var(--s-stage-scrim) 100%);
+  pointer-events: none;
+}
+
+/* --- the mock-up control bar (not Sonata UI: it drives the mock) --- */
+.mock-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 44px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  background: var(--s-surface);
+  border-bottom: 1px solid var(--s-edge);
+  font: 12px/1.2 var(--font-text);
+  color: var(--s-soft);
+  white-space: nowrap;
+}
+.mock-bar .home {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--s-text); text-decoration: none; font-weight: 700; font-size: 13px;
+}
+.mock-bar .home svg { width: 18px; height: 18px; fill: var(--s-accent-text); }
+.mock-bar .home small { font-weight: 500; color: var(--s-soft); }
+.mock-bar .sep { width: 1px; height: 22px; background: var(--s-edge); }
+.mock-bar .grow { flex: 1; }
+.mock-bar label.k { color: var(--s-dim); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; font-weight: 700; }
+.mock-bar .tag {
+  padding: 3px 8px; border-radius: 999px;
+  background: var(--s-notice); border: 1px solid var(--s-notice-bd); color: var(--s-text);
+  font-size: 11px;
+}
+
+/* album chips: the cover, or "none" (Apple red) */
+.albums { display: flex; gap: 6px; align-items: center; }
+.albums button {
+  width: 26px; height: 26px; padding: 0; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--s-edge); background: var(--s-field) center / cover no-repeat;
+  display: grid; place-items: center; font-size: 10px; color: var(--s-soft);
+  transition: transform .15s ease;
+}
+.albums button:hover { transform: scale(1.08); }
+.albums button[aria-pressed="true"] { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+
+/* segmented control */
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--s-field); border: 1px solid var(--s-edge); }
+.seg button {
+  border: 0; background: none; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  color: var(--s-soft); font-size: 12px; font-weight: 600;
+}
+.seg button:hover { color: var(--s-text); }
+.seg button[aria-pressed="true"] { background: var(--s-active); color: var(--s-text); box-shadow: 0 1px 2px var(--s-shadow); }
+
+/* switch */
+.sw { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; color: var(--s-soft); font-weight: 600; }
+.sw i {
+  position: relative; width: 30px; height: 18px; border-radius: 9px; background: var(--s-track);
+  transition: background .15s ease;
+}
+.sw i::after {
+  content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--s-knob); box-shadow: 0 1px 2px var(--s-shadow); transition: transform .15s ease;
+}
+.sw[aria-checked="true"] i { background: var(--s-fill); }
+.sw[aria-checked="true"] i::after { transform: translateX(12px); }
+.sw[aria-checked="true"] { color: var(--s-text); }
+
+/* round icon buttons (transport) */
+.ib {
+  border: 0; background: none; cursor: pointer; color: var(--s-text);
+  width: 32px; height: 32px; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  transition: background .12s ease, transform .12s ease;
+}
+.ib:hover { background: var(--s-hover); }
+.ib:active { transform: scale(.94); }
+.ib svg { width: 16px; height: 16px; fill: currentColor; }
+.ib.small { color: var(--s-soft); }
+.ib.small svg { width: 14px; height: 14px; }
+.ib.big { width: 44px; height: 44px; }
+.ib.big svg { width: 22px; height: 22px; }
+.ib.on { color: var(--s-accent-text); }
+.ib.fill { background: var(--s-fill); color: var(--s-on-fill); }
+.ib.fill:hover { background: var(--s-fill); filter: brightness(1.08); }
+
+/* --- a Sonata window: the lyrics card look (lyrics.html #card) --- */
+.win {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--s-over-page);
+  border: 1px solid var(--s-edge);
+  border-radius: 16px;
+  color: var(--s-text);
+  overflow: hidden;
+  box-shadow: 0 30px 80px var(--s-shadow), 0 2px 8px var(--s-shadow);
+}
+.win-head { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px 8px 16px; }
+.win-head .song { flex: 1; min-width: 0; }
+.win-head .song .t { display: block; font-size: 16px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.win-head .song .a { display: block; font-size: 13px; font-weight: 600; color: var(--s-soft); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.close { border: 0; background: none; border-radius: 6px; color: var(--s-soft); width: 24px; height: 24px; display: grid; place-items: center; cursor: pointer; }
+.close:hover { background: var(--s-hover); color: var(--s-text); }
+.close svg { width: 12px; height: 12px; fill: currentColor; }
+
+/* the vinyl record with the cover as its label (lyrics.html #art), static here */
+.vinyl { position: relative; width: 62px; height: 62px; flex-shrink: 0; }
+.vinyl svg.ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.vinyl svg.ring circle { fill: none; stroke-width: 1.2; }
+.vinyl svg.ring .track { stroke: var(--s-edge); }
+.vinyl svg.ring .fill { stroke: var(--active); stroke-linecap: round; }
+.vinyl .disc {
+  position: absolute; inset: 4px; border-radius: 50%; overflow: hidden;
+  background:
+    conic-gradient(from 20deg, transparent 0 8%, var(--s-vinyl-sheen) 12%, transparent 18% 58%, var(--s-vinyl-sheen-2) 62%, transparent 68%),
+    repeating-radial-gradient(circle, var(--s-vinyl-a) 0 0.7px, var(--s-vinyl-b) 0.7px 1.4px);
+  box-shadow: 0 1px 4px var(--s-art-shadow), inset 0 0 0 1px var(--s-vinyl-rim);
+}
+.vinyl .disc img { position: absolute; inset: 11%; width: 78%; height: 78%; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px var(--s-art-shadow); }
+.vinyl .disc::after { content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: var(--s-vinyl-hole); }
+
+/* --- lyric lines (lyrics.html, simplified: one layer, no hover crossfade) --- */
+.lyr { position: relative; overflow: hidden; }
+.lyr .roll { transition: transform .6s var(--ease-out); will-change: transform; }
+.lyr .line {
+  display: block;
+  font-size: var(--ly-size, 21px);
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 7px 0;
+  color: var(--fg-dim);
+  transition: color .3s ease;
+}
+.lyr .line.active { color: var(--s-upcoming); }
+.lyr .line.active .w { opacity: 1; color: var(--s-upcoming); transition: transform .18s ease-out; }
+.lyr .line.active .w.sung { color: var(--sing); }
+.lyr .line.past { color: var(--fg-dim); }
+.lyr .dots { --dot: calc(var(--ly-size, 21px) * .5); --dot-gap: calc(var(--ly-size, 21px) * .4); --dots-h: calc(var(--ly-size, 21px) * 2); }
+.lyr .bgline { display: block; }
+
+/* the source line under the lyrics */
+.source { padding: 18px 0 6px; font-size: 11px; color: var(--s-soft); text-align: center; }
+
+/* little source / licence chips (liner notes, montage credit) */
+.src {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 10.5px/1 var(--font-text); letter-spacing: .02em;
+  color: var(--s-soft); padding: 4px 7px; border-radius: 999px;
+  background: var(--s-field); border: 1px solid var(--s-edge);
+  text-decoration: none;
+}
+.src b { color: var(--s-text); font-weight: 700; }
+a.src:hover { color: var(--s-text); background: var(--s-hover); }
+
+/* design callouts: numbered pins the "what to judge" notes refer to */
+.pin {
+  position: absolute; z-index: 50;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--s-warn); color: var(--s-on-warn);
+  font: 800 12px/22px var(--font-text); text-align: center;
+  box-shadow: 0 0 0 3px var(--s-notice), 0 4px 10px var(--s-shadow);
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+body.no-pins .pin { opacity: 0; }
+
+/* the judge notes drawer (bottom-left) */
+.judge {
+  position: relative; z-index: 120; flex-shrink: 0;
+  padding: 12px 14px 12px 14px; border-radius: 12px;
+  background: var(--s-over-page); border: 1px solid var(--s-edge);
+  box-shadow: 0 10px 30px var(--s-shadow);
+  font: 12px/1.45 var(--font-text); color: var(--s-soft);
+  transition: transform .25s var(--ease-out), opacity .25s ease;
+}
+.judge h4 { margin: 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--s-text); cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
+.judge h4::after { content: '▸'; color: var(--s-warn); transition: transform .2s ease; }
+.judge.open h4::after { transform: rotate(90deg); }
+.judge h4 span { font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--s-soft); }
+.judge:not(.open) { padding: 5px 11px; border-radius: 999px; box-shadow: none; background: var(--s-notice); border-color: var(--s-notice-bd); }
+.judge ol {
+  position: absolute; top: calc(100% + 8px); left: 0; width: 380px; margin: 0;
+  padding: 12px 14px 12px 30px; border-radius: 12px;
+  background: var(--s-over-page); border: 1px solid var(--s-edge); box-shadow: 0 14px 40px var(--s-shadow);
+  white-space: normal; font: 12.5px/1.5 var(--font-text); color: var(--s-soft);
+}
+.judge ol b { color: var(--s-text); }
+.judge:not(.open) ol { display: none; }
+.judge.open { padding: 5px 11px; border-radius: 999px; background: var(--s-active); box-shadow: none; }
+.judge ol { margin: 0; padding-left: 18px; }
+.judge li { margin: 3px 0; }
+.judge li::marker { color: var(--s-warn); font-weight: 800; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lyr .roll { transition: none; }
+}
+
+/* --- the +1 sheet-notes staff (kit/staff.js) --- */
+.staff { position: relative; overflow: hidden; color: var(--s-text); }
+.staff svg { display: block; overflow: visible; }
+.staff-fixed { position: absolute; left: 0; top: 0; }
+.staff .sl { stroke: var(--s-track); stroke-width: 1; }
+.staff .clef-glyph { font-family: 'Noto Music', 'Bravura', 'Noto Sans Symbols 2', serif; fill: var(--s-soft); }
+.staff .clef-8 { font: 700 10px var(--font-text); fill: var(--s-soft); }
+.staff .acc { font-family: 'Noto Music', 'Noto Sans Symbols 2', 'DejaVu Sans', serif; fill: currentColor; }
+.staff .acc.key { fill: var(--s-soft); }
+.staff-view {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 36px, #000 calc(100% - 48px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 36px, #000 calc(100% - 48px), transparent 100%);
+}
+.staff .n { color: var(--s-dim); transition: color .2s ease; }
+.staff .n.past { color: var(--s-soft); }
+.staff .n.now { color: var(--active); }
+.staff .n .head { fill: currentColor; }
+.staff .n .bar { fill: currentColor; opacity: .28; }
+.staff .n.now .bar { opacity: .5; }
+.staff .n.now .head { filter: drop-shadow(0 0 4px var(--active)); }
+.staff .n .ledger { stroke: var(--s-track); stroke-width: 1; }
+.staff .syl { font: 600 13px var(--font); fill: var(--s-dim); }
+.staff .syl.past { fill: var(--s-soft); }
+.staff .syl.now { fill: var(--active); }
+.staff .ext { stroke: var(--s-dim); stroke-width: 1; }
+.staff .pl { fill: none; stroke: var(--s-soft); stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; opacity: .7; }
+.staff .pl-glow { display: none; }
+.staff[data-mode="line"] .notes, .staff[data-mode="line"] .syls { display: none; }
+.staff[data-mode="line"] .pl { stroke: var(--active); stroke-width: 2.6; opacity: 1; }
+.staff[data-mode="line"] .pl-glow { display: inline; fill: none; stroke: var(--active); stroke-width: 9; opacity: .18; stroke-linecap: round; stroke-linejoin: round; }
+.staff[data-mode="notes"] .pl { opacity: .35; stroke-width: 1; }
+.staff-playhead {
+  position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; margin-left: -1px; border-radius: 1px;
+  background: var(--active); opacity: .85;
+  box-shadow: 0 0 8px var(--active);
+}
+
+/* --- the Ken Burns montage (kit/montage.js) --- */
+.montage { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.mt-photo { position: absolute; inset: -7%; background-size: cover; opacity: 0; will-change: transform, opacity; }
+/* the scrim: the window's own surface colour over the photo (theme token), strongest where the words are */
+.mt-scrim { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.mt-scrim::before {
+  content: ''; position: absolute; inset: 0;
+  background: var(--s-surface);
+  opacity: var(--scrim, .62);
+  transition: opacity .3s ease;
+}
+.mt-scrim::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse 70% 60% at 40% 45%, var(--s-surface), transparent 75%);
+  opacity: calc(var(--scrim, .62) * .55);
+  transition: opacity .3s ease;
+}
+.mt-credit {
+  position: absolute; z-index: 4; right: 12px; bottom: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 70%; padding: 5px 9px; border-radius: 999px;
+  font: 600 10.5px/1.2 var(--font-text); color: var(--s-soft);
+  background: var(--s-over-page); border: 1px solid var(--s-edge);
+  text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity .4s ease;
+}
+.mt-credit svg { width: 12px; height: 12px; fill: currentColor; flex-shrink: 0; }
+.mt-credit b { color: var(--s-text); font-weight: 700; }
+.mt-credit:hover { color: var(--s-text); }

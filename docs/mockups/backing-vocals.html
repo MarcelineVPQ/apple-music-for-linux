@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backing Vocals</title>
+<link rel="stylesheet" href="../../theme.css">
+<link rel="stylesheet" href="../../lyrics-view.css">
+<link rel="stylesheet" href="kit/mock.css">
+<style>
+  .desktop { background-image: url(img/gorge-lilith-2010.jpg); }
+  .opts { position: absolute; inset: 22px 28px 22px 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .opt { display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 12px; }
+  .opt .win { position: relative; flex: 1; min-height: 0; }
+  .opt .lyr-area { position: relative; z-index: 2; flex: 1; min-height: 0; padding: 0 20px; --ly-size: 21px; -webkit-mask-image: linear-gradient(transparent 0, #000 26px, #000 calc(100% - 40px), transparent 100%); }
+  .opt .win-head { position: relative; z-index: 2; }
+  .cap { padding: 13px 16px 14px; border-radius: 14px; background: var(--s-over-page); border: 1px solid var(--s-edge); box-shadow: 0 10px 30px var(--s-shadow); position: relative; }
+  .cap h3 { margin: 0 0 5px; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 9px; }
+  .cap h3 i { font-style: normal; width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; background: var(--s-fill); color: var(--s-on-fill); font-size: 13px; }
+  .cap p { margin: 0; font: 12.5px/1.5 var(--font-text); color: var(--s-soft); }
+  .cap p b { color: var(--s-text); }
+  .cap .pc { display: flex; gap: 14px; margin-top: 8px; font: 600 11.5px/1.4 var(--font-text); }
+  .cap .pc span::before { font-weight: 800; margin-right: 4px; }
+  .cap .pc .y { color: var(--s-text); } .cap .pc .y::before { content: '+'; color: var(--s-ok); }
+  .cap .pc .n { color: var(--s-soft); } .cap .pc .n::before { content: '−'; color: var(--s-error-text); }
+
+  /* backing vocals: their own row under the main line (every option), smaller, in the singer's colour */
+  .lyr .line .bgline { display: block; font-size: .66em; font-weight: 650; line-height: 1.3; margin-top: 3px; color: var(--fg-dim); }
+  .lyr .line.active .bgline .w { color: var(--s-upcoming); }
+  .lyr .line.active .bgline .w.sung { color: var(--sing); }
+  .lyr .line .bgline .w.now { opacity: 1; }
+  .lyr .line.active .bgline .w.now { transform: scale(1.06); text-shadow: 0 0 .6em var(--sing); }
+  .lyr .line.active .bgline .w.now > .r { visibility: hidden; } .lyr .line.active .bgline .w.now > .b { visibility: visible; }
+
+  /* A: its own line, set in under a thin rule in the singer's colour */
+  .A .bgline { padding-left: .9em; border-left: 2px solid var(--fg-dim); margin-left: .1em; }
+  .A .line.active .bgline { border-left-color: var(--sing); }
+  /* B: under the words it answers (placed at the main word being sung when it starts), in italics */
+  .B .bgline { font-style: italic; transition: transform .3s ease; }
+  .B .bgline::before { content: '↳ '; font-style: normal; opacity: .55; }
+  /* C: only while it's sung; the room stays reserved, so nothing below ever moves */
+  .C .bgline { opacity: 0; transform: translateY(-4px); transition: opacity .35s ease, transform .35s ease; }
+  .C .bgline.on { opacity: 1; transform: none; }
+  .C .bgline.done { opacity: .35; transform: none; }
+</style>
+</head>
+<body>
+<div class="desktop">
+  <div class="opts">
+    <div class="opt A">
+      <div class="win" data-glass><div class="win-head"><div class="vinyl"><svg class="ring" viewBox="0 0 34 34" width="62" height="62"><circle class="track" cx="17" cy="17" r="16"/></svg><div class="disc"><img src="img/cover-lilith.jpg" alt=""></div></div><div class="song"><span class="t">Oh My Darling, Clementine</span><span class="a">The Juniper Lane Band</span></div></div><div class="lyr-area"></div><span class="pin" style="right:14px;top:46%">A</span></div>
+      <div class="cap"><h3><i>A</i>Own line, under a rule</h3><p>The echo gets <b>its own smaller line</b>, set in under a thin rule in the singer's colour. Always visible, so you can sing along ahead.</p><div class="pc"><span class="y">calm, readable</span><span class="y">closest to today</span><span class="n">a busy chorus doubles in height</span></div></div>
+    </div>
+    <div class="opt B">
+      <div class="win" data-glass><div class="win-head"><div class="vinyl"><svg class="ring" viewBox="0 0 34 34" width="62" height="62"><circle class="track" cx="17" cy="17" r="16"/></svg><div class="disc"><img src="img/cover-lilith.jpg" alt=""></div></div><div class="song"><span class="t">Oh My Darling, Clementine</span><span class="a">The Juniper Lane Band</span></div></div><div class="lyr-area"></div><span class="pin" style="right:14px;top:46%">B</span></div>
+      <div class="cap"><h3><i>B</i>Under the words it answers</h3><p>The echo starts <b>under the word being sung when it comes in</b>, so you see where in the line the backing voices answer.</p><div class="pc"><span class="y">shows the timing</span><span class="y">reads as call &amp; response</span><span class="n">ragged left edge</span></div></div>
+    </div>
+    <div class="opt C">
+      <div class="win" data-glass><div class="win-head"><div class="vinyl"><svg class="ring" viewBox="0 0 34 34" width="62" height="62"><circle class="track" cx="17" cy="17" r="16"/></svg><div class="disc"><img src="img/cover-lilith.jpg" alt=""></div></div><div class="song"><span class="t">Oh My Darling, Clementine</span><span class="a">The Juniper Lane Band</span></div></div><div class="lyr-area"></div><span class="pin" style="right:14px;top:46%">C</span></div>
+      <div class="cap"><h3><i>C</i>Only on cue</h3><p>The echo's room is kept, but it <b>shows only while it's sung</b>, then rests faintly. The main lines stay clean between.</p><div class="pc"><span class="y">least clutter</span><span class="y">nothing moves</span><span class="n">no reading ahead</span></div></div>
+    </div>
+  </div>
+</div>
+
+<aside class="judge">
+  <h4>What to judge</h4>
+  <ol>
+    <li>Three ways for <b>backing vocals as their own smaller lines</b> under the main line, all playing the same moment. Press play and watch a chorus.</li>
+    <li><b>A</b> keeps today's feel (0.15.38 sets them inside the line's block); <b>B</b> shows when they answer; <b>C</b> hides them until they're sung.</li>
+    <li>In every option the echo lights <b>word by word in its singer's colour</b>, on its own timing (Apple's x-bg spans, still to be checked on real TTML).</li>
+    <li>Try a <b>light theme</b> and other album colours: the smaller size has to stay readable.</li>
+  </ol>
+</aside>
+
+<script src="../../theme.js"></script>
+<script src="data/albums.js"></script>
+<script src="data/songs.js"></script>
+<script src="kit/mock.js"></script>
+<script>
+  const { esc } = Mock
+  const S = MOCK_SONGS
+  const song = S.song({ duet: false, echo: true })
+  const lines = Mock.timeLines(song.lines)
+  const clock = Mock.Clock(song.duration, { start: 21.0 })
+  document.querySelectorAll('.opt .win').forEach((w) => Mock.glassSurface(w))
+  Mock.applyTheme()
+  Mock.bar({ title: 'Backing vocals', clock })
+
+  const views = ['A', 'B', 'C'].map((k) => {
+    const box = document.querySelector('.' + k + ' .lyr-area')
+    const bgs = []
+    const list = Mock.LyricList(box, lines, {
+      anchor: 0.36, side: false, bgMode: 'own',
+      onLine: (e, l) => {
+        if (!l.bg) return
+        const b = document.createElement('span')
+        b.className = 'bgline'
+        b.innerHTML = Mock.wordsHtml(l.bg.words)
+        e.appendChild(b)
+        bgs.push({ el: b, line: l, lineEl: e })
+      }
+    })
+    // B: start the echo under the main word being sung when it comes in
+    if (k === 'B') requestAnimationFrame(() => bgs.forEach((g) => {
+      const ws = g.lineEl.querySelectorAll(':scope > .w')
+      let at = 0
+      g.line.words.forEach((w, i) => { if (w.t <= g.line.bg.t) at = i })
+      g.el.style.paddingLeft = (ws[at] ? ws[at].offsetLeft - g.lineEl.offsetLeft : 0) + 'px'
+    }))
+    return { list, bgs, k }
+  })
+  clock.on((t) => views.forEach((v) => {
+    v.list.update(t)
+    v.bgs.forEach((g) => {
+      if (Math.abs(t - g.line.bg.t) < 6) Mock.markWords(g.el, g.line.bg.words, t)
+      if (v.k === 'C') {
+        const on = t >= g.line.bg.t - 0.15 && t < g.line.bg.end + 0.6
+        const done = t >= g.line.bg.end + 0.6
+        g.el.classList.toggle('on', on); g.el.classList.toggle('done', done && !on)
+      }
+    })
+  }))
+  clock.play()
+</script>
+</body>
+</html>
