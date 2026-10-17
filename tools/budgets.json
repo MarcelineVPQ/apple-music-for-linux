@@ -1,0 +1,179 @@
+{
+  "$comment": "Sonata's resource budgets: the single source of truth (docs/BUDGETS.md explains each one and keeps the last measurement; tools/check-budgets.js measures them on an isolated copy, tools/check_budgets.sh runs it). Raise a limit only with Marcy's OK, in the same commit as the reason in docs/BUDGETS.md.",
+  "budgets": {
+    "hiddenCpu": {
+      "unit": "% of a core",
+      "what": "CPU of main, utility and Sonata's own pages with the main window hidden (the tray), nothing else open; the GPU process and Apple's page are reported, not judged",
+      "states": {
+        "tray-idle": {
+          "max": 0.5
+        },
+        "tray-playing": {
+          "max": 0.5
+        }
+      }
+    },
+    "shownCpu": {
+      "unit": "% of a core",
+      "what": "CPU of main, utility and Sonata's own pages in each state; the GPU process (software GL on Xvfb) and Apple's page (Apple's code) are reported, not judged",
+      "states": {
+        "main-idle": {
+          "max": 0.5
+        },
+        "main-playing": {
+          "max": 0.5
+        },
+        "panel-playing": {
+          "max": 0.5
+        },
+        "lyrics-playing": {
+          "max": 6
+        },
+        "lyrics-paused": {
+          "max": 0.5
+        },
+        "mini-playing": {
+          "max": 1
+        },
+        "viz-bars": {
+          "max": 20
+        },
+        "viz-aurora": {
+          "max": 20
+        },
+        "viz-nebula": {
+          "max": 20
+        },
+        "viz-toast": {
+          "max": 20
+        },
+        "viz-paused": {
+          "max": 0.5
+        }
+      }
+    },
+    "frames": {
+      "unit": "frames/s",
+      "what": "compositor frames of the state's page (a DevTools screencast of it): resting pages draw nothing, the visualizer draws every frame while the music plays",
+      "states": {
+        "main-idle": {
+          "max": 0.5
+        },
+        "main-playing": {
+          "max": 0.5
+        },
+        "panel-playing": {
+          "max": 0.5
+        },
+        "lyrics-playing": {
+          "max": 61
+        },
+        "lyrics-paused": {
+          "max": 0.5
+        },
+        "mini-playing": {
+          "max": 2
+        },
+        "viz-bars": {
+          "max": 61
+        },
+        "viz-aurora": {
+          "max": 61
+        },
+        "viz-nebula": {
+          "max": 61
+        },
+        "viz-toast": {
+          "max": 61
+        },
+        "viz-paused": {
+          "max": 0.5
+        }
+      }
+    },
+    "repaints": {
+      "unit": "paints/s",
+      "what": "Paint events of the state's page's frame in a trace: the main thread repainting (compositor-only animation repaints nothing)",
+      "states": {
+        "main-idle": {
+          "max": 0.5
+        },
+        "main-playing": {
+          "max": 0.5
+        },
+        "panel-playing": {
+          "max": 0.5
+        },
+        "lyrics-playing": {
+          "max": 40
+        },
+        "lyrics-paused": {
+          "max": 0.5
+        },
+        "mini-playing": {
+          "max": 4
+        },
+        "viz-bars": {
+          "max": 30
+        },
+        "viz-aurora": {
+          "max": 30
+        },
+        "viz-nebula": {
+          "max": 30
+        },
+        "viz-toast": {
+          "max": 30
+        },
+        "viz-paused": {
+          "max": 0.5
+        }
+      }
+    },
+    "memory": {
+      "max": 400,
+      "unit": "MB PSS",
+      "what": "every app process except the GPU process and DevTools' tracing service (it runs only because we measure), after the quick run (every window closed, main hidden, a GC in every page)"
+    },
+    "listeners": {
+      "max": 0,
+      "cycles": 5,
+      "unit": "count",
+      "what": "the largest rise of any main-process listener count (ipcMain, app, nativeTheme, screen, windows, webContents), live webContents, active timers, or the rail's and panel's JS listeners and nodes, over N open/close cycles of every window"
+    },
+    "growth": {
+      "max": 10,
+      "unit": "MB / 30 min",
+      "what": "soak: least-squares slope of PSS (every process except the GPU process) over 30 minutes after a 5-minute warm-up, one sample a lap"
+    },
+    "listenerGrowth": {
+      "max": 0,
+      "unit": "count",
+      "what": "soak: the rise of any listener or timer counter from the first to the last sample after the warm-up"
+    }
+  },
+  "modes": {
+    "quick": {
+      "settleS": 5,
+      "cpuS": 20,
+      "framesS": 5,
+      "traceS": 5,
+      "hiddenSettleS": 15,
+      "hiddenS": 60,
+      "soakWarmupS": 0,
+      "soakS": 0,
+      "sampleS": 60
+    },
+    "soak": {
+      "settleS": 5,
+      "cpuS": 20,
+      "framesS": 5,
+      "traceS": 5,
+      "hiddenSettleS": 15,
+      "hiddenS": 60,
+      "soakWarmupS": 300,
+      "soakS": 1800,
+      "sampleS": 60
+    }
+  }
+}

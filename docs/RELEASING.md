@@ -80,6 +80,21 @@ run that workflow (Actions → Update feed → Run workflow).
 4. `feed.yml` (called by the release) downloads and hashes the AppImage, writes `latest.json` and
    `latest-dev.json`, signs them, commits them to `master` and attests them.
 
+## Checks before tagging
+
+Not in CI: these need a display (Xvfb) and minutes of wall time. Each runs its own isolated copy
+(`tools/isolated.sh`: throwaway HOME, its own Xvfb display, private D-Bus; never Marcy's copy or screen).
+
+| Release | Checks |
+|---|---|
+| Every change | `npm test` and `npm run gates` (CI runs both) |
+| Development (`X.Y.Z-dev.N`) | the UI checker phases (`tools/ui-check.js`, including `every`), **`tools/check_budgets.sh`** (quick, ~10 min: every budget in `tools/budgets.json` once; it exits 1 on a FAIL) and a packaged AppImage smoke start |
+| Stable (`X.Y.Z`) | all of the above, **`tools/check_budgets.sh --soak`** (~35 min: memory and listener growth over 30 minutes of playback) and Marcy's own QC |
+
+A FAIL blocks the tag until it is fixed, or until Marcy agrees to a new limit (changed in `tools/budgets.json`
+with the reason in `docs/BUDGETS.md`, in the same commit). Record the numbers in `docs/BUDGETS.md` ("Last
+measurement") when they move.
+
 ## Development release
 
 Same steps with version `X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and tag `vX.Y.Z-dev.N`;

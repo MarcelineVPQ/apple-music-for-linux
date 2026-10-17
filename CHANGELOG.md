@@ -15,6 +15,7 @@ See docs/RELEASING.md.
 ### Changed
 
 - **Backing vocals come in under the words they answer.** The smaller line of backing vocals under a lyric line now starts right under the word where the backing voices come in, or under the words they echo, so you can see where in the line they answer. They're set in italics with a small ↳, light up word by word as before, and follow the singer's side in duets. When they come in after the line, they start where it ends.
+- **Every window is checked, and Sonata's appetite has limits.** An automatic check now goes through every Sonata window and view (the rail, Settings and About with every section open, notices, toasts, the lyrics window, the mini player and every visualizer scene, in light and dark, with a song playing) for unreadable text, buttons that do nothing, colours outside the theme, and text that spills out or is cut off. Sonata's resource use now has written limits: processor use with the window shown and in the tray, frames and redraws per window, memory, and listeners that must not pile up; a 30-minute playback soak checks that memory and listeners don't grow. Each development release is measured against them before it ships. Nothing changes in use.
 
 ### Fixed
 
