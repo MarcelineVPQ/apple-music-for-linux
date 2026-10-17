@@ -858,6 +858,8 @@ function createLyricsWindow() {
     lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
     lyricsWindow.webContents.send('lyrics-form', lyricsForm())
     stageSent = ''
+    montageSong = ''
+    lyricsWindow.webContents.send('stage-montage', montageMsg = settings.montage ? { on: true, status: 'idle', photos: [] } : { on: false, status: 'off', photos: [] })
     stageQueueSig = ''
     startLyricsFeed()
     if (lastPalette) lyricsWindow.webContents.send('palette', lastPalette)
@@ -967,6 +969,7 @@ async function stageTick(state, key) {
   const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(state.volume) || 0, releaseDate: state.releaseDate || '' }
   const json = JSON.stringify(np)
   if (json !== stageSent) { stageSent = json; lyricsWindow.webContents.send('stage-np', np) }
+  montageTick(state)
   const now = Date.now()
   if (key === stageQueueKey && now - stageQueueAt < 2000) return
   stageQueueKey = key
@@ -1001,6 +1004,19 @@ ipcMain.on('stage-command', (event, command, value) => {
   const c = stageModel.stageCommand(command, value)
   if (!c) return
   if (c.command === 'form') { setLyricsForm(c.value === 'stage'); return }
+  if (c.command === 'montage') {
+    // on: remembered, and looked up for the song playing (again, after "none" or offline); off: stops at once
+    settings.montage = c.value
+    saveSettings()
+    if (c.value) { montageSong = ''; montageSend({ on: true, status: 'looking', photos: [] }) } else montageOff()
+    return
+  }
+  if (c.command === 'montage-credit') {
+    // the photo's Commons page, from the photos main sent (never a URL from the page)
+    const p = montageMsg.photos.find((x) => x.id === c.value)
+    if (p && /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(p.page)) openExternalSafe(p.page)
+    return
+  }
   if (!mainAlive()) return
   const run = (code, what) => appleWC().executeJavaScript(code)
     .catch((e) => console.error('stage ' + what + ' failed:', e.message))   // error: LOGGED-OK — page mid-load: that one command does nothing (the stage shows the player's real state on the next tick)
@@ -1020,6 +1036,148 @@ ipcMain.on('stage-command', (event, command, value) => {
 })
 function lastStage() {
   try { return JSON.parse(stageSent || '{}') } catch (e) { return {} }   // error: NOT-WORTH — our own JSON; {} when nothing was sent yet
+}
+
+// --- the Studio's Montage: free photos of the artist, the venue and the album's era behind the lyrics ---
+// (montage-ui.js draws it; montage-sources.js finds the photos by identifiers only and keeps only free
+// licences with a named author; montage-store.js keeps the downloaded thumbnails on disk, bounded.)
+// Runs only with Settings' montage on (the tile; off by default) and only from stageTick, i.e. while the
+// Studio shows: one Apple catalog read per new song (its artist's and album's IDs), then the answer from
+// the disk cache, else Wikidata + Commons (a handful of requests per artist and album, cached 30 days, a
+// "none found" 3 days), then the photos one at a time at their display width. Nothing runs at rest.
+const montageSources = require('./montage-sources')
+const montageModel = require('./montage-model')
+const montageStoreLib = require('./montage-store')
+const MONTAGE_SHOW = 8                         // photos downloaded per song (of the ≤ 12 found)
+const MONTAGE_FRESH = 30 * 24 * 3600 * 1000    // a found set is asked again after 30 days
+const MONTAGE_NONE = 3 * 24 * 3600 * 1000      // "no free photos" is asked again after 3 days
+let montageCache = null     // JSON answers (lyrics-store.js): 'song|<id>' -> ids, 'set|<artist>|<album>' -> photos, 'px|<file>' -> extremes
+let montageImages = null    // the thumbnails on disk (montage-store.js)
+let montageFetch = null     // the polite fetcher (one lane per host), made on first use
+let montageSong = ''        // the song the montage was last resolved for
+let montageGen = 0          // bumps per resolve: an older one still running stops sending
+let montageMsg = { on: false, status: 'off', photos: [] }
+function montageSend(msg) {
+  montageMsg = msg
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('stage-montage', msg)
+}
+function montageOff() {
+  montageGen++
+  montageSong = ''
+  montageSend({ on: false, status: 'off', photos: [] })
+}
+// the playing song's artist and album IDs (Apple's catalog, through the page's MusicKit; read-only)
+const montageIdsScript = `(async () => {
+  try {
+    const mk = MusicKit.getInstance();
+    const item = mk.nowPlayingItem;
+    const a = item ? item.attributes || {} : {};
+    const id = String((a.playParams && a.playParams.catalogId) || (item && item.id) || '');
+    if (!/^\\d{1,20}$/.test(id)) return { ok: false, why: 'not-catalog' };
+    const r = await mk.api.music('/v1/catalog/{{storefront}}/songs/' + id, { include: 'artists,albums' });
+    const d = r && r.data && r.data.data && r.data.data[0];
+    const rel = (d && d.relationships) || {};
+    const ar = rel.artists && rel.artists.data && rel.artists.data[0];
+    const al = rel.albums && rel.albums.data && rel.albums.data[0];
+    return { ok: true, song: id, artistId: ar ? String(ar.id) : '', albumId: al ? String(al.id) : '', date: String((d && d.attributes && d.attributes.releaseDate) || '') };
+  } catch (e) { /* error: PASSES-ON — offline or Apple refused: main uses the IDs it saved for this song, or says offline */
+    return { ok: false, why: 'failed', online: navigator.onLine };
+  }
+})()`
+// the Studio's centre column at its largest zoom, in device pixels, for a photo of this aspect
+function montageWidth(aspect) {
+  const b = lyricsWindow && !lyricsWindow.isDestroyed() ? lyricsWindow.getContentBounds() : { width: stageModel.STAGE_DEFAULT.width, height: stageModel.STAGE_DEFAULT.height }
+  const dpr = screen.getDisplayMatching(lyricsWindow ? lyricsWindow.getBounds() : b).scaleFactor || 1
+  return montageSources.widthFor(montageModel.needWidth({ w: b.width - 292 - 312 - 10, h: b.height - 10 }, aspect, dpr))
+}
+// a downloaded photo's darkest and lightest pixel, once per file (cached with the answers)
+function montageExtremes(name, file) {
+  const k = 'px|' + name
+  const had = montageCache.get(k)
+  if (had) return had
+  const img = nativeImage.createFromPath(file)
+  if (img.isEmpty()) return null
+  const x = montageModel.extremes(img.toBitmap())
+  if (x) montageCache.set(k, x)
+  return x
+}
+function montageTick(state) {
+  if (!settings.montage || !montageCache) return
+  // UI checks only (logged out, nothing plays): SONATA_TEST_MONTAGE=<artist id>:<album id>[:<year>] stands in for the song
+  const test = !state.title && /^\d{1,20}:\d{0,20}(:\d{4})?$/.test(process.env.SONATA_TEST_MONTAGE || '') ? process.env.SONATA_TEST_MONTAGE.split(':') : null
+  const song = test ? 'test|' + test.join(':') : state.title ? (state.appleId || state.title + '|' + state.artist) : ''
+  if (song === montageSong) return
+  montageSong = song
+  const gen = ++montageGen
+  if (!song) { montageSend({ on: true, status: 'idle', photos: [] }); return }
+  resolveMontageSong(gen, song, test ? { artistId: test[0], albumId: test[1] || '', year: Number(test[2]) || 0 } : null)
+    .catch((e) => {   // error: SHOWN — the tile says Wikimedia Commons didn't answer (click to try again); logged
+      console.error('montage failed:', e && e.message)
+      if (gen === montageGen) montageSend({ on: true, status: 'failed', photos: [] })
+    })
+}
+async function resolveMontageSong(gen, song, testIds) {
+  const live = () => gen === montageGen && settings.montage
+  // 1. the song's artist and album IDs: Apple's catalog, else the ones saved for this song
+  let ids = testIds
+  let offline = false
+  if (!ids) {
+    let r = null
+    try { r = await appleWC().executeJavaScript(montageIdsScript) } catch (e) { r = null }   // error: NOT-WORTH — page mid-navigation: treated as no answer (saved IDs below)
+    if (r && r.ok && r.artistId) { ids = { artistId: r.artistId, albumId: r.albumId, year: Number(String(r.date).slice(0, 4)) || 0 }; montageCache.set('song|' + song, ids) }
+    else { ids = montageCache.get('song|' + song); offline = !!(r && r.online === false) }
+  }
+  if (!live()) return
+  if (!ids || !ids.artistId) { montageSend({ on: true, status: offline ? 'offline' : 'none', photos: [] }); return }
+  // 2. the photos for this artist and album: the cache while fresh, else Wikidata + Commons
+  if (!montageFetch) montageFetch = montageSources.createFetcher({ fetch: (url, o) => net.fetch(url, o), ua: montageSources.userAgent(app.getVersion()) })
+  const setKey = 'set|' + ids.artistId + '|' + (ids.albumId || '')
+  // the same artist and album: the photos showing just go on; another one: "Looking…" until its photos come
+  if (montageMsg.set !== setKey) montageSend({ on: true, status: 'looking', photos: [] })
+  let set = montageCache.get(setKey)
+  const fresh = set && Date.now() - set.at < (set.photos.length ? MONTAGE_FRESH : MONTAGE_NONE)
+  if (!fresh) {
+    try {
+      const r = await montageSources.resolveMontage(montageFetch.getJson, ids, 1280)
+      set = { at: Date.now(), photos: r.photos, how: r.how }
+      montageCache.set(setKey, set)
+    } catch (e) {
+      // error: SHOWN — offline or the service busy: the saved set if there is one (the tile says "saved"), else the tile says offline / not loaded
+      offline = e && (e.kind === 'offline' || e.kind === 'timeout')
+      if (!set) { if (live()) montageSend({ on: true, status: offline ? 'offline' : 'failed', photos: [] }); return }
+      offline = true
+    }
+  }
+  if (!live()) return
+  if (!set.photos.length) { montageSend({ on: true, status: 'none', photos: [] }); return }
+  // 3. the photos, one at a time at their display width: from disk, else downloaded (skipped offline)
+  const shown = []
+  const send = () => montageSend({ on: true, status: 'ready', offline, set: setKey, photos: shown.slice() })
+  // loop: SERIAL-REQUIRED — ≤ 8 photos, one download at a time (Commons' etiquette), the first sent as soon as it is there
+  for (const p of set.photos.slice(0, MONTAGE_SHOW)) {
+    if (!live()) return
+    const url = montageSources.thumbFor(p, montageWidth(p.width / p.height))
+    if (!url) continue
+    const name = montageStoreLib.nameFor(url, /\.png$/i.test(url) ? 'image/png' : 'image/jpeg')
+    let file = montageImages.get(name)
+    if (!file && !offline) {
+      try {
+        const img = await montageFetch.getImage(url)
+        file = montageImages.put(name, img.bytes)
+      } catch (e) {   // error: NOT-WORTH — one photo failed (gone, busy): the montage shows the others; offline from here on
+        if (e && (e.kind === 'offline' || e.kind === 'timeout')) offline = true
+        continue
+      }
+    }
+    if (!file) continue
+    const x = montageExtremes(path.basename(file), file)
+    if (!x) continue
+    shown.push({ id: p.id, src: require('url').pathToFileURL(file).href, author: p.author, licence: p.licence.name, licenceUrl: p.licence.url, title: p.title, page: p.page, lo: x.lo, hi: x.hi })
+    if (shown.length === 1 && montageMsg.set !== setKey) send()   // the first one at once, unless this set already shows
+  }
+  if (!live()) return
+  if (shown.length) send()
+  else montageSend({ on: true, status: offline ? 'offline' : 'failed', photos: [] })
 }
 
 // lifetime: OK — every ipcMain.on / ipcMain.handle in this file is registered once at module load, never per window open (measured: counts stay at 1 after 20 open/close cycles of each window)
@@ -3006,6 +3164,9 @@ app.whenReady().then(async () => {
   loadDiscordConfig()
   settingsPath = path.join(app.getPath('userData'), 'settings.json')
   // a damaged cache keeps what reads, is copied aside and says so once (lyrics-store.js)
+  // the Montage's answers and photos (bounded; only caches: a damaged answers file keeps what reads, quietly)
+  montageCache = require('./lyrics-store').createLyricsStore({ file: path.join(app.getPath('userData'), 'montage-cache.json'), maxEntries: 1500, maxBytes: 4 * 1024 * 1024, onRecovered: (r) => console.error('montage cache: damaged file repaired: ' + JSON.stringify(r)) })
+  montageImages = montageStoreLib.createImageStore({ dir: path.join(app.getPath('userData'), 'montage'), maxBytes: 64 * 1024 * 1024, maxFiles: 300 })
   lyricsStore = require('./lyrics-store').createLyricsStore({
     file: path.join(app.getPath('userData'), 'lyrics-cache.json'),
     onRecovered: (r) => {
@@ -3023,6 +3184,7 @@ app.whenReady().then(async () => {
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
     if (lyricsStore) lyricsStore.flush()
+    if (montageCache) montageCache.flush()
   })
   startupStep('settings', loadSettings)
   startupStep('notices', () => notices.setDismissed(settings.dismissedNotices))
