@@ -17,6 +17,12 @@ const path = require('path')
 const fsMod = require('fs')
 const C = require('./curious-model')
 
+// "2026-10-17 20:31:05" in the PC's own time zone
+function localStamp(d) {
+  const p = (n) => String(n).padStart(2, '0')
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds())
+}
+
 const REFRESH_MS = 5000
 const FRAME_MS = 1000
 const LIBRARY_EVERY = 12     // the library once a minute while open
@@ -178,7 +184,7 @@ function createCuriousSampler(deps) {
     ticks++
     data = {
       n: ticks,
-      at: deps.date().toISOString().slice(0, 19).replace('T', ' '),
+      at: localStamp(deps.date()),
       library: C.libraryRows(library.stats, library.files, { estimate: st.estimate }),
       now,
       hood: C.hoodRows(hood),
