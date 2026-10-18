@@ -418,6 +418,9 @@
         // Expressive words (lyrics-expressive.js): on by default on Development channel builds (main sends the effective value)
         switchRow('expressiveWords', 'Expressive words', 'Held notes stretch, waver and drift behind the lyrics the way they were sung, on top of the word light. Only what Precise word timing measured is shown; off is the plain karaoke.',
           { disabled: (v) => !v.alignInstalled || !v.lyricsPreciseTiming, why: 'Needs Precise word timing (Precise timing) on' }),
+        // its sub-switch, for judging on Development builds: a neutral "ooo" where a held note has no lyric word
+        switchRow('expressiveVocalise', 'Wordless vocalise ghosts', 'A faint "ooo" behind the lyrics where a held note has no lyric word (an intro\'s "ooh"), only where it was measured.',
+          { hidden: (v) => !/-dev(\.\d+)?$/.test(v.version || ''), disabled: (v) => !v.expressiveWords || !v.alignInstalled || !v.lyricsPreciseTiming, why: 'Needs Expressive words (above) on' }),
         switchRow('lyricsArtSpin', 'Spin album art like a record', 'Turn the round cover in the lyrics window while music plays'),
         selectRow('lyricsArtSpinSpeed', 'Record speed', 'Relaxed feels like a record across the room; True is 33⅓ rpm for albums, 45 for singles and EPs',
           [['relaxed', 'Relaxed'], ['true', 'True']], { disabled: (v) => !v.lyricsArtSpin, why: 'Needs Spin album art like a record (above) on' })

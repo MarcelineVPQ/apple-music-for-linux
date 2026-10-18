@@ -460,6 +460,7 @@ function createLyricsView(opts) {
   let notes = []
   let xdoc = null           // Expressive words: the song's measured expression (data.expr), null: the plain karaoke
   let ghostLayer = null     // the ghost vocalise layer behind the lines (only with xdoc and a ghosting word)
+  let xvoc = []             // wordless vocalise the lyrics leave out, ghosted as "ooo" (its own sub-setting; lyrics-expressive.js vocaliseExpressions)
   let xlive = []            // the expressions playing: [{ kind: 'stretch' | 'ghost', it, line, t0, t1, anims, el? }]
   let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
   // prefers-reduced-motion: no pop, bounce, slide or smooth scroll (lyrics-view.css has the CSS half);
@@ -520,18 +521,7 @@ function createLyricsView(opts) {
       }
       span.append(r, b)
       if (xm) expressWord(span, xm)
-      if (xm && xm.stretch) {
-        // the room for the stretched spelling: an invisible bold spacer right after the word, kept on the
-        // word's row (.xsw: no break inside), so the extra letters never move the line (lyrics-view.css)
-        const wrap = doc.createElement('span')
-        wrap.className = 'xsw'
-        const room = doc.createElement('span')
-        room.className = 'xsp'
-        room.setAttribute('aria-hidden', 'true')
-        room.textContent = xm.rep.repeat(xm.extra)
-        wrap.append(span, room)
-        parent.appendChild(wrap)
-      } else parent.appendChild(span)
+      parent.appendChild(span)
       spans.push(span)
     })
     return spans
@@ -545,9 +535,11 @@ function createLyricsView(opts) {
     if (xm.quiet) span.classList.add('xq')
     if (xm.stretch) span.classList.add('xs')
   }
-  // into `box`: the text before the vowel, each vowel letter (.xv, the wave), the extra letters (.xe > .xw:
-  // born one by one; the wave on the inner box) and the coda (.xc, riding after the newest letter, with
-  // the hold's extender .xx). from: where `piece` starts in the word's text.
+  // into `box` (the bold copy, or its held syllable's text): the text before the vowel, each vowel letter (.xv,
+  // the wave), a zero-width anchor (.xa) holding the extra letters out of the flow (.xt > .xe > .xw: born one
+  // by one into the gap after the word; the wave on the inner box), and the coda (.xc, as written, riding
+  // after the newest letter). The word's boxes are exactly the written word's: nothing is reserved in the
+  // line and the pop's origins don't move. from: where `piece` starts in the word's text.
   function expressLetters(box, piece, xm, from) {
     const a = xm.i0 - from
     const b = xm.i1 - from
@@ -563,6 +555,10 @@ function createLyricsView(opts) {
       if (b < piece.length) box.appendChild(doc.createTextNode(piece.slice(b)))
       return
     }
+    const anchor = doc.createElement('span')
+    anchor.className = 'xa'
+    const tail = doc.createElement('span')
+    tail.className = 'xt'
     // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per line laid out
     for (let k = 0; k < xm.extra; k++) {
       const e = doc.createElement('span')
@@ -571,14 +567,13 @@ function createLyricsView(opts) {
       inner.className = 'xw'
       inner.textContent = xm.rep
       e.appendChild(inner)
-      box.appendChild(e)
+      tail.appendChild(e)
     }
+    anchor.appendChild(tail)
+    box.appendChild(anchor)
     const coda = doc.createElement('span')
     coda.className = 'xc'
     if (b < piece.length) coda.appendChild(doc.createTextNode(piece.slice(b)))
-    const ext = doc.createElement('span')
-    ext.className = 'xx'
-    coda.appendChild(ext)
     box.appendChild(coda)
   }
 
@@ -733,7 +728,8 @@ function createLyricsView(opts) {
     }
     if (keys) setRoving(lineEls.find((e, i) => lines[i].t !== null) || null)
     // the ghost vocalise layer: first in the list, sticky at its top, as tall as the list (lyrics-view.css .xg)
-    if (lineEls.some((e) => e.x && e.x.some((x) => x.m.ghost))) {
+    xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    if (xvoc.length || lineEls.some((e) => e.x && e.x.some((x) => x.m.ghost))) {
       ghostLayer = doc.createElement('div')
       ghostLayer.className = 'xg'
       ghostLayer.setAttribute('aria-hidden', 'true')
@@ -938,6 +934,7 @@ function createLyricsView(opts) {
       return [bl + (t.left - box.left) * f, bl + (t.right - box.left) * f]
     }
     const oxOf = (origin) => origin.startsWith('0%') ? 0 : origin.startsWith('100%') ? 1 : 0.5
+    const rowW = base.width / ra || row.offsetWidth
     const pct = (ox, y) => +(ox * 100).toFixed(1) + '% ' + y
     const cap = (el, f) => { if (f && f.max) el.style.setProperty('--pop-max', String(f.max)); else el.style.removeProperty('--pop-max') }
     // loop: NOT-WORTH — one line's words (~5-12) and their syllables, once per line per layout
@@ -946,35 +943,36 @@ function createLyricsView(opts) {
       // the neighbours' regular text (what they show); none at a row's edge or a hyphen joint (it touches as written)
       const prev = i > 0 && tops[i - 1] === tops[i] && !sp.classList.contains('gj') ? at(spans[i - 1].children[0])[1] : null
       const next = i + 1 < spans.length && tops[i + 1] === tops[i] && !sp.classList.contains('gn') ? at(spans[i + 1].children[0])[0] : null
-      // Expressive words' stretch (lyrics-expressive.js): the stretched spelling runs on into the room reserved
-      // after the word (.xsp); its pop must keep the gap at the spelling's full length, so that is its ink
-      const room = sp.parentElement && sp.parentElement.classList.contains('xsw') ? sp.parentElement.children[1] : null
-      const roomW = room ? Math.max(0, at(room)[1] - at(room)[0]) : 0
+      // Expressive words' stretch (lyrics-expressive.js): how far the popped word's ink may grow to its right and
+      // still keep the gap to the next word (or stay inside the row): the extra letters only use that (free, px)
+      const limit = next != null ? next - gap : rowW
+      const freeAfter = (inkR, o, sc) => Math.max(0, limit - (o + sc * (inkR - o)))
       if (!sp.syl) {
-        const [inkL, inkR0] = bold(sp)
-        const inkR = inkR0 + roomW
+        const [inkL, inkR] = bold(sp)
         const [boxL, boxR] = at(sp)
-        const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale: bgRow ? POP.bgWord : POP.word, k: 1, prev, next, gap })
+        const scale = bgRow ? POP.bgWord : POP.word
+        const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale, k: 1, prev, next, gap })
         cap(sp, f)
-        return { word: f ? pct(f.ox, '65%') : edge, syl: null }
+        const o = boxL + (f ? f.ox : oxOf(edge)) * (boxR - boxL)
+        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale }
       }
       // syllables: the first and last meet the neighbours; the ones inside a word grow into their own word, as today
       const last = sp.syl.length - 1
-      return {
-        word: edge,
-        syl: sp.syl.map((el, j) => {
-          let own = stage ? '' : sylOrigin(sp, j, edge)
-          const [l, r] = at(el)
-          // a stretched last syllable: its box already holds the unborn letters (layout width, in the room); its
-          // pop stays centred on (or at the row's edge of) the written letters, as today, and fits at full length
-          const xw = j === last && room && sp.classList.contains('xs') ? Math.min(r - l, roomW) : 0
-          let ox = oxOf(own)
-          if (xw) { const wr = (r - l - xw) / (r - l); const y = own ? '65%' : '80%'; ox = own.startsWith('0%') ? 0 : own.startsWith('100%') ? wr : wr / 2; own = pct(ox, y) }
-          const f = popFit({ inkL: l, inkR: r, boxL: l, boxW: r - l, ox, scale: 1 + ((bgRow ? POP.bgSyl : POP.syl) - 1) * SYL_OVERSHOOT, k: SYL_OVERSHOOT, prev: j === 0 ? prev : null, next: j === last ? next : null, gap })
-          cap(el, f)
-          return f ? pct(f.ox, own ? '65%' : '80%') : own
-        })
-      }
+      const out = { word: edge, free: 0, scale: 1 }
+      out.syl = sp.syl.map((el, j) => {
+        const own = stage ? '' : sylOrigin(sp, j, edge)
+        const [l, r] = at(el)
+        const peak = 1 + ((bgRow ? POP.bgSyl : POP.syl) - 1) * SYL_OVERSHOOT
+        const f = popFit({ inkL: l, inkR: r, boxL: l, boxW: r - l, ox: oxOf(own), scale: peak, k: SYL_OVERSHOOT, prev: j === 0 ? prev : null, next: j === last ? next : null, gap })
+        cap(el, f)
+        if (j === last) {
+          const sc = f && f.max ? 1 + (f.max - 1) * SYL_OVERSHOOT : peak
+          out.free = freeAfter(r, l + (f ? f.ox : oxOf(own)) * (r - l), sc)
+          out.scale = sc
+        }
+        return f ? pct(f.ox, own ? '65%' : '80%') : own
+      })
+      return out
     })
     return spans.fit
   }
@@ -1171,6 +1169,11 @@ function createLyricsView(opts) {
         if (m.ghost && ghostLayer && time >= m.vt - X.GHOST_ENTER && time < m.ve && !xlive.some((x) => x.it === it && x.kind === 'ghost')) startGhost(it, i, time)
       }
     }
+    // wordless vocalise (no lyric line is sung then): beside the last line sung, or in the middle
+    // loop: HOT-PATH-OK — the song's wordless vocalise spans (a few), per render
+    for (const it of xvoc) {
+      if (ghostLayer && time >= it.m.vt - X.GHOST_ENTER && time < it.m.ve && !xlive.some((x) => x.it === it)) startGhost(it, shownLatest, time)
+    }
     // keep in step, and end what is over (a stretch also ends when its word or line is no longer sung)
     const keep = []
     // loop: HOT-PATH-OK — the expressions playing (≤ 1-2 stretches + GHOST_MAX ghosts), per render
@@ -1199,25 +1202,38 @@ function createLyricsView(opts) {
     const tl = X.stretchTimeline(m, lines[lineIndex].words[it.i].t - WORD_LEAD)
     const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, anims: [], reset: [] }
     xlive.push(x)
-    if (still()) { if (m.stretch) span.classList.add('xr'); x.reset.push(() => span.classList.remove('xr')); return }
-    const o = AOPTS(tl.t0, tl.t1)
-    const extras = m.stretch ? [...span.querySelectorAll('.xe')] : []
     const fontPx = parseFloat(doc.defaultView.getComputedStyle(span).fontSize) || 16
+    // the extra letters that fit in the gap after the popped word (popRoom, once per layout): the rest stay
+    // unborn (.xh), so the stretch never comes closer than the pop's gap to the next word
+    const all = m.stretch ? [...span.querySelectorAll('.xe')] : []
+    let extras = []
+    let w = 0
+    let squeeze = 1
+    if (all.length) {
+      const fit = popRoom(e.words, e.side)[it.i]
+      w = all[0].offsetWidth || fontPx * 0.55
+      // as many as the hold asks for, squeezed (down to SQUEEZE_MIN of their width) to fit the gap; fewer when even that won't
+      const plan = X.squeezePlan(all.length, fit.free, w, fit.scale)
+      const n = plan.n
+      squeeze = plan.scale
+      extras = all.slice(0, n)
+      // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
+      all.forEach((el, k) => el.classList.toggle('xh', k >= n))
+      x.reset.push(() => { for (const el of all) el.classList.remove('xh') })   // loop: NOT-WORTH — ≤ MAX_EXTRA
+    }
+    if (still()) { if (extras.length) span.classList.add('xr'); x.reset.push(() => span.classList.remove('xr')); return }
+    const o = AOPTS(tl.t0, tl.t1)
     if (extras.length) {
-      const w = extras[0].offsetWidth || fontPx * 0.55
       const n = extras.length
       // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
-      extras.forEach((el, k) => x.anims.push(el.animate(X.letterBirth(k, n, tl.t0, tl.t1, m.vt, m.hold), o)))
+      extras.forEach((el, k) => x.anims.push(el.animate(X.letterBirth(k, n, tl.t0, tl.t1, m.vt, m.hold, squeeze, k * w * (1 - squeeze)), o)))
       const coda = span.querySelector('.xc')
-      if (coda) x.anims.push(coda.animate(X.codaRide(n * w, tl.t0, tl.t1, m.vt, m.hold), o))
-      const ext = span.querySelector('.xx')
-      if (ext) { ext.style.width = (n * w).toFixed(1) + 'px'; x.anims.push(ext.animate(X.extenderShrink(tl.t0, tl.t1, m.vt, m.hold), o)) }
-      // (the held syllable's pop origin and its room for the stretched spelling come from popRoom, once per layout)
+      if (coda) x.anims.push(coda.animate(X.codaRide(n * w * squeeze, tl.t0, tl.t1, m.vt, m.hold), o))
     }
     // the wave: the vowel letters, then the extra letters (each at the height the voice had when it was born)
     const amp = fontPx * X.WAVE_EM
     const waving = [...span.querySelectorAll('.xv')]
-    const inner = m.stretch ? [...span.querySelectorAll('.xw')] : []
+    const inner = extras.map((el) => el.firstChild)
     // loop: NOT-WORTH — the vowel and extra letters (≤ ~11), once per held word
     waving.concat(inner).forEach((el, j) => {
       const k = j - waving.length
@@ -1238,13 +1254,12 @@ function createLyricsView(opts) {
       endExpression(oldest)
       xlive = xlive.filter((x) => x !== oldest)
     }
-    const span = lineEls[lineIndex].words[it.i]
-    const fontPx = parseFloat(doc.defaultView.getComputedStyle(span).fontSize) || 16
-    const plan = X.ghostPlan(m, songKey + '|' + lineIndex + '|' + it.i, still(), (ghostLayer.clientWidth || 0) * 0.2)
+    const lineEl = lineIndex >= 0 && lineEls[lineIndex] ? lineEls[lineIndex] : null
+    const ref = lineEl && it.i >= 0 ? lineEl.words[it.i] : (lineEl && lineEl.words[0]) || container
+    const fontPx = parseFloat(doc.defaultView.getComputedStyle(ref).fontSize) || 16
+    const plan = X.ghostPlan(m, '', still(), (container.clientWidth || 0) * 0.06)
     const el = doc.createElement('span')
     el.className = 'xgw'
-    el.style.left = (plan.x * 100).toFixed(1) + '%'
-    el.style.top = (plan.y * (container.clientHeight || 0)).toFixed(0) + 'px'   // the list's visible height (one read per ghost)
     el.style.fontSize = (plan.size * fontPx).toFixed(1) + 'px'
     const o = AOPTS(plan.t0, plan.t1)
     const x = { kind: 'ghost', it, line: lineIndex, el, t0: plan.t0, t1: plan.t1, anims: [], reset: [] }
@@ -1266,8 +1281,50 @@ function createLyricsView(opts) {
       else if (base) x.anims.push(s.animate(X.heldAt(base), o))
     })
     ghostLayer.appendChild(el)
+    placeGhost(el, lineEl, plan.drift ? (container.clientWidth || 0) * 0.06 : 0)
     xlive.push(x)
     syncOne(x, time)
+  }
+
+  // a ghost's place (one batch of layout reads per ghost): centred across the lyrics, in the free space of the
+  // lyric area (no line, countdown, note or credit there) nearest the sung line: centred in that space when
+  // it's snug, else just beside the line's side of it; with no free space tall enough it sits centred on
+  // the sung line, far behind it. Never over the source note or the credits.
+  function placeGhost(el, lineEl, drift) {
+    const box = container.getBoundingClientRect()
+    const gw = el.offsetWidth
+    const gh = el.offsetHeight
+    const H = box.height
+    const taken = []
+    const take = (n) => { if (!n) return; const r = n.getBoundingClientRect(); if (r.height && r.bottom > box.top && r.top < box.bottom) taken.push([r.top - box.top, r.bottom - box.top]) }
+    // loop: NOT-WORTH — the song's lines and countdowns (≤ ~150), once per ghost
+    for (const e of lineEls) take(e.el)
+    for (const g of interludes) if (g.el.classList.contains('on')) take(g.el)   // loop: NOT-WORTH — the countdowns (a few), once per ghost
+    take(notesEl)
+    take(container.querySelector('#credits'))
+    take(container.querySelector('#lead'))
+    taken.sort((x, y) => x[0] - y[0])
+    const gaps = []
+    let y = 0
+    // loop: NOT-WORTH — the taken spans just read, once per ghost
+    for (const [t0, t1] of taken) { if (t0 > y) gaps.push([y, t0]); y = Math.max(y, t1) }
+    if (y < H) gaps.push([y, H])
+    const pad = 8
+    let line = null
+    if (lineEl) { const r = lineEl.el.getBoundingClientRect(); line = [r.top - box.top, r.bottom - box.top] }
+    const mid = line ? (line[0] + line[1]) / 2 : H / 2
+    const fits = gaps.filter(([g0, g1]) => g1 - g0 >= gh + 2 * pad)
+    let top
+    if (fits.length) {
+      const dist = ([g0, g1]) => (mid < g0 ? g0 - mid : mid > g1 ? mid - g1 : 0)
+      const [g0, g1] = fits.reduce((best, g) => (dist(g) < dist(best) ? g : best))
+      if (g1 - g0 <= 2.5 * gh) top = (g0 + g1 - gh) / 2
+      else top = mid <= g0 ? g0 + pad : mid >= g1 ? g1 - pad - gh : (g0 + g1 - gh) / 2
+    } else top = mid - gh / 2
+    // in the layer's own coordinates (it is stuck to the list's visible top, padding and all)
+    const layer = ghostLayer.getBoundingClientRect()
+    el.style.left = (Math.max(0, (box.width - gw - drift) / 2) + box.left - layer.left).toFixed(0) + 'px'
+    el.style.top = (Math.max(0, Math.min(top, H - gh)) + box.top - layer.top).toFixed(0) + 'px'
   }
 
   function syncOne(x, time) {

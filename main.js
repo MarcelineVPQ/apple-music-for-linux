@@ -751,12 +751,14 @@ function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
 // plain karaoke. Needs Precise word timing (the notes step runs on its stem).
 function expressiveSetting() { return settings.expressiveWords == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveWords }
 function expressiveOn() { return expressiveSetting() && preciseTimingOn() }
+// Wordless vocalise ghosts (its sub-switch): null = this build's default, as Expressive words
+function vocaliseSetting() { return settings.expressiveVocalise == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveVocalise }
 // the song's measured expression for the view, or undefined (the field is left out: today's payload)
 function expressiveFor(title, artist, lines) {
   if (!expressiveOn() || !title) return undefined
   const e = getSheetStore().get(title, artist)
   if (!sheetModel.entryValid(e, alignSessionLib.lyricsHash(lines || []))) return undefined
-  return expressive.forView(e.expr, true) || undefined
+  return expressive.forView(e.expr, true, vocaliseSetting()) || undefined
 }
 // a song whose notes entry was made without asking for its expression (Expressive words was off, or an older engine)
 function expressiveMissing(entry, hash) {
@@ -2719,7 +2721,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2741,6 +2743,7 @@ function setSetting(key, value) {
   if (settings[key] === value) return
   // Expressive words: the panel's switch shows this build's default until it is chosen (null stays null)
   if (key === 'expressiveWords' && (value === null || value === expressiveSetting()) && settings[key] == null) return
+  if (key === 'expressiveVocalise' && (value === null || value === vocaliseSetting()) && settings[key] == null) return
   settings[key] = value
   if (key === 'autoInstallUpdates') { settings.updatesAsked = true; notices.clear('ask-auto') }
   saveSettings()
@@ -2779,7 +2782,7 @@ function setSetting(key, value) {
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
-  if (key === 'expressiveWords') lyricsKey = null   // the song again, with or without its expression
+  if (key === 'expressiveWords' || key === 'expressiveVocalise') lyricsKey = null   // the song again, with or without its expression
   if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel' || key === 'expressiveWords') {
     // the only download: when a notes switch the user chose becomes active (the developer log on the
     // Development channel, Sheet notes in the Studio, Expressive words turned on; Precise word timing on)
@@ -3381,6 +3384,7 @@ function panelSnapshot() {
   Object.assign(v, {
     theme: themePref,
     expressiveWords: expressiveSetting(),   // this build's default until chosen
+    expressiveVocalise: vocaliseSetting(),
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),

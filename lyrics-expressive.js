@@ -24,9 +24,9 @@ const VIB_CONF = 0.5          // the engine's own vibrato gate; kept here too, s
 const LOUD_CONF = 0.5
 const ENV_CONF = 0.6          // share of a held vowel's loudness points that were measured
 const CONTOUR_CONF = 0.6      // voiced share of a held vowel's contour
-const HOLD_MIN = 0.45         // s: a vowel held this long stretches (the mock-up's A, Marcy-approved)
+const HOLD_MIN = 0.6          // s: a vowel held this long stretches (tuned 2026-10-18 from the mock-up's 0.45)
 const LETTER_S = 0.1          // s of hold per extra vowel letter
-const MAX_EXTRA = 8           // at most this many extra letters
+const MAX_EXTRA = 5           // at most this many extra letters, and only as many as fit the gap after the word
 const GHOST_MIN = 0.8         // s: a held vowel of a lyric word this long ghosts; a vocalise word from HOLD_MIN
 const GHOST_ENTER = 0.3       // s: a ghost fades in this long before its vowel
 const GHOST_FADE = 1.6        // s: and dissolves over this long after the voice lets go
@@ -76,19 +76,47 @@ function compact(expr, lineOffset = 0) {
     if (out.t != null && pts(w.contour, 2) && (w.contour_conf == null || num(w.contour_conf) >= CONTOUR_CONF)) out.ct = w.contour.map((p) => [r3(p[0]), Math.round(p[1])])
     if (out.t != null || out.ld != null) words.push(out)
   }
-  // held singing on no lyric word (version 2): kept for when its vowel can be named; nothing draws it yet
-  // TODO(Marcy): wordless vocalise the lyrics leave out (Nude's intro "ooooh") needs the sung vowel's
-  // name before it can ghost (BACKLOG "Expressive lyrics: the voice shapes the words"); nothing is invented.
+  // held singing on no lyric word (version 2, e.g. Nude's wordless intro): its vowel isn't named (not measured),
+  // so it can only ghost as a neutral "ooo", behind its own sub-setting (Wordless vocalise ghosts)
+  // TODO(Marcy): the sung vowel's name once the engine measures it (BACKLOG "Expressive lyrics: the voice shapes the words")
+  // loop: NOT-WORTH — the song's vocalise spans (a few), once per notes result
   const voc = (Array.isArray(expr.vocalise) ? expr.vocalise : [])
     .filter((x) => x && num(x.t) !== null && num(x.end) > x.t && num(x.conf) >= CONF_MIN)
-    .map((x) => ({ t: r3(x.t), e: r3(x.end), c: x.conf }))
+    .map((x) => {
+      const o = { t: r3(x.t), e: r3(x.end), c: x.conf }
+      if (x.vibrato && num(x.vibrato.rate) > 0 && num(x.vibrato.extent) > 0 && num(x.vibrato.end) > x.vibrato.t && num(x.vibrato.conf) >= VIB_CONF) o.vb = { r: x.vibrato.rate, d: x.vibrato.extent, t: r3(x.vibrato.t), e: r3(x.vibrato.end) }
+      if (pts(x.loud_env, 2)) o.env = x.loud_env.map((p) => [r3(p[0]), clamp(p[1], -1, 1)])
+      if (pts(x.contour, 2)) o.ct = x.contour.map((p) => [r3(p[0]), Math.round(p[1])])
+      return o
+    })
   return { format: FORMAT, v: expr.version, words, voc }
 }
 
-/** The cached form, checked -> what the view gets ({ v, words }) or null. Off: always null (today's look). */
-function forView(cached, on) {
-  if (!on || !cached || cached.format !== FORMAT || !Array.isArray(cached.words) || !cached.words.length) return null
-  return { v: cached.v, words: cached.words }
+/**
+ * The cached form, checked -> what the view gets ({ v, words, voc }) or null. Off: always null (today's
+ * look). vocalise: the wordless vocalise ghosts' sub-setting (off: no voc).
+ */
+function forView(cached, on, vocalise) {
+  if (!on || !cached || cached.format !== FORMAT || !Array.isArray(cached.words)) return null
+  const voc = vocalise && Array.isArray(cached.voc) ? cached.voc : []
+  if (!cached.words.length && !voc.length) return null
+  return { v: cached.v, words: cached.words, voc }
+}
+
+/**
+ * The wordless vocalise spans the view may ghost: held singing no lyric word covers (each word's span with
+ * a margin), as a matchWord-shaped expression with a neutral "ooo". lines: the view's lines.
+ */
+function vocaliseExpressions(doc, lines) {
+  if (!doc || !Array.isArray(doc.voc) || !doc.voc.length) return []
+  const spans = []
+  // loop: NOT-WORTH — the song's words (≤ ~600), once per song laid out
+  for (const l of lines || []) for (const w of (l && l.words) || []) if (num(w.t) !== null) spans.push([w.t - 0.15, (num(w.end) !== null ? w.end : w.t) + 0.15])
+  // loop: NOT-WORTH — the vocalise spans (a few) x the words, once per song laid out
+  return doc.voc.filter((v) => v.e - v.t >= HOLD_MIN && !spans.some(([a, b]) => a < v.e && b > v.t)).map((v) => ({
+    hold: v.e - v.t, vt: v.t, ve: v.e, ink: 0, vb: v.vb || null, env: v.env || null, ct: v.ct || null, i0: -1,
+    ghost: { base: 'oo', tail: '', grow: Math.min(GHOST_LETTERS - 2, Math.round((v.e - v.t) / 0.25)) }
+  }))
 }
 
 // --- which word gets what ---
@@ -190,33 +218,50 @@ function stretchTimeline(m, lit) {
  * Extra letter k of n: invisible, then over its share of the hold (from vt) it fades in and widens from
  * nothing (scaleX from its left edge), then stays. -> keyframes over [t0, t1]
  */
-function letterBirth(k, n, t0, t1, vt, hold) {
+function letterBirth(k, n, t0, t1, vt, hold, squeeze = 1, back = 0) {
   const span = Math.max(0.001, t1 - t0)
   const a = clamp((vt - t0 + hold * k / n) / span, 0, 1)
   const b = clamp((vt - t0 + hold * (k + 1) / n) / span, a, 1)
+  // squeezed letters (squeezePlan) also move back by `back` px, so they sit side by side at their narrower width
+  const tf = (sx) => (back ? 'translateX(' + (-back).toFixed(2) + 'px) ' : '') + 'scaleX(' + sx + ')'
+  const full = +squeeze.toFixed(3)
   return [
-    { offset: 0, opacity: 0, transform: 'scaleX(0.001)' },
-    { offset: a, opacity: 0, transform: 'scaleX(0.001)' },
-    { offset: b, opacity: 1, transform: 'scaleX(1)' },
-    { offset: 1, opacity: 1, transform: 'scaleX(1)' }
+    { offset: 0, opacity: 0, transform: tf(0.001) },
+    { offset: a, opacity: 0, transform: tf(0.001) },
+    { offset: b, opacity: 1, transform: tf(full) },
+    { offset: 1, opacity: 1, transform: tf(full) }
   ]
 }
 
-/** The coda (and the hold's extender after it) rides just after the newest letter: from -w px to 0. */
+/** The coda (as written) rides just after the newest letter: from where it is to widthPx to its right. */
 function codaRide(widthPx, t0, t1, vt, hold) {
   const span = Math.max(0.001, t1 - t0)
   const a = clamp((vt - t0) / span, 0, 1)
   const b = clamp((vt - t0 + hold) / span, a, 1)
-  const from = 'translateX(' + (-widthPx).toFixed(2) + 'px)'
-  return [{ offset: 0, transform: from }, { offset: a, transform: from }, { offset: b, transform: 'translateX(0px)' }, { offset: 1, transform: 'translateX(0px)' }]
+  const to = 'translateX(' + widthPx.toFixed(2) + 'px)'
+  return [{ offset: 0, transform: 'translateX(0px)' }, { offset: a, transform: 'translateX(0px)' }, { offset: b, transform: to }, { offset: 1, transform: to }]
 }
 
-/** The extender: a faint line over the hold still ahead, shrinking toward the slot's end as it's sung. */
-function extenderShrink(t0, t1, vt, hold) {
-  const span = Math.max(0.001, t1 - t0)
-  const a = clamp((vt - t0) / span, 0, 1)
-  const b = clamp((vt - t0 + hold) / span, a, 1)
-  return [{ offset: 0, transform: 'scaleX(1)' }, { offset: a, transform: 'scaleX(1)' }, { offset: b, transform: 'scaleX(0)' }, { offset: 1, transform: 'scaleX(0)' }]
+const SQUEEZE_MIN = 0.4     // extra letters may be squeezed to this share of their width to fit the gap
+
+/**
+ * The extra letters a hold shows in freePx (the gap after the popped word, popRoom): all `extra` of them at
+ * full width when they fit, else squeezed (down to SQUEEZE_MIN) so the hold still reads, else as many as fit
+ * squeezed. -> { n, scale }
+ */
+function squeezePlan(extra, freePx, letterPx, popScale = 1) {
+  if (!(extra > 0) || !(freePx > 0) || !(letterPx > 0)) return { n: 0, scale: 1 }
+  const unit = letterPx * Math.max(1, popScale)
+  if (extra * unit <= freePx) return { n: extra, scale: 1 }
+  const sc = freePx / (extra * unit)
+  if (sc >= SQUEEZE_MIN) return { n: extra, scale: Math.floor(sc * 1000) / 1000 }
+  return { n: Math.min(extra, Math.floor(freePx / (unit * SQUEEZE_MIN))), scale: SQUEEZE_MIN }
+}
+
+/** How many extra letters show: as many as fit freePx after the popped word (letters scale with the pop). */
+function visibleExtras(extra, freePx, letterPx, scale = 1) {
+  if (!(extra > 0) || !(freePx > 0) || !(letterPx > 0)) return 0
+  return Math.max(0, Math.min(extra, Math.floor(freePx / (letterPx * Math.max(1, scale)))))
 }
 
 /** A letter held at its contour height for the whole timeline (no vibrato to wave it). */
@@ -325,15 +370,16 @@ function hash01(s) {
 }
 
 /**
- * One ghost's plan: where it appears (x, y: share of the layer), its size (times the line's type), its
+ * One ghost's plan: its size (times the line's type: 3-5x, with the loudness), its
  * timeline [t0, t1], the opacity keyframes (in, breathing with the loudness, out), the drift and the
  * birth time of each letter. Its drift is tied to the note's own timing for now: it crosses about a
  * fifth of the layer over its life, so a long slow note floats slowly.
  * TODO: beat-synced drift (enter on a downbeat, cross in N bars) once the engine tracks the tempo
  * (BACKLOG "Expressive lyrics: the voice shapes the words").
  * still (reduced motion): no drift and no wave, the letters all there, fading in and out only.
- * driftPx: how far it drifts over its life (the view: a fifth of the layer's width).
- * -> { x, y, size, t0, t1, opacity: keyframes, drift: keyframes|null, letters: [{ ch, born }] }
+ * driftPx: how far it drifts over its life (the view: a gentle 6 % of the lyrics' width). Where it sits is
+ * the view's (centred in the free space beside the sung line).
+ * -> { size, t0, t1, opacity: keyframes, drift: keyframes|null, letters: [{ ch, born }] }
  */
 function ghostPlan(m, seed, still, driftPx = 0) {
   const g = m.ghost
@@ -342,7 +388,6 @@ function ghostPlan(m, seed, still, driftPx = 0) {
   const t0 = v0 - GHOST_ENTER
   const t1 = v1 + GHOST_FADE
   const span = t1 - t0
-  const h = hash01(seed)
   const loud01 = clamp((loudAt(m, (v0 + v1) / 2) + 1) / 2, 0, 1)
   const letters = []
   const text = g.base + (g.base[g.base.length - 1] || '').repeat(g.grow) + g.tail
@@ -355,7 +400,8 @@ function ghostPlan(m, seed, still, driftPx = 0) {
   }
   const opacity = []
   const at = (t) => clamp((t - t0) / span, 0, 1)
-  const peak = (t) => 0.07 + 0.11 * clamp((loudAt(m, t) + 1) / 2, 0, 1)
+  // far back: 4-12 % (the mock-up's Ghost vocalise), louder singing a little stronger
+  const peak = (t) => 0.04 + 0.08 * clamp((loudAt(m, t) + 1) / 2, 0, 1)
   opacity.push({ offset: 0, opacity: 0 })
   opacity.push({ offset: at(v0), opacity: +peak(v0).toFixed(3) })
   // breathing with the loudness: one keyframe every 0.1 s through the hold (still: one level)
@@ -366,10 +412,7 @@ function ghostPlan(m, seed, still, driftPx = 0) {
   opacity.push({ offset: at(v1), opacity: +peak(v1).toFixed(3) })
   opacity.push({ offset: 1, opacity: 0 })
   return {
-    x: 0.06 + 0.32 * h,
-    // above or below the sung line's band (the lyrics hold it a third to a half of the way down), never on it
-    y: ((h * 7.31) % 1) < 0.5 ? 0.04 + 0.36 * ((h * 7.31) % 1) : 0.62 + 0.4 * (((h * 7.31) % 1) - 0.5),
-    size: 2.5 + 1.1 * loud01,
+    size: 3 + 2 * loud01,
     t0,
     t1,
     opacity,
@@ -388,6 +431,6 @@ function ghostLetterBirth(born, t0, t1) {
 
 module.exports = {
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, forView, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, extenderShrink, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01
 }

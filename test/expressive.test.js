@@ -88,7 +88,7 @@ test('matchWord: the vowel letters must be the word\'s and on its time; a stretc
   const x = { l: 0, w: 0, c: 0.9, i0: 1, i1: 2, x: 'o', t: 1.1, e: 2.0, ld: 0.8 }
   const m = X.matchWord(x, { text: 'home', t: 1.0, end: 2.1 })
   assert.equal(m.stretch, true)
-  assert.equal(m.extra, Math.round((0.9 - 0.2) / X.LETTER_S))
+  assert.equal(m.extra, Math.min(X.MAX_EXTRA, Math.round((0.9 - 0.2) / X.LETTER_S)))
   assert.equal(m.rep, 'o')
   assert.ok(m.ink > 0, 'belted: ink')
   assert.equal(m.ghost.base, 'o', 'held 0.9 s: ghosts its held vowel')
@@ -104,7 +104,7 @@ test('matchWord: the vowel letters must be the word\'s and on its time; a stretc
   assert.equal(X.matchWord({ l: 0, w: 0, c: 0.9, i0: 3, i1: 4, t: 1.5, e: 3 }, baby).stretch, true)
   assert.equal(X.matchWord({ l: 0, w: 0, c: 0.9, i0: 1, i1: 2, t: 1.05, e: 2 }, baby).stretch, false)
   // wordless vocalise in the lyrics: the whole word ghosts, from a shorter hold
-  const ooh = X.matchWord({ l: 0, w: 0, c: 0.9, i0: 0, i1: 2, t: 1, e: 1.5 }, { text: 'Ooh,', t: 1, end: 1.6 })
+  const ooh = X.matchWord({ l: 0, w: 0, c: 0.9, i0: 0, i1: 2, t: 1, e: 1.7 }, { text: 'Ooh,', t: 1, end: 1.8 })
   assert.deepEqual([ooh.ghost.base, ooh.ghost.tail], ['oo', 'h'])
 })
 
@@ -141,7 +141,9 @@ test('keyframes: the stretch, the wave and the ghost move only transform and opa
   // loop: test only
   for (let k = 0; k < m.extra; k++) checkFrames(X.letterBirth(k, m.extra, tl.t0, tl.t1, m.vt, m.hold))
   checkFrames(X.codaRide(40, tl.t0, tl.t1, m.vt, m.hold))
-  checkFrames(X.extenderShrink(tl.t0, tl.t1, m.vt, m.hold))
+  assert.equal(X.visibleExtras(5, 1000, 10, 1.1), 5)
+  assert.equal(X.visibleExtras(5, 25, 10, 1.1), 2, 'only what fits the gap')
+  assert.equal(X.visibleExtras(5, 0, 10), 0)
   const wave = X.waveKeyframes(m.vb, tl.t0, tl.t1, 1, 0, 0)
   checkFrames(wave)
   const ys = wave.map((f) => Number(/translateY\((-?[\d.]+)px\)/.exec(f.transform)[1]))
@@ -152,7 +154,8 @@ test('keyframes: the stretch, the wave and the ghost move only transform and opa
   const plan = X.ghostPlan(m, 'k|0|0', false, 120)
   checkFrames(plan.opacity)
   checkFrames(plan.drift)
-  assert.ok(plan.opacity.every((f) => f.opacity <= 0.18 + 1e-9), 'a ghost never competes with the words (≤ 18 %)')
+  assert.ok(plan.opacity.every((f) => f.opacity <= 0.12 + 1e-9), 'far back: a ghost never competes with the words (≤ 12 %)')
+  assert.ok(plan.size >= 3 && plan.size <= 5, 'large: 3-5x the lyrics')
   assert.ok(plan.letters.length > 1 && plan.letters[0].ch === 'o')
   // reduced motion: no drift, no breathing, all letters there from the start
   const still = X.ghostPlan(m, 'k|0|0', true, 120)
@@ -227,11 +230,12 @@ class El {
     this.ownerDocument.anims.push(a)
     return a
   }
-  get offsetWidth() { return 10 }
+  get offsetWidth() { return this._w != null ? this._w : 10 }
   get clientWidth() { return 600 }
   get clientHeight() { return 400 }
+  get offsetHeight() { return 40 }
   get offsetTop() { return 0 }
-  get offsetLeft() { return 0 }
+  get offsetLeft() { return this._x || 0 }
   get offsetParent() { return null }
   getBoundingClientRect() { return { top: 0, bottom: 40, height: 40, left: 0, right: 0, width: 0 } }
   scrollTo() {}
@@ -273,13 +277,22 @@ const EXPR = { version: 2, words: [
   { line: 1, word: 0, conf: 0.9, vowel: { i0: 0, i1: 1, text: 'o', t: 4.05, end: 5.4, lead: 0, coda: 0.04 }, loud: -0.2, loud_conf: 0.9 }
 ], vocalise: [] }
 
-function view(expr, reduce, data = {}) {
+// rowW: the rows' width (px); the words sit 60 px apart, 40 px wide (the gap after a line's last word is
+// what's left of the row)
+function view(expr, reduce, data = {}, rowW = 1000) {
   const doc = makeDoc(reduce)
   const list = new El(doc, 'div')
   const v = createLyricsView({ container: list, layout: 'scroll', onSeek: () => {} })
   const d = Object.assign({ key: 'k1', title: 'Song', artist: 'Artist', duration: 60, lines: JSON.parse(JSON.stringify(HELD)), lang: 'en-US', aligned: true }, data)
   if (expr) d.expr = expr
   v.setData(d)
+  // loop: test only
+  for (const w of list.all().filter((e) => e.has('w'))) {
+    const row = w.parentElement
+    row._w = rowW
+    w._x = row.els().filter((e) => e.has('w')).indexOf(w) * 60
+    w._w = 40
+  }
   return { doc, list, v }
 }
 const at = (v, t, playing = true) => { nowMs += 1000; v.setTime(t, playing, 'k1') }
@@ -288,7 +301,7 @@ test('view: without expr (the setting off, or an older engine) the lines are exa
   const a = view(null)
   const b = view(undefined, false, { expr: null })
   assert.equal(dump(a.list), dump(b.list))
-  assert.doesNotMatch(dump(a.list), /"(xs|xsw|xsp|xv|xe|xw|xc|xx|xi|xq|xg|xgw|xp)"|\b(xs|xsw|xsp|xg|xp) /, 'no expressive class anywhere')
+  assert.doesNotMatch(dump(a.list), /"(xs|xa|xt|xv|xe|xw|xc|xi|xq|xg|xgw|xp)"|\b(xs|xa|xg|xp) /, 'no expressive class anywhere')
   // and a song whose words aren't the ones the helper measured: its lines too (only the list's own class differs)
   const c = view(X.forView(X.compact({ version: 2, words: [{ line: 0, word: 2, conf: 0.9, vowel: { i0: 1, i1: 2, text: 'a', t: 1.66, end: 3.1 } }] }), true))
   const lines = (l) => l.els().filter((e) => e.has('line')).map(dump).join('')
@@ -297,27 +310,44 @@ test('view: without expr (the setting off, or an older engine) the lines are exa
   assert.equal(a.doc.anims.length, 0, 'nothing animates')
 })
 
-test('view: a held word reserves its stretched spelling at layout; the written word stays for the reader and the copies', () => {
+test('view: nothing is reserved in the line: a held word looks as today until its hold starts', () => {
+  const plain = view(null)
   const { list } = view(X.forView(X.compact(EXPR), true))
-  const line = list.els().filter((e) => e.has('line'))[0]
-  const wrap = line.all().find((e) => e.has('xsw'))
-  assert.ok(wrap, 'the word and its room stay on one row')
-  const [word, room] = wrap.els()
-  assert.ok(word.has('w') && word.has('xs') && word.has('xi'))
-  assert.equal(room.textContent, 'o'.repeat(Math.min(X.MAX_EXTRA, Math.round((3.1 - 1.66 - 0.2) / X.LETTER_S))))
-  assert.equal(room.getAttribute('aria-hidden'), 'true')
-  assert.equal(word.els().find((e) => e.has('r')).textContent, 'home', 'the regular text is the word as written')
+  const lines = (l) => l.els().filter((e) => e.has('line'))
+  // the line's structure and every word's regular text are the plain karaoke's; no spacer, no room
+  assert.ok(!list.all().some((e) => e.has('xsw') || e.has('xsp')))
+  const words = (l) => lines(l).flatMap((e) => e.all().filter((x) => x.has('w')).map((w) => w.els().find((y) => y.has('r')).textContent))
+  assert.deepEqual(words(list), words(plain.list))
+  assert.deepEqual(lines(list)[0].els().map((e) => e.className), lines(plain.list)[0].els().map((e) => e.className))
+  const word = list.all().find((e) => e.has('xs'))
   const b = word.els().find((e) => e.has('b'))
   assert.equal(b.getAttribute('aria-hidden'), 'true')
-  assert.equal(b.querySelectorAll('.xe').length, room.textContent.length)
-  assert.equal(b.textContent.replace(/o+/, 'o'), 'home', 'the bold copy: the word with its vowel repeated')
-  // the line's crossfade copies hold the same room, so the three layers stay the same width
-  const copies = line.els().filter((e) => e.has('ly-dim') || e.has('ly-hov'))
-  assert.equal(copies.length, 2)
-  assert.ok(copies.every((c) => c.all().some((e) => e.has('xsp'))))
+  // the extra letters wait out of the flow (an anchor at the vowel), the bold copy's flow is the written word
+  const anchor = b.all().find((e) => e.has('xa'))
+  assert.ok(anchor && anchor.all().filter((e) => e.has('xe')).length === X.MAX_EXTRA)
+  const flow = (n) => n.children.filter((c) => !(c instanceof El) || !c.has('xa')).map((c) => (c instanceof El ? flow(c) : c.text)).join('') + (n._text || '')
+  assert.equal(flow(b), 'home')
   assert.ok(list.firstChild.has('xg'), 'the ghost layer first in the list')
   assert.equal(list.firstChild.getAttribute('aria-hidden'), 'true')
-  assert.ok(list.has('xp'))
+})
+
+test('view: the stretch grows only into the gap the pop leaves; already-sung words are back to their spelling', () => {
+  // plenty of room after "home": all its extra letters; a tight row: all of them squeezed into the gap (38 px for
+  // 5 popped letters of 11 px: 0.69 of their width); tighter: as many as fit at the narrowest squeeze; none: none
+  for (const [rowW, want, squeezed] of [[1000, X.MAX_EXTRA, false], [200, X.MAX_EXTRA, true], [175, 2, true], [165, 0, false]]) {
+    const { list, v } = view(X.forView(X.compact(EXPR), true), false, {}, rowW)
+    at(v, 1.8)
+    const xe = list.all().find((e) => e.has('xs')).all().filter((e) => e.has('xe'))
+    const shown = xe.filter((e) => !e.has('xh'))
+    assert.equal(shown.length, want, 'row ' + rowW)
+    const last = shown.length ? shown[shown.length - 1].anims[0].keyframes.slice(-1)[0].transform : ''
+    assert.equal(/scaleX\(0\.|scaleX\(0\.4\)/.test(last), squeezed, 'row ' + rowW + ': ' + last)
+    at(v, 3.5)
+    assert.ok(xe.every((e) => !e.has('xh') && !e.anims.some((a) => !a.cancelled)), 'after the hold: as written')
+  }
+  assert.deepEqual(X.squeezePlan(5, 38, 10, 1.1), { n: 5, scale: 0.69 })
+  assert.deepEqual(X.squeezePlan(5, 13, 10, 1.1), { n: 2, scale: 0.4 })
+  assert.deepEqual(X.squeezePlan(5, 100, 10, 1.1), { n: 5, scale: 1 })
 })
 
 test('view: the stretch and the ghost play in step with the song, pause with it and while hidden, and end', () => {
@@ -327,7 +357,7 @@ test('view: the stretch and the ghost play in step with the song, pause with it 
   at(v, 1.8)
   const ghostly = (a) => a.el.has('xgw') || a.el.has('xgl')
   const stretch = doc.anims.filter((a) => !a.cancelled && !ghostly(a))
-  assert.ok(stretch.length >= 8, 'the letters, the coda, the extender and the waves')
+  assert.ok(stretch.length >= 6, 'the letters, the coda and the waves')
   assert.ok(stretch.every((a) => a.playState === 'running'))
   assert.ok(stretch.every((a) => Math.abs(a.currentTime - (1.8 - (1.6 - 0.05)) * 1000) < 61), 'in song time from when the word lit')
   const ghost = list.firstChild.els()
@@ -346,34 +376,55 @@ test('view: the stretch and the ghost play in step with the song, pause with it 
   at(v, 6.0)
   assert.equal(list.firstChild.els().length, 0, 'the ghost dissolved and is gone')
   assert.ok(doc.anims.every((a) => a.cancelled), 'nothing left running')
-  // every keyframe: compositor properties only
   // loop: test only
   for (const a of doc.anims) assert.ok(a.keyframes.every((f) => Object.keys(f).every((k) => KEYS.has(k))))
-  // a new song cancels whatever plays
   at(v, 1.8)
   assert.ok(doc.anims.some((a) => !a.cancelled))
   v.setData({ key: 'k2', title: 'Next', artist: 'A', duration: 60, lines: [], lang: 'en-US' })
-  assert.ok(doc.anims.every((a) => a.cancelled))
+  assert.ok(doc.anims.every((a) => a.cancelled), 'a new song cancels whatever plays')
 })
 
-test('view: never a layout write while playing (only the extender\'s own width, inside the absolute bold copy)', () => {
+test('view: never a style write on the line while playing (the ghost places only itself)', () => {
   const { list, v } = view(X.forView(X.compact(EXPR), true))
   const before = new Map(list.all().map((e) => [e, e.styleSets.length]))
   at(v, 1.8)
   at(v, 2.5)
-  // the karaoke's own writes (paintWords' origin, popRoom's cap) are allowed; Expressive words adds only the extender's width
+  // the karaoke's own writes (paintWords' origin, popRoom's cap) are allowed; Expressive words adds none to the line
   const OWN = new Set(['transformOrigin', '--pop-max'])
   const wrote = list.all().filter((e) => before.has(e)).flatMap((e) => e.styleSets.slice(before.get(e)).filter((k) => !OWN.has(k)).map((k) => [e.className, k]))
-  assert.deepEqual(wrote, [['xx', 'width']])
+  assert.deepEqual(wrote, [])
+})
+
+test('view: the ghost sits in the free space beside the sung line, large and far back', () => {
+  const { list, v } = view(X.forView(X.compact(EXPR), true))
+  at(v, 1.8)
+  const g = list.firstChild.els()[0]
+  assert.ok(parseFloat(g.style.fontSize) >= 3 * 20 && parseFloat(g.style.fontSize) <= 5 * 20)
+  assert.match(g.style.top, /^\d+px$/)
+  assert.match(g.style.left, /^\d+px$/)
+})
+
+test('view: wordless vocalise: a neutral "ooo" ghost only where no lyric word covers it, behind its own switch', () => {
+  const expr = Object.assign({}, EXPR, { vocalise: [{ t: 0.0, end: 0.75, midi: 64, conf: 0.8 }, { t: 1.2, end: 2.6, midi: 64, conf: 0.9 }, { t: 6.0, end: 6.3, midi: 64, conf: 0.9 }] })
+  const c = X.compact(expr)
+  assert.equal(c.voc.length, 3)
+  assert.deepEqual(X.forView(c, true, false).voc, [], 'the sub-switch off: none')
+  const m = X.vocaliseExpressions(X.forView(c, true, true), HELD)
+  assert.equal(m.length, 1, 'one held long enough and on no word (one is under "take me home", one too short)')
+  assert.equal(m[0].ghost.base, 'oo')
+  const { list, v } = view(X.forView(c, true, true))
+  at(v, 0.2)
+  const g = list.firstChild.els()
+  assert.equal(g.length, 1)
+  assert.match(g[0].textContent, /^o{3,}$/)
 })
 
 test('view: reduced motion: no drift, no wave, no growth: the stretched spelling at once, the ghost fades only', () => {
   const { doc, list, v } = view(X.forView(X.compact(EXPR), true), true)
   at(v, 1.8)
   const word = list.all().find((e) => e.has('xs'))
-  assert.ok(word.has('xr'), 'the whole stretched spelling, still')
+  assert.ok(word.has('xr'), 'the stretched spelling, still')
   const live = doc.anims.filter((a) => !a.cancelled)
-  // only the ghost: its fade, and each letter held at the height it was sung (a constant transform: no motion)
   const still = (a) => new Set(a.keyframes.map((f) => f.transform)).size <= 1
   assert.ok(live.length && live.every((a) => (a.el.has('xgw') || a.el.has('xgl')) && still(a)), 'only the ghost\'s fade: ' + live.map((a) => a.el.className))
   assert.ok(!live.some((a) => a.keyframes.some((f) => /translateX/.test(f.transform || ''))), 'no drift')
