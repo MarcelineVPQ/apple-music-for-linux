@@ -534,6 +534,59 @@ function pitchRuns(pitch, clef, fifths, spans) {
 }
 
 /**
+ * The staff box's room (Marcy 2026-10-18, Sabrina Carpenter "House Tour" at 2:29: a high stretch of the pitch
+ * line was drawn above the staff with nothing to read it by, right under the label row). Staff positions the
+ * box shows clear of the label row above it (the top 20 px keep room for the mark) and of the syllables under
+ * it (lyrics.html .sn-syls, 108 px): sheet-notes-ui.js BASE 92, 6 px a step, so pos 12 (y 20, the second ledger
+ * line above the staff) down to pos -2 (y 104, the first below).
+ */
+const ROOM = { hi: 12, lo: -2 }
+
+/**
+ * The pitch line's runs fitted to the room, read like notes: above or below the staff it gets ledger lines
+ * (each at its staff position, under the stretch that reaches it); beyond the room it runs along the room's
+ * edge, marked out (out: 1 above, -1 below) with a mark where it leaves, instead of being cut off or drawn
+ * where nothing says how high it is. runs: pitchRuns(). -> { runs: [{ pts: [[t, pos]], out }],
+ * ledgers: [{ pos, t0, t1 }], marks: [{ t, pos, dir }] }
+ */
+function roomRuns(runs, room = ROOM) {
+  const out = { runs: [], ledgers: [], marks: [] }
+  const side = (p) => (p > room.hi ? 1 : p < room.lo ? -1 : 0)
+  const edge = (p) => Math.max(room.lo, Math.min(room.hi, p))
+  const open = new Map()   // ledger pos -> the stretch being drawn
+  const ledgerAt = (t, p) => {
+    // loop: NOT-WORTH — the ledger positions a point needs (a few)
+    for (const L of ledgers(Math.round(edge(p)))) { const l = open.get(L); if (l) { l.t1 = t; l.last = t } else { const n = { pos: L, t0: t, t1: t, last: t }; open.set(L, n); out.ledgers.push(n) } }
+  }
+  // loop: NOT-WORTH — the song's pitch runs and their points (a few thousand), once per build
+  for (const run of runs || []) {
+    let cur = null
+    let prevT = null
+    for (const [t, p] of run) {
+      const s = side(p)
+      if (!cur || cur.out !== s) {
+        // the new piece starts where the last one ended, so the line stays one stroke
+        const pts = cur ? [[prevT, edge(cur.pts[cur.pts.length - 1][1])]] : []
+        cur = { pts, out: s }
+        out.runs.push(cur)
+        if (s) out.marks.push({ t, pos: s > 0 ? room.hi : room.lo, dir: s })
+      }
+      cur.pts.push([t, edge(p)])
+      // a ledger stretch continues while the next point still needs it (closed by a gap in time)
+      // loop: NOT-WORTH — the open ledger stretches (a few)
+      for (const l of open.values()) if (l.last !== prevT) open.delete(l.pos)
+      ledgerAt(t, p)
+      prevT = t
+    }
+    open.clear()
+  }
+  out.runs = out.runs.filter((r) => r.pts.length > 1)
+  // loop: NOT-WORTH — the ledger stretches, once per build
+  out.ledgers = out.ledgers.map(({ pos, t0, t1 }) => ({ pos, t0, t1 }))
+  return out
+}
+
+/**
  * First play: "Listening and learning" (Marcy 2026-10-18: "some kind of little green blinking dot would really
  * communicate to users"). A section's pitch line comes only after the section has been sung (the helper
  * separates the voice of a part once it has heard it; with Apple's or LRCLIB's line timing that is a
@@ -686,6 +739,6 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, LISTENING, listening,
+  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }

@@ -346,6 +346,10 @@
   .sn .ext { stroke: var(--s-soft); stroke-width: 1; }
   .sn .pl { fill: none; stroke: var(--s-soft); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .sn .pl.first { stroke: var(--active); }
+  /* the pitch line beyond the staff box's room (sheet-notes-model.js roomRuns): along the edge, dashed, an arrow where it leaves */
+  .sn .pl.out { stroke-dasharray: 3 4; }
+  .sn .pl-mark { fill: var(--s-soft); }
+  .sn .pl-mark.first { fill: var(--active); }
   .sn-head { position: absolute; left: 0; top: 26px; width: 2px; height: 84px; margin-left: -1px; border-radius: 1px; background: var(--active); }
   /* "Listening and learning" (first play, sheet-notes-model.js listening()): a small dot in the label row and
      one on the staff at the playhead, --s-live (theme.js: green, >= 3:1 on every surface), a soft 1.2 s

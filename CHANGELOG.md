@@ -10,6 +10,7 @@ See docs/RELEASING.md.
 ### Fixed
 
 - **A long word's pop no longer runs into the next word.** In the Studio at a large size, a long word being sung grew into the space beside it, so "amends, that's right" read as "amends,that's" and "predictable" crowded "it's". The pop looks and moves exactly as before; a word that would come too close to its neighbour now grows toward the side with room (the start or end of a line grows outward), and only when both sides are tight does it grow a little less, so a clear gap always stays between words. Short words pop exactly as they did. Hyphenated words ("Yeah-oh") stay joined, backing vocals follow the same rule, and with reduced motion nothing pops, as before.
+- **The sheet-notes staff keeps a high or low voice readable.** In the Studio's sheet notes, a stretch of the pitch line above the staff was drawn with nothing to read it by, right under the band's buttons (Sabrina Carpenter's "House Tour" at 2:29), and anything higher was cut off without a sign. Above or below the staff the line now gets ledger lines, as a note would; past the room the staff has, it runs along the edge, dashed, with a small arrow pointing the way it went. Notes that high or low show the same way. Nothing is drawn into the label row any more.
 
 ## [0.15.50-dev.1] — Hyphenated lyrics look as written, and the sheet-notes band says when no one is singing
 

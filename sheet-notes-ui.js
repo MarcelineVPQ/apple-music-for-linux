@@ -39,6 +39,13 @@ function sv(doc, tag, attrs, parent) {
   return e
 }
 const yOf = (pos) => BASE - pos * H
+// the small arrow where the pitch line or a note runs past the staff box's room (M.roomRuns): above the stroke
+// at y, pointing up (dir 1) or down onto it (dir -1), `off` px clear of it
+const markPath = (x, y, dir, off) => {
+  const base = dir > 0 ? y - off : y - off - 6
+  const tip = dir > 0 ? base - 6 : base + 6
+  return 'M' + r1(x - 4) + ' ' + r1(base) + 'L' + r1(x + 4) + ' ' + r1(base) + 'L' + r1(x) + ' ' + r1(tip) + 'Z'
+}
 const r1 = (v) => Math.round(v * 10) / 10
 
 // Noto Music's staff space is 244 units (its staff lines at 12…988); clefs at that size, accidentals a
@@ -179,9 +186,12 @@ function createSheetBand(opts) {
       const g = sv(doc, 'g', { class: 'n' + (n.loose ? ' loose' : '') }, svg)
       const x0 = x(n.t)
       const x1 = Math.max(x0 + 2 * H, x(n.end))
-      const y = yOf(n.pos)
+      // a note beyond the box's room sits on its edge, marked (as the pitch line: M.roomRuns), its ledgers up to there
+      const out = n.pos > M.ROOM.hi ? 1 : n.pos < M.ROOM.lo ? -1 : 0
+      const y = yOf(Math.max(M.ROOM.lo, Math.min(M.ROOM.hi, n.pos)))
       // loop: NOT-WORTH — a note's few ledger lines
-      for (const p of n.ledgers) sv(doc, 'line', { x1: x0 - 9, x2: x0 + 9, y1: yOf(p), y2: yOf(p), class: 'ledger' }, g)
+      for (const p of n.ledgers) if (p <= M.ROOM.hi && p >= M.ROOM.lo) sv(doc, 'line', { x1: x0 - 9, x2: x0 + 9, y1: yOf(p), y2: yOf(p), class: 'ledger' }, g)
+      if (out) sv(doc, 'path', { d: markPath(x0, y, out, 8), class: 'pl-mark' }, g)
       sv(doc, 'rect', { x: x0, y: y - H * 0.5, width: r1(x1 - x0), height: H, rx: H * 0.5, class: 'held' }, g)
       sv(doc, 'ellipse', { cx: x0, cy: y, rx: H * 1.2, ry: H * 0.85, transform: 'rotate(-20 ' + x0 + ' ' + y + ')', class: 'head' }, g)
       if (n.acc) accidentalAt(doc, ACC_NAME[n.acc], x0 - H * 1.4, y, g, 'gl acc')
@@ -202,13 +212,24 @@ function createSheetBand(opts) {
 
   function respan() { spans = drawn && doc2 ? M.staffSpans(drawn.notes, drawn.runs, doc2.syllables, sung) : null }
 
+  // the pitch line inside the staff box (M.roomRuns): ledger lines where it runs above or below the staff, and
+  // beyond the box's room it runs along the edge, dashed, with a small arrow where it leaves (never cut off
+  // silently, never into the label row)
   function drawRuns(svg, runs, x, cls) {
+    const fitted = M.roomRuns(runs)
+    // loop: NOT-WORTH — the line's ledger stretches, once per build or new piece
+    for (const l of fitted.ledgers) sv(doc, 'line', { x1: r1(x(l.t0) - 5), x2: r1(x(l.t1) + 5), y1: yOf(l.pos), y2: yOf(l.pos), class: 'ledger' }, svg)
     // loop: NOT-WORTH — the line's voiced runs (hundreds), once per build or new piece
-    for (const run of runs) {
+    for (const run of fitted.runs) {
       let d = ''
       // loop: NOT-WORTH — a run's points
-      for (let k = 0; k < run.length; k++) d += (k ? 'L' : 'M') + x(run[k][0]) + ' ' + r1(yOf(run[k][1])) + ' '
-      sv(doc, 'path', { d, class: cls }, svg)
+      for (let k = 0; k < run.pts.length; k++) d += (k ? 'L' : 'M') + x(run.pts[k][0]) + ' ' + r1(yOf(run.pts[k][1])) + ' '
+      sv(doc, 'path', { d, class: cls + (run.out ? ' out' : '') }, svg)
+    }
+    // loop: NOT-WORTH — where the line leaves the room (a few per song)
+    for (const mk of fitted.marks) {
+      const mx = x(mk.t)
+      sv(doc, 'path', { d: markPath(mx, yOf(mk.pos), mk.dir, 4), class: 'pl-mark' + (cls.includes('first') ? ' first' : '') }, svg)
     }
   }
 
