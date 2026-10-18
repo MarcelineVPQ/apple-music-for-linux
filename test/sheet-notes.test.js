@@ -218,7 +218,7 @@ test('mode: the first play draws the pitch line as sections come back; later pla
   const base = { on: true, installed: true, precise: true, timed: true, wordSynced: false }
   // first play, nothing heard yet: the line band, saying what comes
   const first = M.mode(Object.assign({}, base, { aligned: false, doc: null, pitch: [] }))
-  assert.equal(first.band, 'line'); assert.equal(first.label, 'First play · pitch line'); assert.match(first.text, /once Sonata has heard each part/)
+  assert.equal(first.band, 'line'); assert.equal(first.label, 'First play · pitch line'); assert.equal(first.text, ''); assert.equal(first.live, true)
   // first play, two sections back: the line
   const some = M.mode(Object.assign({}, base, { aligned: false, doc: null, pitch: fx.pieces }))
   assert.equal(some.band, 'line'); assert.equal(some.text, '')
@@ -589,7 +589,7 @@ test('band CSS: the label row wraps instead of cutting its words off; the staff 
   assert.match(rule('.sn-staff'), /position: relative; height: 132px/)
 })
 
-test('first play: a realistic piece draws visible runs; once they scroll off, the band says why it is empty', () => {
+test('first play: a realistic piece draws visible runs on the staff', () => {
   // the helper's pitch reply (align/server.py "pitch": { t0, hop 0.05, v MIDI x 10, 0 = no voice }), two sections
   const fx = fixture('cortez-feel-stripped')
   const line = M.mergePitch(fx.pieces)
@@ -597,16 +597,69 @@ test('first play: a realistic piece draws visible runs; once they scroll off, th
   assert.ok(runs.length > 0, 'the line has runs')
   // on the staff (or a few ledger lines off it), not off the band
   assert.ok(runs.every((r) => r.every(([t, pos]) => t >= 25 && t < 50 && pos > -8 && pos < 16)))
-  // the band's view (the last ~14-25 s up to the playhead): line in view, nothing to say
-  assert.equal(M.lineGap(runs, 30, 45), null)
-  assert.equal(M.lineGap(runs, 45, 52), null)
-  // a long next section (Marcy 2026-10-18: Mad Season at 5:44, the heard line ended at 4:20): the staff
-  // was empty with no word; now the band says the part shows once sung, and where the heard line ends
-  const g = M.lineGap(runs, 80, 95)
-  assert.ok(g && g.text.length <= M.TEXT_MAX)
-  assert.match(g.text, /once it has been sung/)
-  const end = runs[runs.length - 1][runs[runs.length - 1].length - 1][0]
-  assert.match(g.info, new RegExp('ends at 0:' + String(Math.floor(end)).padStart(2, '0')))
-  // nothing heard yet: mode() already says so (no runs, no gap note)
-  assert.equal(M.lineGap([], 0, 10), null)
+})
+
+// --- "Listening and learning" (Marcy 2026-10-18: "some kind of little green blinking dot") ---
+
+test('listening: on while the part at the playhead has no line yet; off once its line arrives, past the lyrics, paused or on an error', () => {
+  const fx = fixture('cortez-feel-stripped')
+  const base = { on: true, installed: true, precise: true, timed: true, wordSynced: false, aligned: false, doc: null }
+  const mode = (st) => M.mode(Object.assign({}, base, st))
+  const covered = fx.pieces.map((p) => [p.t0, p.t0 + p.v.length * p.hop])
+  const inside = (covered[0][0] + covered[0][1]) / 2
+  const after = Math.max(...covered.map((c) => c[1])) + 5
+  // pending: nothing heard yet, the playhead in the first part -> the dot, the label and the ⓘ's detail
+  const L = M.listening(mode({ pitch: [] }), [], 12, 200)
+  assert.deepEqual(L, M.LISTENING)
+  assert.equal(L.label, 'Listening and learning')
+  assert.ok(L.label.length <= M.TEXT_MAX)
+  assert.equal(L.info, 'The pitch line for this part appears once Sonata has heard it; next play it’s there from the start.')
+  // the next part, still being heard (the earlier sections' lines are in): on
+  assert.equal(M.listening(mode({ pitch: fx.pieces }), fx.pieces, after, 200), M.LISTENING)
+  // the part's line arrived (a piece covers the playhead): off, the line draws instead
+  assert.equal(M.listening(mode({ pitch: fx.pieces }), fx.pieces, inside, 200), null)
+  // past the lyrics' end: nothing left to hear, off (an end of 0 = unknown: still on)
+  assert.equal(M.listening(mode({ pitch: fx.pieces }), fx.pieces, after, after - 1), null)
+  assert.equal(M.listening(mode({ pitch: fx.pieces }), fx.pieces, after, 0), M.LISTENING)
+  // priority: paused for a game or an error say their own words; the dot stays off
+  const paused = mode({ paused: true, pitch: fx.pieces })
+  assert.equal(paused.text, 'Paused while a game runs')
+  assert.equal(M.listening(paused, fx.pieces, after, 200), null)
+  const err = mode({ pitch: fx.pieces, error: 'Part of the pitch line is missing: timeout' })
+  assert.equal(err.live, false)
+  assert.equal(M.listening(err, fx.pieces, after, 200), null)
+  assert.equal(M.listening(mode({ pitch: [], error: 'The pitch model is not downloaded' }), [], 12, 200), null)
+  // not a first play: later plays' notes, a message, the band off -> never
+  assert.equal(M.listening(mode({ aligned: true, doc: M.expand(fx.entry) }), [], 12, 200), null)
+  assert.equal(M.listening(mode({ aligned: true }), [], 12, 200), null)
+  assert.equal(M.listening(M.mode({ on: false }), [], 12, 200), null)
+})
+
+test('listening: the band shows it in the label row and on the staff at the playhead; one gap signal, not two', () => {
+  const ui = read('sheet-notes-ui.js')
+  assert.match(ui, /const L = M\.listening\(m, pieces, t, Number\(st\.end\) \|\| 0\)/)
+  assert.match(ui, /label\.textContent = L \? L\.label : m\.label/)
+  assert.match(ui, /const inf = L \? L\.info : \(m\.info \|\| ''\)/)
+  assert.match(ui, /const headDot = el\(doc, 'span', 'sn-live', head\)/)
+  // held still while the song is paused or the window hidden; no timer, no frame loop of its own
+  assert.match(ui, /root\.classList\.toggle\('still', !\(opts\.playing\(\) && doc\.visibilityState === 'visible'\)\)/)
+  assert.ok(!/lineGap|gapNote|once it has been sung/.test(ui + read('sheet-notes-model.js')), '0.15.47\'s gap message merged into it')
+  // main sends where the lyrics end (the align session's span)
+  assert.match(read('main.js'), /pieces: sheet\.pitch\.length, end: sheet\.end,/)
+  // CSS: a theme token, an opacity pulse of ~1.2 s, paused when still, steady with reduced motion
+  const html = read('lyrics.html')
+  assert.match(html, /\.sn-live \{[^}]*background: var\(--s-live\); animation: sn-live 1\.2s ease-in-out infinite; \}/)
+  assert.match(html, /@keyframes sn-live \{ 0%, 100% \{ opacity: 1; \} 50% \{ opacity: 0\.3; \} \}/)
+  assert.match(html, /\.sn\.still \.sn-live \{ animation-play-state: paused; \}/)
+  assert.match(html, /@media \(prefers-reduced-motion: reduce\) \{ \.sn-live \{ animation: none; \} \}/)
+  // the token: green, in both themes, >= 3:1 (non-text) over any backdrop and album colour
+  const T = require('../theme')
+  for (const dark of [false, true]) {
+    for (const p of [null, { accent: '#ffee00' }, { accent: '#20e070' }, { accent: '#2050ff' }]) {
+      const t = T.themeTokens({ dark, palette: p })
+      assert.ok(t.contrast.live >= 3, 'live ' + dark + JSON.stringify(p))
+      const [r, g, b] = t.vars['--s-live'].match(/\d+/g).map(Number)
+      assert.ok(g > r && g > b, 'green: ' + t.vars['--s-live'])
+    }
+  }
 })

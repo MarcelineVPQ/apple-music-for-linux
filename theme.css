@@ -32,6 +32,7 @@
   --s-edge: rgba(255,255,255,0.14);
   --s-specular: rgba(255,255,255,0.10);
   --s-shadow: rgba(0,0,0,0.45);
+  --s-live: rgba(48,209,88,1);
   --s-ok: rgba(31,143,78,1);
   --s-on-ok: rgba(255,255,255,1);
   --s-warn: rgba(242,179,61,1);
@@ -113,6 +114,7 @@
     --s-edge: rgba(0,0,0,0.12);
     --s-specular: rgba(255,255,255,0.55);
     --s-shadow: rgba(0,0,0,0.18);
+    --s-live: rgba(35,125,57,1);
     --s-ok: rgba(24,128,68,1);
     --s-error-text: rgba(150,16,28,1);
     --s-notice: rgba(242,179,61,0.22);

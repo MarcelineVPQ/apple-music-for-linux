@@ -355,9 +355,10 @@ function mode(st) {
   }
   if (!s.timed) return say('message', '', 'Sheet notes need lyrics with line timing')
   if (s.paused) return say((s.pitch && s.pitch.length) ? 'line' : 'message', 'First play · pitch line', 'Paused while a game runs')
-  if (s.pitch && s.pitch.length) return say('line', 'First play · pitch line', s.error || '')
-  if (s.aligned) return say('message', '', s.error || 'This play works out the notes: they show from the next play')
-  return say('line', 'First play · pitch line', s.error || 'The pitch line shows once Sonata has heard each part')
+  if (s.aligned && !(s.pitch && s.pitch.length)) return say('message', '', s.error || 'This play works out the notes: they show from the next play')
+  // the first play, still hearing the song: `live` (listening() puts "Listening and learning" up where the
+  // line is still to come); an error takes the row instead and the dot stays off
+  return Object.assign(say('line', 'First play · pitch line', s.error || ''), { live: !s.error })
 }
 
 // "Over the sung line": the room (px) the sung line opens above itself for the staff: the label row with
@@ -531,29 +532,29 @@ function pitchRuns(pitch, clef, fifths, spans) {
 }
 
 /**
- * First play: what the band says while none of the heard line is in its view. A section's line comes
- * only after the section is sung, and the band scrolls with the playhead (the last ~14-25 s), so through
- * a long section, or a solo after one, the drawn line has scrolled off to the left and the staff was
- * empty with no word why (Marcy 2026-10-18, Mad Season "Wake Up (Live At the Moore)" at 5:44: lines
- * 1-15 drawn, ending at 4:20). runs: pitchRuns(); [from, to): the song time the band shows.
- * -> null while some of the line is in view, else { text, info }
+ * First play: "Listening and learning" (Marcy 2026-10-18: "some kind of little green blinking dot would really
+ * communicate to users"). A section's pitch line comes only after the section has been sung (the helper
+ * separates the voice of a part once it has heard it; with Apple's or LRCLIB's line timing that is a
+ * whole section), so on a first play the staff between the heard line's end and the playhead is empty. While
+ * the part at the playhead has no line yet the band's label row says so, with a small blinking dot (also on
+ * the staff at the playhead): it replaces "First play · pitch line" and 0.15.47's gap message, and the ⓘ
+ * keeps the detail. It stops when the part's line is there (a piece covers the playhead), after the
+ * lyrics' end (nothing left to hear), while paused for a game or on an error (mode(): not `live`).
+ * m: mode(); pieces: the first play's pitch pieces ({ t0, hop, v }); t: the song time; end: the lyrics'
+ * end (s; 0 = not known). -> null, or { label, info }
  */
-function lineGap(runs, from, to) {
-  if (!runs || !runs.length) return null
-  let last = 0
-  // loop: NOT-WORTH — the line's voiced runs (tens to a few hundred), on the 2/s time pushes of the first play's band only
-  for (const r of runs) {
-    const a = r[0][0]
-    const b = r[r.length - 1][0]
-    if (b >= from && a < to) return null
-    if (a < to && b > last) last = b
+const LISTENING = {
+  label: 'Listening and learning',
+  info: 'The pitch line for this part appears once Sonata has heard it; next play it’s there from the start.'
+}
+function listening(m, pieces, t, end) {
+  if (!m || m.band !== 'line' || !m.live || !(t >= 0)) return null
+  if (end > 0 && t >= end) return null
+  // loop: NOT-WORTH — the song's sections (≤ ~12), on the 2/s time pushes of the first play's band only
+  for (const p of pieces || []) {
+    if (p && Array.isArray(p.v) && p.hop > 0 && t >= p.t0 && t < p.t0 + p.v.length * p.hop) return null
   }
-  const clock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0')
-  return {
-    text: 'This part’s line shows once it has been sung',
-    info: 'On a first play Sonata hears each part of the song once it has been sung, so the line follows a part behind' +
-      (last > 0 ? ': the line heard so far ends at ' + clock(last) + '.' : '.') + ' On the next play the notes show as they are sung.'
-  }
+  return LISTENING
 }
 
 /** The label above the band for a mode + the stretch at the playhead ('Notes · G minor · pitch line here'). */
@@ -593,5 +594,5 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, lineGap, labelAt, nextChange, noteAt
+  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, LISTENING, listening, labelAt, nextChange, noteAt
 }
