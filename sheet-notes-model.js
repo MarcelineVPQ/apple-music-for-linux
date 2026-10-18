@@ -322,27 +322,41 @@ function regionAt(regions, t) {
  * timed (line-synced lyrics), aligned (the words on screen are aligned on this PC), doc (the cached notes
  * for these lyrics, expanded) , pitch (first-play pitch pieces so far), paused (a game runs),
  * error (the last pitch/notes failure, text) }
- * -> { band: 'off' | 'notes' | 'line' | 'message', label, text }
+ * -> { band: 'off' | 'notes' | 'line' | 'message', label, text, info }
  *   off       the switch is off: the band folds away and the lyrics take the room
  *   notes     later plays: notes on the staff (gate() decides per stretch: notes, pitch line or nothing)
  *   line      first play: the pitch line, filled in as the sections are heard
  *   message   on, but nothing to draw for this song: one line says why (never an empty box)
+ * The long-text rule (the DS5 app's, Marcy 2026-10-18 "we already solved this"): the visible text says
+ * only what you must know, at most TEXT_MAX characters, and wraps when the row is narrow (never cut off);
+ * the longer explanation is `info`, behind the ⓘ beside it. A message has no label: the Experimental chip
+ * already says it (the label repeated "Experimental" next to it).
  */
+const TEXT_MAX = 60
+// a text that may run long (an error from main, the gate's reason): too long, the part before its first
+// ': ' stays visible and the whole sentence goes behind the ⓘ; with no such part it stays whole (it wraps)
+function fit(text) {
+  const t = String(text || '')
+  if (t.length <= TEXT_MAX) return { text: t, info: '' }
+  const at = t.indexOf(': ')
+  return at > 0 && at <= TEXT_MAX ? { text: t.slice(0, at), info: t } : { text: t, info: '' }
+}
+const say = (band, label, text, info) => Object.assign({ band, label }, info ? { text, info } : fit(text))
 function mode(st) {
   const s = st || {}
-  if (!s.on) return { band: 'off', label: '', text: '' }
-  if (!s.installed) return { band: 'message', label: 'Experimental', text: 'Sheet notes need Precise word timing’s helper (Settings → Precise timing)' }
-  if (!s.precise) return { band: 'message', label: 'Experimental', text: 'Sheet notes need Precise word timing on (Settings → Precise timing)' }
+  if (!s.on) return say('off', '', '')
+  if (!s.installed) return say('message', '', 'Needs Precise timing’s helper (Settings → Precise timing)', 'Sheet notes are worked out by Precise word timing’s helper on this PC. Install it in Settings → Precise timing.')
+  if (!s.precise) return say('message', '', 'Needs Precise word timing on (Settings → Precise timing)', 'Sheet notes are worked out from the word timing Sonata aligns on this PC: turn Precise word timing on in Settings → Precise timing.')
   if (s.doc && s.doc.notes && s.doc.notes.length && s.aligned) {
     const g = s.gate || gate(s.doc)
-    return { band: 'notes', label: 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), text: g.song === 'line' ? 'Pitch line only: ' + g.why : '' }
+    return say('notes', 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), g.song === 'line' ? 'Pitch line only' : '', g.song === 'line' ? 'Pitch line only: ' + g.why : '')
   }
-  if (s.wordSynced) return { band: 'message', label: 'Experimental', text: 'No sheet notes for this song yet: it has its own word timing, and Sonata works out notes only for songs it times itself' }
-  if (!s.timed) return { band: 'message', label: 'Experimental', text: 'Sheet notes need lyrics with line timing' }
-  if (s.paused) return { band: (s.pitch && s.pitch.length) ? 'line' : 'message', label: 'First play · pitch line', text: 'Paused while a game runs' }
-  if (s.pitch && s.pitch.length) return { band: 'line', label: 'First play · pitch line', text: s.error || '' }
-  if (s.aligned) return { band: 'message', label: 'Experimental', text: s.error || 'This play works out the notes: they show from the next play' }
-  return { band: 'line', label: 'First play · pitch line', text: s.error || 'The pitch line follows each part of the song once Sonata has heard it' }
+  if (s.wordSynced) return say('message', '', 'No sheet notes for this song yet', 'This song has its own word timing, and Sonata works out notes only for songs it times itself.')
+  if (!s.timed) return say('message', '', 'Sheet notes need lyrics with line timing')
+  if (s.paused) return say((s.pitch && s.pitch.length) ? 'line' : 'message', 'First play · pitch line', 'Paused while a game runs')
+  if (s.pitch && s.pitch.length) return say('line', 'First play · pitch line', s.error || '')
+  if (s.aligned) return say('message', '', s.error || 'This play works out the notes: they show from the next play')
+  return say('line', 'First play · pitch line', s.error || 'The pitch line shows once Sonata has heard each part')
 }
 
 // "Over the sung line": the room (px) the sung line opens above itself for the staff: the label row with
@@ -469,7 +483,7 @@ function noteAt(lay, t) {
 }
 
 module.exports = {
-  FORMAT, GATE, CLEFS, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
+  FORMAT, GATE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
   compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, pitchRuns, labelAt, nextChange, noteAt
 }

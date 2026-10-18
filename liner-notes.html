@@ -180,7 +180,27 @@
   .leaf .shade { position: absolute; inset: 0; z-index: 9; background: var(--s-shadow); opacity: 0; }
   .fade { position: absolute; inset: 0; z-index: 20; display: grid; grid-template-columns: var(--pg) var(--pg); pointer-events: none; }
 
-  /* navigation: previous / the sections / next */
+  /* turning a page: a click on the right-hand page turns forward, on the left-hand page back, like a real
+     book (Marcy 2026-10-18: "we should just be clicking on the book to turn the pages"). A page that can
+     turn shows it: a folded corner at its outer bottom edge (small at rest, lifted on hover) and the
+     pointer; at the first and last spread that side has neither. The corner is also the page's button
+     (Next page / Previous page) for the keyboard and screen readers. */
+  .page.turn { cursor: pointer; }
+  /* the corner: a button the size of the page's margin (2.6em: inside the text pages' 2.9em / 3em margins, so it
+     never lies over a link or a chip; 31-44 px with the page's type size), its hit target always whole; its
+     drawing (::before) is small at rest and lifts on hover or keyboard focus (a transform: compositor only) */
+  .curl { position: absolute; bottom: 0; z-index: 7; width: 2.6em; height: 2.6em; font-size: var(--fs); padding: 0; border: 0; background: none; cursor: pointer; }
+  .curl[hidden] { display: none; }
+  .curl::before { content: ''; position: absolute; inset: 0; transform: scale(.5); transition: transform .16s ease-out; }
+  .page.r .curl { right: 0; }
+  .page.l .curl { left: 0; }
+  .page.r .curl::before { transform-origin: 100% 100%; background: linear-gradient(to top left, var(--s-over-page) 0 48%, var(--s-shadow) 50%, var(--s-field) 56%, var(--s-material) 100%); }
+  .page.l .curl::before { transform-origin: 0 100%; background: linear-gradient(to top right, var(--s-over-page) 0 48%, var(--s-shadow) 50%, var(--s-field) 56%, var(--s-material) 100%); }
+  .page.turn:hover .curl::before, .page .curl:focus-visible::before { transform: scale(1); }
+  /* the ring inside the corner: the page clips what lies outside it */
+  #spread .page .curl:focus-visible { outline-offset: -3px; }
+
+  /* navigation: the sections */
   #nav { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px 12px; }
   #sections { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
   /* no --s-field fill under the quiet --s-soft words: --s-soft is fitted to 4.5:1 on the card itself,
@@ -191,23 +211,20 @@
   }
   #sections button:hover { color: var(--s-text); background: var(--s-hover); }
   #sections button[aria-current="true"] { background: var(--s-active); color: var(--s-text); border-color: var(--s-ring); }
-  .navbtn { flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--s-edge); background: var(--s-field); color: var(--s-text); display: grid; place-items: center; cursor: pointer; }
-  .navbtn:hover:not(:disabled) { background: var(--s-hover); }
-  .navbtn:disabled { opacity: .45; cursor: default; }
-  .navbtn svg { width: 16px; height: 16px; fill: currentColor; }
   #status button { min-height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-field); color: var(--s-text); font: 700 12px var(--font-text); cursor: pointer; }
   #status button:hover { background: var(--s-hover); }
 
   /* the keyboard's ring, in the theme's colour, everywhere */
   button:focus { outline: none; }
   a:focus { outline: none; }
-  #close:focus-visible, .navbtn:focus-visible, #sections button:focus-visible, #status button:focus-visible, a:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+  #close:focus-visible, .curl:focus-visible, #sections button:focus-visible, #status button:focus-visible, a:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
 
   #measure { position: absolute; left: -10000px; top: 0; visibility: hidden; pointer-events: none; }
 
   @media (prefers-reduced-motion: reduce) {
     .disc.spin { animation: none; }
     .page.pulse::before { animation: none; opacity: 1; }
+    .curl::before { transition: none; }
   }
 </style>
 </head>
@@ -224,13 +241,7 @@
     <div id="status" role="status"></div>
     <div id="stage"><div id="spread" role="group" aria-label="Booklet"><div id="empty">Opening the booklet…</div></div></div>
     <div id="nav" role="navigation" aria-label="Pages">
-      <button class="navbtn" id="prev" title="Previous pages (←)" aria-label="Previous pages">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10.3 2.3a.75.75 0 0 1 0 1.06L5.66 8l4.64 4.64a.75.75 0 1 1-1.06 1.06L4.07 8.53a.75.75 0 0 1 0-1.06L9.24 2.3a.75.75 0 0 1 1.06 0z"/></svg>
-      </button>
       <div id="sections" role="group" aria-label="Sections"></div>
-      <button class="navbtn" id="next" title="Next pages (→)" aria-label="Next pages">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 2.3a.75.75 0 0 0 0 1.06L10.34 8 5.7 12.64a.75.75 0 1 0 1.06 1.06l5.17-5.17a.75.75 0 0 0 0-1.06L6.76 2.3a.75.75 0 0 0-1.06 0z"/></svg>
-      </button>
     </div>
   </div>
   <div id="measure" aria-hidden="true"></div>
@@ -565,6 +576,17 @@
     // folios follow the final order (the cover pages carry none)
     flat.forEach((f, i) => { const fo = f.el.querySelector('.folio'); if (fo) fo.textContent = String(i) })   // loop: NOT-WORTH — the pages, once per layout
     flat.forEach((f, i) => { f.el.classList.add(i % 2 ? 'r' : 'l'); f.el.setAttribute('role', 'region'); f.el.setAttribute('aria-label', 'Page ' + (i + 1) + ': ' + (f.name || '')) })   // loop: NOT-WORTH — once per layout
+    // each page's turning corner (its outer bottom edge): Next page on a right-hand page, Previous on a left
+    // loop: NOT-WORTH — the pages, once per layout
+    flat.forEach((f, i) => {
+      const c = el('button', 'curl')
+      c.type = 'button'
+      c.dataset.dir = i % 2 ? 'next' : 'prev'
+      c.setAttribute('aria-label', i % 2 ? 'Next page' : 'Previous page')
+      c.title = i % 2 ? 'Next page (→)' : 'Previous page (←)'
+      c.hidden = true
+      f.el.append(c)
+    })
     pages = flat
     spreads = []
     // loop: NOT-WORTH — the spreads, once per layout
@@ -599,8 +621,12 @@
     const here = new Set([pages[a] && pages[a].section, pages[b] && pages[b].section].filter(Boolean))
     // loop: NOT-WORTH — ≤ 8 section buttons
     for (const btn of $('sections').children) btn.setAttribute('aria-current', here.has(btn.dataset.section) ? 'true' : 'false')
-    $('prev').disabled = cur === 0
-    $('next').disabled = cur >= spreads.length - 1
+    // the turnable sides: the left page back (not on the cover), the right page on (not at the back cover)
+    const back = cur > 0; const on = cur < spreads.length - 1
+    L.classList.toggle('turn', back); R.classList.toggle('turn', on)
+    const cl = L.querySelector(':scope > .curl'); const cr = R.querySelector(':scope > .curl')
+    if (cl) cl.hidden = !back
+    if (cr) cr.hidden = !on
     const words = cur === 0 ? 'Cover' : 'Pages ' + a + '–' + b
     $('pages').textContent = words + ' of ' + (pages.length - 1)
     const names = [...new Set([pages[a], pages[b]].filter((p) => p && p.name).map((p) => p.name))].join(' and ')
@@ -620,6 +646,9 @@
       L = na; R = nb; cur = to; busy = false
       chrome()
       say(spreadEl.getAttribute('aria-label'))
+      // turned from a corner by the keyboard: the focus stays on that corner of the new spread (or, at the
+      // end, the other one), never lost to the page
+      if (why === 'corner') { const c = (fwd ? R : L).querySelector(':scope > .curl:not([hidden])') || (fwd ? L : R).querySelector(':scope > .curl:not([hidden])'); if (c) c.focus({ focusVisible: true }) }
     }
     busy = true
     if (reduce.matches) {
@@ -659,8 +688,24 @@
     }
     go(i)
   }
-  $('prev').addEventListener('click', () => go(cur - 1))   // lifetime: OK — once at load
-  $('next').addEventListener('click', () => go(cur + 1))   // lifetime: OK — once at load
+  // a click on the open book: the right-hand page turns forward, the left-hand page back (like a real book).
+  // Not a turn: a click on a link, a button or a chip, a click that ends a text selection (a drag, a double
+  // or triple click), or one with another button. A page's corner is its button (the keyboard's way too).
+  let downAt = null
+  // lifetime: OK — two listeners on the spread for the page's life
+  spreadEl.addEventListener('mousedown', (e) => { downAt = [e.clientX, e.clientY] })
+  spreadEl.addEventListener('click', (e) => {
+    const corner = e.target.closest('.curl')
+    if (corner) { go(cur + (corner.dataset.dir === 'next' ? 1 : -1), e.detail === 0 ? 'corner' : 'click'); return }
+    if (e.button !== 0 || e.detail > 1) return
+    if (e.target.closest('a, button, input, select, textarea, .src, [tabindex]')) return
+    const moved = downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5
+    const sel = document.getSelection()
+    if (moved || (sel && !sel.isCollapsed && String(sel).trim())) return
+    const page = e.target.closest('.page')
+    if (page && page === R && page.classList.contains('turn')) go(cur + 1, 'click')
+    else if (page && page === L && page.classList.contains('turn')) go(cur - 1, 'click')
+  })
   $('close').addEventListener('click', () => send('close'))   // lifetime: OK — once at load
   // lifetime: OK — one keydown listener for the page
   document.addEventListener('keydown', (e) => {

@@ -208,7 +208,9 @@ test('mode: off folds the band away; the switch on says why there is nothing to 
   assert.equal(M.mode({ on: false }).band, 'off')
   assert.equal(M.mode(Object.assign({}, base, { installed: false })).band, 'message')
   assert.match(M.mode(Object.assign({}, base, { precise: false })).text, /Precise word timing on/)
-  assert.match(M.mode(Object.assign({}, base, { wordSynced: true })).text, /its own word timing/)
+  const own = M.mode(Object.assign({}, base, { wordSynced: true }))
+  assert.equal(own.text, 'No sheet notes for this song yet')
+  assert.match(own.info, /its own word timing/)
   assert.match(M.mode(Object.assign({}, base, { timed: false })).text, /line timing/)
 })
 
@@ -217,7 +219,7 @@ test('mode: the first play draws the pitch line as sections come back; later pla
   const base = { on: true, installed: true, precise: true, timed: true, wordSynced: false }
   // first play, nothing heard yet: the line band, saying what comes
   const first = M.mode(Object.assign({}, base, { aligned: false, doc: null, pitch: [] }))
-  assert.equal(first.band, 'line'); assert.equal(first.label, 'First play · pitch line'); assert.match(first.text, /once Sonata has heard it/)
+  assert.equal(first.band, 'line'); assert.equal(first.label, 'First play · pitch line'); assert.match(first.text, /once Sonata has heard each part/)
   // first play, two sections back: the line
   const some = M.mode(Object.assign({}, base, { aligned: false, doc: null, pitch: fx.pieces }))
   assert.equal(some.band, 'line'); assert.equal(some.text, '')
@@ -461,7 +463,8 @@ test('placement: band on top by default; over the sung line only with something 
   assert.equal(M.OVER_ROOM, 136)
   const css = read('lyrics.html')
   assert.match(css, /#sn-over \{ position: absolute; left: 40px; right: 56px; top: 0; height: 136px;/)
-  assert.match(css, /#sn-over \.sn-staff \{ bottom: auto; height: 110px; \}/)
+  assert.match(css, /#sn-over \.sn-staff \{ height: 110px; \}/)
+  assert.match(css, /#sn-over \.sn \{ position: absolute; left: 0; right: 0; bottom: 0; \}/)
   assert.match(css, /\.sn\.over \.sn-syls \{ display: none; \}/)
 })
 
@@ -502,4 +505,41 @@ test('over the sung line: the room opens by a border (no line text moves into it
   assert.match(html, /overEl\.style\.transform = 'translateY\(' \+ y \+ 'px\)'/)
   assert.match(html, /if \(was !== null && was !== y && !matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\)/)
   assert.match(html, /room: \(\) => \(sheetBand && stage\.shown \? sheetBand\.room : 0\)/)
+})
+
+// the DS5 app's long-text rule (Marcy 2026-10-18: "make this wrap or use the i circle"): what stays visible
+// is short, the longer explanation goes behind the ⓘ; a message never repeats the Experimental chip
+test('mode: visible text at most 60 characters, the rest behind the ⓘ; the label never repeats the chip', () => {
+  const base = { on: true, installed: true, precise: true, timed: true, wordSynced: false, aligned: false, paused: false, error: '', pitch: [] }
+  const fx = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'sheet-notes', 'cortez-feel-stripped.json'), 'utf8'))
+  const states = [{ installed: false }, { precise: false }, { wordSynced: true }, { timed: false }, { paused: true }, { pitch: fx.pieces },
+    { aligned: true }, {}, { aligned: true, doc: M.expand(fx.entry) },
+    { error: 'The pitch model is not downloaded: turn Sheet notes off and on to download it' },
+    { aligned: true, error: 'No notes this time: ' + 'a long reason from the helper '.repeat(4) },
+    { pitch: fx.pieces, error: 'Part of the pitch line is missing: ' + 'x'.repeat(80) }]
+  for (const st of states) {
+    const m = M.mode(Object.assign({}, base, st))
+    assert.ok(m.text.length <= M.TEXT_MAX, JSON.stringify(st).slice(0, 80) + ' -> ' + m.text)
+    assert.notEqual(m.label, 'Experimental', 'the label never repeats the Experimental chip')
+    if (m.info) assert.ok(m.info.length > m.text.length, m.info)
+  }
+  // a long text: the part before its first ': ' stays, the whole sentence goes behind the ⓘ
+  assert.deepEqual(M.fit('Part of the pitch line is missing: ' + 'y'.repeat(60)), { text: 'Part of the pitch line is missing', info: 'Part of the pitch line is missing: ' + 'y'.repeat(60) })
+  assert.deepEqual(M.fit('short'), { text: 'short', info: '' })
+  // no such part: it stays whole and wraps (never cut off)
+  const long = 'w'.repeat(70)
+  assert.deepEqual(M.fit(long), { text: long, info: '' })
+  // the gate's long reason: "Pitch line only" stays, the reason goes behind the ⓘ
+  const doc = M.expand(fx.entry)
+  const m = M.mode(Object.assign({}, base, { aligned: true, doc, gate: { song: 'line', why: 'the singing sits off the pitch grid (80 cents): rap, speech or shouting', regions: [] } }))
+  assert.deepEqual([m.text, m.info], ['Pitch line only', 'Pitch line only: the singing sits off the pitch grid (80 cents): rap, speech or shouting'])
+})
+
+test('band CSS: the label row wraps instead of cutting its words off; the staff sits under it', () => {
+  const css = read('lyrics.html')
+  const rule = (sel) => (css.match(new RegExp('\\n  ' + sel.replace(/[.#]/g, '\\$&') + ' \\{([^}]*)\\}')) || [])[1] || ''
+  assert.match(rule('.sn-top'), /flex-wrap: wrap/)
+  assert.doesNotMatch(rule('.sn-top'), /nowrap|(^|[ ;])height: 26px/)
+  assert.doesNotMatch(rule('.sn-msg'), /ellipsis|nowrap/)
+  assert.match(rule('.sn-staff'), /position: relative; height: 132px/)
 })

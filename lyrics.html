@@ -271,22 +271,29 @@
   body.stage #credits { font-size: 13px; text-align: left; }
   body.stage #source { font-size: 12px; text-align: left; }
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
-  #band { margin: 6px 18px 8px 22px; height: 158px; position: relative; }
+  #band { margin: 6px 18px 8px 22px; position: relative; }
   /* the sheet-notes band (sheet-notes-ui.js, Experimental): the staff and the pitch line, theme tokens
      only. Nothing here transitions or animates: the strip moves by one Web Animation of its transform
-     (compositor), the sung note changes class at its start and end. A one-line message when the song has
-     nothing to draw (#band.msg). */
-  #band.msg { height: auto; }
-  .sn { position: absolute; inset: 0; }
-  #band.msg .sn { position: static; }
-  .sn-top { display: flex; align-items: center; gap: 8px; height: 26px; font-size: 11px; font-weight: 600; color: var(--s-soft); white-space: nowrap; min-width: 0; }
-  #band.msg .sn-top { height: auto; min-height: 18px; flex-wrap: wrap; white-space: normal; row-gap: 4px; }
-  .sn-exp { padding: 1px 6px; border-radius: 4px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); color: var(--s-text); font-size: 10px; letter-spacing: 0.02em; }
+     (compositor), the sung note changes class at its start and end. The label row on top, the staff (132 px)
+     under it. The row never cuts its words off (the DS5 app's long-text rule, Marcy 2026-10-18): it wraps
+     onto a second line when the column is narrow, and a longer explanation sits behind the ⓘ
+     (sheet-notes-model.js mode(): visible text ≤ 60 characters, the rest in `info`). */
+  .sn { position: relative; }
+  .sn-top { position: relative; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 26px; font-size: 11px; font-weight: 600; color: var(--s-soft); min-width: 0; }
+  .sn-exp { padding: 1px 6px; border-radius: 4px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); color: var(--s-text); font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
   .sn-label { color: var(--s-text); }
-  .sn-msg { color: var(--s-soft); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .sn-staff { position: absolute; left: 0; right: 0; top: 26px; bottom: 0; overflow: hidden; }
+  .sn-msg { color: var(--s-soft); font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+  /* the ⓘ beside the message and its explanation (a bubble under the row, the row's width) */
+  .sn-info { display: inline-grid; place-items: center; flex-shrink: 0; width: 24px; height: 24px; margin: -1px -4px -1px -6px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--s-soft); font: italic 700 11px/1 Georgia, serif; cursor: help; position: relative; -webkit-app-region: no-drag; }
+  .sn-info::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+  .sn-info:hover, .sn-info.open { color: var(--s-text); }
+  .sn-info:focus { outline: none; }
+  .sn-info:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+  .sn-info-text[hidden], .sn-tip[hidden] { display: none; }
+  .sn-tip { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 4; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-surface); box-shadow: 0 6px 16px var(--s-shadow); color: var(--s-text); font-size: 11.5px; font-weight: 500; line-height: 1.4; white-space: normal; pointer-events: none; }
+  .sn-staff { position: relative; height: 132px; overflow: hidden; }
   /* the placement buttons (Band on top / Over the sung line), at the label row's end */
-  .sn-place { display: flex; margin-left: auto; padding: 1px; border-radius: 7px; border: 1px solid var(--s-edge); -webkit-app-region: no-drag; }
+  .sn-place { display: flex; margin: -1px 0 -1px auto; padding: 1px; border-radius: 7px; border: 1px solid var(--s-edge); -webkit-app-region: no-drag; }
   .sn-place button { min-height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--s-soft); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
   .sn-place button:hover { color: var(--s-text); background: var(--s-hover); }
   .sn-place button[aria-pressed="true"] { color: var(--s-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--s-ring); }
@@ -297,7 +304,9 @@
      No syllable row: the sung words are right below. */
   body.stage #lines { position: relative; }
   #sn-over { position: absolute; left: 40px; right: 56px; top: 0; height: 136px; z-index: 2; -webkit-app-region: no-drag; }
-  #sn-over .sn-staff { bottom: auto; height: 110px; }
+  #sn-over .sn-staff { height: 110px; }
+  /* in the room the block sits on the sung line: a label row that wraps grows upward, never over the line */
+  #sn-over .sn { position: absolute; left: 0; right: 0; bottom: 0; }
   .sn.over .sn-syls { display: none; }
   .sn-fixed { position: absolute; left: 0; top: 0; width: 100%; }
   .sn-view { position: absolute; top: 0; right: 0; bottom: 0; overflow: hidden; }
@@ -450,7 +459,12 @@
   .ib.act[aria-pressed="true"] { color: var(--s-accent-text); }
   .ib.act[aria-disabled="true"] { cursor: default; }
   .ib.act[aria-disabled="true"]:hover { background: none; color: var(--s-soft); }
-  #act-note { min-height: 17px; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: var(--s-soft); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* the action's note: one line held for it under the actions; a longer note is never cut off (the DS5 app's
+     long-text rule; it is a passing note, so no ⓘ): it wraps in a small card laid over what is below for
+     the few seconds it shows (.long, set by stage-ui.js said()), so nothing in the full column moves */
+  #act-slot { position: relative; z-index: 3; flex-shrink: 0; height: 17px; margin-top: 4px; }
+  #act-note { position: absolute; left: 0; right: 0; top: 0; min-height: 17px; font-size: 11.5px; font-weight: 600; line-height: 1.35; color: var(--s-soft); text-align: center; overflow-wrap: anywhere; }
+  #act-note.long { top: -3px; padding: 3px 8px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-surface); box-shadow: 0 6px 16px var(--s-shadow); color: var(--s-text); }
   /* a failure: the text colour (>= 4.5:1 on every album colour and Glass) in bold, the words say what failed */
   #act-note.error { color: var(--s-text); font-weight: 700; }
 
@@ -691,7 +705,7 @@
         <button id="a-artist" class="ib act" aria-label="Go to Artist" title="Go to the artist in Apple Music"></button>
         <button id="a-more" class="ib act" aria-haspopup="menu" aria-label="More" title="More: View Album Cover, Liner Notes, Share"></button>
       </div>
-      <div id="act-note" aria-hidden="true"></div>
+      <div id="act-slot"><div id="act-note" aria-hidden="true"></div></div>
       <!-- the stage's layers: each tile shows only when it does something (no dead controls) -->
       <div id="layers" hidden>
         <span class="k">In the Studio</span>
@@ -1112,7 +1126,7 @@
     placeBand()
     view.recenter()   // the room above the sung line opens, moves or goes with the placement
     const d = sheetBand.debug()
-    const said = 'Sheet notes, experimental' + (d.label && d.label !== 'Experimental' ? ': ' + d.label : '') + (d.msg ? '. ' + d.msg : '')
+    const said = 'Sheet notes, experimental' + (d.label ? ': ' + d.label : '') + (d.info ? '. ' + d.info : d.msg ? '. ' + d.msg : '')
     bandEl.setAttribute('aria-label', said)
     overEl.setAttribute('aria-label', said)
     sheetBand.relayout()

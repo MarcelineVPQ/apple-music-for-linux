@@ -770,7 +770,7 @@ function sheetNotesFailed(s, e) {
   // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
   if (code !== 'paused') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
   if (sheet && sheet.key === s.key) {
-    sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'no-model' ? 'The pitch model is not downloaded (turn Sheet notes off and on to download it)'
+    sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'no-model' ? 'The pitch model is not downloaded: turn Sheet notes off and on to download it'
       : code === 'low-vram' ? 'No notes this time: not enough free graphics memory' : 'No notes this time: ' + ((e && e.message) || 'unknown error')
     sendSheet()
   }
@@ -1198,7 +1198,9 @@ function stageSay(note) { if (note && stageAlive()) lyricsWindow.webContents.sen
 // a song action's result in the Studio: its note; after one that changes the song's state, that state again
 function stageDone(action, ok, why, info) {
   stageSay(songActions.said(action, ok, why))
-  if (ok && /favorite|library|playlist/.test(action)) { stageSongKey = ''; stageSongRead(null, '') }
+  // read back from Apple's page, never assumed: the button shows what Apple now says (same song key kept,
+  // so the next tick doesn't read again and outrun this read)
+  if (ok && /favorite|library|playlist/.test(action)) stageSongRead(null, '')
 }
 // the song as the shared menu builder takes it (songMenuItems)
 function stageInfo() {
@@ -1217,8 +1219,8 @@ async function stageSongRead(state, key) {
   try { st = await songSource.state() } catch (e) { st = { ok: false, why: 'not-ready' } }   // error: SHOWN — the row shows nothing known (its buttons say why when clicked)
   if (seq !== stageSongSeq || !stageAlive()) return
   stageSong = st
-  const k = key || (lastStage().title || '') + '|' + (lastStage().artist || '')
-  stageSongKey = k
+  // sent under the Studio's own key (the now-playing it was just sent), not the feed's track key
+  const k = stageModel.songKey(lastStage())
   lyricsWindow.webContents.send('stage-song', Object.assign({ key: k }, st, { offers: songActions.offers(st) }))
   if (state) stageCredits(state, st, k, seq)
 }
@@ -1933,7 +1935,7 @@ const trackInfoScript = `(async () => {
 const songSource = songActions.createAppleSource({ run: (code) => (mainAlive() ? appleWC().executeJavaScript(code) : Promise.reject(new Error('Apple Music\'s page isn\'t open'))) })
 // for the UI checker (process.mainModule.exports, its test copy only): the source (its methods can be stood in for),
 // and the queue and song the Studio's menus act on (the checker feeds the page a queue main didn't read)
-module.exports.studioTest = { source: songSource, setQueue: (q) => { stageQueueLast = stageModel.cleanQueue(q) }, setSong: (st) => { stageSong = songActions.cleanState(st) } }
+module.exports.studioTest = { source: songSource, setQueue: (q) => { stageQueueLast = stageModel.cleanQueue(q) }, setSong: (st) => { stageSong = songActions.cleanState(st) }, setNowPlaying: (np) => { stageSent = JSON.stringify(np) } }
 /**
  * One song action from a menu or the Studio: 'favorite' | 'undo-favorite' | 'library' | 'link' | 'share'.
  * info: { id, title, artist, url }; done(action, ok, extra) tells the place it came from.

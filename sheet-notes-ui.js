@@ -64,6 +64,7 @@ const ACC_NAME = { [M.SHARP]: 'sharp', [M.FLAT]: 'flat', '♮': 'natural', '𝄪
  * -> { el, setState(st), setTime(), hasContent, mode }
  * st: main's 'lyrics-sheet' (on, installed, precise, key, wordSynced, timed, aligned, paused, error, entry?, pitch?)
  */
+let bandCount = 0   // a unique id per band for the ⓘ's description
 function createSheetBand(opts) {
   const doc = opts.doc
   const root = el(doc, 'div', 'sn')
@@ -72,6 +73,30 @@ function createSheetBand(opts) {
   exp.textContent = 'Experimental'
   const label = el(doc, 'span', 'sn-label', top)
   const msg = el(doc, 'span', 'sn-msg', top)
+  // the ⓘ (the DS5 app's rule for long text): the longer explanation behind a small button beside the
+  // message; shown on hover and keyboard focus, a click toggles it (touch), Esc closes it. Screen readers
+  // get it as the button's description (aria-describedby: the text is always in the page, hidden).
+  // Idle cost: none (no timers; three listeners on the button for the band's life).
+  const info = el(doc, 'button', 'sn-info', top)
+  info.type = 'button'
+  info.textContent = 'i'
+  info.setAttribute('aria-label', 'More about this')
+  info.hidden = true
+  const infoText = el(doc, 'span', 'sn-info-text', top)
+  infoText.id = 'sn-info-text-' + (++bandCount)
+  infoText.hidden = true
+  info.setAttribute('aria-describedby', infoText.id)
+  const tip = el(doc, 'span', 'sn-tip', top)
+  tip.setAttribute('aria-hidden', 'true')
+  tip.hidden = true
+  const showTip = (on) => { tip.hidden = !on || !infoText.textContent; info.classList.toggle('open', !tip.hidden) }
+  // lifetime: OK — the ⓘ's listeners, set once with the band, released with the window
+  info.onmouseenter = () => showTip(true)
+  info.onmouseleave = () => { if (doc.activeElement !== info) showTip(false) }
+  info.onfocus = () => showTip(true)
+  info.onblur = () => showTip(false)
+  info.onclick = (e) => { e.stopPropagation(); showTip(tip.hidden) }
+  info.onkeydown = (e) => { if (e.key === 'Escape' && !tip.hidden) { e.preventDefault(); e.stopPropagation(); showTip(false) } }
   // where the staff sits (Settings → Experimental → Sheet notes placement, remembered): two buttons,
   // shown while there is something to draw
   const placeSeg = el(doc, 'span', 'sn-place', top)
@@ -251,7 +276,7 @@ function createSheetBand(opts) {
       }
     }
     const lab = M.labelAt(m, M.regionAt(gated && gated.regions, t))
-    if (label.textContent !== lab) label.textContent = lab
+    if (label.textContent !== lab) { label.textContent = lab; label.hidden = !lab }
   }
   function schedule(t) {
     if (wake) { clearTimeout(wake); wake = 0 }
@@ -294,8 +319,13 @@ function createSheetBand(opts) {
     // loop: NOT-WORTH — two buttons, per state push
     for (const b of placeBtns) b.setAttribute('aria-pressed', String(b.dataset.place === place))
     label.textContent = m.label
+    label.hidden = !m.label
     msg.textContent = m.text
     msg.hidden = !m.text
+    infoText.textContent = m.info || ''
+    tip.textContent = m.info || ''
+    info.hidden = !m.info
+    if (!m.info) showTip(false)
     box.hidden = m.band === 'off'
     const want = m.band === 'notes' ? 'notes:' + (s.key || '') + ':' + (entry && entry.created) : m.band === 'line' ? 'line:' + pieces.length + ':' + (s.key || '') : ''
     if (want && want !== built) {
@@ -326,7 +356,7 @@ function createSheetBand(opts) {
     get room() { return M.placement(st, m.band, true).room },
     get on() { return !!st.on },
     // for the UI checker: what is drawn and running
-    debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
+    debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, info: infoText.textContent, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
   }
 }
 

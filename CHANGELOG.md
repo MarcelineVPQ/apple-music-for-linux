@@ -7,6 +7,16 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **Turn the liner notes' pages by clicking the book.** A click on the right-hand page turns forward, a click on the left-hand page turns back, like a real booklet; the ‹ › arrows under it are gone (the section buttons stay). A page that can turn shows it: a folded corner at its outer bottom edge, lifted when the mouse is over the page, and the pointer; the cover and the back cover have none on their outer side. Clicking a link, a chip or a button, or selecting text, never turns a page. ← / → and Page Up / Page Down still turn pages, and each folded corner is a Next page / Previous page button for the keyboard and screen readers.
+
+### Fixed
+
+- **The Studio's Favorite star fills in.** After you favourite the playing song it now shows a filled star in the accent colour ("Remove from Favorites"), and an outline again after you take it out. The star and the Add to Library ✓ show what Apple Music says, read back after each click and on every new song: the Studio was ignoring those reads since songs got their recording ids, so it kept showing whatever the last action left. The song's credits on the cover's back had the same fault and are back too.
+- **The sheet-notes band's message is no longer cut off, and says Experimental once.** The top row wraps onto a second line when the Studio is narrow instead of ending in "…", the messages are short, and the longer explanation is behind an ⓘ beside them (hover, Tab to it, or click). The label next to the Experimental chip no longer repeats "Experimental".
+- **The note under the Studio's song actions shows all of what it says.** A longer one ("The album isn't shown in Apple Music's page right now, so it couldn't be opened from here") wraps onto a second line instead of ending in "…".
+
 ## [0.15.44-dev.1] — The liner notes disc turns about its own centre
 
 ### Fixed
