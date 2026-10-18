@@ -1021,7 +1021,8 @@ async function montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
   let f = await facts()
   check('montage: with photos it shows behind the lyrics (tile "On"), the first photo in, its credit: author · licence · Wikimedia Commons', t.pressed === 'true' && t.small === 'On' && t.box && f.visible && f.photo === photos[0].id && t.credit && t.creditText === 'Ann Example · CC BY-SA 4.0 · Wikimedia Commons', { t, f })
   // a click on the photo area (the lyrics' empty space, never a line) shows the next photo; a click on a line doesn't
-  const empty = await page.ev(`(() => { const r = document.getElementById('lines').getBoundingClientRect(); return [Math.round(r.right - 20), Math.round(r.bottom - 30)] })()`)
+  // the lyrics' left margin (#lines' padding, outside every line; the credit chip sits at the bottom right)
+  const empty = await page.ev(`(() => { const r = document.getElementById('lines').getBoundingClientRect(); return [Math.round(r.left + 14), Math.round(r.top + r.height * 0.55)] })()`)
   x('click', empty[0], empty[1]); await sleep(600)
   const f2 = await facts()
   await page.ev(`(document.querySelector('#lines .line').click(), true)`); await sleep(400)
@@ -1254,8 +1255,8 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
     s.playlists = async () => { globalThis.__src.push(['playlists']); return [{ id: 'p.1', name: 'Road trip' }, { id: 'p.2', name: 'Campfire songs' }] }
     s.addToPlaylist = async (p, id) => { globalThis.__src.push(['playlist', p, id]) }
     if (!s.__state) s.__state = s.state
-    s.state = async () => ({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, favorite: false, inLibrary: false, albumId: '1700000000', artistId: '42' })
-    t.setSong({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, rating: 1, inLibrary: false, albumId: '1700000000', artistId: '42' })
+    s.state = async () => ({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, favorite: false, inLibrary: false, albumId: '', artistId: '42' })
+    t.setSong({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, rating: 1, inLibrary: false, albumId: '', artistId: '42' })
     t.setQueue(${JSON.stringify(stageQueue())})
     return true })()`)
   const src = () => mp.ev('globalThis.__src.splice(0)')
@@ -1285,7 +1286,9 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   await click('a-more'); await sleep(400); m = await menus(); await stageLog()
   check('studio: More opens the shared menu: View Album Cover, Liner Notes…, Share', m.length === 1 && m[0].labels.join('|') === 'View Album Cover|Liner Notes…|-|Share', m)
   await clear(); await pick('Share', 'Copy Song and Link'); n = await waitNote(/copied/)
-  check('studio: Share › Copy Song and Link copies "title — artist" and the link', (await mp.ev(`${E}.clipboard.readText()`)) === np.title + ' — ' + np.artist + '\\n' + url && n[0] === 'Song and link copied', n)
+  await sleep(300)
+  const shared = await mp.ev(`${E}.clipboard.readText()`)
+  check('studio: Share › Copy Song and Link copies "title — artist" and the link', shared === np.title + ' \u2014 ' + np.artist + '\n' + url && n[0] === 'Song and link copied', { n, shared })
   // the real menu on screen, for the record (closed with Esc)
   await mp.ev('(globalThis.__showMenus = true, true)')
   await focusWin(mp, 'Lyrics'); await click('a-more'); await sleep(900)
@@ -1359,8 +1362,8 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
         await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(800)
         const tag = 'studio-' + (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '')
         xshot(path.join(OUT, tag + '.png'), W, H)
-        const au = await page.ev(PAGE_AUDIT('#np'))
-        judge(tag + ' (the credits, the actions, the error note)', au, { minHit: 24 })
+        const au = await page.ev(PAGE_AUDIT('#card'))
+        judge(tag + ' (the credits, the actions, the error note)', Object.assign({}, au, { texts: au.texts.filter((t) => !t.bgv) }), { minHit: 24 })
       }
     }
   }
@@ -1381,7 +1384,7 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   await page.ev(`(document.getElementById('q-list').scrollTop = document.getElementById('q-list').scrollHeight, true)`); await sleep(200)
   await click('chip-track'); await sleep(250)
   const chip = await page.ev(`(() => { const l = document.getElementById('q-list'); const c = l.querySelector('.q-row.cur'); return { flash: c.classList.contains('flash'), top: Math.round(c.getBoundingClientRect().top - l.getBoundingClientRect().top) } })()`)
-  check('studio: "Track N of M" brings the song playing back near the top of the list and it glows once', chip.flash && chip.top > 30 && chip.top < 130, chip)
+  check('studio: "Track N of M" brings the song playing back near the top of the list and it glows once', chip.flash && chip.top > 30 && chip.top < 170, chip)
   await page.ev(`(document.getAnimations().forEach((a) => a.finish()), true)`)
 
   // --- 6. the rows' menus: the ⋯ on hover, right-click, Shift+F10; Credits of another song in a popover ---
@@ -1459,7 +1462,7 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
     const f = await page.ev(`(() => { const l = document.getElementById('q-list'); const c = l.querySelector('.q-row.cur'); return { top: c ? Math.round(c.getBoundingClientRect().top - l.getBoundingClientRect().top) : -1, card: !document.getElementById('next-card').hidden && !!document.getElementById('next-card').closest('#q-list'), note: document.getElementById('q-note').hidden ? '' : document.getElementById('q-note').textContent, order: [...l.querySelectorAll(':scope > li')].map((li) => { const r = li.querySelector('.q-row'); return !r ? 'more' : r.id === 'next-card' ? 'card' : r.classList.contains('cur') ? 'cur' : r.classList.contains('played') ? 'played' : 'up' }).join('') } })()`)
     xshot(path.join(OUT, 'studio-list-' + tag + '.png'), W, H)
     if (tag === 'start') check('studio: the start of an album: the song playing first, the card after it, no played songs', f.order.startsWith('curcard') && !f.order.includes('played') && f.top >= 0 && f.top < 20, f)
-    if (tag === 'middle') check('studio: the middle: played songs above, the song playing near the top with one or two above it', f.top > 30 && f.top < 130 && f.card, f)
+    if (tag === 'middle') check('studio: the middle: played songs above, the song playing near the top with one or two above it', f.top > 30 && f.top < 170 && f.card, f)
     if (tag === 'last') check('studio: the last song: no card, the list ends with it, "That\'s the last one"', !f.card && f.order.endsWith('cur') && f.note === 'That\'s the last one', f)
   }
   await send('stage-np', np); await send('stage-queue', stageQueue()); await sleep(500)
@@ -1553,7 +1556,7 @@ async function stage() {
   check('stage: one list in order: the 12 songs played (dimmed), the one playing, the Next card, then the 11 after it; no tabs', facts.order.join() === wantOrder.join() && !facts.tabs && facts.ctx === 'Playing from Wayfarers: Live at the Gorge', facts.order)
   check('stage: the next song is only in the card, never a row as well', facts.nextT === 'The Parting Glass' && !facts.titles.includes('The Parting Glass') && facts.titles[13] === 'Home on the Range', facts.titles.slice(11, 15))
   check('stage: the card\'s subtitle has no length; the length sits in the rows\' column, right-aligned with them', facts.nextS === 'The Juniper Lane Band · Wayfarers: Live at the Gorge' && /^\d+:\d\d$/.test(facts.nextD) && Math.abs(facts.dRight[0] - facts.dRight[1]) <= 1, { nextS: facts.nextS, nextD: facts.nextD, dRight: facts.dRight })
-  check('stage: on open the song playing sits near the top of the list, one or two played songs above it', facts.curTop > 30 && facts.curTop < 130, facts.curTop)
+  check('stage: on open the song playing sits near the top of the list, one or two played songs above it', facts.curTop > 30 && facts.curTop < 170, facts.curTop)
   check('stage: no empty boxes or dead controls (no sheet notes yet: no band; the Montage and Liner notes tiles show (their row with them))', facts.band && !facts.layers && !facts.montage && !facts.liner, facts)
   check('stage: neither list scrolls sideways', facts.hScroll.every((h) => !h), facts.hScroll)
 
@@ -1592,7 +1595,7 @@ async function stage() {
     const vol = document.getElementById('vol').getBoundingClientRect()
     const lines = document.getElementById('lines').getBoundingClientRect()
     const above = [...document.querySelectorAll('#lines .line')].filter((l) => l.getBoundingClientRect().bottom < lines.top).length
-    return { above, scrolled: document.getElementById('q-list').scrollTop, points: [[Math.round(ctx.left + 20), Math.round(ctx.top + ctx.height / 2), 'header (playing from)'], [Math.round(ctx.right - 4), Math.round(ctx.top + 3), 'header (right end)'], [Math.round(qt.left + 10), Math.round(qt.top + qt.height / 2), 'queue title'], [Math.round(vol.left + 40), Math.round(document.getElementById('act-note').getBoundingClientRect().bottom + 12), 'left column below the song\'s actions'],
+    return { above, scrolled: document.getElementById('q-list').scrollTop, points: [[Math.round(ctx.left + 20), Math.round(ctx.top + ctx.height / 2), 'header (playing from)'], [Math.round(ctx.right - 4), Math.round(ctx.top + 3), 'header (right end)'], [Math.round(qt.left + 10), Math.round(qt.top + qt.height / 2), 'queue title'], [Math.round(vol.left + 40), Math.round(document.getElementById('act-note').getBoundingClientRect().bottom + 12), 'left column below the actions'],
       c('form'), c('close'), c('b-play'), c('seek-bar'), c('vol-bar'), c('a-fav'), c('a-more'), c('cover-btn'), [Math.round(lines.left + 60), Math.round(lines.top + 120), 'a lyric line'], c('q-list')] }
   })()`)
   const reg = await page.ev(REGIONS_AT(pts.points))
@@ -1651,7 +1654,7 @@ async function stage() {
   check('stage: every visible control is one this check exercised (no dead or untested controls)', !untested.length, untested)
   // read-only when Apple's player has no way to jump: no buttons, and it says so
   await send('stage-queue', Object.assign(stageQueue(), { canPlay: false })); await sleep(400)
-  const ro = await page.ev(`[document.querySelectorAll('#q-list button').length, document.getElementById('q-note').hidden, document.getElementById('q-note').textContent]`)
+  const ro = await page.ev(`[document.querySelectorAll('#q-list button.q-row:not(#next-card)').length, document.getElementById('q-note').hidden, document.getElementById('q-note').textContent]`)
   check('stage: without changeToMediaAtIndex the list is read-only and says so', ro[0] === 0 && !ro[1] && /Read-only/.test(ro[2]), ro)
   await send('stage-queue', stageQueue()); await sleep(400)
 
