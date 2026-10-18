@@ -245,7 +245,7 @@ node tools/drift-check/section-bench.js [--limit 79]          # GPU, spawns its 
 ```
 
 JamendoLyrics is read from align/bench.py's copy (`~/.local/share/sonata-align/bench`), and its
-aligned words from `bench/results/auto-j0.json`. The `--audio` onsets are cached in `--work`.
+aligned words from `<bench>/results/auto-j0.json` (in that bench folder). The `--audio` onsets are cached in `--work`.
 
 ## Not verified
 
@@ -434,7 +434,7 @@ them from a lower confidence, measured on the lines that rule would add:
 | 0.05 | 15: 525 vs 94 ms, 35 vs 95 % | 13: 184 vs 213 ms, 60 vs 89 % |
 | 0.02 | 22: 584 vs 185 ms, 34 vs 82 % | 15: 191 vs 210 ms, 58 vs 90 % |
 
-The bench's whole-song results (`auto-j0.json`, 0.10–0.2): 7 lines, aligned median 151 vs estimate
+The bench's whole-song results (auto-j0.json, 0.10–0.2): 7 lines, aligned median 151 vs estimate
 194 ms, within 0.3 s 74 vs 93 %. The rejected vocable lines are placed worse than the estimate, by far
 in the section jobs the app runs first, so `min_conf` stays. Her live songs may differ (their line stamps
 come early), but her cache has no truth for rejected lines; the new log lines will show their confidence.

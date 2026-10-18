@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **Coming soon is up to date.** About → Coming soon lists what's being built now (sheet notes in the Studio, more in the Studio), what's planned next (karaoke mode, romanized and translated lyrics, installing precise word timing from Settings, Sonata in more languages, and more) and the ideas on the list, each with its own title. Things that have shipped are no longer in it.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added

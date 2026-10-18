@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # the tags: tools/doc-gates.js changelog compares with the last release tag
       - uses: actions/setup-node@v5
         with:
           node-version: 22

@@ -212,7 +212,7 @@ margin free), plus `checksum` for the download. Every outcome is the one status 
 switch.
 
 **The model's interface** (align/notes.py; the model is align/sung_notes.py, vendored unchanged from
-research `research/notes-proto/sung_notes.py` cfb48c7, numpy only, no I/O):
+research `research/notes-proto/sung_notes.py` cfb48c7 (research-gpu-pipeline branch), numpy only, no I/O):
 
     notes_from(f0, times, conf, syllables, opts=None) -> dict
       f0, conf: RMVPE Hz and salience per 10 ms frame; times: frame times (s)
@@ -242,7 +242,7 @@ appleId}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuni
 the oldest removed. About 110 kB per song.
 
 **Judging a live track.** `python3 tools/notes-log.py <file>` prints the notes per lyric line ("line
-text:  E4 F♯4–G4 …", – joining a melisma) and the same word by word; `--png out.png --t0 34 --dur 25`
+text:  E4 F♯4–G4 …", – joining a melisma) and the same word by word; `--png <picture>.png --t0 34 --dur 25`
 draws the research prototype's staff view (system Python with matplotlib).
 
 **Cost (RTX 5080, two JamendoLyrics songs, 3:37 and 4:00, stitched final pass).** The notes job takes

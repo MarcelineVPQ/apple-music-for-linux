@@ -38,7 +38,8 @@ Discord update. None of these objects is stored.
 | lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight (lyrics-view.js, also the visualizer's overlay) | one frame per word/line change, woken by a timer | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | DOM class writes only when a word/line changes, no layout. Since lean lyrics (0.15.38) the countdown dots are 4 Web Animations (compositor) made once per interlude, so a countdown no longer wakes the loop every frame. Measured below |
 | lyrics.html `#spin` (0.15.10) | CSS rotation of the round cover | 9 s per turn | Settings → Spin album art on (off by default), visible and playing | `animation-play-state: paused` when hidden or paused | compositor only; +3.5 % software-GL GPU under Xvfb, renderer unchanged |
 | lyrics.html Montage (montage-ui.js, 0.15.41) | the Ken Burns pan: one `setTimeout` tick writing 2 layers' transform/opacity (composited `<img>`s) | 10 Hz (reduced motion: one one-shot per 20 s, CSS cross-fade, no pan) | the Studio shows, Montage on (off by default) with photos, the music plays, the window visible | pause, hide/minimise (`visibilitychange`), Montage off, the compact form | 0 frames and no timer at rest; playing cost in "Montage" below. main.js `resolveMontageSong`: per new song while the Studio shows and it is on, 1 Apple catalog read, then the disk cache, else ~5-8 Wikidata/Commons requests (one lane per host, 150-300 ms gaps), then ≤ 8 thumbnails one at a time (cached on disk, 64 MB bound) |
-| miniplayer / settings .html | — | — | — | — | no loops; they only react to IPC pushes |
+| main.js `stageTick` (the Studio, 0.15.41) | the song and the queue, in the lyrics feed's tick | the feed's 500 ms; the queue read at once on a new song, else every 2 s | the Studio shows (not minimized, hidden or the compact form) | the lyrics window's compact form, hide, minimize, close | 1 IPC send per song change; 1 `executeJavaScript` per 2 s whose answer is only a signature while the queue holds; the list is sent only when it changed |
+| miniplayer.html | — | — | — | — | no loops; it only reacts to IPC pushes (the floating Settings window, settings.html, was retired in 0.15.32 for the side panel) |
 
 **Duplicate pollers:** with mini player + lyrics + visualizer all open, three polls
 read the same `nowPlayingScript` 6.5 times/s for 0.13–0.20 % main-process CPU.
@@ -145,7 +146,7 @@ paused while the window is hidden or the music is paused.
 
 ## Lean lyrics: render path on the compositor (0.15.38)
 
-Phase 1 of docs/research/gpu-render-hdr-2026-10.md, with Marcy's two decisions (2026-10-16): the
+Phase 1 of docs/research/gpu-render-hdr-2026-10.md (research-gpu-render branch), with Marcy's two decisions (2026-10-16): the
 unsung lines lose their soft blur, and the visualizer freezes while paused.
 
 - **Lyrics card:** no `backdrop-filter` (the window is transparent, so it blurred nothing but still made the card a blur pass every frame).
@@ -158,7 +159,7 @@ unsung lines lose their soft blur, and the visualizer freezes while paused.
 - **Visualizer:** the blurred cover crossfades by opacity between two layers (was a `background-image` transition). The render loop goes through `viz-frames.js`: it draws while playing, settles for 0.5 s after a pause, then requests no frames.
 - **Gates:** test/render-path.test.js fails on any non-compositor transition, keyframe or Web Animation in lyrics-view.css, lyrics.html or visualizer.html. test/viz-frames.test.js covers the freeze.
 
-Measured with docs/research/gpu-render-hdr/measure-render.js (isolated: throwaway HOME, Xvfb,
+Measured with docs/research/gpu-render-hdr/measure-render.js (research-gpu-render branch; isolated: throwaway HOME, Xvfb,
 private D-Bus, SwiftShader GL, quit with app.exit(0); 4 s settle, CPU over 20 s, a 6 s trace). "SW GPU" is
 the main process with the in-process software GPU, inflated many times over: compare rows, not
 absolute values. Before = 0.15.37-dev.1 (39d8016); after = lean lyrics.
@@ -181,7 +182,7 @@ absolute values. Before = 0.15.37-dev.1 (39d8016); after = lean lyrics.
 ## Visualizer paint: cached bar gradients, stage tokens, fallback parec (0.15.39-dev.1)
 
 BACKLOG "Visualizer: per-frame gradients and the fallback parec". Measured with the gpu-render-hdr harness
-(`measure-render.js` from the research branch, plus aurora and nebula scenarios), each run on its own
+(measure-render.js from the research branch, plus aurora and nebula scenarios), each run on its own
 `tools/isolated.sh` copy (Xvfb, private D-Bus, throwaway HOME, SwiftShader GL), 1920×1080, mock bands at
 43/s, 4 s settle, CPU over 20 s, 6 s trace. Before = 0.15.38-dev.1 (ff32984); runs alternated
 (before, after, before, after). "SW GPU" is the main process with the in-process software GPU: compare

@@ -20,11 +20,14 @@
     </p>
     <p>Features:</p>
     <ul>
-      <li>System tray with playback controls</li>
-      <li>Floating mini player with album art, progress bar, and volume</li>
-      <li>Time-synced lyrics in a separate window</li>
-      <li>Dark mode that follows your desktop theme</li>
+      <li>Word-by-word lyrics with duets, backing vocals and countdown dots, in their own window</li>
+      <li>Estimated word timing when a song has line timing only, and lyrics from LRCLIB when Apple has none</li>
+      <li>The Studio: the lyrics as a full now-playing screen with what plays next</li>
+      <li>The album's liner notes as a booklet: notes, credits, recording details and booklet scans</li>
+      <li>Floating mini player, visualizer and system tray with playback controls</li>
+      <li>Colours from the album art, and dark mode that follows your desktop</li>
       <li>Last.fm scrobbling and Discord Rich Presence</li>
+      <li>Signed updates, with Stable and Development channels</li>
     </ul>
   </description>
 

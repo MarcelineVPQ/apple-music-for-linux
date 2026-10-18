@@ -13,7 +13,8 @@ the AppImage fails to load it). Marcy's daily driver: change code only for real,
 
 **Its +1** (the one thing it's remembered for): word-level lyric timing computed locally that holds up
 on live recordings. Live albums are the yardstick; measured, not eyeballed (`docs/LYRIC-TIMING.md`,
-`tools/drift-check/`). The next +1 step (live sheet notes) is a BACKLOG Idea. Every proposal says
+`tools/drift-check/`). The next +1 step (live sheet notes, "Sheet notes in the Studio") is Building
+(BACKLOG, branch studio-sheet-notes). Every proposal says
 whether it strengthens the +1 or is just "best"; no reorganisation buries the lyrics.
 
 ## Commands
@@ -21,9 +22,10 @@ whether it strengthens the +1 or is just "best"; no reorganisation buries the ly
 ```bash
 npm ci && npm start        # from source (start.sh: --no-sandbox when chrome-sandbox isn't setuid)
 npm test                   # node --test test/*.test.js (pure logic, no Electron, no display)
-npm run gates              # tools/verdicts.js --check + tools/set-version.js --verify (CI runs both)
+npm run gates              # tools/verdicts.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
+node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy]   # the documentation gates (see below)
 tools/isolated.sh start|run|stop                        # an isolated copy for checks (see Test runs)
 node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|a11y|stage|liner|every> --cdp … --insp … --display :N --out DIR
 tools/check_budgets.sh [--soak]                         # resource budgets on its own isolated copy (docs/BUDGETS.md)
@@ -41,11 +43,15 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   no local code except what main injects: `apple-focus.js` + `wheel-volume.js` (isolated world 999) and
   `media-position.js` (main world: the song's length and position for the desktop media controls).
   Main drives the player through `executeJavaScript` page scripts against `MusicKit.getInstance()`.
-- **Floating windows**: mini player (`miniplayer.html`), lyrics (`lyrics.html`), visualizer
-  (`visualizer.html`): `BrowserWindow`s with nodeIntegration on local files only, navigation and popups
+- **Floating windows**: mini player (`miniplayer.html`), lyrics (`lyrics.html`; its second form is the
+  Studio, `body.stage` with `stage-ui.js` / `stage-model.js` and the Montage in `montage-*.js`; internal ids
+  say `stage`, users read "Studio"), liner notes (`liner-notes.html`, `liner-notes-*.js`), the album cover
+  (`cover.html`) and the visualizer (`visualizer.html`): `BrowserWindow`s with nodeIntegration on local files only, navigation and popups
   blocked (`lockDownLocalWindow`). Models with no DOM or Electron (`*-model.js`) hold the testable logic.
 - **Polls**: one 5 s now-playing loop always (tray, notifications, Last.fm, Discord, update restart);
-  1 s while the mini player exists; 500 ms lyrics feed while the lyrics window or visualizer exists.
+  1 s while the mini player exists; 500 ms lyrics feed while the lyrics window or visualizer exists;
+  the Studio's queue read on a new song, else every 2 s, only while the Studio shows; 500 ms sung-line
+  poll only while a lyrics page of the playing song is open in a shown liner notes booklet.
 - **Lyrics engine**: `lyrics-sources.js` resolves Apple TTML (`/syllable-lyrics`, then `/lyrics`, through
   the page's MusicKit) then LRCLIB (Settings), cached on disk by `lyrics-store.js`
   (`~/.config/apple-music-for-linux/lyrics-cache.json`); `lyrics-timing.js` estimates word timing for
@@ -153,7 +159,40 @@ Development first).
 
 `BACKLOG.md` is the one list (status words **Idea · Planned · Building · Done**). Update the row in the
 same commit as the work; anything agreed in conversation gets a row the same day. A row whose Notes start
-`Soon: …` is shown in About → Coming soon (`about-data.js`). Release notes: `CHANGELOG.md`.
+`Soon: …` or `Soon (Card title): …` is shown in About → Coming soon (`about-data.js`). Every Building or
+Planned row is there unless its Item ends with **(internal)**, **(in testing)** or **(unannounced)**
+(waiting for Marcy's OK: never announce a direction she hasn't). Release notes: `CHANGELOG.md`.
+
+**Public repo: features only.** Business plans (anything about money, deals or the studio's future) never
+go in a tracked file, a commit message or a branch name; Marcy keeps them private. Describe features only.
+
+## Documentation gates (gate: `node tools/doc-gates.js --check`, in `npm run gates` and CI)
+
+Docs are part of every change: the commit that changes behaviour updates the BACKLOG row, the CHANGELOG
+`[Unreleased]` entry, the README and the help text it touches. Each gate prints PASS / FAIL / SKIP and,
+on FAIL, the line and how to fix it (`test/doc-gates.test.js` seeds a mistake for each):
+
+- **soon**: About → Coming soon = the BACKLOG's `Soon` rows; every Building / Planned row is there or
+  carries a marker (the opted-out rows are printed); a Done row never keeps its `Soon`.
+- **changelog**: a `feat` / `fix` / `perf` commit since the last release tag that touches a shipped file
+  (`build.files`) needs words under `[Unreleased]` (or the section of the version being released). A
+  commit saying "No user-facing change", or an `[Unreleased]` line saying so, passes. SKIP without tags
+  (ci.yml checks out with `fetch-depth: 0`).
+- **shipped** (a heuristic): an Idea / Planned row whose Notes start with a released version, say
+  "Built:" / "shipped in", or name a `settings.<key>` key that exists; a Building row shipped in a released
+  version whose Notes name nothing left. It can't tell that a feature exists when the row names no
+  version, key or "Built:"; it reads words, not code.
+- **refs**: README.md, CLAUDE.md, docs/*.md and the in-app help strings name only real files (backticked
+  names, and docs/ tools/ align/ test/ … paths), `npm run` scripts, `node tools/…` tools, `settings.<key>`
+  keys and Ctrl shortcuts (`shortcuts-model.js` RESERVED + ACTIONS). Not checked: CHANGELOG and BACKLOG
+  (history), HTML comments, a line that names the branch a path lives on, and a doc whose first lines hold
+  `> Research note, dated YYYY-MM-DD: …` (research is history: date it, don't rewrite it). It can't check
+  prose such as "Settings → Section" names or numbers.
+- **version**: `set-version.js --verify`, plus the metainfo's newest `<release>` is package.json's and no
+  CHANGELOG section is newer.
+- **privacy**: no tracked text file holds a phrase from `tools/privacy-denylist.txt` (SHA-256 per phrase,
+  so the list names nothing; add one with `node tools/doc-gates.js privacy-hash "phrase"`). A line that
+  must use such a word for a plain reason carries `privacy-ok` and the reason.
 
 ## Git
 

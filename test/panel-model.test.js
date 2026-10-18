@@ -180,8 +180,10 @@ test('about: What\'s new = this version\'s CHANGELOG section, older ones after; 
   assert.deepEqual(w.older.map((s) => s.version), ['0.15.31'])
   // a dev build: the newest section is shown
   assert.equal(A.whatsNew(md, '0.15.33-dev.1').current.version, '0.15.32')
-  const backlog = '| Item | Status | Notes |\n|---|---|---|\n| View the album cover | **Planned** | Soon: open the album cover large. dev notes here |\n| Thing | **Done** | Soon: never shown. |\n| Other | **Idea** | no marker |\n'
-  assert.deepEqual(A.comingSoon(backlog), [{ title: 'View the album cover', text: 'open the album cover large.', status: 'Planned' }])
+  const backlog = '| Item | Status | Notes |\n|---|---|---|\n| View the album cover | **Planned** | Soon: open the album cover large. dev notes here |\n| Thing | **Done** | Soon: never shown. |\n| Other | **Idea** | no marker |\n' +
+    '| Tooling (internal) | **Building** | Soon (Own title): a card title of its own. more notes |\n'
+  assert.deepEqual(A.comingSoon(backlog), [{ title: 'View the album cover', text: 'open the album cover large.', status: 'Planned' },
+    { title: 'Own title', text: 'a card title of its own.', status: 'Building' }])
   // the real files read and give something
   const real = A.aboutData(fs.readFileSync(path.join(__dirname, '..', 'CHANGELOG.md'), 'utf8'), fs.readFileSync(path.join(__dirname, '..', 'BACKLOG.md'), 'utf8'), require('../package.json').version, false)
   assert.equal(real.whatsNew.current.version, require('../package.json').version, 'the running version has its CHANGELOG section')
@@ -240,7 +242,7 @@ test('about: the hero card (the 42PS card, as in the DS5 About): version, channe
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8'), /hero: aboutDataLib\.hero\(app\.getVersion\(\), settings\.updateChannel, !!appImagePath\)/)
 })
 
-test('about: Coming soon groups follow the DS5 board (In progress, Planned, Ideas; empty groups left out)', () => {
+test('about: Coming soon groups follow the DS5 board (Building now, Planned, Ideas; empty groups left out)', () => {
   const g = A.soonGroups([{ title: 'a', text: 'x.', status: 'Planned' }, { title: 'b', text: 'y.', status: 'Building' }, { title: 'c', text: 'z.', status: 'Planned' }])
-  assert.deepEqual(g.map((x) => [x.label, x.items.map((i) => i.title)]), [['In progress', ['b']], ['Planned', ['a', 'c']]])
+  assert.deepEqual(g.map((x) => [x.label, x.items.map((i) => i.title)]), [['Building now', ['b']], ['Planned', ['a', 'c']]])
 })
