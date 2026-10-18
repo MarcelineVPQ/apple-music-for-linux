@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lyrics timed for another version no longer highlight the wrong lines.** Some LRCLIB lyrics carry the line times of another recording (a live cut got the studio version's times, so the highlight ran several lines behind and later lines were never timed). When the lyrics clearly don't fit the recording (they end long before a live or alternate recording does, or run past its end), Sonata drops their times: the lines show without a highlight and a note says why ("Lyric timing is for another version: timed after this play", details behind its ⓘ), and with Precise word timing on, Sonata works out each line's time from the recording's audio once the song has played to its end. From the next play the lyrics follow the singing; a line it can't find stays un-highlighted rather than guessed. Apple's own timing is never dropped. LRCLIB lyrics that come without any line times are now timed the same way.
+- **Shorthand in lyrics is written out.** LRCLIB lyrics that say "(repeat all)", "(x2)", "Chorus x2", "[Chorus]" with nothing under it or "(repeat 1st verse)" instead of the sung lines no longer show the marker as a line and stop early: Sonata first looks for another LRCLIB entry that has the whole lyric, and otherwise writes the repeats out and times them from the audio like lyrics timed for another version. Lines like "(oh yeah)" are left alone.
+- **The lyrics window says what is really going on when lyrics don't load.** "Lyrics service busy, trying again…" is gone: it now says whether Apple Music has no lyrics or didn't answer, and whether LRCLIB is overloaded, rate-limited or unreachable ("No Apple lyrics; LRCLIB is overloaded, retrying"), with the source, its answer and the time of the next try behind the ⓘ. A song with no lyrics anywhere says so. LRCLIB is often only briefly overloaded, so Sonata now tries again after 1, 2, 4 and 8 seconds before backing off to 30 seconds and 2 minutes (at most 10 tries per song per session), so lyrics usually appear within seconds.
+
 ## [0.15.47-dev.1] — The favourite star fills, and the sheet-notes band says when a part's line is still coming
 
 ### Fixed

@@ -2,7 +2,8 @@
 
 Status: wired into Sonata in 0.15.21 as Settings → *Precise word timing (GPU, experimental)*
 (align-session.js, align-helper.js; steps 1–6 of the integration plan below, without the in-app
-installer, plain-lyrics mode and transcription). As built: recording runs only while a lyric view
+installer, plain-lyrics mode and transcription; the plain-lyrics mode since 0.15.47 for LRCLIB's plain lyrics,
+lyrics timed for another version and shorthand written out, see docs/LYRIC-TIMING.md "Lyrics that don't fit"). As built: recording runs only while a lyric view
 is open (the lyrics window or, since 0.15.24, the visualizer, like Level 1; one shared parec for the
 visualizer, Level 1 and Level 2), the song is aligned once its lyric span was heard
 (≥ 90 %) via stream mode, so no audio file is ever written (since 0.15.33 progressively: each section of

@@ -83,6 +83,8 @@
       "sheet-notes-model.js",
       "sheet-notes-store.js",
       "sheet-notes-ui.js",
+      "info-tip.js",
+      "lyrics-shorthand.js",
       "sheet-notes-glyphs.js",
       "licenses/NotoMusic-OFL.txt",
       "align/install.sh",

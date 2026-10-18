@@ -76,8 +76,9 @@ test('pickHit: a live cut takes a live hit; a studio-timed LRC only as plain lyr
 test('fetchLrclib: search passes the title, so a live cut gets the live record', async () => {
   const fetch = async (url) => url.includes('/api/get-cached')
     ? res(404, {})
-    : res(200, [{ trackName: 'Home', duration: 200, syncedLyrics: '[00:01.00] studio' }, { trackName: 'Home (Live)', duration: 203, syncedLyrics: '[00:05.00] live' }])
-  assert.deepEqual(await L.fetchLrclib({ title: 'Home (Live)', artist: 'A', duration: 202 }, { fetch }), [{ t: 5, text: 'live' }])
+    : res(200, [{ trackName: 'Home', duration: 200, syncedLyrics: '[00:01.00] studio' }, { trackName: 'Home (Live)', duration: 203, syncedLyrics: '[00:05.00] live\n[03:10.00] to the end' }])
+  // (its lines run to the end: lyrics ending at 0:05 of a live cut would be timed for another version)
+  assert.deepEqual(await L.fetchLrclib({ title: 'Home (Live)', artist: 'A', duration: 202 }, { fetch }), [{ t: 5, text: 'live' }, { t: 190, text: 'to the end' }])
 })
 
 test('fetchLrclib: exact match used; query carries cleaned album and rounded duration', async () => {
@@ -154,7 +155,7 @@ test('resolver: concurrent callers share one lookup', async () => {
 
 test('resolver: setting off -> no LRCLIB request', async () => {
   const { getLyrics, calls } = resolver({ enabled: false, lrclib: [{ t: 3, text: 'y' }] })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', none: 'apple' })
   assert.equal(calls.lrclib, 0)
 })
 
@@ -165,17 +166,50 @@ test('resolver: Apple throwing still falls back; empty results are retried next 
     lrclibEnabled: () => true,
     sleep: async () => {}
   })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'apple' })   // a failure, not "no lyrics"
-  let lrclibCalls = 0
-  const again = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => { lrclibCalls++; return [] }, lrclibEnabled: () => true })
-  await again(song); await again(song)
-  assert.equal(lrclibCalls, 2)
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'apple', appleError: 'no session' })   // a failure, not "no lyrics"
+  // Apple answering "none" with LRCLIB off is asked again next time (turning LRCLIB on must find them)
+  let appleCalls = 0
+  const off = L.createLyricsResolver({ fetchApple: async () => { appleCalls++; return '' }, fetchLrclib: async () => [], lrclibEnabled: () => false })
+  await off(song); await off(song)
+  assert.equal(appleCalls, 2)
 })
 
-test('resolver: LRCLIB errors are logged, not thrown, and reported as busy (not "no lyrics")', async () => {
-  const { getLyrics, calls } = resolver({ lrclibError: 'lrclib HTTP 429' })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'busy' })
-  assert.match(calls.logs[0], /429/)
+test('resolver: LRCLIB errors are logged, not thrown, and reported with their status (not "no lyrics")', async () => {
+  const getLyrics = L.createLyricsResolver({
+    fetchApple: async () => '',
+    fetchLrclib: async () => { throw Object.assign(new Error('lrclib HTTP 429'), { status: 429 }) },
+    lrclibEnabled: () => true,
+    log: (m) => logs.push(m)
+  })
+  const logs = []
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', error: 'lrclib', lrclib: { status: 429, message: 'lrclib HTTP 429' }, apple: 'none' })
+  assert.match(logs[0], /429/)
+  // an error without a status (a thrown TypeError from fetch) is "unreachable" (0)
+  const { getLyrics: g2 } = resolver({ lrclibError: 'fetch failed' })
+  assert.equal((await g2(song)).lrclib.status, 0)
+})
+
+test('resolver: a definitive "none on Apple Music or LRCLIB" is reused for NONE_TTL_MS; a failure never is', async () => {
+  let t = 0
+  const calls = { apple: 0, lrclib: 0 }
+  let fail = false
+  const getLyrics = L.createLyricsResolver({
+    fetchApple: async () => { calls.apple++; return '' },
+    fetchLrclib: async () => { calls.lrclib++; if (fail) throw Object.assign(new Error('lrclib HTTP 503'), { status: 503 }); return [] },
+    lrclibEnabled: () => true,
+    now: () => t
+  })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', none: 'both' })
+  await getLyrics(song)
+  assert.deepEqual(calls, { apple: 1, lrclib: 1 })      // reused
+  t += L.NONE_TTL_MS + 1
+  await getLyrics(song)
+  assert.deepEqual(calls, { apple: 2, lrclib: 2 })      // expired: asked again
+  const other = { title: 'U', artist: 'A' }
+  fail = true
+  assert.equal((await getLyrics(other)).error, 'lrclib')
+  fail = false
+  assert.deepEqual(await getLyrics(other), { lines: [], source: '', none: 'both' })   // the 503 was not kept
 })
 
 // --- word timing, duets, background vocals ---
@@ -272,7 +306,7 @@ test('resolver: a busy result is not cached, so a retry asks again', async () =>
     fetchLrclib: async () => { n++; if (n === 1) throw new Error('lrclib HTTP 503'); return [{ t: 1, text: 'back' }] },
     lrclibEnabled: () => true
   })
-  assert.equal((await getLyrics(song)).error, 'busy')
+  assert.equal((await getLyrics(song)).error, 'lrclib')
   assert.deepEqual(await getLyrics(song), { lines: [{ t: 1, text: 'back' }], source: 'lrclib' })
 })
 
@@ -296,7 +330,7 @@ test('resolver + store: busy and empty results are not stored; stored LRCLIB lyr
   assert.equal(store.m.size, 0)
   store.m.set('T|A', { lines: [{ t: 1, text: 'l' }], source: 'lrclib' })
   const off = L.createLyricsResolver({ fetchApple: async () => '', fetchLrclib: async () => [], lrclibEnabled: () => false, store })
-  assert.deepEqual(await off(song), { lines: [], source: '' })
+  assert.deepEqual(await off(song), { lines: [], source: '', none: 'apple' })
 })
 
 test('resolver + store: an Apple entry from the older parser is fetched again once; kept when Apple fails', async () => {
@@ -363,17 +397,18 @@ test('apple failure: bounded (3 attempts), then LRCLIB stands in, marked, not st
   assert.equal(calls.apple, 2 * (1 + L.APPLE_RETRY_MS.length))
 })
 
-test('apple failure: LRCLIB off or without the song -> error apple (not "no lyrics"); LRCLIB failing -> busy', async () => {
-  assert.deepEqual(await flaky(99, { enabled: false }).getLyrics(song), { lines: [], source: '', error: 'apple' })
+test('apple failure: LRCLIB off or without the song -> error apple (not "no lyrics"); LRCLIB failing -> lrclib, apple failed', async () => {
+  const appleError = 'Apple lyrics lookup failed: SERVER_ERROR'
+  assert.deepEqual(await flaky(99, { enabled: false }).getLyrics(song), { lines: [], source: '', error: 'apple', appleError })
   const none = flaky(99, {})
-  assert.deepEqual(await none.getLyrics(song), { lines: [], source: '', error: 'apple' })
+  assert.deepEqual(await none.getLyrics(song), { lines: [], source: '', error: 'apple', appleError })
   assert.equal(none.calls.lrclib, 1)
-  assert.deepEqual(await flaky(99, { lrclibError: 'lrclib HTTP 503' }).getLyrics(song), { lines: [], source: '', error: 'busy' })
+  assert.deepEqual(await flaky(99, { lrclibError: 'lrclib HTTP 503' }).getLyrics(song), { lines: [], source: '', error: 'lrclib', lrclib: { status: 0, message: 'lrclib HTTP 503' }, apple: 'failed' })
 })
 
 test('apple: no lyrics ("" without a throw) is still plain "no lyrics", asked once', async () => {
   const { getLyrics, calls } = flaky(0, { enabled: false })
-  assert.deepEqual(await getLyrics(song), { lines: [], source: '' })
+  assert.deepEqual(await getLyrics(song), { lines: [], source: '', none: 'apple' })
   assert.equal(calls.apple, 1)
   assert.deepEqual(calls.waits, [])
 })
@@ -382,8 +417,7 @@ test('apple failure: the views say so truthfully (lyrics.html words, LRCLIB note
   const fs = require('fs')
   const path = require('path')
   const html = fs.readFileSync(path.join(__dirname, '..', 'lyrics.html'), 'utf8')
-  assert.match(html, /status === 'apple' \? "Apple Music's lyrics didn't load, trying again…"/)
-  assert.match(html, /status === 'apple-failed' \? "Apple Music's lyrics didn't load\./)
+  assert.match(html, /emptyText: \(data\) => require\('\.\/lyrics-view'\)\.statusText\(data\)/)   // the words: lyrics-view.test.js
   const view = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.js'), 'utf8')
   assert.match(view, /data\.appleFailed \? ", as Apple Music's didn't load"/)
 })

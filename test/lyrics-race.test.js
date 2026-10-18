@@ -271,3 +271,39 @@ test('trackSample: the previous song\'s position, a time past the length and a b
   assert.equal(T.trackSample(T.trackGate(null, 0, 0), 150, true, 100), true, 'no previous song, no length: taken')
   assert.equal(T.trackSample(null, 5, true, 0), true)
 })
+
+// Lyrics timed for another version (Marcy 2026-10-18, Mad Season live at the Moore): until the helper
+// placed the lines, main sends them untimed with `version`; nothing is lit, a note with its ⓘ sits over
+// the lines. Once placed (a later play), the same view lights them on time again.
+test('version note: untimed lines are never lit and carry the note; placed lines play as usual', () => {
+  const doc = makeDoc()
+  const list = new El(doc, 'div')
+  list.isList = true
+  list.scrolls = []
+  const view = createLyricsView({ container: list, layout: 'scroll', notes: true, onSeek: () => {} })
+  const texts = ['I don\'t wanna be a soldier mama', 'I don\'t wanna die', 'Oh no']
+  const base = { key: 'Soldier|Mad Season', title: 'Soldier', artist: 'Mad Season', duration: 557, source: 'lrclib', lang: 'en-US' }
+  view.setData(Object.assign({}, base, { lines: texts.map((text) => ({ t: null, text })), version: { precise: true, reason: 'ends-early', lyricsEnd: 359.23, duration: 557.09 } }))
+  const lead = list.children[0]
+  assert.equal(lead.id, 'lead')
+  assert.equal(lead.children[0].textContent, 'Lyric timing is for another version: timed after this play')
+  const info = lead.children.find((c) => c.has('sn-info'))
+  assert.equal(info.hidden, false)
+  assert.match(lead.children.find((c) => c.has('sn-info-text')).textContent, /9:17/)
+  const lines = () => list.children.filter((e) => e.has('line'))
+  assert.ok(lines().every((e) => e.has('plain')))
+  for (let k = 0; k < 6; k++) { nowMs = 10000 + k * 500; view.setTime(20 + k, true, base.key) }
+  assert.equal(lines().filter((e) => e.has('active')).length, 0, 'nothing lit with the wrong times')
+  // the next play: lines placed from the audio, no note
+  view.setData(Object.assign({}, base, { key: base.key + '2', lines: texts.map((text, i) => ({ t: 30 + 4 * i, end: 33.5 + 4 * i, text })), version: null }))
+  assert.ok(!list.children.some((c) => c.id === 'lead'))
+  nowMs = 19500; view.setTime(0.4, true, base.key + '2')            // the new song's start, then a seek to 35 s
+  for (let k = 0; k < 8; k++) { nowMs = 20000 + k * 500; view.setTime(35 + k * 0.25, true, base.key + '2') }
+  assert.equal(lines().findIndex((e) => e.has('active')), 1)
+  // a quiet line (not found in the audio) is never lit, even at its place
+  view.setData(Object.assign({}, base, { key: base.key + '3', lines: texts.map((text, i) => Object.assign({ t: 30 + 4 * i, end: 33.5 + 4 * i, text }, i === 1 ? { quiet: true } : {})) }))
+  nowMs = 30000; view.setTime(0.4, true, base.key + '3')
+  for (let k = 0; k < 8; k++) { nowMs = 30500 + k * 500; view.setTime(35 + k * 0.25, true, base.key + '3') }
+  assert.equal(lines().filter((e) => e.has('active')).length, 0)
+  doc.visibilityState = 'hidden'; doc.fire('visibilitychange')
+})

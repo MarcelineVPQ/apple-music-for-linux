@@ -399,7 +399,8 @@ function estimateWords(lines, opts = {}) {
   if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
   const pace = opts.pace || songPace(lines)
   return lines.map((line, i) => {
-    const words = estimateLine(line, lines[i + 1], pace, opts.hold)
+    // a `quiet` line (placed from the audio without being found, align-session plainTimed): no guessed words
+    const words = line.quiet ? null : estimateLine(line, lines[i + 1], pace, opts.hold)
     return words ? Object.assign({}, line, { words, estimated: true, pace }) : line
   })
 }
