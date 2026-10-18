@@ -31,7 +31,7 @@ function part() {
     language: 'en'
   }
 }
-const SONG = { title: 'Darling (Live)', artist: 'Goo Goo Dolls', album: 'Live in Buffalo', duration: 241.3, appleId: '1440833098' }
+const SONG = { title: 'Darling (Live)', artist: 'Goo Goo Dolls', album: 'Live in Buffalo', duration: 241.3, appleId: '1440833098', isrc: 'USRE10400123' }
 
 test('the RMVPE entry matches the helper\'s (size and checksum) and Settings shows its size first', () => {
   const py = read('align/notes_step.py')
@@ -70,6 +70,11 @@ test('schema: the song\'s identity, Sonata\'s version, the models, the tuning, t
   assert.deepEqual(bad((d) => { d.f0 = [220, 221] }), ['audio or frames in the log'])
   assert.deepEqual(bad((d) => { delete d.tuning }), ['tuning'])
   assert.equal(N.buildDoc(part(), Object.assign({}, SONG, { appleId: '' }), { version: 'x' }).song.appleId, null)
+  // the recording's ISRC (0.15.42): canonical form, null when unknown; logs from before it (no isrc) still pass
+  assert.equal(N.buildDoc(part(), Object.assign({}, SONG, { isrc: 'us-re1-04-00123' }), { version: 'x' }).song.isrc, 'USRE10400123')
+  assert.equal(N.buildDoc(part(), Object.assign({}, SONG, { isrc: '' }), { version: 'x' }).song.isrc, null)
+  assert.deepEqual(bad((d) => { delete d.song.isrc }), [])
+  assert.deepEqual(bad((d) => { d.song.isrc = 'not an isrc' }), ['song'])
 })
 
 test('file name: date, artist, title, safe characters only', () => {

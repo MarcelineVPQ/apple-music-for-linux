@@ -297,7 +297,7 @@ function createLyricsView(opts) {
   let clock = null
   let raf = 0
   let wake = 0
-  let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
+  let songKey = ''          // the recording (main's key; title|artist without one), matches 'lyrics-refined'/'-aligned' to the song on screen
   let hyphenate = null      // the song's hyphenator, for syllables of refined/aligned words
   let refined = false       // learned or live-refined word timing in use
   let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
@@ -365,7 +365,7 @@ function createLyricsView(opts) {
     const prep = prepare(data)
     lines = prep.lines
     hyphenate = prep.hyphenate
-    songKey = (data.title || '') + '|' + (data.artist || '')
+    songKey = data.key || ((data.title || '') + '|' + (data.artist || ''))
     refined = !!data.refined
     aligned = !!data.aligned
     alignState = typeof data.alignState === 'string' ? data.alignState : ''

@@ -236,7 +236,7 @@ apart).
 
 **The log.** `~/.local/share/apple-music-for-linux/notes-log/<yyyymmdd>-<artist>-<title>.json`
 (XDG_DATA_HOME when set outside an app sandbox), format 1: `song` {title, artist, album, duration,
-appleId}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
+appleId, isrc (0.15.42; null when Apple gave none)}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
 `syllables`, `notes`, `confidence`, `stats`. No audio, no stem, no pitch frames (notes-log.js
 `validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 1000 files,
 the oldest removed. About 110 kB per song.
@@ -349,8 +349,10 @@ labelled.
    - **Progressive** (later): align each 30–60 s section as it completes. The global pass works
      per section with the section's lines; about 1 s each on the GPU.
 4. **Apply + cache**:
-   - Store the result in lyrics-store as `aligned|title|artist` with
-     `{version:1, model, lyricsHash, duration, lines}`.
+   - Store the result in lyrics-store as `aligned|isrc:<ISRC>` (`aligned|title|artist` when the ISRC
+     is unknown; recording-id.js, 0.15.42) with `{version, model, lyricsHash, duration, lines}` plus the
+     recording's `songDuration`, `isrc`, `appleId`; an entry whose `songDuration` differs from the
+     playing song's by more than 1.5 s is not used.
    - Words of aligned lines replace the estimate; unaligned lines keep it.
    - The lyrics hash invalidates the entry when the lyrics change.
    - If the song is still playing, send it live like `lyrics-refined`.

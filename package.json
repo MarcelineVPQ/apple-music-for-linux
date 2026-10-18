@@ -45,6 +45,7 @@
       "rail-ui.js",
       "rail.css",
       "lyrics-sources.js",
+      "recording-id.js",
       "lyrics-timing.js",
       "lyrics-view.js",
       "stage-model.js",
