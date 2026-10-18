@@ -135,6 +135,8 @@ function createSheetBand(opts) {
   let nowIdx = -2
   let page = -1             // reduced motion: the page shown
   let duration = 0
+  let lineRuns = []         // the first play's drawn runs (buildLine), for lineGap
+  let gapShown = null       // the first play's "this part shows once sung" note while it is up
 
   const pps = () => PPS[m.band === 'line' ? 'line' : 'notes']
   const headAt = () => HEAD_AT[m.band === 'line' ? 'line' : 'notes']
@@ -225,7 +227,8 @@ function createSheetBand(opts) {
     strip.replaceChildren()
     strip.style.width = W + 'px'
     const svg = sv(doc, 'svg', { class: 'sn-svg', width: W, height: STAFF_H }, strip)
-    drawRuns(svg, M.pitchRuns(line, clef, 0, null), (t) => r1(t * pps()), 'pl first')
+    lineRuns = M.pitchRuns(line, clef, 0, null)
+    drawRuns(svg, lineRuns, (t) => r1(t * pps()), 'pl first')
     items = []
     built = 'line:' + pieces.length + ':' + (st.key || '')
   }
@@ -295,6 +298,27 @@ function createSheetBand(opts) {
     place(t)
     mark(t)
     schedule(t)
+    gapNote(t)
+  }
+
+  // first play: none of the heard line in view (it has scrolled off behind the playhead): the message row
+  // says why the staff is empty, unless the mode already says something (an error, paused)
+  function gapNote(t) {
+    const g = m.band === 'line' && !m.text && built.startsWith('line:') ? gapAt(t) : null
+    if ((g && g.text) === (gapShown && gapShown.text) && (g && g.info) === (gapShown && gapShown.info)) return
+    gapShown = g
+    msg.textContent = g ? g.text : (m.text || '')
+    msg.hidden = !msg.textContent
+    const inf = g ? g.info : (m.info || '')
+    infoText.textContent = inf
+    tip.textContent = inf
+    info.hidden = !inf
+    if (!inf) showTip(false)
+  }
+  function gapAt(t) {
+    const w = box.clientWidth || 600
+    // the strip shows song time t + (x - the playhead's x) / pps from the gutter to the box's right edge
+    return M.lineGap(lineRuns, t - Math.max(0, w * headAt() - gutter) / pps(), t + w * (1 - headAt()) / pps())
   }
 
   // --- state from main ---
@@ -322,6 +346,7 @@ function createSheetBand(opts) {
     label.hidden = !m.label
     msg.textContent = m.text
     msg.hidden = !m.text
+    gapShown = null
     infoText.textContent = m.info || ''
     tip.textContent = m.info || ''
     info.hidden = !m.info
@@ -334,7 +359,7 @@ function createSheetBand(opts) {
       else buildLine()
       nowIdx = -2
     }
-    if (!want) { stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
+    if (!want) { lineRuns = []; stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
     if (opts.onLayout) opts.onLayout()
     setTime()
   }

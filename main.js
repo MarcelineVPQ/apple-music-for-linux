@@ -1207,11 +1207,36 @@ function lastStage() {
 const stageAlive = () => !!(lyricsWindow && !lyricsWindow.isDestroyed())
 function stageSay(note) { if (note && stageAlive()) lyricsWindow.webContents.send('stage-said', note) }
 // a song action's result in the Studio: its note; after one that changes the song's state, that state again
-function stageDone(action, ok, why, info) {
+// answer: a Favorite's / Undo Favorite's own reply from Apple (songSource.favorite: true / false / null)
+function stageDone(action, ok, why, info, answer) {
   stageSay(songActions.said(action, ok, why))
-  // read back from Apple's page, never assumed: the button shows what Apple now says (same song key kept,
-  // so the next tick doesn't read again and outrun this read)
+  if (ok && (action === 'favorite' || action === 'undo-favorite') && info && info.id) {
+    // the write Apple accepted: its reply's rating, else what was asked (the PUT / DELETE went through)
+    stageWrote = { id: info.id, on: typeof answer === 'boolean' ? answer : action === 'favorite', tries: 0 }
+    if (stageReread) { clearTimeout(stageReread); stageReread = null }
+  }
+  // read back from Apple's page: the button shows what Apple now says (same song key kept, so the next
+  // tick doesn't read again and outrun this read); a read that lags a favourite write is settled there
   if (ok && /favorite|library|playlist/.test(action)) stageSongRead(null, '')
+}
+// Apple's ratings read lags its write (seconds): after a favourite write the read is taken again this
+// long after the last one while it still disagrees, then Apple's read is left to the next song change
+const STAGE_REREAD_MS = [3000, 10000]
+let stageWrote = null      // { id, on, tries }: the favourite write Apple accepted, until a read agrees
+let stageReread = null     // the one pending re-read (a timeout), or null
+function settleStageSong(st) {
+  const w = stageWrote
+  if (!w) return st
+  const s = songActions.settleFavorite(st, w)
+  if (s.agree || !st.ok || st.id !== w.id) { stageWrote = null; return st }
+  const wait = STAGE_REREAD_MS[w.tries]
+  console.log('Studio: Apple\'s read still has "' + st.title.slice(0, 80) + '" ' + (w.on ? 'not a favourite' : 'a favourite') + ' after the write it accepted: the star shows the write' + (wait ? ', read again in ' + wait / 1000 + ' s' : ', no more reads until the song changes'))
+  if (wait) {
+    w.tries++
+    // lifetime: OK — one one-shot re-read at a time (cleared by a new write), at most STAGE_REREAD_MS.length per write; it reads only while the same write still waits
+    stageReread = setTimeout(() => { stageReread = null; if (stageWrote === w) stageSongRead(null, '') }, wait)
+  } else stageWrote = null
+  return s.st
 }
 // the song as the shared menu builder takes it (songMenuItems)
 function stageInfo() {
@@ -1229,6 +1254,9 @@ async function stageSongRead(state, key) {
   let st
   try { st = await songSource.state() } catch (e) { st = { ok: false, why: 'not-ready' } }   // error: SHOWN — the row shows nothing known (its buttons say why when clicked)
   if (seq !== stageSongSeq || !stageAlive()) return
+  const line = songActions.readLine(st)
+  if (line) console.log(line)
+  st = settleStageSong(st)
   stageSong = st
   // sent under the Studio's own key (the now-playing it was just sent), not the feed's track key
   const k = stageModel.songKey(lastStage())
@@ -1960,7 +1988,7 @@ function songAct(action, info, done) {
   else if (action === 'share') job = info.url ? clipboard.writeText([info.title, info.artist].filter(Boolean).join(' \u2014 ') + '\n' + info.url) : Promise.reject(new Error('no link'))
   else return
   // Electron 44+: clipboard.writeText returns a Promise
-  Promise.resolve(job).then(() => done(action, true))
+  Promise.resolve(job).then((answer) => done(action, true, '', info, answer))
     .catch((e) => {   // error: SHOWN — every song action's failure is told where it was asked (done: the Studio's note, the mini player's notice)
       console.error(action + ' failed:', e.message)
       done(action, false, mainAlive() ? '' : 'nothing')
@@ -1978,7 +2006,7 @@ function miniActionDone(action, ok, extra) {
  */
 function songMenuItems(info, win, pick, done) {
   const ok = !!(info.ok && songActions.safeId(info.id))
-  const report = (action, okk, why) => done(action, okk, why, info)
+  const report = (action, okk, why, _info, answer) => done(action, okk, why, info, answer)
   const items = {
     favorite: info.rating === 1
       ? { label: 'Undo Favorite', enabled: ok, click: () => songAct('undo-favorite', info, report) }

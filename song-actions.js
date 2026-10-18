@@ -34,13 +34,20 @@ const stateScript = `(async () => {
     const rel = item.relationships || {};
     const ar = rel.artists && rel.artists.data && rel.artists.data[0];
     if (ar && /^\\d+$/.test(String(ar.id))) out.artistId = String(ar.id);
+    // read fresh (no HTTP cache: right after a Favorite the answer must be Apple's new one); a song known
+    // only by its library id (i.…) is rated as a library song. What was asked and what came back go to
+    // main's log (out.read), one line per read: a star that stays off is then explained in the journal.
+    const kind = /^\\d+$/.test(id) ? 'songs' : 'library-songs';
+    out.read = { kind, path: '/v1/me/ratings/' + kind + '?ids=' + id, got: '' };
     try {
-      // read fresh (no HTTP cache: right after a Favorite the answer must be Apple's new one); a song known
-      // only by its library id (i.…) is rated as a library song
-      const r = await mk.api.music('/v1/me/ratings/' + (/^\\d+$/.test(id) ? 'songs' : 'library-songs'), { ids: id }, { fetchOptions: { cache: 'no-store' } });
-      const entry = r && r.data && r.data.data && r.data.data[0];
-      out.rating = entry && entry.attributes ? entry.attributes.value : 0;
-    } catch (e) { /* error: NOT-WORTH — not rated (or no answer): shown as not a favourite */ }
+      const r = await mk.api.music('/v1/me/ratings/' + kind, { ids: id }, { fetchOptions: { cache: 'no-store' } });
+      const list = (r && r.data && Array.isArray(r.data.data)) ? r.data.data : [];
+      const entry = list.find((d) => d && String(d.id) === id) || list[0];
+      out.rating = entry && entry.attributes ? Number(entry.attributes.value) || 0 : 0;
+      out.read.got = entry ? 'value ' + (entry.attributes ? entry.attributes.value : '?') + (entry.id && String(entry.id) !== id ? ' (for id ' + String(entry.id) + ')' : '') : 'no rating (' + list.length + ' entries)';
+    } catch (e) { /* error: SHOWN — not rated (Apple answers 404) or no answer: shown as not a favourite; what failed is logged by main (out.read) */
+      out.read.got = 'error ' + String((e && (e.status || e.errorCode || e.name)) || '') + ' ' + String((e && e.message) || e).slice(0, 120);
+    }
     if (/^\\d+$/.test(id)) {
       try {
         const sf = mk.storefrontId || 'us';
@@ -60,14 +67,20 @@ const stateScript = `(async () => {
   }
 })()`
 
-/** Favorite (value 1) or undo it (null), for the song with this id. */
+/**
+ * Favorite (value 1) or undo it (null), for the song with this id. -> Apple's answer to the write: the
+ * rating value its PUT reply carries (Apple answers with the rating it now holds), 0 after a DELETE, or
+ * null when the reply carries none.
+ */
 const favoriteScript = (id, value) => `(async () => {
     const mk = MusicKit.getInstance();
-    await mk.api.music('/v1/me/ratings/${/^\d+$/.test(id) ? 'songs' : 'library-songs'}/${id}', {}, { fetchOptions: {
+    const r = await mk.api.music('/v1/me/ratings/${/^\d+$/.test(id) ? 'songs' : 'library-songs'}/${id}', {}, { fetchOptions: {
       method: '${value === null ? 'DELETE' : 'PUT'}',
       ${value === null ? '' : `body: JSON.stringify({ type: 'rating', attributes: { value: ${Number(value)} } }),`}
       headers: { 'Content-Type': 'application/json' }
     } });
+    ${value === null ? 'return 0;' : `const d = r && r.data && Array.isArray(r.data.data) ? r.data.data[0] : null;
+    return d && d.attributes && Number.isFinite(Number(d.attributes.value)) ? Number(d.attributes.value) : null;`}
   })()`
 
 /** Add the song with this id to the library. */
@@ -186,6 +199,31 @@ function said(action, ok, extra) {
   return { kind: 'error', text: w[1] + why + (why || /couldn't be opened/.test(w[1]) ? '' : '. Try again in a moment') }
 }
 
+// the favourite read's own account (stateScript out.read), bounded, for main's log line
+function readOf(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}
+  const s = (v, max) => (typeof v === 'string' ? v.replace(/[\r\n]+/g, ' ').slice(0, max) : '')
+  return { kind: r.kind === 'library-songs' ? 'library' : r.kind === 'songs' ? 'catalog' : '', path: s(r.path, 120), got: s(r.got, 160) }
+}
+/** One journal line for a favourite read (main logs it on every read). */
+function readLine(st) {
+  const r = st && st.read
+  if (!st || !st.ok || !r || !r.path) return ''
+  return 'Studio: favourite read for "' + st.title.slice(0, 80) + '": ' + r.kind + ' id via ' + r.path + ' -> ' + (r.got || 'nothing') + ' (star ' + (st.favorite ? 'on' : 'off') + ')'
+}
+
+/**
+ * A read after a Favorite / Undo Favorite that Apple accepted. Apple's ratings read lags its write: on
+ * Marcy's Mad Season song (2026-10-18) the read in the same second as the PUT still answered 404 (not
+ * rated), and the one read after the action left the ☆ an outline for good. wrote: { id, on } (Apple's
+ * answer to the write). -> { st (the state to show), agree (the read says what the write did) }: while the
+ * read disagrees for that song, the star shows the write Apple accepted (main reads again a little later).
+ */
+function settleFavorite(st, wrote) {
+  if (!wrote || !st || !st.ok || st.id !== wrote.id || st.favorite === wrote.on) return { st, agree: true }
+  return { st: Object.assign({}, st, { favorite: !!wrote.on }), agree: false }
+}
+
 /** The page script's state, checked and bounded (it comes from Apple's page). */
 function cleanState(raw) {
   const r = raw && typeof raw === 'object' ? raw : {}
@@ -199,6 +237,7 @@ function cleanState(raw) {
     artist: s(r.artist, 300),
     url: /^https:\/\/music\.apple\.com\//.test(s(r.url, 600)) ? s(r.url, 600) : '',
     favorite: r.rating === 1,
+    read: readOf(r.read),
     inLibrary: r.inLibrary === true ? true : r.inLibrary === false ? false : null,
     albumId: /^\d{1,20}$/.test(s(r.albumId, 20)) ? r.albumId : '',
     artistId: /^\d{1,20}$/.test(s(r.artistId, 20)) ? r.artistId : ''
@@ -230,7 +269,8 @@ function createAppleSource(deps) {
   return {
     name: 'Apple Music',
     async state() { return cleanState(await run(stateScript)) },
-    async favorite(id, on) { need(id); await run(favoriteScript(id, on ? 1 : null)) },
+    // -> Apple's answer to the write: true / false (the rating it now holds), or null when it said none
+    async favorite(id, on) { need(id); const v = await run(favoriteScript(id, on ? 1 : null)); return v === 1 ? true : v === 0 || v === -1 ? false : null },
     async addToLibrary(id) { need(id); await run(addToLibraryScript(id)) },
     async playlists() {
       const list = await run(playlistsScript)
@@ -242,4 +282,4 @@ function createAppleSource(deps) {
   }
 }
 
-module.exports = { SAFE_ID, PLAYLISTS_MAX, safeId, stateScript, favoriteScript, addToLibraryScript, playlistsScript, addToPlaylistScript, openPageScript, playNextScript, said, cleanState, offers, createAppleSource }
+module.exports = { SAFE_ID, PLAYLISTS_MAX, safeId, readLine, settleFavorite, stateScript, favoriteScript, addToLibraryScript, playlistsScript, addToPlaylistScript, openPageScript, playNextScript, said, cleanState, offers, createAppleSource }
