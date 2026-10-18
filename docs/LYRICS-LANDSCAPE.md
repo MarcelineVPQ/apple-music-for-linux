@@ -1,5 +1,7 @@
 # Lyrics landscape: is Sonata's lyrics feature set unique?
 
+> Research note, dated 2026-10-16: research against Sonata 0.15.18, kept as written. File names and features are as they were then (the floating Settings window became the side panel in 0.15.32).
+
 Research of 2026-10-16, against Sonata 0.15.18 (working tree). Purpose: find out which claims
 about Sonata's lyrics are true and checkable before they go on the 42 Pixel Studios site.
 

@@ -1,5 +1,7 @@
 # Refine timing by listening: Level 1 bench results
 
+> Research note, dated 2026-10-16: bench results for Level 1 as built in 0.15.20, kept as written.
+
 Spec: [LISTEN-SPEC.md](LISTEN-SPEC.md). Modules: `vocal-detect.js` (streaming DSP) and
 `timing-refine.js` (alignment). Bench: `tools/listen-bench/`.
 

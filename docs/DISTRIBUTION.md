@@ -1,5 +1,7 @@
 # Distributing Sonata through KDE Discover
 
+> Research note, dated 2026-10-15: research against Sonata 0.15.16, kept as written. What is decided and planned lives in BACKLOG.md ("Discover / KDE availability").
+
 Research of 2026-10-15, against Sonata 0.15.16 (`main.js`, `package.json`, the workflows, the metainfo).
 Goal: Sonata installs and updates from KDE Discover with as few hoops as possible. Sources are at
 the end; **(?)** marks a claim no source confirmed, which needs a test.

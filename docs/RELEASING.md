@@ -97,7 +97,8 @@ measurement") when they move.
 
 ## Development release
 
-Same steps with version `X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and tag `vX.Y.Z-dev.N`;
+Same steps on the `dev` branch (work lands there; commit and push `dev`, not `master`) with version
+`X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and tag `vX.Y.Z-dev.N`;
 the CHANGELOG section is `## [X.Y.Z-dev.N]` (falls back to `[Unreleased]`). The release is published as a
 **prerelease** (never *Latest*, so `releases/latest` and old installs never see it), without
 `latest-linux.yml`, and only `latest-dev.json` changes.
@@ -137,9 +138,10 @@ It passes with "Verification succeeded!" and names the workflow and commit; a fi
 after the build, or never built here, fails (and so does a release from before attestations). The app itself doesn't check
 attestations: it checks the Ed25519 signature, the size and the SHA-512 (above).
 
-**Not tested by a real release yet:** the steps pass actionlint, but the first tag that runs them is
-the proof. After it, check the release run's summary (it lists each attestation) and run the
-`gh attestation verify` lines above on the downloaded AppImage and `latest-dev.json` / `latest.json`.
+**Proven on real releases:** v0.15.39-dev.1 was the first tag to run these steps. On 2026-10-17,
+`gh attestation verify` passed for the v0.15.41-dev.1 AppImage and for `latest-dev.json` on `master`.
+Not yet seen in a real run: a Stable release (its `latest-linux.yml` and `latest.json` attestations); check
+those with the lines above after the first stable tag.
 
 ## Signing key
 

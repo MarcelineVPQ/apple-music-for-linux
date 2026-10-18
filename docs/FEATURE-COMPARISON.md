@@ -1,5 +1,7 @@
 # Feature comparison: Sonata vs other music players
 
+> Research note, dated 2026-10-15: a comparison against Sonata 0.15.10, kept as written. Sonata has gained features since (see CHANGELOG.md); gaps it found are BACKLOG.md rows.
+
 Research of 2026-10-15, against Sonata 0.15.10 (working tree). Sonata's column was checked in the
 code (`main.js`, the four local pages, `lyrics-sources.js`) and, for MPRIS, against the running app
 on the session bus (read-only `busctl` query). The other columns come from the sources at the end.

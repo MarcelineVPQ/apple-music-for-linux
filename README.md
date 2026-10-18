@@ -13,10 +13,11 @@ HERO GIF: docs/media/lyrics-hero.gif (not recorded yet). What to record, exactly
 - The vinyl cover in the header with its progress ring, and one track change so the cover flips.
 - 8-12 seconds, 24 fps, under 5 MB. Full shot list and gifski/ffmpeg settings:
   ~/projects/marketing/sonata/recording-plan.md (outside the repo).
--->
+Put this back above the disclaimer once the file exists (until then it would show as a broken image):
 <p align="center">
   <img src="docs/media/lyrics-hero.gif" alt="Sonata's lyrics window: the sung word lights up word by word, duet lines sit left and right, and the album cover turns like a small vinyl record" width="420">
 </p>
+-->
 
 > Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" and "Apple" are trademarks of Apple Inc. You need your own Apple Music subscription.
 
@@ -41,7 +42,7 @@ chmod +x sonata-*.AppImage
 
 ### Lyrics
 
-Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). It floats on top, resizes, and remembers its size.
+Open the lyrics window from the rail's Lyrics item, the mini player's lyrics button (or its ⋯ menu) or Ctrl+Shift+L. It floats on top, resizes, and remembers its size.
 
 - **Word-by-word karaoke** with Apple's own timing: the word being sung pops and glows, without the line jumping around. Click any line to jump there.
 - **Estimated word timing** for songs that only have line timing: each line's time is spread across its words, weighted by word length. It is marked "Word timing estimated", and Settings → *Estimated word timing* turns it off.
@@ -50,11 +51,28 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 - **Duets:** singer 1 on the left, singer 2 on the right, together in the middle.
 - **Backing vocals** sit smaller and dimmer under the main line, with their own word timing.
 - **The vinyl cover:** the album art becomes a little record with grooves and a spindle hole, inside a ring that fills with the song's progress. It flips on a track change; click it to open the album. Optionally it spins, either at a relaxed pace or at true speed (33⅓ rpm for albums, 45 for singles and EPs).
+- **A tonearm** rests on the spinning record and moves inward as the song plays.
+- **Songwriter credits:** the lyrics end with "Written by …" when Apple has the song's writers.
+- **View the album cover:** right-click the cover in the lyrics window or the mini player (or View Album Cover in the mini player's menu) and it opens large in the middle of the screen.
+- **By keyboard:** Tab lands on the line being sung, ↑ / ↓ move, Enter or Space plays from that line, Esc closes the window.
 - **Offline lyrics cache:** songs you've played before show their lyrics instantly, even offline (about 2,000 songs / 20 MB, oldest dropped first). The next song in your queue is looked up ahead of time while the lyrics window is open.
+
+### The Studio
+
+The lyrics window can grow into the Studio, a full now-playing screen: the lyrics big in the middle; the cover, the song, its place in the queue ("Track 13 of 24"), the venue of a live album and the controls on the left; Up Next or the whole album or playlist on the right, with a "Next · in 1:22" countdown. Click a song in the list to play it. Open it with Studio, the first item on the rail, the button in the lyrics window's header or Ctrl+Shift+S; the same button or key shrinks it back to the lyrics window. Sonata remembers which one you used last, and the size of each.
+
+- **Montage** (a tile in the Studio, off until you turn it on): free photos of the artist, the band live and a live album's venue drift slowly behind the lyrics. They come from Wikimedia Commons, only freely licensed ones, and each shows who took it and its licence. The lyrics stay readable over every photo.
+- **Liner notes:** the album as a CD booklet you page through: the cover and the disc, Apple Music's notes on the album, where and when it was recorded, the album's Wikipedia article, who played and who wrote each song, the lyrics of songs you've played, and real booklet scans where the Cover Art Archive has them. Every block says where it comes from. Open it from the Studio's Liner notes tile, or Liner Notes… in the lyrics window cover's menu or the mini player's menus; ← / → turn pages, Esc closes it. For live albums, setlist.fm adds the show's setlist with your own free key (Settings → Integrations).
+
+### Precise word timing (optional, experimental)
+
+For songs with line timing only, Sonata can work out where each word is really sung, on your own computer: it separates the vocals from what's playing and lines the lyrics up with them, after the song has played once with the lyrics open. Audio stays in memory; only the word times are kept. It needs the separate sonata-align helper, installed from the Sonata source with `align/install.sh` (the GPU build is about 7 GB and uses an NVIDIA graphics card; `--cpu` makes a slower CPU-only build of about 1 GB). Once it's installed, Settings → Precise timing shows the switch. While a game runs it pauses by itself (Settings → *Pause word timing while gaming*). Details: [docs/LEVEL2-ALIGN.md](docs/LEVEL2-ALIGN.md).
+
+*Refine timing by listening* (also under Precise timing, no helper needed) nudges estimated words toward where it hears them sung.
 
 ### Player
 
-- **Navigation rail:** a slim bar on the right edge of the main window with Lyrics, Visualizer, Mini Player, Settings and About. It shows icons only and slides open over the page when you point at it or Tab to it, then closes again after you pick something. Press **Ctrl+B** (or its pin button) to keep it open: the page then makes room for it, and Sonata remembers that. The small lock in its bottom corner does the opposite: it keeps the rail small (icons only), so it no longer opens when you point at it; click again to unlock. Pinning and locking exclude each other. An item is marked while its window is open, and each tooltip names the item's shortcut. At the bottom it shows Last.fm, Discord and precise word timing, each with a symbol and words (not just a coloured dot). On the Development channel it also shows a *Development* badge with the version. It takes on the album's colour and follows light/dark mode. From the keyboard: Tab past either end of the page (or F6) reaches it, ↑ / ↓ move, Enter or Space opens, Esc closes, Tab leaves it. Settings and About open in the [side panel](#settings-and-about); pressing the item again hides it, and a dot on the item says something is waiting there (an update, what's new). The rail has its own space beside Apple's page, so it never covers anything of Apple's, signed in or not. The tray, menus and shortcuts all still work as before.
+- **Navigation rail:** a slim bar on the right edge of the main window with Studio, Lyrics, Visualizer, Mini Player, Settings and About. It shows icons only and slides open over the page when you point at it or Tab to it, then closes again after you pick something. Press **Ctrl+B** (or its pin button) to keep it open: the page then makes room for it, and Sonata remembers that. The small lock in its bottom corner does the opposite: it keeps the rail small (icons only), so it no longer opens when you point at it; click again to unlock. Pinning and locking exclude each other. An item is marked while its window is open, and each tooltip names the item's shortcut. At the bottom it shows Last.fm, Discord and precise word timing, each with a symbol and words (not just a coloured dot). On the Development channel it also shows a *Development* badge with the version. It takes on the album's colour and follows light/dark mode. From the keyboard: Tab past either end of the page (or F6) reaches it, ↑ / ↓ move, Enter or Space opens, Esc closes, Tab leaves it. Settings and About open in the [side panel](#settings-and-about); pressing the item again hides it, and a dot on the item says something is waiting there (an update, what's new). The rail has its own space beside Apple's page, so it never covers anything of Apple's, signed in or not. The tray, menus and shortcuts all still work as before.
 - **System tray:** click to hide or show the window; right-click for play/pause, next, previous, mini player, visualizer, dark mode, settings and quit. Music keeps playing while the window is hidden.
 - **Mini player** (Ctrl+M): an always-on-top pill shaped like Apple Music's own player bar: shuffle, previous / play-pause / next and repeat on the left; the artwork, title and artist with a thin progress line in the middle; lyrics, Up Next, mute and a volume slider on the right; favourite and a ⋯ menu (Add to Library, Copy Link, Lyrics, Visualizer, Always on Top). Point at the middle and it turns into a scrubber with the elapsed and remaining time: click or drag to seek, or ← / → (5 s) when it has the focus. The mouse wheel over the volume (or the speaker) changes it in 5 % steps, also over the volume in Apple's player bar. On KDE (X11) the desktop behind the pill is blurred. Drag it anywhere.
 - **Visualizer / ambient mode** (Ctrl+Shift+V): full-screen album art, synced lyrics and a real-time spectrum from the actual audio output (captured through PipeWire/PulseAudio, so it works with Apple's DRM). Four scenes: **Bars**, **Aurora** (a Flurry homage), **Nebula** (an iTunes-visualizer homage) and **Toast** (pixel-art winged toasters that flap to the beat, an After Dark wink). Click or ← / → to change, Esc to leave.
@@ -67,11 +85,12 @@ Open the lyrics window from the mini player's lyrics button (or its ⋯ menu). I
 - **Last.fm scrobbling** by Last.fm's rules (tracks over 30 s, after half the track or 4 minutes). [Setup](#lastfm-scrobbling).
 - **Discord Rich Presence:** "Listening to" with track, artist, album art and progress. [Setup](#discord-presence).
 - **Track-change notifications** with album art (toggle in Settings).
+- **Global shortcuts** (Settings → Global shortcuts, off by default): play or pause, next and previous song, and the lyrics window from any app (suggested Ctrl+Alt+P, Ctrl+Alt+Page Down, Ctrl+Alt+Page Up, Ctrl+Alt+Y). On Wayland your desktop asks once and keeps the keys in its own settings. Media keys work without this.
 - Settings for close to tray, start minimized and launch at login.
 
 ### Settings and About
 
-Settings and About open in a panel beside Apple's page (the rail's Settings and About items, the tray's *Settings…* and *About Sonata*). Apple's page makes room for it; in a narrow window it slides in as a drawer over the page instead (Esc closes it). Settings are grouped in sections: Playback & lyrics, Precise timing, Appearance, Mini player & windows, Integrations (Last.fm, Discord), Updates and Startup. Each header says the current state in a few words. One section is open at a time; pin the ones you want to keep open (the dot in a header's corner). The ⋮ menu collapses all sections or clears the pins. Sonata remembers it all. About has what's new in your version, what's coming soon, credits and licences, and links.
+Settings and About open in a panel beside Apple's page (the rail's Settings and About items, the tray's *Settings…* and *About Sonata*). Apple's page makes room for it; in a narrow window it slides in as a drawer over the page instead (Esc closes it). Settings are grouped in sections: Playback & lyrics, Precise timing, Appearance, Mini player & windows, Global shortcuts, Integrations (Last.fm, Discord, setlist.fm), Updates and Startup. Each header says the current state in a few words. One section is open at a time; pin the ones you want to keep open (the dot in a header's corner). The ⋮ menu collapses all sections or clears the pins. Sonata remembers it all. About opens on Sonata's card (the version, the update channel and links to the site, the source and issues), then App changes (what's new in your version), Coming soon and Credits (every third-party part and its licence).
 
 Messages (a Last.fm step, an update, a repaired file) appear at the top of the panel or in their section, with their buttons and a × to dismiss. Short confirmations show for a few seconds at the bottom right of the page.
 
@@ -87,22 +106,22 @@ If Sonata's settings file or lyrics cache is ever damaged, Sonata keeps everythi
 - Never a downgrade otherwise, and never over the AppImage that is running: the new file goes beside it and `Sonata.AppImage` (the menu entry's link) points to it.
 - How it works step by step, and how to check a download yourself with its build attestation: [How it's built and tested](#how-its-built-and-tested).
 
-## Screenshots
-
 <!--
-Placeholders, not recorded yet (shot list: ~/projects/marketing/sonata/recording-plan.md):
+SCREENSHOTS: not recorded yet. Put this section back (heading "## Screenshots" and the table below)
+once the files exist; until then the images would show as broken.
+Placeholders (shot list: ~/projects/marketing/sonata/recording-plan.md):
 - docs/media/lyrics-duet.png       lyrics window mid-duet: left/right singers, a backing vocal, album-colour glow
 - docs/media/lyrics-lrclib.png     a song Apple has no lyrics for, showing the "Lyrics from LRCLIB" credit line
 - docs/media/mini-player.png       mini player floating over a desktop, with the lyrics window beside it
 - docs/media/visualizer.png        visualizer in the Aurora or Nebula scene with a synced lyric line
 Capture with Spectacle (window mode, no shadow), PNG, 2x scale if possible, then optimise with oxipng/pngquant.
--->
 
 | Lyrics, duet | Lyrics from LRCLIB |
 | --- | --- |
 | ![Lyrics window during a duet, with singers on the left and right](docs/media/lyrics-duet.png) | ![Lyrics window showing lyrics from LRCLIB](docs/media/lyrics-lrclib.png) |
 | **Mini player** | **Visualizer** |
 | ![Mini player with the lyrics window beside it](docs/media/mini-player.png) | ![Visualizer with album art, spectrum and a synced lyric](docs/media/visualizer.png) |
+-->
 
 ## Privacy
 
@@ -114,8 +133,9 @@ Sonata talks to Apple (through the Apple Music web player you sign in to) and, o
 | --- | --- |
 | `Ctrl+M` | Toggle mini player |
 | `Ctrl+Shift+S` | Open the Studio (the lyrics with the song and what plays next), or shrink it back to the lyrics window |
-| `Ctrl+Shift+L` | Toggle lyrics (also in the mini player) |
+| `Ctrl+Shift+L` | Toggle lyrics (also in the mini player, the lyrics window and the visualizer) |
 | `Ctrl+Shift+V` | Toggle visualizer (also in the mini player; ← / → or click to change scene, Esc to exit) |
+| `Ctrl+Alt+P`, `Ctrl+Alt+PageDown`, `Ctrl+Alt+PageUp`, `Ctrl+Alt+Y` | Global shortcuts, from any app, when turned on: play / pause, next, previous, lyrics (suggested keys; you can change them) |
 | `Ctrl+B` | Pin / unpin the navigation rail (remembered) |
 | `F6` | Move the keyboard between Apple's page, the side panel (when shown) and the navigation rail |
 | `Ctrl+D` | Toggle dark / light mode |
@@ -198,7 +218,7 @@ system at work belong here. Not recorded yet; don't add them before then.
 **The views.** Sonata is plain JavaScript on [castlabs Electron](https://github.com/castlabs/electron-releases) (for Widevine), with no build step.
 
 - The main window holds separate views side by side: Apple's web player, the [navigation rail](#player), the [side panel](#settings-and-about) (Settings and About) and short notices. Apple's page gets none of Sonata's code beyond a few small scripts for focus, the mouse-wheel volume and the media controls, and it never gets Node.
-- The mini player, the lyrics window and the visualizer are their own windows. One lyrics engine draws the words in both the lyrics window and the visualizer.
+- The mini player, the lyrics window (and the Studio, its second form), the visualizer, the liner notes and the album cover view are their own windows. One lyrics engine draws the words in the lyrics window, the Studio and the visualizer.
 - The logic is kept apart from the windows (layout, lyrics timing, the theme, the updater), so it can be tested without starting Electron.
 
 **One theme system.** Every colour in Sonata's own windows comes from one place (`theme.js`): light or dark, the album's colour, and the Glass material. It raises contrast until text reaches 4.5:1 (3:1 for dimmed lyric lines) over any artwork. New UI uses those colours, never its own. The only exceptions are things drawn as they look in real life: the vinyl cover and the visualizer's night scenes.
@@ -256,9 +276,9 @@ Sonata takes your region from your desktop's locale (country code, `US` if none 
 - Based on [cross-platform/apple-music-for-linux](https://github.com/cross-platform/apple-music-for-linux) by Marcus Tomlinson.
 - Fallback lyrics from [LRCLIB](https://lrclib.net), a free, open lyrics database run by its community.
 - Widevine playback through [castlabs Electron for Content Security](https://github.com/castlabs/electron-releases).
-- Karaoke syllables with [hyphen](https://github.com/ytiurin/hyphen) (ISC) and the TeX hyphenation patterns of [hyph-utf8](https://github.com/hyphenation/tex-hyphen), each under its own licence (listed in About → Credits & licences).
+- Karaoke syllables with [hyphen](https://github.com/ytiurin/hyphen) (ISC) and the TeX hyphenation patterns of [hyph-utf8](https://github.com/hyphenation/tex-hyphen), each under its own licence (listed in About → Credits).
 - The flying toasters are lit with the "White Home Studio" HDRI from [Poly Haven](https://polyhaven.com) (CC0).
 
-The full list, including the optional sonata-align models, is in the app: About → Credits & licences.
+The full list, including the optional sonata-align models, is in the app: About → Credits.
 
 GPL-3.0, see [LICENSE](LICENSE). Made by Marcy under 42 Pixel Studios.

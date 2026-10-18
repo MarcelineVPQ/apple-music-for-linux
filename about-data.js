@@ -3,7 +3,8 @@
 //   Hero card     hero(): the 42PS card (eyebrow, name, developer, version and channel, links, ©); main
 //                 adds it to each panel snapshot, so a channel switch shows at once
 //   App changes   the CHANGELOG section of the running version (or the newest one before it), older ones folded
-//   Coming soon   BACKLOG rows whose Notes start with "Soon:" (the user-facing sentence after it), by status
+//   Coming soon   BACKLOG rows whose Notes start with "Soon:" or "Soon (Title):" (the user-facing sentence
+//                 after it), by status; tools/doc-gates.js soon keeps the BACKLOG and this list in step
 //   Credits       CREDITS below: the "Built on" group as prose, every other group and the hyphenation
 //                 patterns as one What | Credit table
 
@@ -36,19 +37,22 @@ function whatsNew(md, version) {
   return { current: all[0] || null, older: all.slice(1) }
 }
 
-// BACKLOG.md rows "| Item | Status | Soon: one sentence for users. dev notes… |"
+// BACKLOG.md rows "| Item | Status | Soon: one sentence for users. dev notes… |", or
+// "Soon (Card title): one sentence…" when the Item cell isn't a good title for users
+const MARKERS = /\s*\((internal|in testing|unannounced)\)\s*$/i
 function comingSoon(md) {
   const out = []
-  // loop: NOT-WORTH — one pass over BACKLOG.md's rows (~60), when About opens
+  // loop: NOT-WORTH — one pass over BACKLOG.md's rows (~130), when About opens
   for (const line of String(md || '').split('\n')) {
     if (!/^\|/.test(line)) continue
     const cells = line.split('|').slice(1, -1).map((c) => c.trim())
     if (cells.length < 3) continue
-    const m = /^Soon:\s*(.+?[.!?])(?:\s|$)/.exec(cells[2])
+    const m = /^Soon(?:\s*\(([^)]+)\))?:\s*(.+?[.!?])(?:\s|$)/.exec(cells[2])
     if (!m) continue
     const status = cells[1].replace(/\*/g, '').trim()
     if (/^done$/i.test(status)) continue
-    out.push({ title: cells[0].replace(/\*/g, '').replace(/^After 0\.15\.10:\s*/i, ''), text: m[1], status })
+    const item = cells[0].replace(/\*/g, '').replace(MARKERS, '').replace(/^After 0\.15\.10:\s*/i, '')
+    out.push({ title: m[1] ? m[1].trim() : item, text: m[2], status })
   }
   return out
 }
@@ -141,8 +145,8 @@ function hero(version, channel, appImage, year) {
   }
 }
 
-// Coming soon as the DS5 board's columns: in progress first, then planned, then ideas (empty ones left out)
-const SOON_GROUPS = [['Building', 'In progress'], ['Planned', 'Planned'], ['Idea', 'Ideas']]
+// Coming soon as the DS5 board's columns: building now first, then planned, then ideas (empty ones left out)
+const SOON_GROUPS = [['Building', 'Building now'], ['Planned', 'Planned'], ['Idea', 'Ideas']]
 function soonGroups(items) {
   return SOON_GROUPS.map(([status, label]) => ({ label, items: items.filter((it) => it.status.toLowerCase() === status.toLowerCase()) }))
     .filter((g) => g.items.length)
@@ -164,4 +168,4 @@ function aboutData(changelogMd, backlogMd, version, alignInstalled) {
   }
 }
 
-module.exports = { changelogSections, whatsNew, comingSoon, soonGroups, hero, aboutData, CREDITS, PATTERNS, LINKS, NOT_AFFILIATED, ISSUES_URL, RELEASES_URL }
+module.exports = { changelogSections, whatsNew, comingSoon, soonGroups, MARKERS, hero, aboutData, CREDITS, PATTERNS, LINKS, NOT_AFFILIATED, ISSUES_URL, RELEASES_URL }
