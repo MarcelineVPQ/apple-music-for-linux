@@ -31,6 +31,7 @@ const shortcutsLib = require('./shortcuts')
 const shortcutsModel = require('./shortcuts-model')
 const dbusWire = require('./dbus-wire')
 const stageModel = require('./stage-model')
+const songActions = require('./song-actions')
 const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
@@ -505,30 +506,7 @@ const nextItemScript = `(() => {
   } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to prefetch */ return { ok: false }; }
 })()`
 
-// Clicks a link to the playing song's album already in the page (now-playing bar, lists), found
-// through shadow roots. Album id from the song's catalog URL (…/album/name/123?i=456) or its container.
-const showAlbumScript = `(() => {
-  try {
-    const item = MusicKit.getInstance().nowPlayingItem;
-    if (!item) return false;
-    const m = String((item.attributes && item.attributes.url) || '').match(/\\/album\\/[^/]*\\/?(\\d+)/);
-    const id = m ? m[1] : (item.container && item.container.type === 'albums' ? String(item.container.id) : '');
-    if (!id) return false;
-    const re = new RegExp('/album/(?:[^/?#]*/)?' + id + '(?:[?#]|$)');
-    const walk = (root, depth) => {
-      if (depth > 25) return null;
-      /* loop: NOT-WORTH — one walk per album click, shadow depth ≤ 25 */
-      for (const a of root.querySelectorAll('a[href*="/album/"]')) if (re.test(a.getAttribute('href'))) return a;
-      for (const el of root.querySelectorAll('*')) {
-        if (el.shadowRoot) { const hit = walk(el.shadowRoot, depth + 1); if (hit) return hit; }
-      }
-      return null;
-    };
-    const link = walk(document, 0);
-    if (link) link.click();
-    return !!link;
-  } catch (e) { /* error: NOT-WORTH — no song or no MusicKit: false, the window is only shown */ return false; }
-})()`
+// the playing song's album / artist in Apple's page: song-actions.js openPageScript (through a link in the page)
 
 const lyricsSources = require('./lyrics-sources')
 const recordingId = require('./recording-id')
@@ -1029,6 +1007,11 @@ let stageSent = ''        // the last 'stage-np' sent (JSON), so it's sent on ch
 let stageQueueSig = ''    // the queue's signature as last sent: Apple's page answers "same" while it holds
 let stageQueueAt = 0      // when the queue was last read (ms)
 let stageQueueKey = ''    // the song the queue was last read for (a new song reads it at once)
+let stageQueueLast = null // the queue as last sent (stage-model cleanQueue): the row menus' songs
+let stageSongKey = ''     // the song the action row and the credits were read for (read once per song)
+let stageSongSeq = 0      // a newer read wins over a late answer
+let stageSong = { ok: false }   // the playing song's state (song-actions.js cleanState)
+const stageCreditsAsked = new Set()   // albums whose MusicBrainz credits the Studio asked for this session (once each)
 // the liner notes (openLinerNotes(album, from), below); the tile shows only when it's there
 const linerNotesReady = () => typeof openLinerNotes === 'function'
 function lyricsForm() {
@@ -1055,6 +1038,7 @@ function setLyricsForm(stage) {
   stageSent = ''
   stageQueueSig = ''
   stageQueueKey = ''
+  stageSongKey = ''
   lyricsWindow.webContents.send('lyrics-form', lyricsForm())
   lyricsWindow.setMinimumSize(min.width, min.height)
   lyricsWindow.setBounds(b)
@@ -1088,7 +1072,8 @@ const stageQueueScript = (since) => `(() => {
       items: items.slice(0, ${stageModel.QUEUE_MAX}).map((it) => {
         const a = it.attributes || {};
         const art = a.artwork && a.artwork.url ? a.artwork.url.replace('{w}', 112).replace('{h}', 112) : '';
-        return { id: id(it), title: a.name || it.title || '', artist: a.artistName || '', album: a.albumName || '', duration: (a.durationInMillis || 0) / 1000, art, autoplay: !!it.isAutoplay };
+        const am = String(a.url || '').match(/\\/album\\/[^/]*\\/?(\\d+)/);
+        return { id: id(it), title: a.name || it.title || '', artist: a.artistName || '', album: a.albumName || '', duration: (a.durationInMillis || 0) / 1000, art, autoplay: !!it.isAutoplay, albumId: am ? am[1] : '', composer: a.composerName || '' };
       })
     };
   } catch (e) { /* error: NOT-WORTH — no MusicKit or no queue yet (page loading): { ok: false }, read again on the next tick */
@@ -1104,6 +1089,7 @@ async function stageTick(state, key) {
   const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(state.volume) || 0, releaseDate: state.releaseDate || '' }
   const json = JSON.stringify(np)
   if (json !== stageSent) { stageSent = json; lyricsWindow.webContents.send('stage-np', np) }
+  if (key !== stageSongKey) { stageSongKey = key; stageSongRead(state, key) }
   montageTick(state)
   const now = Date.now()
   if (key === stageQueueKey && now - stageQueueAt < 2000) return
@@ -1113,7 +1099,8 @@ async function stageTick(state, key) {
   try { q = await appleWC().executeJavaScript(stageQueueScript(stageQueueSig)) } catch (e) { return }   // error: NOT-WORTH — page mid-navigation: read again on the next tick
   if (!q || !q.ok || q.same || !stageShowing()) return
   stageQueueSig = q.sig
-  lyricsWindow.webContents.send('stage-queue', stageModel.cleanQueue(q))
+  stageQueueLast = stageModel.cleanQueue(q)
+  lyricsWindow.webContents.send('stage-queue', stageQueueLast)
 }
 
 // Play a song of the queue (the stage's Up Next / Playlist): only when Apple's player offers
@@ -1162,11 +1149,28 @@ ipcMain.on('stage-command', (event, command, value) => {
   else if (c.command === 'repeat') playerCommand('cycleRepeat')
   else if (c.command === 'seek') run(`(() => { MusicKit.getInstance().seekToTime(${c.value}); })();`, 'seek')
   else if (c.command === 'volume') run(`(() => { MusicKit.getInstance().volume = ${c.value}; })();`, 'volume')
-  else if (c.command === 'play-item') {
-    run(stagePlayScript(c.value.index, c.value.id), 'play').then((ok) => { if (!ok) { stageQueueSig = ''; stageQueueKey = '' } })
+  else if (c.command === 'play-item') ipcStagePlay(c.value.index, c.value.id)
+  else if (c.command === 'song-favorite') {
+    if (!stageSong.ok || !stageSong.id) { stageDone('favorite', false, 'nothing'); return }
+    songAct(c.value ? 'favorite' : 'undo-favorite', stageSong, stageDone)
   }
   else if (c.command === 'sheet-notes') setSetting('sheetNotes', c.value)   // the Studio's Sheet notes tile: the same switch as Settings
   else if (c.command === 'sheet-place') setSetting('sheetPlace', c.value)   // the band's placement buttons: the same setting as Settings
+  else if (c.command === 'song-library') {
+    if (!stageSong.ok || !stageSong.id) stageDone('library', false, 'nothing')
+    else if (stageSong.inLibrary === true) stageSay({ kind: 'ok', text: 'Already in your library' })
+    else songAct('library', stageSong, stageDone)
+  }
+  else if (c.command === 'song-link') {
+    if (!stageSong.url) stageDone('link', false, 'nothing')
+    else songAct('link', stageSong, stageDone)
+  }
+  else if (c.command === 'song-album' || c.command === 'song-artist') stageOpenPage(c.command === 'song-album' ? 'album' : 'artist')
+  else if (c.command === 'song-more') stageMenu(songMenuItems(stageInfo(), lyricsWindow, ['cover', 'liner', '-', 'share'], stageDone), c.value)
+  else if (c.command === 'song-playlists') stagePlaylists(c.value)
+  else if (c.command === 'row-menu') stageRowMenu(c.value)
+  else if (c.command === 'credits-liner' && linerNotesReady()) stageLiner('credits')
+  else if (c.command === 'liner-recording' && linerNotesReady()) stageLiner('recording')
   else if (c.command === 'liner-notes' && linerNotesReady()) {
     // the booklet of the album the stage shows; the tile says so when no album matched
     const s = lastStage()
@@ -1175,8 +1179,112 @@ ipcMain.on('stage-command', (event, command, value) => {
       .catch((e) => console.error('stage liner notes failed:', e.message))   // error: LOGGED-OK — the booklet didn't open; the next click tries again
   }
 })
+// play a place of the queue (a click on a row, its menu's Play Now): checked again in Apple's page
+function ipcStagePlay(index, id) {
+  if (!mainAlive()) return
+  appleWC().executeJavaScript(stagePlayScript(index, id))
+    .then((ok) => { if (!ok) { stageQueueSig = ''; stageQueueKey = '' } })
+    .catch((e) => console.error('stage play failed:', e.message))   // error: LOGGED-OK — page mid-load: nothing plays; the list shows the player's real state on the next read
+}
 function lastStage() {
   try { return JSON.parse(stageSent || '{}') } catch (e) { return {} }   // error: NOT-WORTH — our own JSON; {} when nothing was sent yet
+}
+
+// --- the Studio's song actions (the row under the volume), its menus and the cover's credits ---
+// The song's state is read once per song while the Studio shows (and again after an action), never on a
+// timer: song-actions.js stateScript (favourite, library, ids) through the source adapter (songSource).
+const stageAlive = () => !!(lyricsWindow && !lyricsWindow.isDestroyed())
+function stageSay(note) { if (note && stageAlive()) lyricsWindow.webContents.send('stage-said', note) }
+// a song action's result in the Studio: its note; after one that changes the song's state, that state again
+function stageDone(action, ok, why, info) {
+  stageSay(songActions.said(action, ok, why))
+  if (ok && /favorite|library|playlist/.test(action)) { stageSongKey = ''; stageSongRead(null, '') }
+}
+// the song as the shared menu builder takes it (songMenuItems)
+function stageInfo() {
+  const s = lastStage()
+  return { ok: !!stageSong.ok, id: stageSong.id || '', title: stageSong.title || s.title || '', artist: stageSong.artist || s.artist || '', url: stageSong.url || '', rating: stageSong.favorite ? 1 : 0 }
+}
+// a native menu under the Studio button that asked for it (at: its lower-left corner in the window)
+function stageMenu(template, at) {
+  if (!stageAlive()) return
+  // lifetime: a fresh Menu per click; nothing keeps it after the popup closes, so it is garbage-collected
+  Menu.buildFromTemplate(template).popup({ window: lyricsWindow, x: at.x, y: at.y })
+}
+async function stageSongRead(state, key) {
+  const seq = ++stageSongSeq
+  let st
+  try { st = await songSource.state() } catch (e) { st = { ok: false, why: 'not-ready' } }   // error: SHOWN — the row shows nothing known (its buttons say why when clicked)
+  if (seq !== stageSongSeq || !stageAlive()) return
+  stageSong = st
+  const k = key || (lastStage().title || '') + '|' + (lastStage().artist || '')
+  stageSongKey = k
+  lyricsWindow.webContents.send('stage-song', Object.assign({ key: k }, st, { offers: songActions.offers(st) }))
+  if (state) stageCredits(state, st, k, seq)
+}
+// the Studio's credits (the cover's back) for the song playing: Apple's catalog at once; MusicBrainz's from
+// the album's liner-notes cache entry, or once per album (the liner-notes code, MusicBrainz only) when the
+// cache has none. Nothing is fetched again for a song whose album is in the cache.
+function linerEntry(albumId) {
+  return albumId && linerStore ? linerStore.get(linerModel.cacheKey(albumId, linerSources.wikiLang(app.getLocale()))) : null
+}
+function stageCredits(state, st, key, seq) {
+  const song = { id: st.ok ? st.id : '', title: state.title, artist: state.artist, composer: state.composer }
+  const send = (entry) => {
+    if (seq !== stageSongSeq || !stageAlive()) return
+    lyricsWindow.webContents.send('stage-credits', Object.assign({ key, liner: linerNotesReady() }, linerModel.songCredits(entry, song)))
+  }
+  const albumId = st.ok ? st.albumId : ''
+  const entry = linerEntry(albumId)
+  send(entry)
+  if (!albumId || (entry && entry.parts && entry.parts.mb) || stageCreditsAsked.has(albumId) || !mainAlive()) return
+  if (stageCreditsAsked.size > 500) stageCreditsAsked.clear()
+  stageCreditsAsked.add(albumId)
+  appleWC().executeJavaScript(linerAlbumScript(albumId, null))
+    .then((res) => { if (res && res.ok) getLinerNotes().load(res.album, null, (e, pending) => { if (!pending) send(e) }, '', 'mb') })
+    .catch((e) => console.error('studio credits: album lookup failed:', e.message))   // error: LOGGED-OK — the back shows Apple's credits; the booklet asks again when opened
+}
+// the album or artist in Apple's page (song-actions.js openPageScript); the main window comes to the front
+function stageOpenPage(kind, albumId) {
+  if (!mainAlive()) { stageDone(kind, false, 'nothing'); return }
+  mainWindow.show()
+  mainWindow.focus()
+  songSource.open(kind, albumId)
+    .then((ok) => stageDone(kind, ok))
+    .catch((e) => { console.error('studio open ' + kind + ' failed:', e.message); stageDone(kind, false) })   // error: SHOWN — the Studio's note says it couldn't be opened
+}
+// Add to a playlist: the user's playlists that take songs, read when the menu opens (one request)
+function stagePlaylists(at) {
+  if (!stageSong.ok || !stageSong.id) { stageDone('playlist', false, 'nothing'); return }
+  const song = stageSong
+  songSource.playlists().then((list) => {
+    const items = list.length
+      ? list.map((p) => ({ label: p.name, click: () => songSource.addToPlaylist(p.id, song.id).then(() => stageDone('playlist', true, p.name)).catch((e) => { console.error('add to playlist failed:', e.message); stageDone('playlist', false) }) }))   // error: SHOWN — the Studio's note says it didn't go through
+      : [{ label: 'No playlists of yours to add to', enabled: false }]
+    stageMenu([{ label: 'Add to a Playlist', enabled: false }, { type: 'separator' }, ...items], at)
+  }).catch((e) => { console.error('playlists failed:', e.message); stageDone('playlists', false) })   // error: SHOWN — the Studio's note says the playlists didn't load
+}
+// a queue row's menu (its ⋯, right-click, the Menu key): the shared builder's queue items
+function stageRowMenu(v) {
+  const q = stageQueueLast
+  const it = q && q.items[v.index]
+  if (!it || it.id !== v.id) { stageQueueSig = ''; stageQueueKey = ''; return }   // the queue moved on: read again
+  const info = { ok: true, id: it.id, title: it.title, artist: it.artist, url: '', rating: 0, row: { index: it.index, id: it.id, albumId: it.albumId, composer: it.composer, cur: it.index === q.position } }
+  stageMenu([{ label: it.title || 'Untitled', enabled: false }, { type: 'separator' }, ...songMenuItems(info, lyricsWindow, ['play-now', 'play-next', '-', 'album', 'credits'], stageDone)], v)
+}
+// another song's credits (a queue row's menu): Apple's composer, and MusicBrainz's when its album is in the liner-notes cache
+function stageRowCredits(row, info) {
+  if (!stageAlive()) return
+  const c = linerModel.songCredits(linerEntry(row.albumId), { id: row.id, title: info.title, artist: info.artist, composer: row.composer })
+  lyricsWindow.webContents.send('stage-row-credits', Object.assign({ index: row.index, id: row.id, title: info.title }, c))
+}
+// the booklet at one of its sections (the cover's "More in the liner notes", the live chip)
+function stageLiner(section) {
+  const s = lastStage()
+  const albumId = stageSong.ok ? stageSong.albumId : ''
+  openLinerNotes(albumId ? { appleId: albumId } : { album: s.album, artist: s.artist }, lyricsWindow, { section })
+    .then((ok) => { if (stageAlive()) lyricsWindow.webContents.send('stage-liner', !!ok) })
+    .catch((e) => console.error('stage liner notes failed:', e.message))   // error: LOGGED-OK — the booklet didn't open; the next click tries again
 }
 
 // --- the Studio's Montage: free photos of the artist, the venue and the album's era behind the lyrics ---
@@ -1332,7 +1440,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     mainWindow.focus()
     // open the playing album through the page's own album link (client-side routing, so playback
     // goes on); without such a link on screen the window is only shown
-    appleWC().executeJavaScript(showAlbumScript)
+    appleWC().executeJavaScript(songActions.openPageScript('album'))
       .catch((e) => console.error('show album failed:', e.message)) // error: LOGGED-OK — page mid-load: the window is shown, the album isn't opened
   }
   else if (command === 'art-menu') {
@@ -1531,7 +1639,7 @@ function linerLyricsFor(apple) {
 function sendLinerData(entry, pending) {
   const apple = entry.parts.apple && entry.parts.apple.data
   if (apple) linerAlbum = { id: apple.id, tracks: new Set(apple.tracks.map((t) => t.id)), byKey: new Map(apple.tracks.map((t) => [t.name + '|' + t.artist, t.id])) }
-  linerData = { booklet: linerModel.buildBooklet(entry, { lyrics: linerLyricsFor(apple) }), pending: !!pending, opts: { spin: !!settings.lyricsArtSpin } }
+  linerData = { booklet: linerModel.buildBooklet(entry, { lyrics: linerLyricsFor(apple) }), pending: !!pending, opts: { spin: !!settings.lyricsArtSpin }, open: linerOpenAt }
   if (linerReady && linerWindow && !linerWindow.isDestroyed()) linerWindow.webContents.send('liner-data', linerData)
 }
 // the playing song as the booklet shows it (its track marked, the disc turning); sent on change only
@@ -1578,9 +1686,12 @@ function syncLinerPoll() {
  * the playing song's album when the names match, else the catalog album with exactly that name and
  * artist), or null for the playing song's album; from: the window it was opened from (the booklet opens
  * on its screen). -> true when a booklet opened (or was brought to the front), false when there was
- * nothing to open (nothing playing, or no album with that name).
+ * nothing to open (nothing playing, or no album with that name). opts.section: the section to open at
+ * ('credits', 'recording'), when the booklet has it.
  */
-async function openLinerNotes(album, from) {
+let linerOpenAt = null     // the section a booklet was asked to open at ({ section, n }: the Studio's credits / recording)
+let linerOpenSeq = 0
+async function openLinerNotes(album, from, opts) {
   const want = album && /^\d{1,20}$/.test(String(album.appleId || '')) ? String(album.appleId) : ''
   const byName = !want && album && typeof album.album === 'string' && album.album.trim()
     ? { album: album.album.trim().slice(0, 300), artist: typeof album.artist === 'string' ? album.artist.trim().slice(0, 300) : '' } : null
@@ -1600,6 +1711,7 @@ async function openLinerNotes(album, from) {
   if (!linerWindow || linerWindow.isDestroyed()) createLinerWindow(from)
   else { if (linerWindow.isMinimized()) linerWindow.restore(); linerWindow.show(); linerWindow.focus() }
   linerPlayingKey = ''
+  linerOpenAt = opts && /^(credits|recording)$/.test(opts.section || '') ? { section: opts.section, n: ++linerOpenSeq } : null
   getLinerNotes().load(raw, err, (entry, pending) => sendLinerData(entry, pending), idHint)
   return true
 }
@@ -1772,15 +1884,71 @@ const trackInfoScript = `(async () => {
   }
 })()`
 
-// action: 'favorite' | 'undo-favorite' | 'library' (the words: mini-model.js actionFailedText)
-function musicApiCall(script, action, title) {
-  if (!mainAlive()) return
-  appleWC().executeJavaScript(script)
-    .then(() => notices.clear('mini-action'))   // a later one that works takes an old failure notice away
-    .catch((e) => {   // error: SHOWN — Favorite / Undo Favorite / Add to Library from the ⋯ menu: logged, and the user is told (actionFailed)
+// The playing song's source (song-actions.js): Apple Music's adapter; the Studio and the ⋯ menus ask it
+const songSource = songActions.createAppleSource({ run: (code) => (mainAlive() ? appleWC().executeJavaScript(code) : Promise.reject(new Error('Apple Music\'s page isn\'t open'))) })
+// for the UI checker (process.mainModule.exports, its test copy only): the source (its methods can be stood in for),
+// and the queue and song the Studio's menus act on (the checker feeds the page a queue main didn't read)
+module.exports.studioTest = { source: songSource, setQueue: (q) => { stageQueueLast = stageModel.cleanQueue(q) }, setSong: (st) => { stageSong = songActions.cleanState(st) } }
+/**
+ * One song action from a menu or the Studio: 'favorite' | 'undo-favorite' | 'library' | 'link' | 'share'.
+ * info: { id, title, artist, url }; done(action, ok, extra) tells the place it came from.
+ */
+function songAct(action, info, done) {
+  let job
+  if (action === 'favorite' || action === 'undo-favorite') job = songSource.favorite(info.id, action === 'favorite')
+  else if (action === 'library') job = songSource.addToLibrary(info.id)
+  else if (action === 'link') job = info.url ? clipboard.writeText(info.url) : Promise.reject(new Error('no link'))
+  else if (action === 'share') job = info.url ? clipboard.writeText([info.title, info.artist].filter(Boolean).join(' \u2014 ') + '\n' + info.url) : Promise.reject(new Error('no link'))
+  else return
+  // Electron 44+: clipboard.writeText returns a Promise
+  Promise.resolve(job).then(() => done(action, true))
+    .catch((e) => {   // error: SHOWN — every song action's failure is told where it was asked (done: the Studio's note, the mini player's notice)
       console.error(action + ' failed:', e.message)
-      actionFailed(miniModel.actionFailedText(action, title))
+      done(action, false, mainAlive() ? '' : 'nothing')
     })
+}
+// the mini player's ⋯: a failure is told by actionFailed (a later one that works takes an old notice away)
+function miniActionDone(action, ok, extra) {
+  if (ok) { notices.clear('mini-action'); return }
+  const text = miniModel.actionFailedText(action, extra)
+  if (text) actionFailed(text)
+}
+/**
+ * The song's menu items, one source for the mini player's ⋯ and the Studio's ⋯ (no duplicate actions).
+ * pick: the items in order ('-' a separator); done(action, ok, why, info): where a result is told (songAct).
+ */
+function songMenuItems(info, win, pick, done) {
+  const ok = !!(info.ok && songActions.safeId(info.id))
+  const report = (action, okk, why) => done(action, okk, why, info)
+  const items = {
+    favorite: info.rating === 1
+      ? { label: 'Undo Favorite', enabled: ok, click: () => songAct('undo-favorite', info, report) }
+      : { label: 'Favorite', enabled: ok, click: () => songAct('favorite', info, report) },
+    library: { label: 'Add to Library', enabled: ok, click: () => songAct('library', info, report) },
+    link: { label: 'Copy Link', enabled: !!info.url, click: () => songAct('link', info, report) },
+    cover: { label: 'View Album Cover', enabled: !!info.title, click: () => openCover(win) },
+    liner: { label: 'Liner Notes…', enabled: !!info.title, click: () => openLinerNotes(null, win) },
+    share: {
+      label: 'Share', enabled: !!info.url, submenu: [
+        { label: 'Copy Song and Link', click: () => songAct('share', info, report) },
+        { label: 'Email…', click: () => openExternalSafe('mailto:?subject=' + encodeURIComponent([info.title, info.artist].filter(Boolean).join(' \u2014 ')) + '&body=' + encodeURIComponent(info.url)) }
+      ]
+    }
+  }
+  // a queue row's items (the Studio's Up Next): info.row = { index, id, albumId, composer, cur }
+  const row = info.row
+  if (row) {
+    items['play-now'] = { label: row.cur ? 'Playing Now' : 'Play Now', enabled: !row.cur, click: () => ipcStagePlay(row.index, row.id) }
+    items['play-next'] = {
+      label: 'Play Next', enabled: !row.cur,
+      click: () => songSource.playNext(row.index, row.id).then((r) => done('play-next', r === 'ok', r === 'ok' ? '' : r, info))
+        .catch((e) => { console.error('play next failed:', e.message); done('play-next', false, '', info) })   // error: SHOWN — the Studio's note says Play Next didn't go through
+    }
+    items.album = { label: 'Go to Album', enabled: !!row.albumId, click: () => stageOpenPage('album', row.albumId) }
+    items.credits = { label: 'Credits', click: () => (row.cur ? stageAlive() && lyricsWindow.webContents.send('stage-flip', true) : stageRowCredits(row, info)) }
+  }
+  // loop: NOT-WORTH — a handful of items, once per menu open
+  return pick.map((k) => (k === '-' ? { type: 'separator' } : items[k]))
 }
 // A ⋯ menu action that failed. The menu lives in the mini player, which hides the main window, so
 // the panel's notices and the toasts aren't seen: a desktop notification says it (not gated by the
@@ -1854,37 +2022,11 @@ async function showMoreMenu() {
   // song's own items are there but disabled, so the ⋯ never does nothing
   if (!info || !info.ok) info = { ok: false, id: '', title: '', url: '', rating: 0 }
 
-  // info.id is interpolated into scripts executed in the page; only allow the
-  // catalog-id character set so a crafted id can't break out of the literal
-  const idSafe = info.ok && /^[A-Za-z0-9._-]+$/.test(info.id)
-
-  const favoriteScript = (value) => `(async () => {
-    const mk = MusicKit.getInstance();
-    await mk.api.music('/v1/me/ratings/songs/${info.id}', {}, { fetchOptions: {
-      method: '${value === null ? 'DELETE' : 'PUT'}',
-      ${value === null ? '' : `body: JSON.stringify({ type: 'rating', attributes: { value: ${value} } }),`}
-      headers: { 'Content-Type': 'application/json' }
-    } });
-  })()`
-  const addToLibraryScript = `(async () => {
-    const mk = MusicKit.getInstance();
-    await mk.api.music('/v1/me/library', { 'ids[songs]': '${info.id}' }, { fetchOptions: { method: 'POST' } });
-  })()`
-
   // lifetime: a fresh Menu per "More" click; nothing keeps it after the popup closes, so it is garbage-collected
   const menu = Menu.buildFromTemplate([
     { label: info.title || 'Not playing', enabled: false },
     { type: 'separator' },
-    info.rating === 1
-      ? { label: 'Undo Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(null), 'undo-favorite', info.title) }
-      : { label: 'Favorite', enabled: idSafe, click: () => musicApiCall(favoriteScript(1), 'favorite', info.title) },
-    { label: 'Add to Library', enabled: idSafe, click: () => musicApiCall(addToLibraryScript, 'library', info.title) },
-    { type: 'separator' },
-    // Electron 44+: clipboard.writeText returns a Promise
-    // error: LOGGED-OK — a refused write (no clipboard owner) is logged; the menu just closes
-    { label: 'Copy Link', enabled: !!info.url, click: () => clipboard.writeText(info.url).catch((e) => console.error('copy link failed:', e.message)) },
-    { label: 'View Album Cover', enabled: !!info.title, click: () => openCover(miniWindow) },
-    { label: 'Liner Notes…', enabled: !!info.title, click: () => openLinerNotes(null, miniWindow) },
+    ...songMenuItems(info, miniWindow, ['favorite', 'library', '-', 'link', 'cover', 'liner'], (action, ok, why, song) => miniActionDone(action, ok, song.title)),
     { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
     { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },

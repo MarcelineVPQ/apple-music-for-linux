@@ -371,9 +371,13 @@
     min-width: 0;
     overflow: hidden;
   }
+  /* the cover's size: smaller on a short window, so the song's actions and the layers still fit */
+  #np { --cv: 248px; }
+  @media (max-height: 720px) { #np { --cv: 200px; } }
   #cover {
-    width: 248px;
-    height: 248px;
+    display: block;
+    width: var(--cv);
+    height: var(--cv);
     flex-shrink: 0;
     border-radius: 10px;
     object-fit: cover;
@@ -386,11 +390,10 @@
     line-height: 1.2;
     font-weight: 800;
     letter-spacing: -0.01em;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
   }
+  #np-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* the song's links and the chips: at least 24 px tall to hit (WCAG 2.5.8), the words as before */
+  #np-artist, #np-album { width: 100%; min-height: 24px; }
   #np-artist { font-size: 15px; font-weight: 600; color: var(--s-accent-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #np-album { margin-top: 2px; font-size: 12.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #where { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -430,6 +433,65 @@
   #vol svg { width: 15px; height: 15px; fill: currentColor; display: block; }
   #vol .bar { flex: 1; }
   #vol .bar > i { background: var(--s-soft); }
+  /* the seek bar's hover: the time and the words sung there, above the bar (moves by transform) */
+  #seek-tip { position: absolute; left: 0; bottom: 26px; transform: translateX(0); pointer-events: none; max-width: 240px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-surface); box-shadow: 0 6px 16px var(--s-shadow); font-size: 11px; font-weight: 600; color: var(--s-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 3; }
+  #seek-tip b { font-variant-numeric: tabular-nums; margin-right: 6px; }
+  #seek-tip span { color: var(--s-soft); }
+
+  /* the song's actions, under the volume: one row of round buttons, and their note */
+  #acts { display: flex; justify-content: space-between; margin-top: 10px; }
+  .ib.act { width: 32px; height: 32px; color: var(--s-soft); }
+  .ib.act:hover { color: var(--s-text); }
+  .ib.act svg { width: 16px; height: 16px; }
+  .ib.act[aria-pressed="true"] { color: var(--s-accent-text); }
+  .ib.act[aria-disabled="true"] { cursor: default; }
+  .ib.act[aria-disabled="true"]:hover { background: none; color: var(--s-soft); }
+  #act-note { min-height: 17px; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: var(--s-soft); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* a failure: the text colour (>= 4.5:1 on every album colour and Glass) in bold, the words say what failed */
+  #act-note.error { color: var(--s-text); font-weight: 700; }
+
+  /* the song's words are links (the album, the artist in Apple's page) */
+  .lnk { -webkit-app-region: no-drag; display: block; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+  .lnk:hover { text-decoration: underline; text-underline-offset: 2px; }
+  .lnk:focus { outline: none; }
+  .lnk:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+  button.chip { min-height: 24px; font: inherit; font-size: 11px; font-weight: 700; background: none; cursor: pointer; -webkit-app-region: no-drag; }
+  button.chip.live { font-weight: 600; }
+  button.chip:hover { background: var(--s-hover); }
+  button.chip:focus { outline: none; }
+  button.chip:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+
+  /* the cover turns over like a CD case (0.4 s, ease-out rotateY with perspective; transform only, only on a
+     click); its back holds the song's credits at the cover's size. Reduce motion: a cross-fade instead. */
+  #flip { width: var(--cv); height: var(--cv); flex-shrink: 0; align-self: center; position: relative; perspective: 900px; }
+  #flip-in { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.3, 1); }
+  #flip.turned #flip-in { transform: rotateY(180deg); }
+  #flip .face { position: absolute; inset: 0; border-radius: 10px; backface-visibility: hidden; -webkit-backface-visibility: hidden; -webkit-app-region: no-drag; }
+  #cover-btn { padding: 0; border: 0; background: none; cursor: pointer; display: block; }
+  #cover-btn:focus { outline: none; }
+  #cover-btn:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 3px; }
+  #flip-hint { position: absolute; right: 10px; bottom: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--s-edge); background: var(--s-surface); color: var(--s-text); font-size: 11px; font-weight: 700; opacity: 0; transition: opacity 0.15s ease; }
+  #flip-hint svg { width: 12px; height: 12px; fill: currentColor; }
+  #cover-btn:hover #flip-hint, #cover-btn:focus-visible #flip-hint { opacity: 1; }
+  #cover-back { transform: rotateY(180deg); overflow-y: auto; padding: 10px 14px 12px; border: 1px solid var(--s-edge); background: var(--s-surface); color: var(--s-text); box-shadow: 0 18px 40px var(--s-art-shadow); cursor: pointer; scrollbar-width: thin; scrollbar-color: var(--s-track) transparent; }
+  .cb-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .cb-top .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-soft); }
+  .cb-top .ib { width: 28px; height: 28px; }
+  #cover-back dl, #q-pop dl { margin: 0; cursor: default; }
+  #cover-back dt, #q-pop dt { font-size: 10.5px; font-weight: 700; color: var(--s-soft); margin-top: 7px; }
+  #cover-back dd, #q-pop dd { margin: 1px 0 0; font-size: 12.5px; font-weight: 600; line-height: 1.3; user-select: text; }
+  #cover-back dd small, #q-pop dd small { font-size: 10.5px; font-weight: 600; color: var(--s-soft); }
+  #cb-chips, #q-pop .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  #cb-chips .chip, #q-pop .chip { font-size: 10px; font-weight: 600; color: var(--s-soft); padding: 3px 8px; }
+  #cb-more { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--s-accent-text); min-height: 24px; }
+  @media (prefers-reduced-motion: reduce) {
+    #flip-in { transition: none; }
+    #flip.turned #flip-in { transform: none; }
+    #flip .face { backface-visibility: visible; -webkit-backface-visibility: visible; transition: opacity 0.2s ease; }
+    #cover-back { transform: none; opacity: 0; }
+    #flip.turned #cover-back { opacity: 1; }
+    #flip.turned #cover-btn { opacity: 0; }
+  }
 
   /* round icon buttons (the transport) */
   .ib {
@@ -494,40 +556,35 @@
   #queue { display: flex; flex-direction: column; padding: 14px 0 0; border-left: 1px solid var(--s-edge); min-width: 0; overflow: hidden; }
   #q-top { flex-shrink: 0; }
   #q-title { margin: 0; padding: 0 18px; font-size: 17px; font-weight: 800; }
-  .seg { display: flex; margin: 10px 18px 12px; padding: 2px; border-radius: 8px; border: 1px solid var(--s-edge); }
-  .seg button {
-    -webkit-app-region: no-drag;
-    flex: 1;
-    min-height: 26px;
-    border: 0;
-    background: none;
-    padding: 4px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--s-soft);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .seg button:hover { color: var(--s-text); }
-  /* pressed: the text colour and a ring (no fill behind the words, so they read on every album colour) */
-  .seg button[aria-pressed="true"] { color: var(--s-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--s-ring); }
-  .seg button:focus { outline: none; }
-  .seg button:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; }
+  /* the next card, in the list after the song playing: a click skips to it; its length in the rows' column */
   #next-card {
-    margin: 0 14px 10px;
-    padding: 12px;
+    margin: 4px 0;
+    padding: 10px 9px 10px 10px;
     border-radius: 12px;
     border: 1px solid var(--s-edge);
     display: flex;
     gap: 12px;
     align-items: center;
+    min-height: 0;
   }
   #next-card .nt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   #next-art { flex-shrink: 0; width: 56px; height: 56px; border-radius: 7px; object-fit: cover; box-shadow: 0 4px 10px var(--s-art-shadow); }
   #next-card .k { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-accent-text); font-variant-numeric: tabular-nums; }
   #next-card .t { font-size: 14px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #next-card .s { font-size: 11.5px; color: var(--s-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #q-top { padding-bottom: 10px; }
+  #queue { position: relative; }
+  #q-list li { position: relative; }
+  /* a row's ⋯ (its menu, also on right-click and the Menu key): shown on hover, over the length */
+  .q-menu { position: absolute; right: 6px; top: 50%; margin-top: -14px; width: 28px; height: 28px; visibility: hidden; }
+  #q-list li:hover .q-menu, #q-list li:focus-within .q-menu { visibility: visible; }
+  #q-list li:hover .q-row .d, #q-list li:focus-within .q-row .d { visibility: hidden; }
+  .q-more { padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--s-soft); }
+  /* the "Track N of M" chip: the row playing answers with a short glow (opacity only, once) */
+  .q-row.flash::after { content: ''; position: absolute; inset: 0; border-radius: 8px; box-shadow: inset 0 0 0 2px var(--s-ring); background: var(--s-active); pointer-events: none; animation: q-flash 1.4s ease-out forwards; }
+  @keyframes q-flash { from { opacity: 1; } to { opacity: 0; } }
+  /* another song's credits (a row's menu): a small popover over the list */
+  #q-pop { position: absolute; left: 14px; right: 14px; z-index: 5; max-height: 60%; overflow: auto; padding: 10px 12px 12px; border-radius: 12px; border: 1px solid var(--s-edge); background: var(--s-surface); box-shadow: 0 12px 30px var(--s-shadow); -webkit-app-region: no-drag; }
   #q-list {
     -webkit-app-region: no-drag;
     flex: 1;
@@ -541,6 +598,7 @@
     scrollbar-color: var(--s-track) transparent;
   }
   .q-row {
+    position: relative;
     display: grid;
     grid-template-columns: 22px minmax(0, 1fr) auto;
     align-items: center;
@@ -580,16 +638,30 @@
   <div id="card">
     <!-- the stage form (body.stage, stage-ui.js): the song and the transport on the left -->
     <section id="np" aria-label="Now playing" hidden>
-      <img id="cover" alt="" hidden>
-      <h1 id="np-title"></h1>
-      <div id="np-artist"></div>
-      <div id="np-album"></div>
+      <!-- the cover: a click turns it over (a CD case) to the song's credits (stage-ui.js; transform only) -->
+      <div id="flip" hidden>
+        <div id="flip-in">
+          <button id="cover-btn" class="face front" aria-expanded="false" aria-controls="cover-back" aria-label="Credits" aria-keyshortcuts="C" title="Credits (C): turn the cover over to see who wrote, played and produced this song">
+            <img id="cover" alt="" hidden>
+            <span id="flip-hint" aria-hidden="true"></span>
+          </button>
+          <div id="cover-back" class="face back" role="region" aria-label="Song credits" inert>
+            <div class="cb-top"><span class="k">Credits</span><button id="cb-close" class="ib small" aria-label="Show the cover" title="Show the cover (Esc)"></button></div>
+            <dl id="cb-rows"></dl>
+            <div id="cb-chips"></div>
+            <button id="cb-more" class="lnk" aria-label="More in the liner notes" title="Open the album's booklet at its Credits page" hidden>More in the liner notes</button>
+          </div>
+        </div>
+      </div>
+      <h1><button id="np-title" class="lnk" aria-label="Song: open its album" title="Open the album in Apple Music"></button></h1>
+      <button id="np-artist" class="lnk" aria-label="Artist: open in Apple Music" title="Open the artist in Apple Music"></button>
+      <button id="np-album" class="lnk" aria-label="Album: open in Apple Music" title="Open the album in Apple Music"></button>
       <div id="where">
-        <span id="chip-track" class="chip count" title="Where this song sits in its album or playlist" hidden><i aria-hidden="true"><b></b></i><span></span></span>
-        <span id="chip-live" class="chip live" hidden><span></span></span>
+        <button id="chip-track" class="chip count" aria-label="Show the song playing in the list" title="Show the song playing in the list" hidden><i aria-hidden="true"><b></b></i><span></span></button>
+        <button id="chip-live" class="chip live" aria-label="Live recording: open the liner notes at the recording" title="Open the liner notes at the recording" hidden><span></span></button>
       </div>
       <div id="seek">
-        <div id="seek-bar" class="bar" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i id="seek-fill"></i><span id="seek-run"><b></b></span></div>
+        <div id="seek-bar" class="bar" role="slider" tabindex="0" aria-label="Song position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><i id="seek-fill"></i><span id="seek-run"><b></b></span><span id="seek-tip" aria-hidden="true" hidden><b></b><span></span></span></div>
         <div class="times" aria-hidden="true"><span id="t-el">0:00</span><span id="t-rem"></span></div>
       </div>
       <div id="transport">
@@ -600,6 +672,17 @@
         <span class="rep"><button id="b-repeat" class="ib small" title="Repeat" aria-label="Repeat: off" aria-pressed="false"></button><span id="repeat-one" aria-hidden="true" hidden>1</span></span>
       </div>
       <div id="vol"><span id="i-vol" aria-hidden="true"></span><div id="vol-bar" class="bar" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="vol-fill"></i><span id="vol-run"><b></b></span></div></div>
+      <!-- the song's actions (song-actions.js through main); each says what it did under the row -->
+      <div id="acts" role="group" aria-label="Song actions">
+        <button id="a-fav" class="ib act" aria-pressed="false" aria-label="Favorite" aria-keyshortcuts="F" title="Favorite (F)"></button>
+        <button id="a-lib" class="ib act" aria-label="Add to Library" title="Add to Library"></button>
+        <button id="a-pl" class="ib act" aria-haspopup="menu" aria-label="Add to a Playlist" title="Add to a Playlist"></button>
+        <button id="a-link" class="ib act" aria-label="Copy Link" title="Copy the song's Apple Music link"></button>
+        <button id="a-album" class="ib act" aria-label="Go to Album" title="Go to the album in Apple Music"></button>
+        <button id="a-artist" class="ib act" aria-label="Go to Artist" title="Go to the artist in Apple Music"></button>
+        <button id="a-more" class="ib act" aria-haspopup="menu" aria-label="More" title="More: View Album Cover, Liner Notes, Share"></button>
+      </div>
+      <div id="act-note" aria-hidden="true"></div>
       <!-- the stage's layers: each tile shows only when it does something (no dead controls) -->
       <div id="layers" hidden>
         <span class="k">In the Studio</span>
@@ -640,13 +723,15 @@
     <section id="queue" aria-labelledby="q-title" hidden>
       <div id="q-top">
         <h2 id="q-title">Up Next</h2>
-        <div class="seg" role="group" aria-label="Show"><button id="tab-next" aria-label="Up Next" aria-pressed="true">Up Next</button><button id="tab-all" aria-label="Playlist" aria-pressed="false">Playlist</button></div>
-        <div id="next-card" hidden>
-          <img id="next-art" alt="" hidden>
-          <div class="nt"><span class="k" id="next-in">Next</span><span class="t" id="next-t"></span><span class="s" id="next-s"></span></div>
-        </div>
       </div>
-      <ul id="q-list" aria-label="Up Next"></ul>
+      <!-- one list: the songs played (dimmed), the one playing, the next card, then the rest (stage-model queueList) -->
+      <ul id="q-list" aria-label="Up Next" aria-description="Up and Down move between songs, Enter plays one, the Menu key opens its menu"></ul>
+      <button id="next-card" class="q-row q-next" aria-label="Skip to the next song" hidden>
+        <img id="next-art" alt="" hidden>
+        <span class="nt"><span class="k" id="next-in">Next</span><span class="t" id="next-t"></span><span class="s" id="next-s"></span></span>
+        <span class="d" id="next-d"></span>
+      </button>
+      <div id="q-pop" role="dialog" aria-labelledby="q-pop-t" hidden><div class="cb-top"><span class="k" id="q-pop-t">Credits</span><button id="q-pop-x" class="ib small" aria-label="Close credits" title="Close (Esc)"></button></div><dl></dl><div class="chips"></div></div>
       <div id="q-note" hidden></div>
       <div id="q-foot"><span id="q-foot-l"></span><span id="q-foot-r"></span></div>
     </section>
@@ -955,6 +1040,9 @@
   const stage = require('./stage-ui').createStage({
     doc: document,
     send: (command, value) => ipcRenderer.send('stage-command', command, value),
+    say: (text) => { document.getElementById('say').textContent = text },
+    lines: () => view.timedLines(),
+    nextPhoto: () => montage.next(),
     // the layout changed: the drag grip follows, and the sung line goes back to its place once the new
     // layout has settled (one frame later)
     onLayout: () => {
@@ -1022,8 +1110,17 @@
   })
   // lifetime: OK — one click handler on the stage button, released with the window
   document.getElementById('form').onclick = () => ipcRenderer.send('stage-command', 'form', stage.shown ? 'compact' : 'stage')
-  // lifetime: OK — the stage's five listeners ('lyrics-form', 'stage-np', 'stage-queue', 'stage-liner', 'lyrics-time'), added once at load, released with the window
+  // lifetime: OK — the stage's nine listeners ('lyrics-form', 'stage-np', 'stage-queue', 'stage-liner', 'stage-song',
+  // 'stage-credits', 'stage-said', 'stage-row-credits', 'stage-flip'), added once at load, released with the window
   ipcRenderer.on('lyrics-form', (event, f) => stage.setForm(f))
+  ipcRenderer.on('stage-song', (event, st) => stage.setSong(st))
+  ipcRenderer.on('stage-credits', (event, c) => stage.setCredits(c))
+  ipcRenderer.on('stage-said', (event, n) => stage.said(n))
+  ipcRenderer.on('stage-row-credits', (event, c) => stage.rowCredits(c))
+  ipcRenderer.on('stage-flip', (event, on) => stage.flip(!!on))
+  // the Montage's photo: a click on the lyrics' empty space (never on a line) shows the next photo
+  // lifetime: OK — one click listener on the lyrics list, released with the window
+  linesEl.addEventListener('click', (e) => { if (stage.shown && !e.target.closest('.line, button, a')) montage.next() })
   ipcRenderer.on('stage-liner', (event, ok) => stage.linerFound(ok))
   ipcRenderer.on('stage-np', (event, np) => stage.setNowPlaying(np))
   ipcRenderer.on('stage-queue', (event, q) => stage.setQueue(q))

@@ -81,7 +81,8 @@ function createLinerNotes(deps) {
   const fail = (prev, e, t) => Object.assign({}, prev && prev.data ? { data: prev.data, how: prev.how, stale: true, at0: prev.at0 || prev.at } : {}, { state: 'failed', at: t, error: S.failureText(e) })
   const ok = (data, how, t) => (data ? { state: 'ok', at: t, data, how } : { state: 'none', at: t })
 
-  async function refresh(entry) {
+  // only: 'mb' asks MusicBrainz alone (the Studio's song credits, songCredits below); the booklet asks every source
+  async function refresh(entry, only) {
     const g = deps.getJson
     const P = entry.parts
     const apple = P.apple && P.apple.data
@@ -93,6 +94,7 @@ function createLinerNotes(deps) {
         P.mb = m ? ok(await S.musicBrainzRelease(g, m.release), m.how, now()) : ok(null, '', now())
       } catch (e) { P.mb = fail(P.mb, e, now()); if (deps.log) deps.log('liner notes: MusicBrainz: ' + e.message) }   // error: SHOWN — the Credits page and Sources say MusicBrainz didn't load
     }
+    if (only === 'mb') return
     const mb = P.mb && P.mb.data
     const jobs = []
     t = now()
@@ -149,9 +151,10 @@ function createLinerNotes(deps) {
     }
   }
 
-  // load(appleRaw, appleError, onUpdate, idHint): appleRaw is the page script's album, or null when Apple
-  // didn't answer (appleError says why); idHint is then the album's ID, if known, for its cached copy
-  function load(appleRaw, appleError, onUpdate, idHint) {
+  // load(appleRaw, appleError, onUpdate, idHint, only): appleRaw is the page script's album, or null when Apple
+  // didn't answer (appleError says why); idHint is then the album's ID, if known, for its cached copy.
+  // only 'mb': MusicBrainz alone (the Studio's credits); the other sources stay due for the booklet
+  function load(appleRaw, appleError, onUpdate, idHint, only) {
     const apple = appleRaw ? reduceApple(appleRaw) : null
     const appleId = apple ? apple.id : (/^\d+$/.test(String(idHint || '')) ? String(idHint) : '')
     if (!appleId) {
@@ -160,7 +163,9 @@ function createLinerNotes(deps) {
       return Promise.resolve(entry)
     }
     const key = cacheKey(appleId, deps.lang)
-    if (inflight.has(key)) return inflight.get(key).then((e) => { onUpdate(e, false); return e })
+    // a booklet's refresh in flight answers the Studio too (it asks MusicBrainz first)
+    const job0 = inflight.get(key) || (only === 'mb' ? inflight.get(key + '|mb') : null)
+    if (job0) return job0.then((e) => { onUpdate(e, false); return e })
     const stored = deps.store.get(key)
     const entry = stored && stored.v === ENTRY_VERSION ? JSON.parse(JSON.stringify(stored)) : { v: ENTRY_VERSION, appleId, lang: deps.lang, parts: {} }
     const t = now()
@@ -169,26 +174,27 @@ function createLinerNotes(deps) {
     const P = entry.parts
     const slKey = deps.setlistKey ? deps.setlistKey() : ''
     const setlistDue = !P.setlist || (slKey ? P.setlist.state === 'off' || due(P.setlist, t) : P.setlist.state !== 'off')
-    const pending = !!(P.apple.data && (setlistDue || ['mb', 'wikidata', 'wiki', 'caa'].some((k) => due(P[k], t))))
+    const pending = !!(P.apple.data && (only === 'mb' ? due(P.mb, t) : setlistDue || ['mb', 'wikidata', 'wiki', 'caa'].some((k) => due(P[k], t))))
     onUpdate(entry, pending)
     if (!pending) {
       if (apple) deps.store.set(key, entry)
       return Promise.resolve(entry)
     }
-    const job = refresh(entry).then(() => {
+    const fly = only === 'mb' ? key + '|mb' : key
+    const job = refresh(entry, only).then(() => {
       entry.at = now()
       deps.store.set(key, entry)
-      inflight.delete(key)
+      inflight.delete(fly)
       onUpdate(entry, false)
       return entry
     }, (e) => {
       // error: LOGGED-OK — a bug in a reducer: logged; the booklet keeps what it had (each source catches its own failures above)
-      inflight.delete(key)
+      inflight.delete(fly)
       if (deps.log) deps.log('liner notes: refresh failed: ' + (e && e.stack ? e.stack : e))
       onUpdate(entry, false)
       return entry
     })
-    inflight.set(key, job)
+    inflight.set(fly, job)
     return job
   }
   return { load }
@@ -467,4 +473,73 @@ function sourcesStatus(entry, info) {
   return rows
 }
 
-module.exports = { TTL_MS, RETRY_MS, CACHE, ENTRY_VERSION, notesParagraphs, reduceApple, cacheKey, isLive, oneDate, createLinerNotes, fmtDate, fmtLen, pairTracks, stanzas, buildBooklet, sourcesStatus }
+// --- the Studio's song credits (the cover's back, stage-ui.js) ---
+const FEAT = /[([]\s*(?:feat\.?|ft\.?|featuring)\s+([^)\]]+)[)\]]|\s(?:feat\.?|ft\.?|featuring)\s+(.+)$/i
+/** 'Song (feat. A & B)' / 'Artist feat. A' -> 'A & B' (Apple's own words), else ''. */
+function featuring(title, artist) {
+  const m = FEAT.exec(String(title || '')) || FEAT.exec(String(artist || ''))
+  return m ? (m[1] || m[2] || '').trim() : ''
+}
+const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1)
+// MusicBrainz crew roles as the back of the cover words them ('producer' -> 'Produced by')
+const BY = { producer: 'Produced by', 'co-producer': 'Co-produced by', 'additional producer': 'Additional production', 'executive producer': 'Executive producer', mixing: 'Mixed by', mastering: 'Mastered by', recording: 'Recorded by', engineer: 'Engineered by', arrangement: 'Arranged by', remix: 'Remixed by', programming: 'Programming' }
+const byWords = (role) => BY[role] || cap(role)
+/**
+ * songCredits(entry, song) -> { rows: [{ role, names, src: 'apple' | 'mb' }], chips, mb }: the playing song's
+ * credits, only what's real. song: { id (Apple's catalog id), title, artist, composer (Apple's composerName) }.
+ * entry: the album's liner-notes cache entry (or null: Apple's catalog only). Written by: MusicBrainz's
+ * writers for this recording's work, else Apple's composerName; Performed by: Apple's artist, featuring
+ * from Apple's title or artist; the musicians and the crew from this recording's MusicBrainz relations,
+ * then the release's own crew where the recording names nobody for that role (marked 'album').
+ */
+function songCredits(entry, song) {
+  const s = song || {}
+  const rows = []
+  const P = (entry && entry.parts) || {}
+  const apple = P.apple && P.apple.data
+  const mb = P.mb && P.mb.data
+  let pair = null
+  if (apple && mb) {
+    const pairs = pairTracks(apple, mb)
+    pair = pairs.find((p) => p.apple.id === String(s.id || '')) || pairs.find((p) => norm(p.apple.name) === norm(s.title)) || null
+  }
+  const track = pair ? pair.mb : null
+  const w = writersLine({ apple: { composer: str(s.composer) || (pair ? pair.apple.composer : '') }, mb: track })
+  if (w.text) {
+    // writersLine's words split into rows: 'Written by A · Music: B' -> [Written by, A], [Music, B]
+    // loop: NOT-WORTH — ≤ 3 parts, once per song
+    for (const part of w.text.split(' · ')) {
+      const m = /^(Written by|Words and music|Music|Words): ?(.*)$/.exec(part) || /^(Written by) (.*)$/.exec(part)
+      if (m) rows.push({ role: m[1], names: m[2], src: w.src })
+    }
+  }
+  if (str(s.artist)) rows.push({ role: 'Performed by', names: str(s.artist).replace(/\s(?:feat\.?|ft\.?|featuring)\s.+$/i, ''), src: 'apple' })
+  const feat = featuring(s.title, s.artist)
+  if (feat) rows.push({ role: 'Featuring', names: feat, src: 'apple' })
+  if (track) {
+    const people = new Map()
+    // loop: NOT-WORTH — one recording's performers (≤ ~30)
+    for (const x of track.performers) { if (!people.has(x.name)) people.set(x.name, []); people.get(x.name).push(x.role) }
+    if (people.size) rows.push({ role: 'Musicians', names: [...people.entries()].map(([n, r]) => n + ' (' + [...new Set(r)].join(', ') + ')').join(', '), src: 'mb' })
+    const crew = new Map()
+    // loop: NOT-WORTH — one recording's crew (≤ ~20)
+    for (const x of track.crew) { if (!crew.has(x.role)) crew.set(x.role, []); if (!crew.get(x.role).includes(x.name)) crew.get(x.role).push(x.name) }
+    const album = new Map()
+    // loop: NOT-WORTH — the release's own credits (≤ ~50), once per song
+    for (const x of mb.credits) {
+      if (crew.has(x.role) || !BY[x.role]) continue
+      if (!album.has(x.role)) album.set(x.role, [])
+      if (!album.get(x.role).includes(x.name)) album.get(x.role).push(x.name)
+    }
+    const order = (a, b) => (Object.keys(BY).indexOf(a[0]) + 1 || 99) - (Object.keys(BY).indexOf(b[0]) + 1 || 99)
+    for (const [role, names] of [...crew.entries()].sort(order)) rows.push({ role: byWords(role), names: and(names.slice(0, 8)), src: 'mb' })   // loop: NOT-WORTH — a handful of roles
+    for (const [role, names] of [...album.entries()].sort(order)) rows.push({ role: byWords(role), names: and(names.slice(0, 8)), src: 'mb', album: true })   // loop: NOT-WORTH — a handful of roles
+  }
+  const usesMb = rows.some((r) => r.src === 'mb')
+  const chips = []
+  if (rows.some((r) => r.src === 'apple')) chips.push(APPLE_CHIP('catalog'))
+  if (usesMb) chips.push(MB_CHIP('credits', mb.id))
+  return { rows, chips, mb: usesMb }
+}
+
+module.exports = { featuring, songCredits, TTL_MS, RETRY_MS, CACHE, ENTRY_VERSION, notesParagraphs, reduceApple, cacheKey, isLive, oneDate, createLinerNotes, fmtDate, fmtLen, pairTracks, stanzas, buildBooklet, sourcesStatus }

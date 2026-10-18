@@ -25,7 +25,12 @@ test('clock: m:ss, h:mm:ss over an hour, never negative', () => {
 test('cleanQueue: fields bounded and of the right kind, the position inside the list, junk dropped', () => {
   const q = M.cleanQueue({ position: 1, canPlay: 1, container: { type: 'playlists', name: 'Road trip' }, items: [{ id: 5, title: 'A', duration: '200', art: 'http://insecure/x.jpg' }, null, { title: 'x'.repeat(500), art: 'https://ok/y.jpg', autoplay: 'yes' }] })
   assert.equal(q.items.length, 3)
-  assert.deepEqual(q.items[0], { index: 0, id: '5', title: 'A', artist: '', album: '', duration: 200, art: '', autoplay: false })
+  assert.deepEqual(q.items[0], { index: 0, id: '5', title: 'A', artist: '', album: '', duration: 200, art: '', autoplay: false, albumId: '', composer: '' })
+  // a row's album id (Go to Album) is digits only; its composer (the row's Credits) is text
+  const q2 = M.cleanQueue({ items: [{ id: 'a', albumId: '1440892370', composer: 'B. Berry' }, { id: 'b', albumId: '12;alert(1)' }] })
+  assert.equal(q2.items[0].albumId, '1440892370')
+  assert.equal(q2.items[0].composer, 'B. Berry')
+  assert.equal(q2.items[1].albumId, '')
   assert.equal(q.items[1].title, '')
   assert.equal(q.items[2].title.length, 300)
   assert.equal(q.items[2].art, 'https://ok/y.jpg')
@@ -78,45 +83,68 @@ test('time left: the playing song\'s rest plus the album\'s songs after it, auto
   assert.equal(M.timeLeft(null, 240, 0), '')
 })
 
-test('queue rows: Up Next is the songs after the one playing; the Playlist marks played and current', () => {
+test('one list: the played songs (dimmed), the one playing, the next card\'s place, then the rest; the next song only in the card', () => {
   const q = M.cleanQueue(album())
-  const next = M.queueRows(q, 'next')
-  assert.equal(next.rows.length, 13)
-  assert.equal(next.rows[0].title, 'Song 14')
-  assert.equal(next.rows[0].n, 14)
-  assert.equal(next.rows[0].sub, 'The Band · Wayfarers')
-  assert.equal(next.rows[0].time, '4:00')
-  assert.ok(next.rows.every((r) => !r.cur && !r.played))
-  assert.equal(next.rows[12].autoplay, true)
-  const all = M.queueRows(q, 'all')
-  assert.equal(all.rows.length, 26)
-  assert.equal(all.rows.filter((r) => r.cur).length, 1)
-  assert.equal(all.rows.find((r) => r.cur).n, 13)
-  assert.equal(all.rows.filter((r) => r.played).length, 12)
-  assert.equal(all.more, false)
-  assert.equal(M.queueRows(M.cleanQueue({ items: [{ title: '' }] }), 'all').rows[0].title, 'Untitled')
+  const v = M.queueList(q)
+  assert.equal(v.next.title, 'Song 14')
+  // 12 played + the one playing + 12 after the card (songs 15-24 and the 2 autoplay ones)
+  assert.equal(v.rows.length, 12 + 1 + 12)
+  assert.deepEqual(v.rows.slice(0, 12).map((r) => r.played), Array(12).fill(true))
+  assert.equal(v.rows[12].cur, true)
+  assert.equal(v.rows[12].title, 'Song 13')
+  assert.equal(v.cardAt, 12)
+  assert.equal(v.rows[13].title, 'Song 15')
+  assert.equal(v.rows[13].index, 14)
+  assert.ok(!v.rows.some((r) => r.title === 'Song 14'), 'the next song is only in the card')
+  assert.equal(v.rows[13].sub, 'The Band · Wayfarers')
+  assert.equal(v.rows[13].time, '4:00')
+  assert.equal(v.rows[24].autoplay, true)
+  assert.equal(v.last, false)
+  assert.equal(v.earlier, 0)
+  assert.equal(v.later, 0)
+  // the start of an album: nothing played, the card right after the song playing
+  const start = M.queueList(M.cleanQueue({ position: 0, items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }))
+  assert.deepEqual(start.rows.map((r) => r.index), [0, 2])
+  assert.equal(start.cardAt, 0)
+  // the card's song is the last one: nothing after the card
+  const pen = M.queueList(M.cleanQueue({ position: 1, items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }))
+  assert.deepEqual(pen.rows.map((r) => r.index), [0, 1])
+  assert.equal(pen.next.id, 'c')
+  // the last song playing: no card, the list ends with it, and it says so (last)
+  const end = M.queueList(M.cleanQueue({ position: 2, items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }))
+  assert.deepEqual(end.rows.map((r) => r.index), [0, 1, 2])
+  assert.equal(end.cardAt, -1)
+  assert.equal(end.next, null)
+  assert.equal(end.last, true)
+  // nothing playing: the queue from its start, no card
+  const none = M.queueList(M.cleanQueue({ position: -1, items: [{ id: 'a' }, { id: 'b' }] }))
+  assert.deepEqual(none.rows.map((r) => r.index), [0, 1])
+  assert.equal(none.cardAt, -1)
+  // autoplay songs follow the same rule: the next one is in the card only
+  const ap = M.queueList(M.cleanQueue({ position: 0, items: [{ id: 'a' }, { id: 'b', autoplay: true }, { id: 'c', autoplay: true }] }))
+  assert.deepEqual(ap.rows.map((r) => r.index), [0, 2])
+  assert.equal(ap.next.autoplay, true)
+  assert.equal(M.queueList(M.cleanQueue({ position: 0, items: [{ title: '' }, { title: '' }] })).rows[0].title, 'Untitled')
+  assert.deepEqual(M.queueList(null).rows, [])
 })
 
-test('queue rows: long queues show a window (Up Next 100, the Playlist 50 before and 150 after)', () => {
+test('one list: long queues show a window (the last 50 played, "N earlier"; 150 after the card, "N more")', () => {
   const big = M.cleanQueue({ position: 400, items: Array.from({ length: 1000 }, (_, i) => ({ id: 'x' + i, title: 'T' + i, duration: 200 })) })
-  const next = M.queueRows(big, 'next')
-  assert.equal(next.rows.length, M.UP_NEXT_MAX)
-  assert.equal(next.rows[0].index, 401)
-  assert.equal(next.more, true)
-  assert.equal(M.queueRows(M.cleanQueue(album()), "next").more, false)
-  const all = M.queueRows(big, 'all')
-  assert.equal(all.from, 350)
-  assert.equal(all.to, 551)
-  assert.equal(all.rows.length, 201)
-  assert.equal(all.total, 1000)
-  assert.equal(all.more, true)
-  // near the start the window starts at the first song
-  assert.equal(M.queueRows(M.cleanQueue({ position: 3, items: big.items }), 'all').from, 0)
+  const v = M.queueList(big)
+  assert.equal(v.earlier, 350)
+  assert.equal(v.rows[0].index, 350)
+  assert.equal(v.rows.filter((r) => r.played).length, M.PLAYLIST_BEFORE)
+  assert.equal(v.rows[v.cardAt].index, 400)
+  assert.equal(v.rows[v.cardAt + 1].index, 402)
+  assert.equal(v.rows.length, 50 + 1 + 150)
+  assert.equal(v.rows[v.rows.length - 1].index, 551)
+  assert.equal(v.later, 1000 - 552)
+  assert.equal(v.total, 1000)
+  // near the start: from the first song, nothing earlier
+  assert.equal(M.queueList(M.cleanQueue({ position: 3, items: big.items })).earlier, 0)
 })
 
-test('labels: the Playlist tab counts the album or playlist; "Playing from" only when Apple names it', () => {
-  assert.equal(M.playlistLabel(M.cleanQueue(album())), 'Playlist · 24')
-  assert.equal(M.playlistLabel(null), 'Playlist')
+test('labels: "Playing from" only when Apple names it', () => {
   assert.equal(M.playingFrom(M.cleanQueue(album())), 'Wayfarers: Live at the Gorge')
   assert.equal(M.playingFrom(M.cleanQueue({ container: { type: 'albums' } })), '')
   assert.equal(M.playingFrom(null), '')
@@ -171,4 +199,41 @@ test('stageCommand: only the stage\'s commands, each value checked', () => {
   }
   assert.equal(M.stageCommand('eval', 'x'), null)
   assert.equal(M.stageCommand(5), null)
+})
+
+test('stageCommand: the song\'s actions, the menus\' anchors and a row\'s menu, each value checked', () => {
+  for (const c of ['song-library', 'song-link', 'song-album', 'song-artist', 'credits-liner', 'liner-recording']) assert.deepEqual(M.stageCommand(c, 'x'), { command: c, value: null })
+  assert.deepEqual(M.stageCommand('song-favorite', true), { command: 'song-favorite', value: true })
+  assert.deepEqual(M.stageCommand('song-favorite', false), { command: 'song-favorite', value: false })
+  for (const bad of [1, 'true', null, undefined]) assert.equal(M.stageCommand('song-favorite', bad), null, String(bad))
+  assert.deepEqual(M.stageCommand('song-more', { x: 10, y: 400, z: 1 }), { command: 'song-more', value: { x: 10, y: 400 } })
+  assert.deepEqual(M.stageCommand('song-playlists', { x: 0, y: 0 }), { command: 'song-playlists', value: { x: 0, y: 0 } })
+  for (const bad of [null, {}, { x: -1, y: 0 }, { x: 1.5, y: 2 }, { x: 1, y: 1e6 }, { x: '1', y: 2 }]) {
+    assert.equal(M.stageCommand('song-more', bad), null, JSON.stringify(bad))
+    assert.equal(M.stageCommand('song-playlists', bad), null, JSON.stringify(bad))
+  }
+  assert.deepEqual(M.stageCommand('row-menu', { index: 4, id: 'pd5', x: 900, y: 300 }), { command: 'row-menu', value: { index: 4, id: 'pd5', x: 900, y: 300 } })
+  for (const bad of [{ index: 4, id: 'pd5' }, { index: -1, id: 'a', x: 1, y: 1 }, { index: 1, id: 'a"', x: 1, y: 1 }, { index: M.QUEUE_MAX, id: 'a', x: 1, y: 1 }]) assert.equal(M.stageCommand('row-menu', bad), null, JSON.stringify(bad))
+})
+
+test('lineStep: ↓ the next line\'s start, ↑ this line\'s start after 1.5 s of it, else the one before', () => {
+  const L = [{ t: 1 }, { t: 5 }, { t: 9 }, { t: null }]
+  assert.equal(M.lineStep(L, 6, 1), 9)
+  assert.equal(M.lineStep(L, 0, 1), 1)
+  assert.equal(M.lineStep(L, 9.5, 1), null)
+  assert.equal(M.lineStep(L, 7, -1), 5)
+  assert.equal(M.lineStep(L, 6, -1), 1)
+  assert.equal(M.lineStep(L, 1.2, -1), 1)
+  assert.equal(M.lineStep(L, 0, -1), null)
+  assert.equal(M.lineStep([], 3, 1), null)
+  assert.equal(M.lineStep(null, 3, -1), null)
+})
+
+test('lineAt: the words sung at a time (the seek bar\'s hover), or nothing before the first line', () => {
+  const L = [{ t: 1, text: 'That\'s me in the corner' }, { t: 5, text: 'That\'s me in the spotlight' }]
+  assert.equal(M.lineAt(L, 0.5), '')
+  assert.equal(M.lineAt(L, 3), 'That\'s me in the corner')
+  assert.equal(M.lineAt(L, 60), 'That\'s me in the spotlight')
+  assert.equal(M.lineAt([{ t: 0, text: 'x'.repeat(400) }], 1).length, 160)
+  assert.equal(M.lineAt(null, 1), '')
 })

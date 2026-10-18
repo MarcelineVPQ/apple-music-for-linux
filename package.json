@@ -49,6 +49,7 @@
       "lyrics-timing.js",
       "lyrics-view.js",
       "stage-model.js",
+      "song-actions.js",
       "stage-ui.js",
       "montage-model.js",
       "montage-sources.js",

@@ -191,22 +191,26 @@ function backingAnchor(words, bg) {
  * (physical left and right). box: { align: 'left'|'right'|'center' (the row's text-align), width (the
  * line's content width), words: [{ left, right, top }] (main words, px from the line's left edge),
  * anchor (backingAnchor), lead (px from the row's start to its first word's box), bgWidth (the row's
- * width on one line) }. { 0, 0 } (the line's own alignment, as before) when there's no anchor, the
+ * width on one line), arrow (px: the ↳ that hangs before the row's first word, with its gap) }. A
+ * left-aligned row always starts at least `arrow` in, so the ↳ sits inside the line's text column (under
+ * the main line's start), never hanging out to its left: the same for an anchored row, one under the first
+ * word, one with no anchor and a wrapped one (0.15.42). { 0, 0 } (the line's own alignment) when there's no anchor, the
  * anchor word isn't on the line's last row (a wrapped line: the backing sits under the last row), or
  * the backing doesn't fit on one row (it wraps as before). A backing row that would run past the line's
  * end moves back just enough to fit. Right-aligned rows are padded from the right (mirrored), centred
  * rows on the side that moves them.
  */
 function backingOffset(box) {
-  const none = { start: 0, end: 0 }
-  if (!box || !box.anchor || !Array.isArray(box.words) || !box.words.length) return none
+  const r = (v) => Math.round(Math.max(0, v) * 2) / 2
+  const arrow = box && box.align === 'left' && box.arrow > 0 ? box.arrow : 0
+  const none = { start: r(arrow), end: 0 }
+  if (!box || !box.anchor || !Array.isArray(box.words) || !box.words.length) return box ? none : { start: 0, end: 0 }
   const w = box.words[box.anchor.index]
   const lastRow = box.words[box.words.length - 1].top
   const free = box.width - box.bgWidth
   if (!w || !(free > BG_SPARE) || Math.abs(w.top - lastRow) > 1) return none
   // BG_SPARE: layout widths are whole pixels, so a row fitted to the line's end keeps a pixel spare (never wraps)
-  const x = Math.min(free - BG_SPARE, Math.max(0, (box.anchor.after ? w.right : w.left) - (box.lead || 0)))
-  const r = (v) => Math.round(Math.max(0, v) * 2) / 2
+  const x = Math.max(arrow, Math.min(free - BG_SPARE, Math.max(0, (box.anchor.after ? w.right : w.left) - (box.lead || 0))))
   if (box.align === 'right') return { start: 0, end: r(free - x) }
   if (box.align === 'center') return { start: r(2 * x - free), end: r(free - 2 * x) }
   return { start: r(x), end: 0 }
@@ -581,6 +585,12 @@ function createLyricsView(opts) {
   // (its sizes differ), again after a resize or new word timing (bgKey null); never per frame.
   const xOf = (n) => { let x = 0; for (; n; n = n.offsetParent) x += n.offsetLeft; return x }   // loop: NOT-WORTH — a node's few offset parents
   const alignOf = (a) => a === 'right' || a === 'end' ? 'right' : a === 'center' || a === '-webkit-center' ? 'center' : 'left'
+  // the ↳'s width with its gap (lyrics-view.css .bgv::before: absolute, translateX(-100% - 0.12em)), read with the batch's layout
+  function arrowOf(row) {
+    const cs = doc.defaultView.getComputedStyle(row, '::before')
+    const w = parseFloat(cs.width)
+    return Number.isFinite(w) && cs.content !== 'none' ? w + 0.12 * (parseFloat(cs.fontSize) || 0) : 0
+  }
   function placeBacking(only) {
     const todo = []
     // loop: NOT-WORTH — the song's lines (or the stage's 1-3 shown ones) · when lyrics load, after a resize or new
@@ -605,7 +615,8 @@ function createLyricsView(opts) {
         words: e.words.map((s) => { const l = xOf(s) - base; return { left: l, right: l + s.offsetWidth, top: s.offsetTop } }),
         anchor: backingAnchor(lines[i].words, lines[i].bg),
         lead: xOf(e.bg[0]) - xOf(row),
-        bgWidth: row.offsetWidth
+        bgWidth: row.offsetWidth,
+        arrow: arrowOf(row)
       })
     })
     // loop: NOT-WORTH — the lines to place (above): class off, two style writes each
@@ -930,6 +941,9 @@ function createLyricsView(opts) {
     align,
     alignState: setAlignState,
     time: () => T.clockTime(clock, performance.now()),
+    // the song's timed lines ({ t, text }), for the Studio's ↑/↓ and the seek bar's hover (on demand, not per frame)
+    // loop: NOT-WORTH — the song's lines (≤ ~150), once per key press or hover move
+    timedLines: () => lines.filter((l) => l && l.t !== null && Number.isFinite(l.t) && !l.gap && l.text).map((l) => ({ t: l.t, text: String(l.text) })),
     get playing() { return !!clock && clock.playing }
   }
 }

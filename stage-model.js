@@ -10,8 +10,7 @@ const STAGE_MIN = { width: 980, height: 620 }
 const STAGE_DEFAULT = { width: 1240, height: 780 }
 const COMPACT_MIN = { width: 260, height: 300 }
 const COMPACT_DEFAULT = { width: 380, height: 560 }
-// what the lists show: Up Next the next 100 songs, the Playlist a window around the song playing
-const UP_NEXT_MAX = 100
+// what the list shows: a window around the song playing (the played songs before it, the upcoming after)
 const PLAYLIST_BEFORE = 50
 const PLAYLIST_AFTER = 150
 // at most this many queue items cross from Apple's page per read (main.js stageQueueScript)
@@ -32,7 +31,7 @@ function clock(s) {
 /**
  * The queue as read from Apple's page, cleaned: every field the right kind and bounded, the
  * position an index into the items or -1. -> { items: [{ index, id, title, artist, album, duration,
- * art, autoplay }], position, canPlay, container: { type, name } | null }
+ * art, autoplay, albumId, composer }], position, canPlay, container: { type, name } | null }
  */
 function cleanQueue(raw) {
   const r = raw && typeof raw === 'object' ? raw : {}
@@ -47,7 +46,9 @@ function cleanQueue(raw) {
       album: str(x.album),
       duration: Math.max(0, num(x.duration)),
       art: /^https:\/\//.test(str(x.art, 600)) ? str(x.art, 600) : '',
-      autoplay: !!x.autoplay
+      autoplay: !!x.autoplay,
+      albumId: /^\d{1,20}$/.test(str(x.albumId, 20)) ? str(x.albumId, 20) : '',
+      composer: str(x.composer)
     }
   })
   const p = Number(r.position)
@@ -100,20 +101,21 @@ function timeLeft(q, duration, time) {
 }
 
 /**
- * The rows of the right column. which 'next': the songs after the one playing (at most 100);
- * 'all': the album or playlist, a window of 50 before and 150 after the song playing.
- * -> { rows: [{ index, n, title, sub, time, cur, played, autoplay }], from, to, total, more }
+ * The right column's one list (no tabs): the songs already played (dimmed; the last PLAYLIST_BEFORE of
+ * them), the one playing, then the next card's place, then the songs after the card's (at most
+ * PLAYLIST_AFTER). The next song shows only in the card, never as a row as well. Nothing playing: the queue
+ * from its start, no card.
+ * -> { rows: [{ index, n, title, sub, time, cur, played, autoplay }], cardAt (the row the card follows, or -1),
+ *      next (the card's song or null), last (the song playing is the last one), earlier, later, total }
  */
-function queueRows(q, which) {
+function queueList(q) {
   const items = q && Array.isArray(q.items) ? q.items : []
-  const pos = q && q.position >= 0 ? q.position : -1
-  let from, to
-  if (which === 'next') { from = pos + 1; to = Math.min(items.length, from + UP_NEXT_MAX) }
-  else {
-    from = Math.max(0, (pos < 0 ? 0 : pos) - PLAYLIST_BEFORE)
-    to = Math.min(items.length, (pos < 0 ? 0 : pos) + PLAYLIST_AFTER + 1)
-  }
-  const rows = items.slice(from, to).map((it) => ({
+  const pos = q && q.position >= 0 && q.position < items.length ? q.position : -1
+  const next = pos >= 0 ? items[pos + 1] || null : null
+  const from = pos >= 0 ? Math.max(0, pos - PLAYLIST_BEFORE) : 0
+  const startAfter = pos >= 0 ? Math.min(items.length, pos + (next ? 2 : 1)) : 0
+  const to = Math.min(items.length, startAfter + PLAYLIST_AFTER)
+  const row = (it) => ({
     index: it.index,
     n: it.index + 1,
     title: it.title || 'Untitled',
@@ -122,14 +124,10 @@ function queueRows(q, which) {
     cur: it.index === pos,
     played: pos >= 0 && it.index < pos,
     autoplay: it.autoplay
-  }))
-  return { rows, from, to, total: items.length, more: to < items.length || (which !== 'next' && from > 0) }
-}
-
-/** The playlist tab's name: 'Playlist · 24' (the album's or playlist's songs, autoplay left out). */
-function playlistLabel(q) {
-  const n = q && Array.isArray(q.items) ? q.items.filter((it) => !it.autoplay).length : 0
-  return n ? 'Playlist · ' + n : 'Playlist'
+  })
+  const head = pos >= 0 ? items.slice(from, pos + 1) : []
+  const rows = head.concat(items.slice(startAfter, to)).map(row)
+  return { rows, cardAt: next ? head.length - 1 : -1, next, last: pos >= 0 && !next, earlier: from, later: items.length - to, total: items.length }
 }
 
 /** 'Playing from <name>' when Apple says what the queue was built from, else ''. */
@@ -149,6 +147,33 @@ function liveChip(album, recorded) {
   let venue = m ? m[1].trim() : ''
   if (/^the\s/.test(venue)) venue = 'T' + venue.slice(1)
   return ['Live', str(recorded, 60).trim(), venue].filter(Boolean).join(' · ')
+}
+
+/**
+ * The lyric line a key moves to (the Studio's ↑ / ↓): dir +1 the next line's start; dir -1 the start of the
+ * line being sung when more than 1.5 s of it has passed, else the line before. lines: [{ t }] sorted.
+ * -> the time to seek to, or null (no timed lines, or nothing that way).
+ */
+function lineStep(lines, time, dir) {
+  const ts = (Array.isArray(lines) ? lines : []).map((l) => l && l.t).filter((t) => Number.isFinite(t))
+  if (!ts.length) return null
+  const now = num(time)
+  if (dir > 0) { const t = ts.find((x) => x > now + 0.25); return t === undefined ? null : t }
+  let cur = -1
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per key press
+  for (let i = 0; i < ts.length; i++) if (ts[i] <= now + 0.25) cur = i
+  if (cur < 0) return null
+  if (now - ts[cur] > 1.5) return ts[cur]
+  return cur > 0 ? ts[cur - 1] : ts[0]
+}
+
+/** The words sung at a time (the seek bar's hover): the last timed line that started by then, or ''. */
+function lineAt(lines, time) {
+  let text = ''
+  const t = num(time)
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per hover move over the seek bar
+  for (const l of Array.isArray(lines) ? lines : []) if (l && Number.isFinite(l.t) && l.t <= t) text = str(l.text, 160)
+  return text
 }
 
 /** The year of a release date ('2026-05-01' -> '2026'), or ''. */
@@ -194,11 +219,18 @@ function minSize(form, area) {
  * A 'stage-command' from the lyrics page, checked: the command one of the stage's, its value the
  * right kind and in range. -> { command, value } or null (dropped).
  */
-const PLAIN = ['play-pause', 'next', 'previous', 'shuffle', 'repeat', 'liner-notes']
+const PLAIN = ['play-pause', 'next', 'previous', 'shuffle', 'repeat', 'liner-notes',
+  // the song's actions under the volume (song-actions.js through main) and the cover's back ("More in the liner notes")
+  'song-library', 'song-link', 'song-album', 'song-artist', 'credits-liner', 'liner-recording']
+// the menus' anchor: the button's lower-left corner in the window (CSS px)
+const anchor = (v) => (v && typeof v === 'object' && Number.isInteger(v.x) && Number.isInteger(v.y) && v.x >= 0 && v.y >= 0 && v.x <= 20000 && v.y <= 20000 ? { x: v.x, y: v.y } : null)
 const numeric = (v) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN)
 function stageCommand(command, value) {
   if (typeof command !== 'string') return null
   if (PLAIN.includes(command)) return { command, value: null }
+  // Favorite: the state wanted (true: favourite it, false: undo), so a double click can't flip it twice
+  if (command === 'song-favorite') return typeof value === 'boolean' ? { command, value } : null
+  if (command === 'song-playlists' || command === 'song-more') { const a = anchor(value); return a ? { command, value: a } : null }
   if (command === 'form') return value === 'stage' || value === 'compact' ? { command, value } : null
   // the Montage tile (on/off) and its credit line (a photo's id, its Commons file name: main looks it up
   // in the photos it sent and opens that photo's page, never a URL from the page)
@@ -210,6 +242,13 @@ function stageCommand(command, value) {
   if (command === 'sheet-place') return value === 'band' || value === 'over' ? { command, value } : null
   if (command === 'seek') { const t = numeric(value); return Number.isFinite(t) && t >= 0 && t <= 86400 ? { command, value: t } : null }
   if (command === 'volume') { const v = numeric(value); return Number.isFinite(v) && v >= 0 && v <= 1 ? { command, value: v } : null }
+  // a queue row's menu: the row (index and id, checked again by main against the queue it sent) and its anchor
+  if (command === 'row-menu') {
+    const v = value && typeof value === 'object' ? value : {}
+    const a = anchor(v)
+    const ok = a && Number.isInteger(v.index) && v.index >= 0 && v.index < QUEUE_MAX && typeof v.id === 'string' && /^[\w.:-]{1,64}$/.test(v.id)
+    return ok ? { command, value: { index: v.index, id: v.id, x: a.x, y: a.y } } : null
+  }
   if (command === 'play-item') {
     const v = value && typeof value === 'object' ? value : {}
     const ok = Number.isInteger(v.index) && v.index >= 0 && v.index < QUEUE_MAX && typeof v.id === 'string' && /^[\w.:-]{1,64}$/.test(v.id)
@@ -219,7 +258,7 @@ function stageCommand(command, value) {
 }
 
 module.exports = {
-  STAGE_MIN, STAGE_DEFAULT, COMPACT_MIN, COMPACT_DEFAULT, UP_NEXT_MAX, PLAYLIST_BEFORE, PLAYLIST_AFTER, QUEUE_MAX,
-  clock, cleanQueue, trackOf, nextItem, countdown, timeLeft, queueRows, playlistLabel, playingFrom, liveChip, yearOf,
+  STAGE_MIN, STAGE_DEFAULT, COMPACT_MIN, COMPACT_DEFAULT, PLAYLIST_BEFORE, PLAYLIST_AFTER, QUEUE_MAX,
+  clock, cleanQueue, trackOf, nextItem, countdown, timeLeft, queueList, playingFrom, liveChip, yearOf, lineStep, lineAt,
   windowBounds, minSize, stageCommand
 }

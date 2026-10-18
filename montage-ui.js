@@ -18,7 +18,7 @@ const M = require('./montage-model')
 
 /**
  * createMontage({ doc, send(command, value), theme (theme-apply), say(text), onLayout() }) ->
- * { setForm(stage), setState(msg), setPlaying(playing), reshade(), facts() }
+ * { setForm(stage), setState(msg), setPlaying(playing), reshade(), next(), facts() }
  */
 function createMontage(opts) {
   const doc = opts.doc
@@ -210,6 +210,16 @@ function createMontage(opts) {
       schedule()
     },
     reshade,
+    // the next photo now (a click on the photo area, the Studio's N key): -> true when one came in
+    next() {
+      if (!visible() || photos().length < 2) return false
+      const f = M.frame(clock, photos().length, calm())
+      clock = clock - f.local + (calm() ? M.CALM_HOLD : M.HOLD) + M.FADE   // the next slot, its fade done (shown at once, paused or playing)
+      lastTick = 0
+      draw(true)
+      schedule()
+      return true
+    },
     // for the UI checker: what shows and the shade it chose
     facts: () => ({ visible: !box.hidden, running: !!timer, clock: +clock.toFixed(2), photo: shownPhoto, scrim: scrimShown, layers: layers.map((l) => ({ photo: l.dataset.photo || '', opacity: l.style.opacity, transform: l.style.transform })) })
   }

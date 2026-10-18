@@ -212,6 +212,29 @@ test('backingOffset: none — no anchor, or the first word: the line\'s own alig
   assert.deepEqual(V.backingOffset(null), { start: 0, end: 0 })
 })
 
+test('backingOffset: the ↳ always inside the text column — an anchored row and one that starts at the line\'s start align the same way (Honey, Honey)', () => {
+  // "(Look like a movie star)" comes in under a later word; "(But I like just who you are)" has no anchor (or the
+  // first word, or a wrapped main line): before 0.15.42 the second started at 0 with its ↳ hanging out to the left
+  const words = laid('Honey honey how he thrills me')
+  const arrow = 14
+  const anchored = V.backingOffset({ align: 'left', width: 600, words, anchor: { index: 3, after: false }, lead: 0, bgWidth: 160, arrow })
+  assert.equal(anchored.start, words[3].left)
+  for (const anchor of [null, { index: 0, after: false }]) {
+    assert.deepEqual(V.backingOffset({ align: 'left', width: 600, words, anchor, lead: 0, bgWidth: 220, arrow }), { start: arrow, end: 0 }, JSON.stringify(anchor))
+  }
+  // a wrapped main line (the anchor on its first row) and a backing row too long for one row: the same indent
+  const wrapped = laid('Honey honey how he').concat(laid('thrills me').map((w) => Object.assign(w, { top: 40 })))
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 300, words: wrapped, anchor: { index: 2, after: false }, lead: 0, bgWidth: 120, arrow }), { start: arrow, end: 0 })
+  assert.deepEqual(V.backingOffset({ align: 'left', width: 200, words, anchor: { index: 3, after: false }, lead: 0, bgWidth: 400, arrow }), { start: arrow, end: 0 })
+  // every left-aligned case: the ↳ (start - arrow) never left of the line's text start
+  for (const o of [anchored, V.backingOffset({ align: 'left', width: 600, words, anchor: null, lead: 0, bgWidth: 220, arrow })]) assert.ok(o.start - arrow >= 0)
+  // right-aligned and centred rows keep their own placement
+  assert.deepEqual(V.backingOffset({ align: 'right', width: 400, words, anchor: null, lead: 2, bgWidth: 90, arrow }), { start: 0, end: 0 })
+  // the page reads the arrow's width from the ↳ itself (lyrics-view.css .bgv::before)
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'lyrics-view.js'), 'utf8')
+  assert.match(src, /arrow: arrowOf\(row\)/)
+})
+
 test('backingOffset: wrap — a wrapped line or a backing row too long for one row keeps the line\'s alignment', () => {
   // narrow window: "running" on the first of two rows; the backing sits under the last row
   // (the second row's words from the row's start: "down" 0..40, "the" 46..76, "road" 82..122)

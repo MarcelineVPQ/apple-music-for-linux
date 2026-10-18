@@ -692,8 +692,12 @@
   }
 
   // --- from main ---
+  let openedAt = 0          // the last 'open at a section' request done (main's sequence number)
+  // lifetime: OK — added once at load, dies with the window
   ipcRenderer.on('liner-data', (event, d) => {
-    const keep = book && pages[spreads[cur] ? spreads[cur][0] : 0] ? pages[spreads[cur][0]].section : null
+    let keep = book && pages[spreads[cur] ? spreads[cur][0] : 0] ? pages[spreads[cur][0]].section : null
+    // asked to open at a section (the Studio's "More in the liner notes" opens Credits, its live chip the Recording): once per ask
+    if (d.open && d.open.n !== openedAt && d.booklet && d.booklet.sections.some((s) => s.id === d.open.section)) { openedAt = d.open.n; keep = d.open.section }
     book = d.booklet
     pending = !!d.pending
     opts = Object.assign(opts, d.opts || {})
