@@ -107,11 +107,11 @@ const CREDITS = [
   ['Precise word timing (sonata-align, installed separately)', [
     ['Demucs v4 (htdemucs)', 'Separates the vocals. Meta, MIT.', 'https://github.com/facebookresearch/demucs'],
     ['wav2vec2 (English)', 'Lines the words up. torchaudio\'s wav2vec2 large-lv60k 960h, MIT.', 'https://pytorch.org/audio'],
-    ['XLSR-53 fine-tunes (German, French, Spanish)', 'By Jonatas Grosman, Apache-2.0 (Common Voice data, CC0).', 'https://huggingface.co/jonatasgrosman'],
+    ['XLSR-53 fine-tunes (16 languages, German, French, Spanish, Japanese and more)', 'By Jonatas Grosman, Apache-2.0 (Common Voice data, CC0), on Meta\'s XLSR-53 (MIT).', 'https://huggingface.co/jonatasgrosman'],
     ['MMS forced aligner', 'Other languages, only when you opt in: Meta, CC-BY-NC 4.0 (non-commercial).', ''],
-    ['Whisper large-v3-turbo / faster-whisper', 'Transcription, in the helper only. OpenAI, MIT; SYSTRAN, MIT.', 'https://github.com/SYSTRAN/faster-whisper'],
-    ['PyTorch', 'BSD-3-Clause.', 'https://pytorch.org'],
-    ['RMVPE pitch model', 'The sung pitch for the sheet notes and the notes log. Wei et al.; RVC\'s code and weights, MIT.', 'https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI']
+    ['PyTorch and torchaudio', 'BSD-3-Clause and BSD-2-Clause.', 'https://pytorch.org'],
+    ['Python libraries', 'demucs (MIT), Transformers and huggingface_hub (Apache-2.0), soundfile (BSD-3-Clause; libsndfile, LGPL-2.1, linked dynamically), NumPy (BSD-3-Clause), Numba (BSD-2-Clause), Triton (MIT), NVIDIA CUDA and cuDNN runtime (NVIDIA\'s licence), lameenc (LGPL-3.0, installed with demucs, never loaded).', ''],
+    ['RMVPE pitch model', 'The sung pitch for the sheet notes and the notes log. Wei et al.; RVC\'s code and weights, MIT; the RMVPE network code, Apache-2.0.', 'https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI']
   ]],
   ['Art', [
     ['Flying toasters', 'Sonata\'s own 3D model, lit with the "White Home Studio" HDRI from Poly Haven (CC0). A wink to Berkeley Systems\' After Dark.', 'https://polyhaven.com'],

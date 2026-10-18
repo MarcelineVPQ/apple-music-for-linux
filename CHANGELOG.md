@@ -10,6 +10,7 @@ See docs/RELEASING.md.
 ### Fixed
 
 - **Versions read "0.15.45 Dev" everywhere, never "0.15.45-dev.1".** The update toast ("Sonata 0.15.45 Dev is up to date (Development).") and every other place a version shows now say it the same way: update notices and desktop notifications, Settings → Updates, About's card and What's new, the rail's Development badge, For the curious and the helper's engine version. Settings' numbers come from what Sonata actually does: the update check interval, the sung-notes and sheet-notes limits and folders, the For the curious refresh, Discord's retry and the helper's idle time (which was wrong while a lyrics window is open: 10 minutes, not 2).
+- **About → Credits names what the precise-timing helper really uses.** The transcription models it no longer contains are gone; the 16 languages of its aligners, its Python libraries and the pitch model's network code are credited with their licences.
 
 ## [0.15.45-dev.1] — Sheet notes on Apple's word timing, booklet pages turn on a click, and a new home for releases
 
