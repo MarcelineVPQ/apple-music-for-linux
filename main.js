@@ -50,6 +50,12 @@ const appName = 'Sonata'
   app.setPath('userData', keepUserData)
 }
 
+// Settings → Experimental (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
+// are decided here, before 'ready', from the settings file; a start marker turns them off again when a
+// start with them never got healthy. --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
+const gfx = require('./gfx-runtime').createGfx({ app, fs, path, settingsStore, extra: { decode: decodeProbe() } })
+gfx.beforeReady()
+
 // NOTE on sandboxing: recent Ubuntu restricts unprivileged user namespaces via
 // AppArmor, which aborts Chromium's sandbox setup BEFORE this script runs — it
 // cannot be handled from here. The AppImage launcher (electron-builder's
@@ -861,6 +867,7 @@ function createLyricsWindow() {
   }))
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, () => (settings.lyricsStage ? 'stageBounds' : 'lyricsBounds'))
+  trackHdr(lyricsWindow)
   lockDownLocalWindow(lyricsWindow)
   pushRail()
   // the lyrics and visualizer shortcuts work in the lyrics window too (Ctrl+Shift+L closes it again)
@@ -1566,6 +1573,7 @@ function createVizWindow() {
   vizListener = getSharedListener()({ sampleRate: VIZ_RATE, onChunk: (mid) => { if (visualizer) visualizer.push(mid) } })
 
   // the lyrics feed drives the overlay's lyrics, its now-playing and its audio (vizAudioTick)
+  trackHdr(vizWindow)
   vizWindow.webContents.once('did-finish-load', () => {
     startLyricsFeed()
     if (lastPalette) vizWindow.webContents.send('palette', lastPalette)   // album accent for the sung word
@@ -2284,12 +2292,14 @@ function noticeAction(id, action) {
     case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
     case 'recovered-show-settings': if (recoveredAside.settings) shell.showItemInFolder(recoveredAside.settings); break
     case 'recovered-show-lyrics': if (recoveredAside.lyrics) shell.showItemInFolder(recoveredAside.lyrics); break
+    case 'gfx-show': notices.clear(id); showPanel('settings', 'experimental'); break
   }
 }
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts',
+  ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
   if (key === 'setlistfmKey') {
@@ -2343,6 +2353,7 @@ function setSetting(key, value) {
     showAlignRepair()
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
+  else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
   if (key === 'sungNotesLog' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
     // the only download: when Sung notes becomes active (switch on, Development, Precise word timing on)
     if (sungNotesOn()) getNotesSwitch().turnedOn()
@@ -2445,6 +2456,14 @@ const appUrl = 'https://music.apple.com/'
 
 // Our CSS for Apple's page: the native-app upsell hidden.
 const customCss = '.web-navigation__native-upsell {display: none !important;}'
+// Apple's page's CSS: ours, plus the cover-glow dither while Settings → Experimental has it on (glow-dither.js;
+// built once, ~6 KB with its noise tile)
+let glowDitherCss = ''
+function appleCss() {
+  if (!settings.expGlowDither) return customCss
+  if (!glowDitherCss) glowDitherCss = require('./glow-dither').css()
+  return customCss + '\n' + glowDitherCss
+}
 let applyCustomCss = () => {}
 
 // --- the main window: Apple's page, the side panel, the navigation rail (and toasts) ---
@@ -2681,7 +2700,8 @@ function panelSnapshot() {
     updateNotes: u.phase === 'available' ? (u.notes || '') : '',
     backToStable: settings.updateChannel === 'dev' || updateFeed.isDevVersion(app.getVersion()),
     backConfirm,
-    shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null
+    shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null,
+    gfx: gfx.snapshot(app.getGPUFeatureStatus())
   })
   const shownAbout = settings.panelShown && settings.panelPage === 'about'
   return {
@@ -2698,9 +2718,70 @@ function panelSnapshot() {
     reveal
   }
 }
+// Settings → Experimental in 'ready' (gfx-runtime.js): a switch the start marker or a graphics crash turned
+// off is saved off and said once, at the top of the panel, with a way to the section
+function startGfx() {
+  gfx.ready({
+    settings: () => settings,
+    turnOff: (key) => { if (settings[key] === true) { settings[key] = false; saveSettings() } },
+    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-show', label: 'Open Experimental' }] }),
+    changed: () => pushPanel(),
+    screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
+  })
+  watchScreens()
+}
+// About → Graphics' "Video decoding" line, read when the section opens: Apple's page asks MediaCapabilities
+// about Apple's top artwork stream, and the graphics process's /proc maps say which VA-API driver it loaded
+function decodeProbe() {
+  let last = null
+  return {
+    readout: () => require('./gfx-model').decodeLabel(last),
+    probe(done) {
+      if (!appleView || appleWC().isDestroyed()) return
+      const gpu = app.getAppMetrics().find((m) => m.type === 'GPU')
+      let drivers = []
+      try { drivers = [...new Set(fs.readFileSync('/proc/' + gpu.pid + '/maps', 'utf8').match(/[\w-]+_drv_video\.so/g) || [])] } catch (e) { drivers = [] }   // error: NOT-WORTH — no graphics process or no /proc: the line says software or hardware from the page alone
+      const ask = `(async () => { const q = (c) => navigator.mediaCapabilities.decodingInfo({ type: 'media-source', video: { contentType: 'video/mp4; codecs="' + c + '"', width: 1080, height: 1080, bitrate: 4e6, framerate: 30 } }); const a = await q('avc1.640020'); return { powerEfficient: !!a.powerEfficient, hevc: MediaSource.isTypeSupported('video/mp4; codecs="hvc1.2.20000000.L123.B0"') } })()`
+      appleWC().executeJavaScript(ask).then((r) => { last = Object.assign({ drivers }, r); done() })
+        .catch((e) => console.error('graphics readout: decoding check failed:', e.message))   // error: LOGGED-OK — the line keeps saying "checking…"; reopening About → Graphics asks again
+    }
+  }
+}
+// HDR output (Settings → Experimental, active this start): each lyric window is told whether it sits on an
+// HDR screen and with what headroom ('lyrics-hdr', hdr-glow.js), when it loads, after it moves (300 ms after
+// the last move event) and when the screens change. Without HDR output nothing is registered.
+function sendHdr(win) {
+  if (win && !win.isDestroyed()) win.webContents.send('lyrics-hdr', gfx.hdrFor(win.getBounds()))
+}
+function trackHdr(win) {
+  if (!gfx.hdrActive) return
+  let timer = null
+  // lifetime: OK — the load, move and closed listeners die with the window; the one-shot timer is cleared on close
+  win.webContents.on('did-finish-load', () => sendHdr(win))
+  win.on('move', () => { clearTimeout(timer); timer = setTimeout(() => sendHdr(win), 300) })
+  win.on('closed', () => clearTimeout(timer))
+}
+// the desktop's screens changed: read KDE's outputs again (250 ms after the last event), then tell the windows
+let screensTimer = null
+function watchScreens() {
+  if (!gfx.hdrActive) return
+  // lifetime: OK — one 250 ms one-shot, replaced by the next screen event (a debounce)
+  const later = () => { clearTimeout(screensTimer); screensTimer = setTimeout(() => gfx.screensChanged(), 250) }
+  // lifetime: NOT-WORTH — three screen listeners for the app's life, only with HDR output on
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, later)   // loop: NOT-WORTH — three event names, once
+}
+// About → Graphics is on screen: the readout samples /proc (every 5 s) only then
+function gfxReadout() {
+  const open = mainAlive() && mainWindow.isVisible() && settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), 'graphics')
+  gfx.readout(open, () => {
+    const page = appleView && !appleWC().isDestroyed() ? appleWC().getOSProcessId() : 0
+    return app.getAppMetrics().map((m) => ({ pid: m.pid, kind: m.type === 'GPU' ? 'gpu' : m.pid === page ? 'page' : 'other' }))
+  })
+}
 // sends the panel's state if it changed; one JSON compare otherwise
 function pushPanel() {
   if (!panelAlive() || !panelMounted) return
+  gfxReadout()
   const s = panelSnapshot()
   const json = JSON.stringify(s)
   if (json === panelSent) return
@@ -2839,7 +2920,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset']
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return
@@ -2882,6 +2963,7 @@ function panelAction(name) {
   else if (name === 'shortcuts-configure' && shortcuts) shortcuts.configure()
   else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
+  else if (name === 'gfx-restart') restartApp()
 }
 
 // --- global shortcuts (shortcuts.js: X11 key grabs, or the desktop's portal on Wayland) ---
@@ -2982,6 +3064,8 @@ function createWindow() {
   layoutViews()
   appleWC().loadURL(appUrl + locale.toLowerCase() + '/browse')
   railView.webContents.loadFile('rail.html')
+  // lifetime: OK — once, on the rail's first load: the start-marker clock (gfx-runtime.js) starts there
+  railView.webContents.once('did-finish-load', () => gfx.painted())
   lockDownLocalWindow(railView)
   // the side panel, if it was showing when Sonata last closed
   if (settings.panelShown) createPanelView()
@@ -3050,7 +3134,7 @@ function createWindow() {
 
   // lifetime: OK — FIXED: this used to call insertCSS directly, which adds a new stylesheet every time;
   // measured 2 -> 202 injected sheets after 200 title changes, growing for the life of the page. The replacer keeps one.
-  applyCustomCss = createCssReplacer(appleWC(), customCss)
+  applyCustomCss = createCssReplacer(appleWC(), appleCss)
   appleWC().on('did-navigate', () => {
     applyCustomCss()
   });
@@ -3292,19 +3376,34 @@ function restartIntoUpdate() {
   // free the single-instance lock so the replacement can take it immediately
   app.releaseSingleInstanceLock()
   const target = (stablePath && fs.existsSync(stablePath)) ? stablePath : installedPath
-  // Relaunch in the CLEAN session environment, the way a menu launch does.
-  // Inheriting THIS process's Chromium-polluted env crashes the new instance
-  // (SIGBUS/SIGTRAP); the user's systemd manager gives it a fresh env and
-  // outlives us. Pass only session vars through, not our whole environment,
-  // and PATH without our AppImage mount, which ends with us (relaunch.js).
+  startNewCopy(target, relaunch.relaunchArgs(process.argv))
+  stopDesktopScheme()
+  app.exit(0)
+}
+// Settings → Experimental → Restart now: this same Sonata again (the AppImage in use, or Electron with the
+// app folder when run from source, in the folder it was started from), without --safe-gpu: the switches
+// are decided again at its start from the settings (gfx-runtime.js). Music stops for the restart.
+function restartApp() {
+  shuttingDown = true
+  app.releaseSingleInstanceLock()
+  const args = relaunch.relaunchArgs(process.argv).filter((a) => a !== '--safe-gpu')
+  startNewCopy(installedPath || process.execPath, args, appImagePath ? '' : process.cwd())
+  stopDesktopScheme()
+  app.exit(0)
+}
+// Relaunch in the CLEAN session environment, the way a menu launch does.
+// Inheriting THIS process's Chromium-polluted env crashes the new instance
+// (SIGBUS/SIGTRAP); the user's systemd manager gives it a fresh env and
+// outlives us. Pass only session vars through, not our whole environment,
+// and PATH without our AppImage mount, which ends with us (relaunch.js).
+function startNewCopy(target, args, cwd) {
   const env = relaunch.relaunchEnv(process.env)
-  const args = relaunch.relaunchArgs(process.argv)
   const unit = 'sonata-relaunch-' + Date.now()
   let started = false
   // loop: NOT-WORTH — at most two tries: with ExitType=cgroup, then without (systemd older than 250)
   for (const exitTypeCgroup of [true, false]) {
     try {
-      execFileSync('systemd-run', relaunch.systemdRunArgs({ target, args, env, unit, exitTypeCgroup }), { stdio: 'ignore' })
+      execFileSync('systemd-run', relaunch.systemdRunArgs({ target, args, env, unit, exitTypeCgroup, cwd }), { stdio: 'ignore' })
       started = true
       break
     } catch (e) { /* error: NOT-WORTH — systemd-run unavailable or too old: next try, then the shell below */ }
@@ -3312,11 +3411,9 @@ function restartIntoUpdate() {
   if (!started) {
     try {
       // lifetime: OK — detached and unref'd: the new Sonata outlives this one
-      spawn('/bin/sh', relaunch.shellArgs(target, args), { detached: true, stdio: 'ignore', env }).unref()
-    } catch (e) { console.error('update: could not start the new version:', e.message) }   // error: LOGGED-OK — the next menu launch starts it
+      spawn('/bin/sh', relaunch.shellArgs(target, args), { detached: true, stdio: 'ignore', env, cwd: cwd || undefined }).unref()
+    } catch (e) { console.error('relaunch: could not start the new copy:', e.message) }   // error: LOGGED-OK — the next menu launch starts it
   }
-  stopDesktopScheme()
-  app.exit(0)
 }
 
 // Remove older-versioned Sonata AppImages left beside the current one by a
@@ -3455,6 +3552,7 @@ app.whenReady().then(async () => {
   })
   // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
+    gfx.stop()
     stopDesktopScheme()
     if (shortcuts) shortcuts.stop()
     if (listenSession) listenSession.stop()
@@ -3465,6 +3563,7 @@ app.whenReady().then(async () => {
     if (montageCache) montageCache.flush()
   })
   startupStep('settings', loadSettings)
+  startupStep('graphics switches', startGfx)
   startupStep('notices', () => notices.setDismissed(settings.dismissedNotices))
   startupStep('autostart', applyAutostart)
   startupStep('window positions', cleanupWindowPositionMemory)

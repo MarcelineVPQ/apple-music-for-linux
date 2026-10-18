@@ -59,7 +59,12 @@ const SCHEMA = {
   shortcutKeys: [{}, require('./shortcuts-model').validStored, 'Global shortcut keys'],
   // the user's own setlist.fm API key (liner notes of live albums); none ships with Sonata
   setlistfmKey: ['', (v) => typeof v === 'string' && /^[A-Za-z0-9-]{0,64}$/.test(v), 'setlist.fm API key'],
-  lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run']
+  lastRunVersion: ['', (v) => typeof v === 'string' && v.length < 40, 'Last version run'],
+  // Settings → Experimental (gfx-model.js EXPERIMENTS): all off until the user turns them on
+  expTrueVideoColours: [false, bool, 'True video colours (experimental)'],
+  expGlowDither: [false, bool, 'Dithered cover glow (experimental)'],
+  expHdrOutput: [false, bool, 'HDR output (experimental)'],
+  expHwVideoDecode: [false, bool, 'Hardware video decoding (experimental)']
 }
 
 function defaults() {

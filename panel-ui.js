@@ -14,8 +14,9 @@
   const M = globalThis.SonataPanelModel
   const MD = globalThis.SonataMarkdown
   const K = globalThis.SonataShortcutsModel
+  const G = globalThis.SonataGfxModel
   const bridge = globalThis.sonataPanelBridge
-  if (!M || !MD || !K || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
+  if (!M || !MD || !K || !G || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
   const doc = document
   const icon = (name) => globalThis.SonataIcons.icon(doc, name)
   let uid = 0
@@ -287,6 +288,32 @@
     return { el: r, update(s) { last = s.v || {}; if (last.shortcuts && !last.shortcuts.capture && capturing === action.id && doc.activeElement !== keyBtn) capturing = null; paint(last) } }
   }
 
+  // a read-only readout: one row per [{ id, label, value }] (About → Graphics), updated in place
+  function readoutBlock(fn) {
+    const box = el('div', 'group readout')
+    let shown = ''
+    const made = new Map()
+    return {
+      el: box,
+      update(s) {
+        const rows = fn(s.v || {})
+        const ids = rows.map((r) => r.id).join('|')
+        if (ids !== shown) {
+          shown = ids
+          made.clear()
+          box.replaceChildren(...rows.map((r) => {
+            const x = row(r.label, '')
+            x.r.dataset.readout = r.id
+            made.set(r.id, x)
+            return x.r
+          }))
+        }
+        // loop: NOT-WORTH — ≤ 8 rows per state push while About → Graphics is open
+        for (const r of rows) { const x = made.get(r.id); setText(x.label, r.label); setText(x.desc, r.value) }
+      }
+    }
+  }
+
   function textBlock(cls, fn) {
     const p = el('p', cls)
     return { el: p, update(s) { const t = fn(s.v || {}, s); setText(p, t); p.hidden = !t } }
@@ -424,6 +451,20 @@
         switchRow('closeToTray', 'Close to tray', 'Closing the window hides it; music keeps playing'),
         switchRow('launchAtLogin', 'Launch at login', 'Start Sonata when you log in'),
         switchRow('startMinimized', 'Start minimized', 'Start hidden in the tray')
+      ],
+      // the switches still being tested (gfx-model.js EXPERIMENTS: names and descriptions in one place); each
+      // row says what this start does with it, and a waiting change offers Restart now
+      experimental: () => [
+        textBlock('note', () => 'Switches still being tested, all off until you turn them on. If a start with one on goes wrong, Sonata turns it off again by itself; About → Graphics shows what this start uses.'),
+        ...G.EXPERIMENTS.map((e) => switchRow(e.key, e.label, e.desc, {
+          disabled: (v) => !!(v.gfx && v.gfx.blocked[e.key]),
+          why: (v) => (v.gfx && v.gfx.blocked[e.key]) || '',
+          desc: (v) => e.desc + (v.gfx && v.gfx.note[e.key] ? ' ' + v.gfx.note[e.key] : '')
+        })),
+        actionRow('Restart to apply', (v) => (v.gfx && v.gfx.pending.length ? 'Waiting for a restart: ' + v.gfx.pending.join(', ') + '. Music stops for a moment.' : ''),
+          [{ label: 'Restart now', action: 'gfx-restart', primary: true, tip: () => 'Close Sonata and start it again with these switches' }],
+          { hidden: (v) => !v.gfx || !v.gfx.pending.length }),
+        textBlock('note', (v) => (v.gfx && v.gfx.safe ? 'Started with --safe-gpu: no experimental switch is used in this start, and your settings stay as they are.' : ''))
       ]
     },
     about: {
@@ -493,6 +534,11 @@
           }
         }]
       },
+      // what this start uses and what it costs (gfx-model.js graphicsRows; main samples only while this shows)
+      graphics: () => [
+        readoutBlock((v) => (v.gfx ? v.gfx.rows : [])),
+        textBlock('note', () => 'Measured while this section is open. To compare a switch: open an album with an animated cover, read the CPU line after a minute, flip the switch in Settings → Experimental, restart, and read it again.')
+      ],
       // the DS5 Credits: "Built on" as prose, then one What | Credit table (each other group a header row,
       // the hyphenation patterns as rows of their own), then the trademark line
       credits: () => {
@@ -561,6 +607,7 @@
     if (id === 'whatsnew') return a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : '')
     if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
     if (id === 'credits') return 'Built on · Third-party assets and code'
+    if (id === 'graphics') { const g = s.v && s.v.gfx; return !g ? '' : g.safe ? 'Safe start (--safe-gpu)' : g.active.length ? g.active.length + ' experimental on' : 'No experimental switches' }
     return ''
   }
 

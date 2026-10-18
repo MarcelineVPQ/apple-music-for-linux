@@ -21,6 +21,8 @@
 //           minimised; the real Commons path with SONATA_TEST_MONTAGE), the form)
 //           liner (the liner notes booklet for one real album, --album <Apple Music ID>: contrast in every theme,
 //           no dead controls, the keyboard, reduced motion; needs the network)
+//           experimental (Settings → Experimental and About → Graphics: the switches, a real click on the
+//           dither with Apple's album header read back, Restart now shown (never pressed), the readout)
 //           every (every Sonata window and view, light and
 //           dark, a song playing through tools/stand-in.js: the rail, Settings and About with every section open,
 //           notices, a toast, the lyrics window, the mini player, all four visualizer scenes; on top of the
@@ -293,7 +295,7 @@ async function keys() {
   x('key', 'end'); await sleep(150); order.push(await where())
   x('key', 'home'); await sleep(150); order.push(await where())
   x('key', 'up'); await sleep(150); order.push(await where())
-  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['playback', 'timing', 'appearance', 'windows', 'startup', 'playback', 'startup'].map((id) => 'panel:h-settings-' + id).join('|'), order)
+  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['playback', 'timing', 'appearance', 'windows', 'experimental', 'playback', 'experimental'].map((id) => 'panel:h-settings-' + id).join('|'), order)
   x('key', 'home'); await sleep(150)
   const exp = () => panel.ev('document.activeElement.getAttribute("aria-expanded") + "|" + (document.activeElement.getAttribute("aria-controls") || "")')
   const e0 = await exp(); x('key', 'enter'); await sleep(500); const e1 = await exp(); x('key', 'space'); await sleep(500); const e2 = await exp()
@@ -1519,6 +1521,98 @@ async function liner() {
   mp.c.close()
 }
 
+// --- experimental: Settings → Experimental and About → Graphics (gfx-model.js) ---
+// The four switches from the one registry, off by default, labelled Experimental, each with its line; a
+// restart switch whose setting changed shows Restart now (never pressed here: it would start a copy outside
+// this isolated one); the dither switch, clicked for real, adds its CSS to Apple's album header at once and
+// takes it away again; About → Graphics shows a row per switch and a measured CPU line. Under Xvfb Sonata
+// draws in software, so the restart switches are disabled with that reason: checked as such.
+const GFX = require('../gfx-model')
+async function experimental() {
+  const mp = await mainProc()
+  let apple = await target('music.apple.com')
+  const send = (...a) => mp.ev(viewCommand('panel', ...a))
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'dark', true)`)
+  // the window at the screen's corner (Xvfb has no window manager to place it), wide enough to dock the panel
+  await mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).setBounds({ x: 0, y: 0, width: 1300, height: 900 }), true)`)
+  await setPanel(mp, true, 'settings')
+  const s0 = await mp.ev(settingsFile)
+  if (((s0.panelOpen || {}).settings) !== 'experimental') await send('acc', 'settings', 'toggle', 'experimental')
+  await sleep(700)
+  const panel = await target('panel.html')
+  const L = await mp.ev(LAYOUT)
+  const read = () => panel.ev(`(() => {
+    const body = document.getElementById('b-settings-experimental')
+    const sec = body && body.closest('.sec')
+    return {
+      status: sec ? sec.querySelector('.sec-status').textContent : null,
+      rows: body ? [...body.querySelectorAll('button.switch')].map((b) => { const r = b.closest('.row'); const q = r.getBoundingClientRect(); return { key: b.dataset.key, label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, checked: b.getAttribute('aria-checked'), disabled: b.disabled, at: [Math.round(b.getBoundingClientRect().left + 10), Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)], h: q.height } }) : [],
+      restart: body ? [...body.querySelectorAll('.action-row')].filter((r) => !r.hidden).map((r) => ({ label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, buttons: [...r.querySelectorAll('button')].filter((b) => !b.hidden).map((b) => b.textContent) })) : []
+    }
+  })()`)
+  let st = await read()
+  const gpu = await mp.ev(`${E}.app.getGPUFeatureStatus().gpu_compositing`)
+  const soft = !/^enabled/.test(gpu)
+  check('experimental: the section lists the four switches from gfx-model.js, in order', st.rows.map((r) => r.key).join() === GFX.EXPERIMENTS.map((e) => e.key).join(), st.rows.map((r) => r.key))
+  check('experimental: every switch is labelled Experimental and has its one-line description', st.rows.every((r) => / \(experimental\)$/.test(r.label) && r.desc.length > 20), st.rows.map((r) => [r.label, r.desc.slice(0, 40)]))
+  check('experimental: all off by default; the header says "All off"', st.rows.every((r) => r.checked === 'false') && st.status === 'All off', [st.status, st.rows.map((r) => r.checked)])
+  const restartRows = st.rows.filter((r) => GFX.EXPERIMENTS.find((e) => e.key === r.key).restart)
+  check('experimental: ' + (soft ? 'drawing in software here (' + gpu + '): the restart switches are disabled and say why' : 'the GPU is on: the restart switches can be used'),
+    soft ? restartRows.every((r) => r.disabled && /graphics card|X11/.test(r.desc)) : restartRows.every((r) => !r.disabled || /X11/.test(r.desc)), restartRows.map((r) => [r.key, r.disabled, r.desc]))
+  check('experimental: no Restart now while nothing waits for a restart', !st.restart.length, st.restart)
+  xshot(path.join(OUT, 'experimental-settings.png'), L.content.width, L.content.height)
+  // the dither, clicked for real (Apple's album header gets its ::after; clicked again it goes)
+  await apple.ev(`(location.href = 'https://music.apple.com/us/album/before-these-crowded-streets/299546495', true)`).catch(() => null)
+  await sleep(9000)
+  apple = await target('music.apple.com')
+  const after = () => apple.ev(`(() => { const w = document.querySelector('.artwork-wrapper'); return w ? getComputedStyle(w, '::after').content + '|' + getComputedStyle(w, '::after').mixBlendMode : 'no header' })()`)
+  const a0 = await after()
+  // the section sits last: bring the switch into view before clicking it
+  await panel.ev(`(document.querySelector('#b-settings-experimental button.switch[data-key="expGlowDither"]').scrollIntoView({ block: 'center' }), true)`); await sleep(400)
+  const dither = (await read()).rows.find((r) => r.key === 'expGlowDither')
+  check('experimental: the dither switch is on screen to click', dither.at[1] > 0 && dither.at[1] < L.content.height, dither.at)
+  x('click', L.panel.x + dither.at[0], dither.at[1]); await sleep(1200)
+  st = await read()
+  const a1 = await after()
+  const s1 = await mp.ev(settingsFile)
+  check('experimental: a real click turns Dithered cover glow on (saved), and Apple\'s album header gets the dither at once', st.rows.find((r) => r.key === 'expGlowDither').checked === 'true' && s1.expGlowDither === true && /^""\|plus-lighter$/.test(a1) && a0 !== a1, [a0, a1, s1.expGlowDither])
+  check('experimental: a switch that applies at once needs no restart', !st.restart.length && st.status === '1 on', [st.status, st.restart])
+  x('click', L.panel.x + dither.at[0], dither.at[1]); await sleep(1200)
+  check('experimental: clicked again, the dither is gone from Apple\'s page', (await after()) === a0 && (await mp.ev(settingsFile)).expGlowDither === false, await after())
+  // a restart switch changed (as the panel would send it; disabled in software): Restart now appears, then goes
+  await send('set', 'expHdrOutput', true); await sleep(600)
+  st = await read()
+  check('experimental: a restart switch changed -> "Restart to apply" with Restart now, and the header says so', st.restart.length === 1 && st.restart[0].buttons.join() === 'Restart now' && /HDR output/.test(st.restart[0].desc) && /restart to apply/.test(st.status), [st.status, st.restart])
+  xshot(path.join(OUT, 'experimental-restart.png'), L.content.width, L.content.height)
+  await send('set', 'expHdrOutput', false); await sleep(600)
+  st = await read()
+  check('experimental: changed back -> nothing waits for a restart', !st.restart.length && st.status === 'All off', [st.status, st.restart])
+  await audit('experimental-settings', panel, '.panel', 'panel', { shot: { width: L.content.width, height: L.content.height } })
+  // About → Graphics: a row per switch, the CPU measured while it shows
+  await setPanel(mp, true, 'about')
+  const s2 = await mp.ev(settingsFile)
+  if (((s2.panelOpen || {}).about) !== 'graphics') await send('acc', 'about', 'toggle', 'graphics')
+  await sleep(6500)
+  const g = await panel.ev(`[...document.querySelectorAll('#b-about-graphics [data-readout]')].map((r) => [r.dataset.readout, r.querySelector('.row-label').textContent, r.querySelector('.row-desc').textContent])`)
+  const ids = g.map((r) => r[0])
+  check('graphics: hardware acceleration, what this start uses, a row per switch and the CPU line', ['accel', 'experimental', 'colours', 'glow', 'hdr', 'decode', 'cpu'].every((id) => ids.includes(id)), g)
+  check('graphics: the readout says what this start uses (no switch on: "None active"; software here: acceleration off)', g.find((r) => r[0] === 'experimental')[2] === 'None active' && (!soft || /^Off/.test(g.find((r) => r[0] === 'accel')[2])), g.slice(0, 2))
+  check('graphics: the CPU line is measured while the section is open', /^Sonata \d+\.\d % · graphics process \d+\.\d % · Apple's page \d+\.\d %/.test(g.find((r) => r[0] === 'cpu')[2]), g.find((r) => r[0] === 'cpu'))
+  check('graphics: the decoding line is read from Apple\'s page', /^(Software|Hardware)/.test(g.find((r) => r[0] === 'decode')[2]), g.find((r) => r[0] === 'decode'))
+  xshot(path.join(OUT, 'graphics-about.png'), L.content.width, L.content.height)
+  await audit('graphics-about', panel, '.panel', 'panel', { shot: { width: L.content.width, height: L.content.height } })
+  // closed: the sampling stops (no timer left from it)
+  await send('acc', 'about', 'toggle', 'graphics'); await sleep(600)
+  const t1 = await mp.ev(`process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length`)
+  await send('acc', 'about', 'toggle', 'graphics'); await sleep(1500)
+  const t2 = await mp.ev(`process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length`)
+  await send('acc', 'about', 'toggle', 'graphics'); await sleep(600)
+  const t3 = await mp.ev(`process.getActiveResourcesInfo().filter((x) => x === 'Timeout').length`)
+  check('graphics: open adds one sampling timer, closed it is gone again', t2 === t1 + 1 && t3 === t1, [t1, t2, t3])
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
+  panel.c.close(); apple.c.close(); mp.c.close()
+}
+
 // --- every: each Sonata window and view, light and dark, with a song playing (tools/stand-in.js) ---
 // The rules that hold for every page (tools/ui-audits.js), on top of judge()'s contrast, names, hit
 // targets and labels: no dead controls, every colour a theme token, no overflow or clipped text.
@@ -1638,7 +1732,7 @@ async function every() {
 
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage, liner, every }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage, liner, experimental, every }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)

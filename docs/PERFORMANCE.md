@@ -393,3 +393,106 @@ Apple page, worst-case test artwork for the Glass checks unless noted):
 | Glass backdrop per track (pure part, both light and dark) | 0.9 ms; the tokens for one page 0.05 ms |
 | 50 show/hide (real clicks on the rail), 50 pin + open/fold cycles, 50 navigations, at 1600 px (docked) and 1100 px (drawer) | main-process IPC handler, window and view listener counts unchanged; views and web contents unchanged (no toast view left); timers 1; panel page 22 listeners / 215 nodes folded, every time; rail 10 / unchanged; Apple's page unchanged over show/hide and pin cycles (7,379 listeners), growing only with navigations (Apple's own, as before) |
 | progressive alignment while playing (`tools/drift-check/stutter-check.js`, real helper on the RTX 5080, 6 section jobs inside the running app) | media time vs wall clock 1.0006 (quiet 1.0001), longest stall 25 ms = one sample (quiet: same), main-process event-loop lag max 2 ms; the first job 17 s (model load), the others 0.2–0.4 s |
+
+## Graphics experiments: Settings → Experimental (after 0.15.41-dev.1)
+
+docs/research/hdr-hw-accel-apple-music-2026-10.md (research-gpu-render branch) sections 5–7. Every switch is
+measured on and off on an isolated copy on the real GPU: this branch from source with castlabs Electron
+45.0.0-alpha.14, in KWin 6.6 `--virtual` (1920×1200, own Wayland socket, own D-Bus, throwaway HOME,
+`--no-sandbox --password-store=basic`, started with `systemd-run --user`, quit with `app.exit(0)`; nothing on
+Marcy's screen; 0 coredumps after every run), RTX 5080, driver 615. The setting is written into the copy's
+settings.json before it starts, so the flags come from the app's own decision (gfx-model.js `startFlags`).
+The test media sit over Apple's (logged-out) page as blob URLs, the way Apple's player hands it video:
+- **colour**: the still patches.png (a test image, not in the repo) beside the same pattern as H.264 tagged BT.709 limited (make-media.sh),
+  540 px each, read back with `capturePage`;
+- **load**: an H.264 High 1080×1080 30 fps ~4 Mb/s clip (Apple's top motion-artwork stream) at Apple's 316 px;
+  CPU from `/proc/<pid>/stat` over 20 s after a 3 s settle, per process (% of one core), NVDEC from
+  `nvidia-smi dmon`, frames from `getVideoPlaybackQuality`.
+
+Idle cost of the section itself: none. About → Graphics samples `/proc` every 5 s only while it is open.
+
+### True video colours (`expTrueVideoColours`: `--disable-gpu-memory-buffer-video-frames`)
+
+| Run | Red 255,0,0 | Green 0,255,0 | Crimson 200,40,60 | Grey 128 | Page | Graphics process | Total | Dropped |
+|---|---|---|---|---|---|---|---|---|
+| Off, run 1 | 234,0,2 | 20,255,10 | 185,23,60 | 128 | 9.2 | 2.3 | 12.0 | 0 / 600 |
+| Off, run 2 | 234,0,2 | 20,255,10 | 185,23,60 | 128 | 9.35 | 2.15 | 11.9 | 0 / 600 |
+| On, run 1 | **255,1,0** | **0,255,1** | **199,41,58** | 128 | 6.8 | 2.65 | 9.95 | 0 / 601 |
+| On, run 2 | **255,1,0** | **0,255,1** | **199,41,58** | 128 | 7.9 | 2.95 | 11.4 | 0 / 601 |
+
+The video matches the still within 2 codes with the switch on (the BT.601 signature off). CPU the same
+within noise: the page decodes a little less (−1.5), the graphics process uploads a little more (+0.5).
+Software decoding only (hardware-decoded frames keep the error, research §1.4): with Hardware video
+decoding on, this switch is not used and the row says so.
+
+### Dithered cover glow (`expGlowDither`: CSS in Apple's page, glow-dither.js)
+
+Apple's album header for Dave Matthews Band, *Before These Crowded Streets* (Marcy's screenshot album),
+dark, logged out, 1× scale, read back with `capturePage` 130 px around the cover; the 270 columns under the
+cover, 0–46 px below it:
+
+| | Longest flat run (value > 0) | Median | Mean value 0 / 16 / 32 / 36 px below | Black page pixels lifted |
+|---|---|---|---|---|
+| Off (Apple's glow) | 20 px | 9 px | 7.5 / 4.3 / 0.7 / 0.2 | – |
+| On (the shipped tile) | **8 px** | **3 px** | 8.2 / 5.1 / 1.2 / 0.7 | 4,330 of 93,488 (4.6 %), all within the glow's tail, by 1 code (147 by 2) |
+| On, plain white noise (not shipped) | 14 px | 4 px | – | – |
+
+- The steps: Apple's tail falls 8, 7, 6, 4, 3, 2, 1, 0 over ~38 px here (her 4K TV at 1.2 scale and 1000-nit
+  SDR white read 7, 6, 4, 3, 2, 1, 0 beside the cover and 16, 16, 6 … 0 below it in her screenshot: the same
+  shape, brighter). The noise covers that tail and ends with it: nothing changes 40 px or more from the cover,
+  and nothing on the cover.
+- Strength: the smallest there is, +1 code at half the pixels (white at alpha 1/255; Apple's cover wrapper is
+  its own stacking context, so an opaque tile would cover the page). Mean +0.6–0.8 code where it lies.
+- Run-limited tile: no value three times in a row or column (white noise left a 14 px run).
+- Cost: one static layer per album header, no animation, no script (not measurable apart from noise).
+- Waits for her eyes on her TV: whether the steps are gone at 1000-nit SDR white, and whether the grain shows.
+
+### HDR output (`expHdrOutput`: `--force-color-profile=scrgb-linear`, hdr-glow.js, hdr-screens.js)
+
+- **The flag**: the app's own decision puts `force-color-profile=scrgb-linear` on its command line (read back
+  with `app.commandLine`), only with the switch on and on native Wayland.
+- **The HDR glow** (lyrics window, stand-in song playing, dark theme, the window told it is on DP-5 at 1.8×:
+  the isolated KWin's virtual output is SDR, so kscreen-doctor there says no HDR): a WebGPU device starts,
+  the canvas follows the sung word (`.w.now`, or the syllable being sung), **2.3 draws a second** = the word
+  changes, none between words; the lyrics window's renderer **2.8 % of a core with the glow, 2.7 % without**
+  (10 s each, the same within noise). Told "off": the device is destroyed and the canvas removed.
+  Light theme: the sung word is dark there (4.5:1 over a light card), so it isn't boosted (a first run
+  boosted it and washed it out on lavender; hdr-glow.js `glows`).
+- **Apple's page with HDR output on** (the load clip, 20 s): 12.25 / 11.65 % of a core vs 12.0 / 11.9 off, 0 dropped;
+  the colour patches and greys read back the same as off (the scRGB profile changes the output space, not the
+  video matrix: research §1.5).
+- **Wayland colour tags**: on the isolated KWin's SDR virtual output, 2 "Unable to set image transfer function
+  … transfer:SRGB" lines at start with scRGB on (0 without). Phase 0 on DP-5 (Marcy's TV) logged none with
+  scRGB in any window, and Chromium sent ABGR16161616F buffers tagged st2084_pq there with or without it.
+  Whether her journal still logs the line with Sonata itself: to read on her desktop once she turns it on.
+- **Waits for her eyes on DP-5**: how bright the sung word reads (1.8× her SDR white, the TV tone-maps
+  above ~330 nits), whether the letters sit exactly on the text, and Apple's page/art/video the same as off.
+
+### Hardware video decoding (`expHwVideoDecode`: `--enable-features=VaapiOnNvidiaGPUs,AcceleratedVideoDecodeLinuxGL`)
+
+| Run | Page | Graphics process | Browser | Total | NVDEC (mean / max) | Dropped | Decoder |
+|---|---|---|---|---|---|---|---|
+| Off (software), runs 1 and 2 | 9.2 / 9.35 | 2.3 / 2.15 | 0.45 / 0.4 | **12.0 / 11.9** | 0 % | 0 / 600 | – |
+| On, run 1 | 1.95 | 3.45 | 0.55 | **5.95** | 0.22 / 1 % | 0 / 600 | `nvidia_drv_video.so` loaded; `powerEfficient: true` for H.264; HEVC Main10 supported (false off) |
+| On, run 2 | 0.7 | 3.85 | 0.65 | **5.2** | 0.22 / 1 % | 0 / 601 | the same |
+| On with True video colours also on | 1.65 | 3.05 | 0.5 | 5.2 | 0.5 / 1 % | 0 / 600 | the colour switch not used (the `[gpu]` line says so) |
+
+- Saves **about 6–7 % of a core** while a 1080p animated cover plays; the graphics process does a little more
+  (+1 to +1.5) importing the frames. With HEVC now supported, Apple's player may pick its HEVC Main10 artwork.
+- The colours stay off with it on Wayland (234,0,2 for red), as the description says; True video colours
+  can't fix hardware frames, so it steps aside.
+- Crash risks (research §3.4) are what the safety net is for; no crash in these runs (0 coredumps). Every
+  switch on at once (HDR, hardware decoding, colours, dither): starts and plays, 0 coredumps.
+
+### The safety net, end to end (isolated copy, real GPU)
+
+- **A start that never got healthy**: settings with Hardware video decoding and HDR output on, and a start
+  marker naming Hardware video decoding. That start used only HDR output (`[gpu] experimental: expHdrOutput`),
+  saved Hardware video decoding off, showed one notice at the top of the panel ("Sonata turned off Hardware
+  video decoding: the last start with it on didn't finish. You can turn it back on in Settings →
+  Experimental." with Open Experimental), wrote a new marker naming HDR output and removed it 20 s later
+  ("healthy for 20 s").
+- **`--safe-gpu`** with three switches on: no flags, settings unchanged, no marker, each row says "Not used
+  this start: Sonata was started with --safe-gpu."
+- **A graphics crash while running** is covered by test/gfx.test.js only: forcing one on the isolated copy
+  would leave a core dump (and a crash notice on Marcy's desktop).
