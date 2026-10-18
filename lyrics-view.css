@@ -25,7 +25,7 @@
   margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space */
   flex-direction: column;
   align-items: center;
-  transform-origin: 50% var(--oy, 65%);
+  transform-origin: 50% 65%;
   transition: transform 0.18s ease-out, opacity 0.25s ease;
 }
 .w::after {
@@ -76,28 +76,31 @@
 .bgv .w::after, .bgv .w > .b { font-weight: 700; }
 .line.active .bgv .w.now { transform: scale(1.08); }
 
-/* syllables (Apple words timed in several spans): the whole word lights up and pops as above, from its
-   baseline (--oy: the baseline's height in the word's box, measured in the UI checker's stage step), and only
-   the syllable being sung glows, so the syllables of one word keep one baseline and one size (0.15.42: the
-   sung syllable used to lift and grow on its own, "dis" raised over "tance"). They live in the bold copy.
+/* syllables (Apple words timed in several spans): the whole word lights up as above, but only the
+   syllable being sung pops (GPU transform, so the line never reflows). They live in the bold copy.
    No kerning or ligatures, so the syllable row and the reserved bold copy (::after) are exactly the
    same width. The glow is split so it animates on the compositor: the brightness eases on the
    syllable's text layer (.sg, brightness only), the small drop-shadow (a filter that moves pixels,
-   which Chromium can't animate off the main thread) switches with the syllable. */
-.w.hs { font-kerning: none; font-variant-ligatures: none; --oy: 78%; }
+   which Chromium can't animate off the main thread) switches with the pop. */
+.w.hs { font-kerning: none; font-variant-ligatures: none; }
 .w .sr { white-space: nowrap; }
-.w .s { display: inline-block; }
+.w .s {
+  display: inline-block;
+  transform-origin: 50% 80%;
+  transition: transform 0.12s cubic-bezier(.3,1.6,.5,1);
+}
 .w .sg { display: inline-block; transition: filter 0.12s ease-out; }
 /* a word that is no longer sung hides its bold copy at once, so its syllables settle without an animation */
 .w:not(.now) .s, .w:not(.now) .sg { transition: none; }
-/* a held note (0.15.34): after the pop, the word settles into a gentle sustained lift for as long as the
-   voice holds; it stays lit and glowing, one ease, no repeat */
-.line.active .w.now.hold { transform: scale(1.05); transition: transform 0.6s ease-out, opacity 0.25s ease; }
-.line.active .w.now.hold .s.now { filter: drop-shadow(0 0.08em 0.12em var(--sing)); }
+.line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
+/* a held note (0.15.34): after the pop, the word (or its held last syllable) settles into a gentle
+   sustained lift for as long as the voice holds; it stays lit and glowing, one ease, no repeat */
+.line.active .w.now.hold:not(.hs) { transform: scale(1.05); transition: transform 0.6s ease-out, opacity 0.25s ease; }
+.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(1.05); filter: drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out; }
 .line.active .w.now.hold .s.now > .sg { filter: brightness(1.25); transition: filter 0.6s ease-out; }
-.line.active .w.now .s.now { filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
+.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
 .line.active .w.now .s.now > .sg { filter: brightness(1.5); }
-.line.active .bgv .w.now .s.now { filter: none; }
+.line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: none; }
 .line.active .bgv .w.now .s.now > .sg { filter: brightness(1.35); }
 
 /* interlude countdown: three dots in place of the next line. The row opens and closes at once (the
@@ -131,7 +134,7 @@
 }
 
 /* prefers-reduced-motion: the sung word still lights (its colour, bold copy and glow) but doesn't
-   pop (a word with syllables neither) and a held note doesn't lift; the countdown dots only fill
+   pop, its syllables don't bounce and a held note doesn't lift; the countdown dots only fill
    (lyrics-view.js dotKeyframes still) and nothing slides or scrolls smoothly (lyrics-view.js still()).
    Same selectors as above, so these win by coming later. */
 @media (prefers-reduced-motion: reduce) {
@@ -139,5 +142,8 @@
   .w .s { transition: none; }
   .line.active .w.now,
   .line.active .bgv .w.now,
-  .line.active .w.now.hold { transform: none; transition: none; }
+  .line.active .w.now.hold:not(.hs),
+  .line.active .w.now .s.now,
+  .line.active .w.now.hold .s.now,
+  .line.active .bgv .w.now .s.now { transform: none; transition: none; }
 }

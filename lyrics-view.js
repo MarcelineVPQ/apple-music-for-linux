@@ -13,9 +13,8 @@
 // in test/lyrics-view.test.js.
 //
 // Karaoke: the word being sung is lit as a whole (.w.now). Apple words timed in several spans carry
-// their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word; the word pops
-// as a whole from its baseline and the syllable being sung glows (.s.now), so the syllables of one word
-// keep one baseline and one size (0.15.42: "dis·tance", "ba·by"). Words without Apple
+// their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word and only
+// the syllable being sung pops (.s.now); other words pop as a whole, as before. Words without Apple
 // syllables get estimated ones (lyrics-syllables.js: hyphenation patterns for data.lang, en-US by
 // default), once per line when the lyrics load or a line's timing is refined or aligned.
 //
@@ -608,8 +607,8 @@ function createLyricsView(opts) {
     if (!spans.origins) {
       const tops = spans.map((s) => s.offsetTop)
       spans.origins = tops.map((top, k) => side === 'right'
-        ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% var(--oy, 65%)' : '')
-        : (k === 0 || tops[k - 1] !== top ? '0% var(--oy, 65%)' : ''))
+        ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% 65%' : '')
+        : (k === 0 || tops[k - 1] !== top ? '0% 65%' : ''))
     }
     return spans.origins[i]
   }
@@ -622,6 +621,14 @@ function createLyricsView(opts) {
     if (!bgFrame) bgFrame = requestAnimationFrame(() => { bgFrame = 0; placeBacking() })
   })
   let bgFrame = 0
+
+  // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
+  // edge, last at the right edge)
+  function sylOrigin(span, j, origin) {
+    if (origin === '0% 65%') return j === 0 ? origin : ''
+    if (origin === '100% 65%') return j === span.syl.length - 1 ? origin : ''
+    return ''
+  }
 
   // word and syllable classes for one line's words; only touches the DOM when the position changed
   function paintWords(spans, words, time, last, side) {
@@ -637,9 +644,13 @@ function createLyricsView(opts) {
     if (pos.now >= 0) {
       const span = spans[pos.now]
       const origin = stage ? '' : edgeOrigin(spans, pos.now, side)
-      // a word with syllables pops as a whole, from its baseline (lyrics-view.css .w.hs --oy); its sung syllable only glows
-      if (span.syl && pos.syl >= 0) span.syl[pos.syl].classList.add('now')
-      if (!stage) span.style.transformOrigin = origin
+      if (span.syl) {
+        if (pos.syl >= 0) {
+          span.syl[pos.syl].classList.add('now')
+          if (!stage) span.syl[pos.syl].style.transformOrigin = sylOrigin(span, pos.syl, origin)
+        }
+      }
+      else if (!stage) span.style.transformOrigin = origin
     }
     // loop: HOT-PATH-OK — one line's words (~5-12) per word/syllable change (returns above when nothing moved)
     for (let i = 0; i < spans.length; i++) {

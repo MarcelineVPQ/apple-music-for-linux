@@ -1468,9 +1468,9 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   await stageLog(); await menus()
 }
 
-// --- a word with syllables pops as one, from its baseline (0.15.42: "dis·tance", "ba·by" were drawn with the sung
-// syllable raised and larger): while "dis" is sung the two syllables share one baseline and one size, and the word's
-// baseline stays where it was before the pop (within 1 px: the transform's origin is the baseline, --oy) ---
+// --- the syllable pop on a word with syllables ("dis·tance", "ba·by"), rendered: its look is pinned (test/syllable-look.test.js:
+// the sung syllable lifts and grows on its own, Marcy's choice); here the genuine faults: the popped syllable never reaches
+// into the line above, nothing of it is clipped by the list, and once the word is sung every syllable is back on the line ---
 async function syllableStep(mp, page, send, W, H, song, np) {
   const ln = (t, text, words) => ({ t, end: t + 4, text, words })
   const w = (text, t, end, syl) => Object.assign({ text, t, end }, syl ? { syl: syl.map(([x, a, b]) => ({ text: x, t: a, end: b })) } : {})
@@ -1481,20 +1481,25 @@ async function syllableStep(mp, page, send, W, H, song, np) {
   const MEASURE = (word) => `(() => {
     const ln = document.querySelector('#lines .line.active'); if (!ln) return null
     const wd = [...ln.querySelectorAll('.ly-main .w')].find((x) => x.dataset.text === ${JSON.stringify(word)}); if (!wd) return 'no word'
-    const ss = [...wd.querySelectorAll('.s')]
-    let probe = ss[0].querySelector('i.__bl'); if (!probe) { probe = document.createElement('i'); probe.className = '__bl'; probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline'; ss[0].appendChild(probe) }
-    const box = wd.getBoundingClientRect()
-    return { now: wd.classList.contains('now'), base: +probe.getBoundingClientRect().bottom.toFixed(2), boxTop: +box.top.toFixed(2), boxH: +box.height.toFixed(2), syl: ss.map((s) => { const r = s.getBoundingClientRect(); return { text: s.textContent, sung: s.classList.contains('now'), bottom: +r.bottom.toFixed(2), h: +r.height.toFixed(2), transform: getComputedStyle(s).transform } }) }
+    const prev = ln.previousElementSibling
+    const list = document.getElementById('lines').getBoundingClientRect()
+    const pr = prev ? [...prev.querySelectorAll('.ly-main .w, .ly-dim .w')].map((x) => x.getBoundingClientRect()).filter((r) => r.height) : []
+    const prevBottom = pr.length ? Math.max(...pr.map((r) => r.bottom)) : -1e9
+    return { now: wd.classList.contains('now'), prevBottom: +prevBottom.toFixed(1), list: [+list.left.toFixed(1), +list.top.toFixed(1), +list.right.toFixed(1), +list.bottom.toFixed(1)],
+      syl: [...wd.querySelectorAll('.s')].map((s) => { const r = s.getBoundingClientRect(); return { text: s.textContent, sung: s.classList.contains('now'), top: +r.top.toFixed(1), bottom: +r.bottom.toFixed(1), left: +r.left.toFixed(1), right: +r.right.toFixed(1), transform: getComputedStyle(s).transform } }) }
   })()`
-  for (const [word, before, during, tag] of [['distance', 10.1, 10.7, 'dis'], ['baby,', 16.5, 17.8, 'by']]) {
+  for (const [word, before, during, after, tag] of [['distance', 10.1, 10.7, 13.6, 'dis'], ['baby,', 16.5, 17.8, 19.5, 'by']]) {
     await send('lyrics-time', before, false); await sleep(900)
     const a = await page.ev(MEASURE(word))
     await send('lyrics-time', during, false); await sleep(900)
     const b = await page.ev(MEASURE(word))
     xshot(path.join(OUT, 'syllable-' + tag + '.png'), W, H)
-    const one = b && b.syl && b.syl.length === 2 && Math.abs(b.syl[0].bottom - b.syl[1].bottom) < 0.5 && Math.abs(b.syl[0].h - b.syl[1].h) < 0.5 && b.syl.every((x) => x.transform === 'none') && b.syl.some((x) => x.sung)
-    check('syllables: while "' + tag + '" is sung, the syllables of "' + word + '" share one baseline and one size (no syllable moves on its own)', !!one, b)
-    check('syllables: "' + word + '" pops from its baseline (it stays within 1 px; the baseline sits at ' + (a ? ((a.base - a.boxTop) / a.boxH * 100).toFixed(1) : '?') + '% of the word\'s box)', a && b && b.now && Math.abs(b.base - a.base) <= 1, { before: a && a.base, during: b && b.base })
+    await send('lyrics-time', after, false); await sleep(900)
+    const c = await page.ev(MEASURE(word))
+    const sung = b && b.syl ? b.syl.find((x) => x.sung) : null
+    check('syllables: "' + tag + '" pops as it does today (raised and larger than the other syllable of "' + word + '")', !!sung && sung.top < Math.min(...b.syl.filter((x) => !x.sung).map((x) => x.top)) && /^matrix\(1\.12, 0, 0, 1\.12, 0, -/.test(sung.transform), b)
+    check('syllables: the popped "' + tag + '" stays below the line above and inside the list (nothing overlapped or clipped)', !!sung && sung.top >= b.prevBottom - 0.5 && sung.top >= b.list[1] && sung.left >= b.list[0] && sung.right <= b.list[2], { sung, prevBottom: b && b.prevBottom, list: b && b.list })
+    check('syllables: after "' + word + '" every syllable is back on the line (as before the word)', c && c.syl && c.syl.every((x, i) => x.transform === 'none' && Math.abs(x.bottom - a.syl[i].bottom) < 0.5), { before: a && a.syl, after: c && c.syl })
   }
   await send('lyrics-data', song); await send('stage-np', np); await sleep(600)
 }

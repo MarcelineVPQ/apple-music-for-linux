@@ -47,13 +47,11 @@ function rules(css) {
 }
 const REDUCE = /prefers-reduced-motion:\s*reduce/
 
-test('reduced motion: every word pop and held-note lift is switched off (syllables have no motion of their own since 0.15.42)', () => {
+test('reduced motion: every word pop, syllable bounce and held-note lift is switched off', () => {
   const r = rules(read('lyrics-view.css'))
   const moving = r.filter((x) => !x.media && x.decls.transform && x.decls.transform !== 'none')
     .flatMap((x) => x.selectors).filter((s) => /\.now\b/.test(s))
-  assert.ok(moving.length >= 3, 'the pops are found: ' + moving.join(' | '))
-  // the syllables of one word share its baseline and size: no transform of their own
-  assert.ok(!r.some((x) => x.decls.transform && x.selectors.some((s) => /\.s\.now\b/.test(s)) && x.decls.transform !== 'none'), 'no syllable transform')
+  assert.ok(moving.length >= 6, 'the pops are found: ' + moving.join(' | '))
   const off = new Set(r.filter((x) => REDUCE.test(x.media) && x.decls.transform === 'none').flatMap((x) => x.selectors))
   assert.deepEqual(moving.filter((s) => !off.has(s)), [])
 })
