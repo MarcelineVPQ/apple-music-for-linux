@@ -56,6 +56,8 @@ function libraryStats(entries, opts) {
   const byKey = new Map()
   // loop: NOT-WORTH — the lyrics cache (≤ 2,000 entries), on open and once a minute while For the Curious is open
   for (const [key, value] of entries || []) byKey.set(key, value)
+  // a song's timing entries sit under the same key as its lyrics (isrc:… or title|artist), or behind an alias
+  const pick = (k) => { const v = byKey.get(k); return v && v.alias ? byKey.get(String(v.alias)) : v }
   const s = {
     songs: 0, apple: 0, lrcWords: 0, precise: 0, partial: 0, refined: 0, estimated: 0, lineOnly: 0, plain: 0,
     alignedSongs: 0, alignedLines: 0, words: 0, held: 0, rejected: 0,
@@ -67,6 +69,8 @@ function libraryStats(entries, opts) {
   for (const [key, value, size] of entries || []) {
     const kind = KIND(key)
     s.bytes[kind] += Number(size) || 0
+    // an old title|artist key pointing at its recording's ISRC entry (recording-id.js, 0.15.42): counted there
+    if (value && value.alias) continue
     if (kind === 'aligned') {
       if (!value || !value.lines) continue
       const w = entryWords(value)
@@ -97,9 +101,9 @@ function libraryStats(entries, opts) {
     s.songs++
     if (T.hasWordTiming(lines)) { if (value.source === 'apple') s.apple++; else s.lrcWords++; continue }
     if (lines[0].t == null) { s.plain++; continue }
-    const entry = A.validEntry(byKey.get('aligned|' + key), A.lyricsHash(lines), lines)
+    const entry = A.validEntry(pick('aligned|' + key), A.lyricsHash(lines), lines)
     if (entry && entry.lines && Object.keys(entry.lines).length) { s.precise++; if (entry.partial) s.partial++; continue }
-    const learned = byKey.get('refined|' + key)
+    const learned = pick('refined|' + key)
     if (learned && learned.v === 1 && learned.lines && Object.keys(learned.lines).length) { s.refined++; continue }
     if (o.estimate) s.estimated++; else s.lineOnly++
   }
@@ -160,6 +164,7 @@ function notesFacts(doc) {
 /**
  * np: { title, artist, playing, lyrics (the cached lyrics entry | null), aligned, refined (cache entries | null),
  *   notes (the song's notes-log document | null), track ({ key, startAligned, startRefined } from the lyrics feed | null),
+ *   trackKey (recording-id.js trackKey of the playing song: what the feed's track.key is),
  *   settings: { estimate, precise, listen, installed, dev } }
  */
 function nowRows(np) {
@@ -198,7 +203,7 @@ function nowRows(np) {
   rows.push({ id: 'range', label: 'Vocal range', value: nf ? nf.low + ' to ' + nf.high + ' (' + plural(nf.span, 'semitone') + ')' : unknown('needs the sung notes') })
   rows.push({ id: 'key', label: 'Detected key', value: nf && nf.key ? nf.key : unknown('needs the sung notes') })
   let play
-  const t = n.track && n.track.key === key ? n.track : null
+  const t = n.track && n.track.key === (n.trackKey || key) ? n.track : null
   if (!st.precise && !st.listen) play = unknown('Sonata learns from plays only with Precise word timing or Refine by listening on')
   else if (!t) play = unknown('open the lyrics while it plays')
   else if (t.startAligned) play = 'Later play: aligned on an earlier play'

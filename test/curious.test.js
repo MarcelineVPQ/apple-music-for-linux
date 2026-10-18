@@ -298,3 +298,37 @@ test('wiring: main samples only while About → For the Curious is open and the 
   assert.match(ui, /bridge\.send\('action', 'curious-copy'\)/)
   assert.match(ui, /setAttr\(said, 'role', 'status'\)/)
 })
+
+test('ISRC keys (0.15.42): an old title|artist alias is counted once, under its recording; now playing finds the ISRC entry', async () => {
+  const raw = [{ t: 10, text: 'one two' }, { t: 14, text: 'three four' }]
+  const words = (l) => l.text.split(' ').map((w, k) => ({ t: l.t + k * 0.5, end: l.t + k * 0.5 + 0.4, text: w }))
+  const aligned = { version: 3, model: 'en', engine: '0.1.0', lyricsHash: A.lyricsHash(raw), lines: { 0: { text: raw[0].text, words: words(raw[0]), conf: 0.8 } }, rejected: [], songDuration: 200, isrc: 'USABC2600001' }
+  const entries = [
+    ['isrc:USABC2600001', { lines: raw, source: 'lrclib', songDuration: 200, isrc: 'USABC2600001' }, 100],
+    ['Live Song (Live)|Band', { alias: 'isrc:USABC2600001', isrc: 'USABC2600001', songDuration: 200 }, 50],
+    ['aligned|isrc:USABC2600001', aligned, 300],
+    ['aligned|Live Song (Live)|Band', { alias: 'aligned|isrc:USABC2600001', isrc: 'USABC2600001', songDuration: 200 }, 50]
+  ]
+  const s = C.libraryStats(entries, { estimate: true })
+  assert.deepEqual([s.songs, s.precise, s.alignedSongs, s.words], [1, 1, 1, 2], 'aliases are not songs or alignments of their own')
+  const map = new Map(entries.map(([k, v]) => [k, v]))
+  const h = harness({
+    store: { peek: (k) => map.get(k) || null, entries: () => entries },
+    nowPlaying: async () => ({ ok: true, title: 'Live Song (Live)', artist: 'Band', isrc: 'USABC2600001', duration: 200.4, isPlaying: true }),
+    notesDir: () => null
+  })
+  h.s.sync(true)
+  await h.advance(FRAME_MS)
+  assert.equal(val(h.s.state().now, 'source'), 'Precise: sonata-align 0.1.0, en model, whole song')
+  assert.match(val(h.s.state().now, 'score'), /^0\.80 mean confidence/)
+  // another recording with the same title (another ISRC): nothing of this one's is shown
+  const g = harness({
+    store: { peek: (k) => map.get(k) || null, entries: () => entries },
+    nowPlaying: async () => ({ ok: true, title: 'Live Song (Live)', artist: 'Band', isrc: 'USXYZ2600009', duration: 240, isPlaying: true }),
+    notesDir: () => null
+  })
+  g.s.sync(true)
+  await g.advance(FRAME_MS)
+  assert.match(val(g.s.state().now, 'source'), /^Not yet known: no lyrics looked up/)
+  h.s.sync(false); g.s.sync(false)
+})

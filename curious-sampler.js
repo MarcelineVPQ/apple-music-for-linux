@@ -16,6 +16,7 @@
 const path = require('path')
 const fsMod = require('fs')
 const C = require('./curious-model')
+const R = require('./recording-id')
 
 // "2026-10-17 20:31:05" in the PC's own time zone
 function localStamp(d) {
@@ -112,8 +113,25 @@ function createCuriousSampler(deps) {
     return { state, vram: row ? row[1] + ' MiB (nvidia-smi)' : 'None on the GPU right now (nvidia-smi)' }
   }
 
+  // the playing recording's cache entries, as the lyrics feed finds them (recording-id.js: its ISRC key, an
+  // alias of its old title|artist key, or that key itself; never another recording's), read without writing
+  // and without touching the cache's order
+  function songFacts(song, st) {
+    const rec = R.songOf(song)
+    const view = { get: (k) => deps.store.peek(k), set: () => {} }
+    const lyrics = R.lookup(view, '', rec, { write: false, check: () => true }).entry
+    const lines = lyrics && Array.isArray(lyrics.lines) ? lyrics.lines : null
+    const timed = (e) => !!lines && R.timingMatches(e && e.lines, lines)
+    return {
+      title: song.title, artist: song.artist, playing: !!song.isPlaying, trackKey: R.trackKey(rec),
+      lyrics, aligned: R.lookup(view, 'aligned|', rec, { write: false, check: timed }).entry,
+      refined: R.lookup(view, 'refined|', rec, { write: false, check: timed }).entry,
+      notes: notesDoc(song, rec), track: deps.track(), settings: st
+    }
+  }
+
   // the song's sung-notes log file (newest of its days), parsed once per file
-  function notesDoc(np) {
+  function notesDoc(np, rec) {
     const dir = deps.notesDir()
     if (!dir || !np.title) return null
     const suffix = deps.notesSuffix(np.artist, np.title)
@@ -131,6 +149,10 @@ function createCuriousSampler(deps) {
       try { doc = JSON.parse(io.readFileSync(path.join(dir, name), 'utf8')) } catch (e) { doc = null }
       notesCache = { name, mtime, doc }
     }
+    // the same name, another recording (a live and a studio take logged the same day): not this song's notes
+    const s = (notesCache.doc && notesCache.doc.song) || {}
+    if (s.isrc && rec.isrc && s.isrc !== rec.isrc) return null
+    if (!R.durationFits(Number(s.duration), rec.duration)) return null
     return notesCache.doc
   }
 
@@ -174,12 +196,7 @@ function createCuriousSampler(deps) {
       library = { stats: C.libraryStats(deps.store.entries(), { estimate: st.estimate }), files: deps.files() }
     }
     const song = np && np.ok && np.title ? np : null
-    const key = song ? song.title + '|' + song.artist : ''
-    const now = C.nowRows(song ? {
-      title: song.title, artist: song.artist, playing: !!song.isPlaying,
-      lyrics: deps.store.peek(key), aligned: deps.store.peek('aligned|' + key), refined: deps.store.peek('refined|' + key),
-      notes: notesDoc(song), track: deps.track(), settings: st
-    } : null)
+    const now = C.nowRows(song ? songFacts(song, st) : null)
     const hood = Object.assign(hoodProcs(fr), { helper: hp, audio: au, versions: deps.versions() })
     ticks++
     data = {
