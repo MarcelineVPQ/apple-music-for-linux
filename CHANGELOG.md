@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **About → For the Curious explains how it works.** Under the numbers, a new "How it works" group gives six short, plain explanations for the curious: how updates are built and checked before they install, where the lyrics and their word timing come from, what precise word timing and sheet notes do on your PC, what stays on your PC and what goes online, and where the Montage photos and liner notes come from, with their credits. Each topic is one line; the ⓘ beside it shows a few sentences (hover over it, Tab to it, or click it; Esc closes it).
+
 ### Fixed
 
 - **The sheet-notes pitch line is a line again, not a row of dashes.** The helper's pitch line drops out for a moment on every consonant and every dip in its confidence that someone is singing, and the Studio broke the line at each one, so a sung phrase showed as short dashes. Now the line runs on through dropouts of up to a quarter of a second, following the voice straight across from one side to the other, and it stops only where the singing does. A lone blip shorter than a hop is left out, a single jumpy value is smoothed over, a stretch the helper heard an octave off is moved back in line, and vibrato keeps its full swing. On the songs we measured that is two to four times fewer pieces, and a typical piece lasts one to three seconds instead of a third of one. This covers the first play's pitch line and the pitch line drawn where the notes are unsure.

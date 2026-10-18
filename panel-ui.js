@@ -317,6 +317,47 @@
     }
   }
 
+  // a row with its longer explanation behind an ⓘ (the DS5 app's long-text rule, as the sheet-notes band:
+  // sheet-notes-ui.js): the visible line stays short; the ⓘ shows the rest on hover and keyboard focus, a
+  // click toggles it (touch), Esc closes it. Screen readers get it as the ⓘ's description (the text is in
+  // the page, hidden). Idle cost: none (no timers; six listeners on the button, dropped with the body).
+  function infoRow(labelText, shortText, infoText) {
+    const btn = el('button', 'info-btn', 'i')
+    btn.type = 'button'
+    const { r, desc } = row(labelText, shortText, btn)
+    r.classList.add('has-tip')
+    setAttr(btn, 'aria-label', 'More about ' + labelText)
+    const full = el('span', 'info-text', infoText)
+    full.id = nextId('i')
+    full.hidden = true
+    setAttr(btn, 'aria-describedby', desc.id + ' ' + full.id)
+    const tip = el('p', 'tip', infoText)
+    setAttr(tip, 'aria-hidden', 'true')
+    tip.hidden = true
+    r.append(full, tip)
+    // under the row, or above it when the panel's visible part has more room there (the last topics):
+    // a bubble running past the panel's bottom can't be read while the mouse holds it open
+    const show = (on) => {
+      tip.hidden = !on
+      btn.classList.toggle('open', on)
+      tip.classList.remove('up')
+      if (!on) return
+      const box = scroll.getBoundingClientRect()
+      const at = r.getBoundingClientRect()
+      const below = box.bottom - at.bottom
+      if (tip.offsetHeight > below && at.top - box.top > below) tip.classList.add('up')
+    }
+    // lifetime: OK — the ⓘ's listeners, dropped with the section's body
+    btn.addEventListener('mouseenter', () => show(true))
+    btn.addEventListener('mouseleave', () => { if (doc.activeElement !== btn) show(false) })
+    btn.addEventListener('focus', () => show(true))
+    btn.addEventListener('blur', () => show(false))
+    btn.addEventListener('click', (e) => { if (e.isTrusted) show(tip.hidden) })
+    btn.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tip.hidden) { e.preventDefault(); e.stopPropagation(); show(false) } })
+    show(false)
+    return { el: r, update() {} }
+  }
+
   function textBlock(cls, fn) {
     const p = el('p', cls)
     return { el: p, update(s) { const t = fn(s.v || {}, s); setText(p, t); p.hidden = !t } }
@@ -581,7 +622,10 @@
               setAttr(copyBtn, 'title', c ? 'Copies the numbers above as plain text, without lyrics, song names or personal data' : 'Waiting for the first numbers')
               setText(said, c ? (c.copied || 'Plain text, without lyrics, song names or personal data.') : '')
             }
-          }
+          },
+          // the plain explanations (panel-model.js CURIOUS_HOW): one line each, the rest behind its ⓘ
+          // loop: NOT-WORTH — 6 topics, once per body build
+          group('How it works', M.CURIOUS_HOW.map((h) => infoRow(h.title, h.short, h.info)))
         ]
       },
       // the DS5 Credits: "Built on" as prose, then one What | Credit table (each other group a header row,

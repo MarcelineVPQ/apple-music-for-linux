@@ -253,3 +253,22 @@ test('about: Coming soon groups follow the DS5 board (Building now, Planned, Ide
   const g = A.soonGroups([{ title: 'a', text: 'x.', status: 'Planned' }, { title: 'b', text: 'y.', status: 'Building' }, { title: 'c', text: 'z.', status: 'Planned' }])
   assert.deepEqual(g.map((x) => [x.label, x.items.map((i) => i.title)]), [['Building now', ['b']], ['Planned', ['a', 'c']]])
 })
+
+test('about: For the Curious → How it works: six topics, a visible line ≤ 60 characters, a few sentences behind the ⓘ, no engine method', () => {
+  const H = P.CURIOUS_HOW
+  assert.deepEqual(H.map((h) => h.id), ['updates', 'lyrics', 'precise', 'sheet', 'data', 'credits'])
+  for (const h of H) {
+    assert.ok(h.title && h.title.length <= 30, h.id + ': a short title')
+    assert.ok(h.short.length > 0 && h.short.length <= 60, h.id + ': the visible line is ≤ 60 characters (' + h.short.length + ')')
+    const sentences = h.info.split(/(?<=[.;])\s+(?=[A-Z])/).length
+    assert.ok(sentences >= 3 && h.info.length <= 800, h.id + ': a few sentences (' + sentences + ', ' + h.info.length + ' characters)')
+    // public text says what people see, never how the helper does it (Marcy 2026-10-18)
+    assert.doesNotMatch(h.title + ' ' + h.short + ' ' + h.info, /\b(ctc|viterbi|demucs|wav2vec|htdemucs|mms|rmvpe|whisper|torch|pytorch|cuda|neural|model|algorithm|python|forced.align)/i, h.id)
+  }
+  // the facts the text rests on
+  const text = (id) => H.find((h) => h.id === id).info
+  assert.match(text('updates'), /sonata-releases/)
+  assert.match(text('lyrics'), /LRCLIB/)
+  assert.match(text('precise'), /never saves it or sends it anywhere/)
+  assert.match(text('data'), /no telemetry/)
+})

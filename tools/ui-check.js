@@ -2616,6 +2616,41 @@ async function curious() {
     }
   }
   await set('glass', false); await set('adaptiveColor', true)
+  // How it works (panel-model.js CURIOUS_HOW): one row per topic, a short line, the rest behind its ⓘ (the DS5
+  // long-text rule): keyboard focus shows it, Esc closes it, the real mouse over it shows it; judged and shot
+  // in light and dark with the explanation open
+  const how = await panel.ev(`[...document.querySelectorAll('[data-section="curious"] .has-tip')].map((r) => ({ label: r.querySelector('.row-label').textContent, short: r.querySelector('.row-desc').textContent, info: r.querySelector('.info-text').textContent, desc: r.querySelector('.info-btn').getAttribute('aria-describedby') }))`)
+  check('curious: How it works shows its ' + P.CURIOUS_HOW.length + ' topics, each a short line (≤ 60) with its explanation as the ⓘ\'s description', how.length === P.CURIOUS_HOW.length && how.every((h) => h.short.length <= 60 && h.info.length > 100 && / /.test(h.desc)), how.map((h) => h.label + ' | ' + h.short))
+  const tipShown = (i) => `(() => { const t = document.querySelectorAll('[data-section="curious"] .has-tip .tip')[${i}]; return !!t && !t.hidden && t.getBoundingClientRect().height > 20 })()`
+  for (const dark of [false, true]) {
+    await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+    panel.c.close(); panel = await target('panel.html'); await sleep(300)
+    // the third topic (its bubble under it) and the last (no room under it: the bubble opens above it); each
+    // bubble whole inside the panel's visible part
+    for (const i of [2, P.CURIOUS_HOW.length - 1]) {
+      await panel.ev(`(() => { const r = document.querySelectorAll('[data-section="curious"] .has-tip'); r[0].closest('.group').scrollIntoView({ block: 'start' }); r[${i}].querySelector('.info-btn').focus({ focusVisible: true }); return true })()`); await sleep(300)
+      const kOn = await panel.ev(tipShown(i))
+      const inside = await panel.ev(`(() => { const t = document.querySelectorAll('[data-section="curious"] .has-tip .tip')[${i}].getBoundingClientRect(); const b = document.querySelector('.scroll').getBoundingClientRect(); return t.top >= b.top - 1 && t.bottom <= b.bottom + 1 ? true : { tip: [t.top, t.bottom], view: [b.top, b.bottom] } })()`)
+      const tag = 'curious-how-' + (dark ? 'dark' : 'light') + '-' + (i + 1)
+      await audit(tag, panel, '.panel', 'panel', { shot: { width: L0.content.width, height: L0.content.height } })
+      x('key', 'Escape'); await sleep(200)
+      const kOff = !(await panel.ev(tipShown(i)))
+      check(tag + ': the ⓘ shows its explanation on keyboard focus, whole inside the panel, and Esc closes it', kOn && inside === true && kOff, { kOn, inside, kOff })
+    }
+    const tag = 'curious-how-' + (dark ? 'dark' : 'light')
+    if (!dark) {
+      await panel.ev('(document.activeElement.blur(), true)')
+      const b = await panel.ev(`(() => { const r = document.querySelectorAll('[data-section="curious"] .has-tip .info-btn')[0].getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } })()`)
+      const L = await mp.ev(LAYOUT)
+      const k = await mp.ev(`${E}.screen.getPrimaryDisplay().scaleFactor`)
+      const at = (px, py) => x('move', Math.round((L.content.x + L.panel.x + px) * k), Math.round((L.content.y + L.panel.y + py) * k))
+      at(b.x, b.y); await sleep(400)
+      const mOn = await panel.ev(tipShown(0))
+      at(-40, b.y); await sleep(400)
+      const mOff = !(await panel.ev(tipShown(0)))
+      check(tag + ': the real mouse over the ⓘ shows the explanation, away it goes', mOn && mOff, { mOn, mOff })
+    }
+  }
   await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`); await sleep(600)
   // hidden (Close to tray) and minimised: sampling stops; shown again: it goes on at once
   const MAINW = `${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2)`
