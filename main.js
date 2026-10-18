@@ -592,6 +592,8 @@ function getSharedListener() {
 // spawned for a job, quits after 10 min idle while a lyric view is open (2 min when none is), at once
 // when a game starts (gaming guard), and is killed on setting off and quit (align-helper.js).
 // error: helper not installed, crashing or refusing -> one log line, the song keeps its current timing
+// The helper is a separate download (the Sonata engine release pinned in align/engine.json, installed by
+// align/install.sh into the helper home); Sonata carries none of its code, only the protocol client.
 // The install is checked at start and whenever Settings asks (install.sh runs outside Sonata), not
 // per poll tick.
 let alignPaths = null
@@ -603,8 +605,9 @@ function alignInstalled(recheck) {
   if (recheck || !alignPaths) {
     // one object, updated in place: the helper client reads it at its next spawn
     alignPaths = Object.assign(alignPaths || {}, alignHelperLib.helperPaths(process.env, __dirname))
-    alignInstalledNow = alignHelperLib.isInstalled(alignPaths)
     alignHealth = alignHelperLib.checkInstall(alignPaths)
+    // an engine on a venv of another Python (state 'update') can't load: not installed until install.sh ran again
+    alignInstalledNow = alignHelperLib.isInstalled(alignPaths) && alignHealth.state !== 'update'
     showAlignRepair()
   }
   return alignInstalledNow
@@ -624,16 +627,11 @@ function getAlignHelper() {
   return alignHelper
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
-// the sonata-align version this Sonata ships (align/sonata_align.py VERSION), read once: kept in each new
-// aligned entry and shown in About → For the Curious
-let alignEngine = null
+// the engine version this Sonata runs (the pin in align/engine.json, ''  with SONATA_ENGINE_DIR): kept in
+// each new aligned entry and shown in About → For the Curious
 function alignEngineVersion() {
-  if (alignEngine === null) {
-    alignInstalled()
-    // error: NOT-WORTH — the file unreadable: no version kept ('')
-    try { alignEngine = (/^VERSION\s*=\s*'([^']+)'/m.exec(fs.readFileSync(path.join(path.dirname(alignPaths.server), 'sonata_align.py'), 'utf8')) || [])[1] || '' } catch (e) { alignEngine = '' }
-  }
-  return alignEngine
+  alignInstalled()
+  return (alignPaths && alignPaths.engineVersion) || ''
 }
 function getAlignSession() {
   if (!alignSession) {
@@ -2807,7 +2805,7 @@ let focusCode = null      // apple-focus.js, injected per Apple page load (read 
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
   if (!settings.lyricsPreciseTiming) return 'off'
-  if (!alignInstalled()) return alignHealth && alignHealth.state !== 'missing' ? 'repair' : 'missing'
+  if (!alignInstalled()) return alignHealth && alignHealth.state === 'update' ? 'update' : alignHealth && alignHealth.state !== 'missing' ? 'repair' : 'missing'
   if (alignPaused()) return 'paused'
   if (alignHealth && alignHealth.state === 'sandboxed') return 'repair'
   return alignHelper && alignHelper.running ? 'busy' : 'ready'
@@ -2995,6 +2993,9 @@ function panelSnapshot() {
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),
+    alignState: alignHealth ? alignHealth.state : 'missing',
+    alignEngine: alignEngineVersion(),
+    alignHome: alignPaths ? alignPaths.home : '',
     alignStatus: alignStatusText,
     notesStatus: notesStatusText,
     notesModel: !!(notesSwitch && notesSwitch.model),
@@ -3162,7 +3163,7 @@ function curiousDeps() {
       ['Electron', process.versions.electron + ' (castlabs, with Widevine)'],
       ['Chromium', process.versions.chrome],
       ['Node', process.versions.node],
-      ['sonata-align', alignEngineVersion() ? alignEngineVersion() + (alignInstalled() ? ' (shipped with this Sonata; helper installed)' : ' (shipped with this Sonata; helper not installed)') : 'Not yet known'],
+      ['sonata-align', alignEngineVersion() ? 'engine ' + alignEngineVersion() + (alignInstalled() ? ' (installed separately)' : ' (wanted by this Sonata; not installed)') : 'Not yet known'],
       ['System', process.platform + ' ' + require('os').release() + (process.platform === 'linux' ? ', ' + (process.env.XDG_SESSION_TYPE || 'session type not set') : '')]
     ],
     push: pushPanel,

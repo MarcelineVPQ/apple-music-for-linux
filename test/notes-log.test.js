@@ -1,7 +1,7 @@
 // "Sung notes (developer log)" (notes-log.js, align-session.js notes jobs, main/panel wiring): the switch
 // off means no request, no download and no files; the download happens only once the switch is on and a
 // bad checksum is handled; the gaming guard skips the notes job; the log file's schema, its atomic write
-// and the 1000-file cap. The helper is stubbed (align/test_notes.py covers its side).
+// and the 1000-file cap. The helper is stubbed (the engine's own tests cover its side).
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('fs')
@@ -13,7 +13,7 @@ const A = require('../align-session')
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
 const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'notes-log-test-'))
 
-// the helper's part for a two-line song (the shape align/notes_step.py run returns)
+// the helper's part for a two-line song (the shape the engine's notes step returns)
 function part() {
   return {
     format: 1, model: 'sonata-notes 2026-10-17', profile: 'stem', viterbi: 'numpy', params: { min_note_s: 0.09 },
@@ -33,10 +33,8 @@ function part() {
 }
 const SONG = { title: 'Darling (Live)', artist: 'Goo Goo Dolls', album: 'Live in Buffalo', duration: 241.3, appleId: '1440833098', isrc: 'USRE10400123' }
 
-test('the RMVPE entry matches the helper\'s (size and checksum) and Settings shows its size first', () => {
-  const py = read('align/notes_step.py')
-  assert.match(py, new RegExp("'bytes': " + N.RMVPE.bytes))
-  assert.match(py, new RegExp("'sha256': '" + N.RMVPE.sha256 + "'"))
+test('the RMVPE entry (the engine downloads it; Sonata only shows its size) and Settings shows its size first', () => {
+  assert.match(N.RMVPE.sha256, /^[0-9a-f]{64}$/)
   assert.equal(N.sizeText(N.RMVPE.bytes), '173 MiB')
   const ui = read('panel-ui.js')
   assert.match(ui, /downloads the RMVPE pitch model \(' \+ \(v\.notesModelSize/)
@@ -201,7 +199,7 @@ test('Settings: the switch shows only on the Development channel; wording and th
 
 test('build: the new files ship (build.files is an explicit list)', () => {
   const files = require('../package.json').build.files
-  for (const f of ['notes-log.js', 'align/notes_step.py', 'align/notes.py', 'align/sung_notes.py', 'align/rmvpe.py']) assert.ok(files.includes(f), f)
+  for (const f of ['notes-log.js', 'align/install.sh', 'align/engine.json']) assert.ok(files.includes(f), f)
 })
 
 // --- the session: when a notes job is asked for ---

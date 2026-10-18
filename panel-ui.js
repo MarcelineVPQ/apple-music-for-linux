@@ -389,7 +389,9 @@
               (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
         textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
         textBlock('note', (v) => (!v.alignInstalled
-          ? 'Precise word timing needs the sonata-align helper (about 10 GB). Install it with align/install.sh from the Sonata source; this section notices it.'
+          ? (v.alignState === 'update'
+            ? 'Precise word timing needs its helper updated to engine ' + (v.alignEngine || 'of this Sonata') + '. Run align/install.sh again from the Sonata source: it downloads the engine (a few MB), checks it, keeps the models and reuses the Python packages when they haven\'t changed.'
+            : 'Precise word timing needs the sonata-align helper, a separate download (the Sonata engine ' + (v.alignEngine || '') + ' with its own licence, about 10 GB with its Python packages and models). Install it with align/install.sh from the Sonata source: it checks the download, shows the helper's licence first and installs into ' + (v.alignHome || '~/.local/share/sonata-align') + '; deleting that folder removes it. This section notices it.')
           : v.lyricsPreciseTiming ? (v.alignStatus || 'Asking the helper…') : ''))
       ],
       appearance: () => [

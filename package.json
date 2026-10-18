@@ -85,15 +85,8 @@
       "sheet-notes-ui.js",
       "sheet-notes-glyphs.js",
       "licenses/NotoMusic-OFL.txt",
-      "align/server.py",
-      "align/sonata_align.py",
-      "align/notes_step.py",
-      "align/notes.py",
-      "align/sung_notes.py",
-      "align/rmvpe.py",
-      "align/sonata-align",
       "align/install.sh",
-      "align/requirements.txt",
+      "align/engine.json",
       "theme.js",
       "theme.css",
       "theme-apply.js",
@@ -135,7 +128,8 @@
       "sonata.svg"
     ],
     "asarUnpack": [
-      "align/**"
+      "align/install.sh",
+      "align/engine.json"
     ],
     "linux": {
       "target": [

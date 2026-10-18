@@ -1,6 +1,6 @@
 // sonata-align helper client: paths, environment, line parsing and the process lifetime (spawn on
 // demand, one process, idle quit, crash, timeout, stop). Real child processes: a fake helper in
-// test/fixtures speaks the same JSON-lines protocol as align/server.py.
+// test/fixtures speaks the same JSON-lines protocol as the engine (protocol 2). No engine code here.
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('path')
@@ -26,17 +26,54 @@ function waitFor(cond, ms = 3000) {
   })
 }
 
-test('paths: the user install for python, our unpacked scripts for the server', () => {
+test('paths: the user install for python, the pinned engine in it for the server', () => {
   const none = () => false
-  const p = H.helperPaths({ HOME: '/home/m' }, '/tmp/.mount_abc/resources/app.asar', none)
+  const pin = { version: '0.2.0', python: '3.14' }
+  const p = H.helperPaths({ HOME: '/home/m' }, '/tmp/.mount_abc/resources/app.asar', none, pin)
   assert.equal(p.home, '/home/m/.local/share/sonata-align')
   assert.equal(p.python, '/home/m/.local/share/sonata-align/venv/bin/python')
-  assert.equal(p.server, '/tmp/.mount_abc/resources/app.asar.unpacked/align/server.py')
-  assert.equal(H.helperPaths({ HOME: '/h', XDG_DATA_HOME: '/d' }, '/src', none).home, '/d/sonata-align')
+  assert.equal(p.server, '/home/m/.local/share/sonata-align/engine-0.2.0/main.py')
+  assert.equal(p.engineVersion, '0.2.0')
+  assert.equal(p.enginePython, '3.14')
+  assert.equal(H.helperPaths({ HOME: '/h', XDG_DATA_HOME: '/d' }, '/src', none, pin).home, '/d/sonata-align')
   // XDG_DATA_HOME pointing elsewhere (a snap launcher): the ~/.local/share install is still found
-  assert.equal(H.helperPaths({ HOME: '/h', XDG_DATA_HOME: '/snap/x' }, '/src', (f) => f.startsWith('/h/')).home, '/h/.local/share/sonata-align')
-  assert.equal(H.helperPaths({ HOME: '/h', SONATA_ALIGN_HOME: '/x' }, '/src/app', none).server, '/src/app/align/server.py')
-  assert.equal(H.helperPaths({ HOME: '/h', SONATA_ALIGN_HOME: '/x' }, '/src', none).python, '/x/venv/bin/python')
+  assert.equal(H.helperPaths({ HOME: '/h', XDG_DATA_HOME: '/snap/x' }, '/src', (f) => f.startsWith('/h/'), pin).home, '/h/.local/share/sonata-align')
+  assert.equal(H.helperPaths({ HOME: '/h', SONATA_ALIGN_HOME: '/x' }, '/src/app', none, pin).server, '/x/engine-0.2.0/main.py')
+  assert.equal(H.helperPaths({ HOME: '/h', SONATA_ALIGN_HOME: '/x' }, '/src', none, pin).python, '/x/venv/bin/python')
+  // no pin: no engine wanted, nothing to start
+  assert.equal(H.helperPaths({ HOME: '/h' }, '/src', none, null).server, '')
+  assert.equal(H.isInstalled(H.helperPaths({ HOME: '/h' }, '/src', none, null)), false)
+  // engine work: SONATA_ENGINE_DIR (an unpacked build's main.py, else a checkout's server.py)
+  const dev = H.helperPaths({ HOME: '/h', SONATA_ENGINE_DIR: '/e/align' }, '/src', none, pin)
+  assert.equal(dev.server, '/e/align/server.py')
+  assert.equal(dev.override, true)
+  assert.equal(H.helperPaths({ HOME: '/h', SONATA_ENGINE_DIR: '/e/x' }, '/src', (f) => f === '/e/x/main.py', pin).server, '/e/x/main.py')
+})
+
+test('pin: align/engine.json names the engine release Sonata installs', () => {
+  const pin = H.enginePin(path.join(__dirname, '..'))
+  assert.match(pin.version, /^\d+\.\d+\.\d+$/)
+  assert.ok(H.PROTOCOLS.includes(pin.protocol))
+  assert.match(pin.python, /^3\.\d+$/)   // the venv's Python follows the pin (checkInstall)
+  assert.equal(pin.file, 'sonata-engine-' + pin.version + '-linux-x86_64.tar.gz')
+  assert.equal(pin.url, 'https://github.com/MarcelineVPQ/sonata-releases/releases/download/engine-v' + pin.version + '/' + pin.file)
+  assert.match(pin.sha256, /^[0-9a-f]{64}$/)
+  assert.ok(Number.isInteger(pin.size) && pin.size > 0)
+  assert.equal(Buffer.from(pin.key, 'base64').length, 44)   // Ed25519 SPKI DER
+  assert.equal(require('crypto').createPublicKey({ key: Buffer.from(pin.key, 'base64'), format: 'der', type: 'spki' }).asymmetricKeyType, 'ed25519')
+})
+
+test('protocol: 2 and 1 (no field) are spoken; another one is refused with code "protocol"', async () => {
+  assert.equal(H.checkProtocol({ type: 'pong', protocol: 2 }).protocol, 2)
+  assert.equal(H.checkProtocol({ type: 'pong' }).type, 'pong')
+  assert.throws(() => H.checkProtocol({ type: 'pong', protocol: 3 }), (e) => e.code === 'protocol' && /Update Precise timing/.test(e.message))
+  const run = async (proto) => {
+    const h = H.createAlignHelper({ paths: FIXTURE, env: Object.assign(env(''), { FAKE_PROTOCOL: proto }), log: () => {} })
+    try { return await h.ping() } finally { h.stop() }
+  }
+  assert.equal((await run('2')).protocol, 2)
+  assert.equal((await run('none')).version, '0.2.0')
+  await assert.rejects(run('9'), (e) => e.code === 'protocol')
 })
 
 test('installed: needs both the venv python and the server script', () => {
@@ -270,11 +307,24 @@ function fakeFs(files) {
   }
 }
 
-test('install health: ok, missing, broken link, sandboxed python, stray install', () => {
-  const paths = { python: '/h/.local/share/sonata-align/venv/bin/python', userHome: '/h', stray: null }
+test('install health: ok, missing, broken link, sandboxed python, stray install, engine update', () => {
+  const server = '/h/.local/share/sonata-align/engine-0.2.0/main.py'
+  const paths = { python: '/h/.local/share/sonata-align/venv/bin/python', server, engineVersion: '0.2.0', enginePython: '3.14', userHome: '/h', stray: null }
   const cfg = '/h/.local/share/sonata-align/venv/pyvenv.cfg'
-  const ok = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [cfg]: { text: 'home = /usr/bin\n' } }))
-  assert.deepEqual(ok, { state: 'ok', python: paths.python, target: '/usr/bin/python3.13' })
+  const ok = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.14' }, '/usr/bin/python3.14': { exec: true }, [server]: { exec: true }, [cfg]: { text: 'home = /usr/bin\nversion_info = 3.14.4\n' } }))
+  assert.deepEqual(ok, { state: 'ok', python: paths.python, target: '/usr/bin/python3.14' })
+  // a healthy venv without the pinned engine (installed before the engine download, or an older engine)
+  const noEngine = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [cfg]: { text: 'home = /usr/bin\n' } }))
+  assert.deepEqual(noEngine, { state: 'update', python: paths.python, target: '/usr/bin/python3.13', want: '0.2.0' })
+  assert.match(H.repairText(noEngine), /updated to engine 0\.2\.0: run align\/install\.sh again/)
+  // the engine is there but the venv is on another Python than its compiled modules (venv's "version")
+  const otherPy = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [server]: { exec: true }, [cfg]: { text: 'home = /usr/bin\nversion = 3.13.7\n' } }))
+  assert.equal(otherPy.state, 'update')
+  // a venv from the previous engine (0.2.0 was Python 3.12): an update too, whatever the pin moves to
+  const oldPy = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.12' }, '/usr/bin/python3.12': { exec: true }, [server]: { exec: true }, [cfg]: { text: 'home = /usr/bin\nversion_info = 3.12.13\n' } }))
+  assert.equal(oldPy.state, 'update')
+  // engine work (SONATA_ENGINE_DIR): no pin to check
+  assert.equal(H.checkInstall(Object.assign({}, paths, { override: true }), fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true } })).state, 'ok')
   assert.equal(H.repairText(ok), '')
   assert.equal(H.checkInstall(paths, fakeFs({})).state, 'missing')
   const snapPy = '/h/snap/codium/495/.local/share/uv/python/cpython-3.12-linux-x86_64-gnu/bin/python3.12'

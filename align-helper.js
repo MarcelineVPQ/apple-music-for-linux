@@ -1,7 +1,9 @@
-// Client for the sonata-align helper (align/server.py, docs/LEVEL2-ALIGN.md): JSON lines over the
-// child's stdin/stdout. The helper is the user's own install (align/install.sh puts a private venv
-// in ~/.local/share/sonata-align); Sonata ships only the small Python scripts and runs them with
-// that venv's interpreter. Nothing here touches the install.
+// Client for the sonata-align helper (the Sonata engine, docs/LEVEL2-ALIGN.md): JSON lines over the
+// child's stdin/stdout. The helper is a separate program and the user's own install: align/install.sh
+// downloads the engine release pinned in align/engine.json, checks its size, SHA-256 and signature,
+// and unpacks it into <home>/engine-X.Y.Z/ with a private venv in <home>/venv (~/.local/share/sonata-align).
+// Sonata ships none of the engine's code; it starts <home>/engine-X.Y.Z/main.py with that venv's
+// interpreter and speaks the protocol. Nothing here touches the install.
 //
 // lifetime: at most ONE helper process. Spawned on demand (first ping or alignment), sent `quit`
 // after IDLE_MS without work (WARM_IDLE_MS while a lyric view is open; frees ~1.8 GB of VRAM), told to
@@ -26,6 +28,19 @@ const JOB_TIMEOUT_MS = 3 * 60 * 1000    // without any message for the job (prog
 const PING_TIMEOUT_MS = 60 * 1000       // importing torch + CUDA init takes a few seconds, more when cold
 const QUIT_GRACE_MS = 5000
 const MAX_CRASHES = 3
+// The helper protocol versions this client speaks (the pong's "protocol"; none = 1, the helper that
+// shipped inside Sonata up to 0.15.44). A helper with another one is refused: "Update Precise timing".
+const PROTOCOLS = [1, 2]
+
+/**
+ * The engine release this Sonata wants (align/engine.json: version, protocol, python, file, url, size,
+ * sha256, key). "python" (X.Y) is the Python its compiled modules are for: the venv must be on it.
+ */
+function enginePin(appDir) {
+  const dir = path.join(String(appDir || __dirname), 'align')   // read through the asar (Electron's fs)
+  // error: NOT-WORTH — no pin (a broken checkout): no engine is wanted, Settings says "not installed"
+  try { return JSON.parse(fs.readFileSync(path.join(dir, 'engine.json'), 'utf8')) } catch (e) { return null }
+}
 
 /**
  * True for a path inside another app's sandbox or runtime: a snap (/snap, ~/snap, snapd's state),
@@ -43,12 +58,14 @@ function inAppSandbox(p, home) {
 }
 
 /**
- * Where the helper lives: the user's install (venv) and our scripts (unpacked from the asar).
+ * Where the helper lives: the user's install (venv) and the pinned engine in it (<home>/engine-X.Y.Z).
  * The install is SONATA_ALIGN_HOME, else $XDG_DATA_HOME/sonata-align (unless XDG_DATA_HOME points
  * into another app's sandbox, inAppSandbox), else ~/.local/share/sonata-align; the first with a
  * venv wins. `stray` is an install found only in a sandboxed XDG_DATA_HOME (checkInstall says so).
+ * The engine: <home>/engine-<pin.version>/main.py, or SONATA_ENGINE_DIR (an engine checkout or unpacked
+ * build, for engine work: its main.py, else its server.py).
  */
-function helperPaths(env, appDir, exists = (f) => fs.existsSync(f)) {
+function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = enginePin(appDir)) {
   const homes = []
   const hasVenv = (h) => exists(path.join(h, 'venv', 'bin', 'python'))
   let stray = null
@@ -60,13 +77,33 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f)) {
   }
   homes.push(path.join(env.HOME || '', '.local', 'share', 'sonata-align'))
   const home = homes.find(hasVenv) || homes[0]
-  // packaged builds: align/ is unpacked next to app.asar (python can't read inside the asar)
-  const dir = path.join(String(appDir).replace(/app\.asar(?=$|[\\/])/, 'app.asar.unpacked'), 'align')
-  return { home, python: path.join(home, 'venv', 'bin', 'python'), server: path.join(dir, 'server.py'), stray, userHome: env.HOME || '' }
+  const version = (pin && pin.version) || ''
+  let engine = version ? path.join(home, 'engine-' + version) : ''
+  let server = engine ? path.join(engine, 'main.py') : ''
+  if (env.SONATA_ENGINE_DIR) {
+    engine = env.SONATA_ENGINE_DIR
+    server = exists(path.join(engine, 'main.py')) ? path.join(engine, 'main.py') : path.join(engine, 'server.py')
+  }
+  return { home, python: path.join(home, 'venv', 'bin', 'python'), server, engine, engineVersion: env.SONATA_ENGINE_DIR ? '' : version, enginePython: env.SONATA_ENGINE_DIR ? '' : String((pin && pin.python) || ''), override: !!env.SONATA_ENGINE_DIR, stray, userHome: env.HOME || '' }
+}
+
+/**
+ * A pong from a helper whose protocol this client doesn't speak is refused (code 'protocol').
+ * error: PASSES-ON — the ping's promise rejects; Settings shows "Update Precise timing"
+ */
+function checkProtocol(pong) {
+  const p = pong && pong.protocol != null ? pong.protocol : 1
+  if (!PROTOCOLS.includes(p)) {
+    const e = new Error('Update Precise timing: its helper speaks protocol ' + p + ', this Sonata knows ' + PROTOCOLS.join(' and ') + ' (run align/install.sh)')
+    e.code = 'protocol'
+    throw e
+  }
+  return pong
 }
 
 function isInstalled(paths, io = fs) {
   // error: NOT-WORTH — missing or not executable means "not installed", which Settings → Precise timing says
+  if (!paths.server) return false
   try { io.accessSync(paths.python, fs.constants.X_OK); io.accessSync(paths.server, fs.constants.R_OK); return true } catch (e) { return false }
 }
 
@@ -77,7 +114,9 @@ function isInstalled(paths, io = fs) {
  *   broken     the venv's python is a dangling link or not runnable (its interpreter was removed)
  *   sandboxed  it works, but its python lives inside another app's sandbox (a snap refresh breaks it)
  *   stray      no install where Sonata looks, but one inside a sandboxed XDG_DATA_HOME
- * -> { state, python, target }   (target: what the python link points to, when known)
+ *   update     a healthy venv, but not the engine this Sonata pins (none yet: an install from before the
+ *              engine download, or an older engine), or a venv on another Python than the engine's
+ * -> { state, python, target, want? }   (target: what the python link points to, when known; want: the pinned engine version)
  * error: SHOWN — broken, sandboxed and stray get a repair notice (repairText), never a silent failure
  */
 function checkInstall(paths, io = fs) {
@@ -92,11 +131,23 @@ function checkInstall(paths, io = fs) {
   try { real = io.realpathSync(py) } catch (e) { return { state: 'broken', python: py, target } }
   try { io.accessSync(real, fs.constants.X_OK) } catch (e) { return { state: 'broken', python: py, target: real } }
   let cfgHome = null
+  let pyVersion = null
   try {
-    const m = /^home\s*=\s*(.+)$/m.exec(io.readFileSync(path.join(path.dirname(path.dirname(py)), 'pyvenv.cfg'), 'utf8'))
+    const cfg = io.readFileSync(path.join(path.dirname(path.dirname(py)), 'pyvenv.cfg'), 'utf8')
+    const m = /^home\s*=\s*(.+)$/m.exec(cfg)
     cfgHome = m ? m[1].trim() : null
+    const v = /^version(?:_info)?\s*=\s*(\d+\.\d+)/m.exec(cfg)
+    pyVersion = v ? v[1] : null
   } catch (e) {}   // error: NOT-WORTH — no pyvenv.cfg: the python link alone decides
   if (inAppSandbox(real, paths.userHome) || inAppSandbox(cfgHome, paths.userHome)) return { state: 'sandboxed', python: py, target: real }
+  if (!paths.override) {
+    const want = paths.engineVersion || ''
+    const wantPy = paths.enginePython || ''
+    let engineThere = false
+    // error: SHOWN — no engine (or not the pinned one) is the 'update' state, which Settings explains
+    try { io.accessSync(paths.server, fs.constants.R_OK); engineThere = true } catch (e) { engineThere = false }
+    if (!engineThere || (wantPy && pyVersion && pyVersion !== wantPy)) return { state: 'update', python: py, target: real, want }
+  }
   return { state: 'ok', python: py, target: real }
 }
 
@@ -104,6 +155,7 @@ function checkInstall(paths, io = fs) {
 function repairText(health) {
   const how = 'Rebuild it from a normal terminal (not one inside an editor or another app): align/install.sh --rebuild. It keeps the downloaded models; the old venv is kept aside for a rollback.'
   if (!health) return ''
+  if (health.state === 'update') return 'Precise word timing needs its helper updated to engine ' + (health.want || 'of this Sonata') + ': run align/install.sh again from a normal terminal. It downloads the engine (a few MB), keeps the models, and rebuilds the Python packages only when they changed.'
   if (health.state === 'broken') return 'Precise word timing can\'t start: its helper\'s Python is gone' + (health.target ? ' (' + health.target + ')' : '') + '. ' + how
   if (health.state === 'sandboxed') return 'Precise word timing works, but its helper uses a Python inside another app (' + health.target + '), so that app\'s next update breaks it. ' + how
   if (health.state === 'stray') return 'The sonata-align helper was installed inside another app\'s folder (' + health.target + '), where Sonata doesn\'t look. Install it again from a normal terminal: align/install.sh'
@@ -347,7 +399,7 @@ function createAlignHelper(opts, deps = {}) {
       const id = '__ping' + (++pingN)
       pings.push(id)
       // error: PASSES-ON — rethrown to askAlignStatus (main.js), which shows it in Settings
-      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e })
+      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
     align(id, messages) { return request(id, messages, jobTimeoutMs) },
@@ -409,4 +461,4 @@ function createAlignHelper(opts, deps = {}) {
   }
 }
 
-module.exports = { inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }
+module.exports = { PROTOCOLS, enginePin, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }

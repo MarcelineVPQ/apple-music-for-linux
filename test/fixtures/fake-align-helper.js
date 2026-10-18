@@ -1,8 +1,9 @@
-// Fake sonata-align helper for test/align-helper.test.js: the JSON-lines protocol of
-// align/server.py without any models. FAKE_MODE: '' (normal), 'crash' (exits on align),
-// 'hang' (never answers align), 'noise' (prints a non-JSON line first). Also the sheet notes of lyrics
-// with their own word timing: `separate` (a section kept) and `notes` with `given` (from the kept
-// sections, else no-stem; or from streamed audio).
+// Fake sonata-align helper for test/align-helper.test.js: the JSON-lines protocol of the Sonata
+// engine (protocol 2, docs/LEVEL2-ALIGN.md "Helper protocol") without any models or engine code.
+// FAKE_MODE: '' (normal), 'crash' (exits on align), 'hang' (never answers align), 'noise' (prints a
+// non-JSON line first). FAKE_PROTOCOL: the pong's protocol ('none': no field, as protocol 1 helpers).
+// Also the sheet notes of lyrics with their own word timing: `separate` (a section kept) and `notes`
+// with `given` (from the kept sections, else no-stem; or from streamed audio).
 const mode = process.env.FAKE_MODE || ''
 const send = (m) => process.stdout.write(JSON.stringify(m) + '\n')
 if (mode === 'noise') process.stdout.write('some library banner\n')
@@ -28,7 +29,7 @@ process.stdin.on('data', (chunk) => {
   for (const raw of lines) {
     if (!raw.trim()) continue
     const req = JSON.parse(raw)
-    if (req.cmd === 'ping') send({ type: 'pong', version: '0.1.0', device: 'cpu', models: {}, env: { home: process.env.SONATA_ALIGN_HOME, ld: process.env.LD_LIBRARY_PATH || null } })
+    if (req.cmd === 'ping') send(Object.assign({ type: 'pong', version: '0.2.0' }, process.env.FAKE_PROTOCOL === 'none' ? {} : { protocol: Number(process.env.FAKE_PROTOCOL || 2) }, { device: 'cpu', models: {}, env: { home: process.env.SONATA_ALIGN_HOME, ld: process.env.LD_LIBRARY_PATH || null } }))
     else if (req.cmd === 'separate' || (req.cmd === 'notes' && req.given && req.audio)) streams.set(req.id, { req, bytes: 0 })
     else if (req.cmd === 'notes' && req.given) givenNotes(req.id, req, null)
     else if (req.cmd === 'align') {
