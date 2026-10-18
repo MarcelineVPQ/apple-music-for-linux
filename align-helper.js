@@ -58,14 +58,42 @@ function inAppSandbox(p, home) {
 }
 
 /**
- * Where the helper lives: the user's install (venv) and the pinned engine in it (<home>/engine-X.Y.Z).
+ * The engine an install says Sonata runs: <home>/active-engine (one line, X.Y.Z; written by
+ * align/install.sh after the engine answered a ping in its venv) and that engine's ENGINE.json.
+ * -> { version, protocol, python } or null (none, unreadable, or a protocol this client doesn't speak)
+ */
+function activeEngine(home, readText = (f) => fs.readFileSync(f, 'utf8')) {
+  // error: NOT-WORTH — no file (an install from before 0.15.46, or none): the pinned engine is used
+  let version
+  try { version = String(readText(path.join(home, 'active-engine'))).split('\n')[0].trim() } catch (e) { return null }
+  if (!/^\d+\.\d+\.\d+(?:-dev\.\d+)?$/.test(version)) return null
+  let meta
+  // error: NOT-WORTH — an engine folder without ENGINE.json is not an engine: the pinned one is used
+  try { meta = JSON.parse(readText(path.join(home, 'engine-' + version, 'ENGINE.json'))) } catch (e) { return null }
+  if (!meta || meta.version !== version || !PROTOCOLS.includes(meta.protocol)) return null
+  return { version, protocol: meta.protocol, python: typeof meta.python === 'string' ? meta.python : '' }
+}
+
+// engine versions X.Y.Z or X.Y.Z-dev.N: a < b (a release sorts after its development builds)
+function olderEngine(a, b) {
+  const key = (v) => { const m = /^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$/.exec(String(v)); return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? Infinity : +m[4]] : [0, 0, 0, 0] }
+  const x = key(a), y = key(b)
+  // loop: NOT-WORTH — 4 fields
+  for (let i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] < y[i]
+  return false
+}
+
+/**
+ * Where the helper lives: the user's install (venv) and the engine in it (<home>/engine-X.Y.Z).
  * The install is SONATA_ALIGN_HOME, else $XDG_DATA_HOME/sonata-align (unless XDG_DATA_HOME points
  * into another app's sandbox, inAppSandbox), else ~/.local/share/sonata-align; the first with a
  * venv wins. `stray` is an install found only in a sandboxed XDG_DATA_HOME (checkInstall says so).
- * The engine: <home>/engine-<pin.version>/main.py, or SONATA_ENGINE_DIR (an engine checkout or unpacked
- * build, for engine work: its main.py, else its server.py).
+ * The engine: the active one (activeEngine: any engine with a protocol this client speaks, at least the
+ * pinned version: engine updates come from the engine feed, engine-feed.js, without a Sonata release),
+ * else the pinned one (align/engine.json, the minimum); or SONATA_ENGINE_DIR (an engine checkout or
+ * unpacked build, for engine work: its main.py, else its server.py).
  */
-function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = enginePin(appDir)) {
+function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = enginePin(appDir), readText) {
   const homes = []
   const hasVenv = (h) => exists(path.join(h, 'venv', 'bin', 'python'))
   let stray = null
@@ -77,14 +105,23 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = engine
   }
   homes.push(path.join(env.HOME || '', '.local', 'share', 'sonata-align'))
   const home = homes.find(hasVenv) || homes[0]
-  const version = (pin && pin.version) || ''
+  const min = (pin && pin.version) || ''
+  const active = env.SONATA_ENGINE_DIR ? null : activeEngine(home, readText)
+  const use = active && (!min || !olderEngine(active.version, min)) ? active : null
+  const version = use ? use.version : min
+  const python = use ? use.python : String((pin && pin.python) || '')
   let engine = version ? path.join(home, 'engine-' + version) : ''
   let server = engine ? path.join(engine, 'main.py') : ''
   if (env.SONATA_ENGINE_DIR) {
     engine = env.SONATA_ENGINE_DIR
     server = exists(path.join(engine, 'main.py')) ? path.join(engine, 'main.py') : path.join(engine, 'server.py')
   }
-  return { home, python: path.join(home, 'venv', 'bin', 'python'), server, engine, engineVersion: env.SONATA_ENGINE_DIR ? '' : version, enginePython: env.SONATA_ENGINE_DIR ? '' : String((pin && pin.python) || ''), override: !!env.SONATA_ENGINE_DIR, stray, userHome: env.HOME || '' }
+  return {
+    home, python: path.join(home, 'venv', 'bin', 'python'), server, engine,
+    engineVersion: env.SONATA_ENGINE_DIR ? '' : version, enginePython: env.SONATA_ENGINE_DIR ? '' : python,
+    minVersion: min, activeVersion: active ? active.version : '',
+    override: !!env.SONATA_ENGINE_DIR, stray, userHome: env.HOME || ''
+  }
 }
 
 /**
@@ -94,7 +131,7 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = engine
 function checkProtocol(pong) {
   const p = pong && pong.protocol != null ? pong.protocol : 1
   if (!PROTOCOLS.includes(p)) {
-    const e = new Error('Update Precise timing: its helper speaks protocol ' + p + ', this Sonata knows ' + PROTOCOLS.join(' and ') + ' (run align/install.sh)')
+    const e = new Error('Update Precise timing: its helper speaks protocol ' + p + ', this Sonata knows ' + PROTOCOLS.join(' and ') + ' (Settings → Precise timing → Update)')
     e.code = 'protocol'
     throw e
   }
@@ -146,19 +183,21 @@ function checkInstall(paths, io = fs) {
     let engineThere = false
     // error: SHOWN — no engine (or not the pinned one) is the 'update' state, which Settings explains
     try { io.accessSync(paths.server, fs.constants.R_OK); engineThere = true } catch (e) { engineThere = false }
-    if (!engineThere || (wantPy && pyVersion && pyVersion !== wantPy)) return { state: 'update', python: py, target: real, want }
+    if (!engineThere || (wantPy && pyVersion && pyVersion !== wantPy)) return { state: 'update', python: py, target: real, want, py: pyVersion || '' }
   }
-  return { state: 'ok', python: py, target: real }
+  return { state: 'ok', python: py, target: real, py: pyVersion || '' }
 }
 
-/** The repair notice for checkInstall's result, or '' when there is nothing to repair. */
+/**
+ * The repair notice for checkInstall's result, or '' when there is nothing to repair. The buttons it names
+ * are in Settings → Precise timing (panel-helper.js); a terminal can do the same with align/install.sh.
+ */
 function repairText(health) {
-  const how = 'Rebuild it from a normal terminal (not one inside an editor or another app): align/install.sh --rebuild. It keeps the downloaded models; the old venv is kept aside for a rollback.'
   if (!health) return ''
-  if (health.state === 'update') return 'Precise word timing needs its helper updated to engine ' + (health.want || 'of this Sonata') + ': run align/install.sh again from a normal terminal. It downloads the engine (a few MB), keeps the models, and rebuilds the Python packages only when they changed.'
-  if (health.state === 'broken') return 'Precise word timing can\'t start: its helper\'s Python is gone' + (health.target ? ' (' + health.target + ')' : '') + '. ' + how
-  if (health.state === 'sandboxed') return 'Precise word timing works, but its helper uses a Python inside another app (' + health.target + '), so that app\'s next update breaks it. ' + how
-  if (health.state === 'stray') return 'The sonata-align helper was installed inside another app\'s folder (' + health.target + '), where Sonata doesn\'t look. Install it again from a normal terminal: align/install.sh'
+  if (health.state === 'update') return 'Precise word timing needs a helper update (engine ' + (health.want || 'of this Sonata') + '). Press Update below: it keeps the downloaded models and rebuilds the Python packages only when they changed.'
+  if (health.state === 'broken') return 'Precise word timing can\'t start: its helper\'s Python is gone' + (health.target ? ' (' + health.target + ')' : '') + '. Press Repair below: it rebuilds the Python packages and keeps the downloaded models.'
+  if (health.state === 'sandboxed') return 'Precise word timing works, but its helper uses a Python inside another app (' + health.target + '), so that app\'s next update breaks it. Press Repair below: it rebuilds the Python packages and keeps the downloaded models.'
+  if (health.state === 'stray') return 'The Precise timing helper was installed inside another app\'s folder (' + health.target + '), where Sonata doesn\'t look. Press Install below to install it where Sonata looks.'
   return ''
 }
 
@@ -278,7 +317,11 @@ function createAlignHelper(opts, deps = {}) {
     if (msg.type === 'pong') {
       const id = pings.shift()
       if (id) done(id, msg)
-    } else if (msg.type === 'progress') touch(msg.id)
+    } else if (msg.type === 'progress') {
+      touch(msg.id)
+      const p = pending.get(msg.id)
+      if (p && p.progress) p.progress(msg)
+    }
     else if (msg.type === 'result') done(msg.id, msg)
     else if (msg.type === 'error') {
       if (msg.id == null) { log('helper: ' + msg.message); return }
@@ -291,7 +334,7 @@ function createAlignHelper(opts, deps = {}) {
   function ensure() {
     if (child) return child
     if (crashes >= MAX_CRASHES) throw new Error('helper crashed ' + crashes + ' times, off until restart')
-    if (!installedFn()) throw new Error('sonata-align is not installed (run align/install.sh)')
+    if (!installedFn()) throw new Error('sonata-align is not installed (Settings → Precise timing → Install)')
     const p = opts.paths
     const c = doSpawn(p.python, ['-u', p.server], { stdio: ['pipe', 'pipe', 'pipe'], env: helperEnv(opts.env || process.env, p.home) })
     // lifetime: OK — one helper child · ends on quit (idle), stop(), a timeout kill, its own crash, or process exit (live)
@@ -378,14 +421,14 @@ function createAlignHelper(opts, deps = {}) {
     }
   }
 
-  function request(id, messages, ms) {
+  function request(id, messages, ms, progress) {
     return new Promise((resolve, reject) => {
       let c
       // error: PASSES-ON — not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it)
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
       idleSince = 0
-      pending.set(id, { resolve, reject, timer: null, ms })
+      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null })
       touch(id)
       write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
     })
@@ -424,6 +467,15 @@ function createAlignHelper(opts, deps = {}) {
      * the kept sections, or from the streamed song. -> result { notes, stats }; codes no-stem, no-model, low-vram
      */
     givenNotes(id, messages) { return request(id, messages, jobTimeoutMs) },
+    /**
+     * Downloads (and loads) the alignment models now: Demucs and the aligner for `language` (Settings →
+     * Precise timing's install, its last step, when the install has none). onProgress(msg): the helper's
+     * progress messages ({ stage: 'download', p, detail }). -> result { ready, device }
+     */
+    prepare(language, onProgress) {
+      const id = '__prepare' + (++pingN)
+      return request(id, [{ cmd: 'prepare', id, mode: 'align', language: language || 'en' }], jobTimeoutMs, onProgress)
+    },
     /** Downloads the RMVPE pitch model (only when the Sung notes switch is turned on). Error code checksum. */
     prepareNotes() {
       const id = '__notes' + (++pingN)
@@ -461,4 +513,4 @@ function createAlignHelper(opts, deps = {}) {
   }
 }
 
-module.exports = { PROTOCOLS, enginePin, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }
+module.exports = { PROTOCOLS, enginePin, activeEngine, olderEngine, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }

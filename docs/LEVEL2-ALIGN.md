@@ -375,25 +375,76 @@ first play's line trails a section behind.
 
 ## Install
 
-`align/install.sh` (from Sonata's source; the AppImage carries it unpacked too) installs the pinned engine:
+**From Settings.** Settings → Precise timing has a *Helper* row: its state in a few words
+("Not installed", "Installed: helper 0.2.1, Python 3.14, NVIDIA RTX 5080", "Update available: 0.2.2",
+"Needs an update", "Needs a repair: …", "Installing… step 3 of 7"), the longer words behind its ⓘ, and only
+the buttons that do something now: Install, Update, Repair, Remove…, or Cancel while a job runs. Main runs
+the same `align/install.sh` a terminal would (helper-installer.js; in the AppImage from
+`app.asar.unpacked/align/`, so nothing has to be extracted), with `--progress`:
 
-1. picks the home (below) and reads `align/engine.json`;
+1. `--licence-only`: the engine is downloaded and checked (size, SHA-256, signature), kept in
+   `<home>/.download`, and its EULA.md is shown in the page (scrollable; *Accept and install* / *Cancel*).
+   The SHA-256 of the accepted text is remembered (`settings.alignLicence`); the next update asks again only
+   when the text changed.
+2. `--licence-sha SHA --prune`: the install, accepting exactly that text (another text is refused). Its
+   `@@sonata {json}` lines and the pip lines of setup-venv.sh (with `PIP_PROGRESS_BAR=raw`: "Progress N of
+   M"; uv prints a line per big package) become the progress: the step, one bar weighted by how long each
+   step takes, and bytes (the download, pip's per-package bytes, the new venv's size on disk every 2 s).
+3. The models, when the install has none yet: the helper's own `prepare` (Demucs + the English aligner,
+   1.35 GB; other languages download on first use), with its download progress.
+
+Cancel stops the installer's whole process group. A failure says what happened and what to do
+(helper-install-model.js `failText`: no network, a refused download, no Python 3.14, no space, a helper that
+doesn't start). While a job runs the helper is stopped and nothing is aligned. Remove… asks in the page and
+keeps the downloaded models unless unticked (`install.sh --remove [--delete-models]`: only the helper's own
+files; anything else in the folder, such as bench songs, stays). A fresh install turns Precise word timing on.
+
+**The installer** (`align/install.sh`, the one installer):
+
+1. picks the home (below) and reads `align/engine.json` (the minimum engine and the trusted key), or
+   `--pin FILE` (an engine from the feed, same form): its key must be engine.json's, its protocol one this
+   Sonata installs (`PROTOCOLS`, = engine-feed.js `INSTALL_PROTOCOLS`), its version at least engine.json's and
+   not older than the active engine (no downgrade); https addresses only (`--from` also takes a local folder
+   or a loopback address);
 2. downloads the release file and its `.sig` (`--from DIR|URL` for a mirror or a local copy), and refuses
-   it unless its size, its SHA-256 and its Ed25519 signature (OpenSSL 3, the key in the pin) all match;
+   it unless its size, its SHA-256 and its Ed25519 signature (OpenSSL 3, the key in the pin) all match, and
+   its ENGINE.json names that version and a protocol it installs;
 3. prints the helper's EULA.md, its licence, and installs only after "yes" at the terminal
-   (`--accept-licence` for scripts; with no terminal and no flag it stops);
-4. unpacks it into `<home>/engine-X.Y.Z/` (stamp `.installed`: SHA-256 and when the licence was accepted);
-5. runs the engine's own setup-venv.sh: a Python 3.14 venv (the pin's "python") in `<home>/venv` (python3.14 from the system,
-   else uv's managed 3.14 in `<home>/python`), torch 2.11 from the PyTorch index (`--cpu` for CPU wheels),
-   the rest from the engine's pinned requirements. A venv on another Python (an install from before
-   0.15.45 on 3.13) is moved aside to `venv.old-<date>` and rebuilt; an up-to-date venv is reused;
-6. checks that the engine answers a ping in that venv.
+   (`--accept-licence` for scripts, `--licence-sha` for Settings; with no terminal and neither it stops);
+4. unpacks it into `<home>/engine-X.Y.Z/` (stamp `.installed`: SHA-256, the licence's SHA-256 and when it was accepted);
+5. unless the engine's recipe says the venv is up to date (`setup-venv.sh --dry-run`), checks the free space
+   (12 GB for the GPU build: the venv plus pip's wheels, which go to `<home>/.staging/tmp`, not `/tmp`), runs
+   the engine's own setup-venv.sh into `<home>/.staging` (Python 3.14, torch 2.11 from the PyTorch index,
+   the variant the venv had: `--cpu` for CPU wheels), points the new venv's links and scripts at the home,
+   and pings the engine in it (`sonata-align --check`);
+6. moves the old venv aside, the new one in, pings again (a failure puts the old one back) and only then
+   writes `<home>/active-engine`: the switch. `--prune` deletes the venv it replaced and older engines.
+   A failed or cancelled run (its traps) leaves the working install as it was: the staging, a newly unpacked
+   engine that never became active and a half-done switch are undone.
 
-Updating = running it again when Sonata pins a new engine (Settings and the rail say "Helper needs an
-update": align-helper.js `checkInstall` state `update`); only a few MB download unless the requirements
-changed. Removing = deleting the home (models included). `SONATA_ENGINE_DIR` points Sonata at an
-unpacked engine or an engine checkout instead (engine work only). Sonata's CI never downloads the engine:
-its tests use the fake helper.
+**Engine updates without a Sonata release.** engine-feed.js reads latest-engine.json (Stable) or
+latest-engine-dev.json (Development, else Stable) from MarcelineVPQ/sonata-releases main, signed with the
+engine key (the one in engine.json, Ed25519 over the exact bytes, `<file>.sig`, the scheme of Sonata's own
+feeds; the Development one is live since 2026-10-18, a missing Stable one means "no stable engine yet").
+Fields (a superset of engine.json): `channel`, `name`, `version` (X.Y.Z, or X.Y.Z-dev.N on the Development
+channel only), `tag`, `prerelease`, `protocol`, `python`, `platform` (linux-x86_64), `file`, `url` (must be
+the engine release's), `size`, `sha256`, `sig` (the download's own signature, base64), `key` (must be the
+trusted one), `licence` `{ version, sha256 }` (the downloaded EULA must have that SHA-256; a new licence
+version or text is asked again, `settings.alignLicenceVersion`), `released`, `notes_url`, optional
+`min_sonata` / `max_sonata`. Sonata accepts any engine whose protocol it installs, at least engine.json's version and inside the
+min/max range: engine.json is the minimum, not the only engine. Checked 25 s after start, every 6 h and when
+Precise timing opens (at most every 30 min), only with *Check for updates automatically* on; Settings,
+the section header and the rail then say "Helper update available". align-helper.js runs the engine named
+in `<home>/active-engine` when its protocol is one it speaks and it is at least the pinned version, else
+the pinned one. *Update the helper automatically* (off by default) installs a newer one by itself, once
+per version, when nothing is being aligned; a changed licence is still shown first. For tests:
+`SONATA_ENGINE_FEED=http://127.0.0.1:PORT/` (loopback only) with `SONATA_ENGINE_PUBKEY` (a test key for the
+feed; the download is still checked against engine.json's key).
+
+Updating from a terminal = running `align/install.sh` again (or with `--pin`); only a few MB download
+unless the requirements changed. `SONATA_ENGINE_DIR` points Sonata at an unpacked engine or an engine
+checkout instead (engine work only). Sonata's CI never downloads the engine: its tests use the fake helper,
+stand-in engines (test/align-install.test.js) and a fake installer (test/helper-install.test.js).
 
 ## Install footprint
 
@@ -408,13 +459,13 @@ uv downloads one into `<home>/python`. The first install came from the Codium
 snap's terminal: uv put Python in `~/snap/codium/495/` and the snap set XDG_DATA_HOME there, so a
 snap refresh would have broken Precise timing. Sonata checks the install at start and when
 Settings asks (align-helper.js `checkInstall`): a dangling or sandboxed python gets a notice in
-Settings → Precise timing and the rail says "Helper needs a rebuild". The fix is
-`align/install.sh --rebuild` from a normal terminal: the old venv is moved aside to
-`venv.old-<date>` (put back automatically if the build fails), the models stay.
+Settings → Precise timing and the rail says "Helper needs a rebuild". The fix is Repair there (or
+`align/install.sh --rebuild` from a normal terminal): a new venv is built aside and switched in only once
+the engine answers in it; the models stay.
 
 | Part | Size |
 |---|---|
-| venv (Python 3.14, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1 GB |
+| venv (Python 3.14, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1–7.3 GB |
 | CPU-only venv (`install.sh --cpu`, estimate) | ~1 GB |
 | htdemucs | 84 MB |
 | aligner per language (en / xlsr-xx / mms) | 1.26 GB each |

@@ -345,3 +345,35 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .key-btn.capturing { border-color: var(--s-fill); }
 .key-text { align-self: center; font-size: 12px; font-variant-numeric: tabular-nums; }
 .row.warn .row-desc { color: var(--s-text); font-weight: 600; }
+
+/* Settings → Precise timing's helper block (panel-helper.js): the state row and its ⓘ, progress, the
+   licence and Remove's confirmation, all in the page */
+.helper-row { position: relative; }
+.helper-row[data-level="warn"] .helper-state-text { color: var(--s-text); font-weight: 600; }
+.helper-state { display: block; }
+.info-btn { display: inline-grid; place-items: center; vertical-align: middle; width: 32px; height: 32px; margin: -10px -6px -8px -2px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--s-soft); font: italic 700 11px/1 Georgia, serif; cursor: help; position: relative; }
+.info-btn::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.info-btn:hover, .info-btn.open { color: var(--s-text); }
+.info-btn:focus { outline: none; }
+.info-btn:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
+.info-text[hidden], .info-tip[hidden] { display: none; }
+.info-tip { position: absolute; left: 0; right: 0; top: calc(100% - 2px); z-index: 4; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--s-edge); background: var(--s-surface); box-shadow: 0 6px 16px var(--s-shadow); color: var(--s-text); font-size: 12px; line-height: 1.4; pointer-events: none; }
+.helper-progress { display: flex; flex-direction: column; gap: 5px; padding: 2px 0 10px; }
+.helper-step { font-size: 12.5px; font-weight: 600; }
+.helper-detail { color: var(--s-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.helper-progress .progress { height: 6px; border-radius: 3px; }
+.helper-result { margin: 0 0 10px; }
+.helper-licence { display: flex; flex-direction: column; gap: 6px; padding: 0 0 10px; }
+.helper-licence .subhead { margin-top: 4px; }
+.helper-licence .note { margin: 0; }
+.licence-text { max-height: 260px; overflow-y: auto; padding: 4px 10px; border: 1px solid var(--s-edge); border-radius: 8px; background: var(--s-surface); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.licence-text p { margin: 6px 0; }
+.licence-text:focus { outline: none; }
+.licence-text:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; }
+.helper-confirm { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; padding: 10px; border: 1px solid var(--s-notice-error-bd); border-radius: 8px; background: var(--s-notice-error); }
+.helper-confirm-text { margin: 0; font-weight: 600; }
+.check-row { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 12.5px; cursor: pointer; }
+.check-row[hidden] { display: none; }
+.check-row input { flex: none; width: 18px; height: 18px; margin: 0; accent-color: var(--s-fill); cursor: pointer; }
+.check-row input:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 2px; }
+.btn.danger { color: var(--s-error-text); border-color: var(--s-notice-error-bd); }

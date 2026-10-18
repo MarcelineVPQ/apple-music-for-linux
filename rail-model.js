@@ -181,12 +181,16 @@
         ? line('precise', 'Precise word timing', 'ok', 'Helper working', 'precise word timing on, the helper is running')
         : st.precise === 'paused'
           ? line('precise', 'Precise word timing', 'wait', 'Paused while gaming', 'precise word timing paused while a game runs or the graphics card is busy; it goes on afterwards')
+        : st.precise === 'installing'
+          ? line('precise', 'Precise word timing', 'wait', 'Installing the helper…', 'Settings → Precise timing is installing, updating or removing its helper; the progress is there')
+        : st.precise === 'available'
+          ? line('precise', 'Precise word timing', 'warn', 'Helper update available', 'a newer helper is out; Settings → Precise timing updates it (the models stay)')
         : st.precise === 'repair'
-          ? line('precise', 'Precise word timing', 'warn', 'Helper needs a rebuild', 'the sonata-align helper\'s Python is missing or inside another app; see Settings → Word timing')
+          ? line('precise', 'Precise word timing', 'warn', 'Helper needs a rebuild', 'the sonata-align helper\'s Python is missing or inside another app; see Settings → Precise timing')
         : st.precise === 'update'
-          ? line('precise', 'Precise word timing', 'warn', 'Helper needs an update', 'the sonata-align helper is not the engine this Sonata needs; see Settings → Word timing')
+          ? line('precise', 'Precise word timing', 'warn', 'Helper needs an update', 'the sonata-align helper is older than this Sonata needs; Settings → Precise timing updates it')
         : st.precise === 'missing'
-          ? line('precise', 'Precise word timing', 'warn', 'Helper not installed', 'precise word timing is on but the sonata-align helper is not installed (align/install.sh)')
+          ? line('precise', 'Precise word timing', 'warn', 'Helper not installed', 'precise word timing is on but its helper is not installed (Settings → Precise timing → Install)')
           : line('precise', 'Precise word timing', 'off', 'Off', 'precise word timing off'))
     return out
   }

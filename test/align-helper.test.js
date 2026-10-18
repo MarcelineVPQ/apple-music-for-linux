@@ -312,11 +312,11 @@ test('install health: ok, missing, broken link, sandboxed python, stray install,
   const paths = { python: '/h/.local/share/sonata-align/venv/bin/python', server, engineVersion: '0.2.0', enginePython: '3.14', userHome: '/h', stray: null }
   const cfg = '/h/.local/share/sonata-align/venv/pyvenv.cfg'
   const ok = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.14' }, '/usr/bin/python3.14': { exec: true }, [server]: { exec: true }, [cfg]: { text: 'home = /usr/bin\nversion_info = 3.14.4\n' } }))
-  assert.deepEqual(ok, { state: 'ok', python: paths.python, target: '/usr/bin/python3.14' })
+  assert.deepEqual(ok, { state: 'ok', python: paths.python, target: '/usr/bin/python3.14', py: '3.14' })
   // a healthy venv without the pinned engine (installed before the engine download, or an older engine)
   const noEngine = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [cfg]: { text: 'home = /usr/bin\n' } }))
-  assert.deepEqual(noEngine, { state: 'update', python: paths.python, target: '/usr/bin/python3.13', want: '0.2.0' })
-  assert.match(H.repairText(noEngine), /updated to engine 0\.2\.0: run align\/install\.sh again/)
+  assert.deepEqual(noEngine, { state: 'update', python: paths.python, target: '/usr/bin/python3.13', want: '0.2.0', py: '' })
+  assert.match(H.repairText(noEngine), /helper update \(engine 0\.2\.0\)\. Press Update below/)
   // the engine is there but the venv is on another Python than its compiled modules (venv's "version")
   const otherPy = H.checkInstall(paths, fakeFs({ [paths.python]: { link: '/usr/bin/python3.13' }, '/usr/bin/python3.13': { exec: true }, [server]: { exec: true }, [cfg]: { text: 'home = /usr/bin\nversion = 3.13.7\n' } }))
   assert.equal(otherPy.state, 'update')
@@ -331,7 +331,7 @@ test('install health: ok, missing, broken link, sandboxed python, stray install,
   const broken = H.checkInstall(paths, fakeFs({ [paths.python]: { link: snapPy } }))
   assert.equal(broken.state, 'broken')
   assert.equal(broken.target, snapPy)
-  assert.match(H.repairText(broken), /Python is gone .*snap\/codium\/495.*install\.sh --rebuild.*keeps the downloaded models/)
+  assert.match(H.repairText(broken), /Python is gone .*snap\/codium\/495.*Press Repair below.*keeps the downloaded models/)
   const sandboxed = H.checkInstall(paths, fakeFs({ [paths.python]: { link: snapPy }, [snapPy]: { exec: true }, [cfg]: { text: 'home = /h/snap/codium/495/x\n' } }))
   assert.equal(sandboxed.state, 'sandboxed')
   assert.match(H.repairText(sandboxed), /works, but .* another app .*next update breaks it/)
@@ -360,4 +360,30 @@ test('release(): the helper quits right after its current job (gaming guard); id
   // forget() on a stopped helper is a no-op; pid is 0
   h.forget('s1')
   assert.equal(h.pid, 0)
+})
+
+test('active engine: <home>/active-engine names it; a protocol this client speaks and at least the pin, else the pinned one', () => {
+  const files = {
+    '/h/sa/active-engine': '0.3.0-dev.2\n',
+    '/h/sa/engine-0.3.0-dev.2/ENGINE.json': JSON.stringify({ version: '0.3.0-dev.2', protocol: 2, python: '3.15' })
+  }
+  const read = (f) => { if (!(f in files)) throw new Error('ENOENT'); return files[f] }
+  const env = { SONATA_ALIGN_HOME: '/h/sa', HOME: '/h' }
+  const pin = { version: '0.2.1', python: '3.14' }
+  const p = H.helperPaths(env, '/app', () => true, pin, read)
+  assert.equal(p.engineVersion, '0.3.0-dev.2')
+  assert.equal(p.enginePython, '3.15')
+  assert.equal(p.server, '/h/sa/engine-0.3.0-dev.2/main.py')
+  assert.equal(p.minVersion, '0.2.1')
+  // a protocol it doesn't speak, or older than the pin: the pinned engine
+  files['/h/sa/engine-0.3.0-dev.2/ENGINE.json'] = JSON.stringify({ version: '0.3.0-dev.2', protocol: 9, python: '3.15' })
+  assert.equal(H.helperPaths(env, '/app', () => true, pin, read).engineVersion, '0.2.1')
+  files['/h/sa/active-engine'] = '0.2.0\n'
+  files['/h/sa/engine-0.2.0/ENGINE.json'] = JSON.stringify({ version: '0.2.0', protocol: 2 })
+  assert.equal(H.helperPaths(env, '/app', () => true, pin, read).engineVersion, '0.2.1')
+  // none (an install from before): the pinned one
+  delete files['/h/sa/active-engine']
+  assert.equal(H.helperPaths(env, '/app', () => true, pin, read).engineVersion, '0.2.1')
+  assert.equal(H.olderEngine('0.2.1-dev.3', '0.2.1'), true)
+  assert.equal(H.olderEngine('0.2.10', '0.2.9'), false)
 })

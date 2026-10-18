@@ -63,7 +63,9 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
 - **Align helper** (Level 2, opt-in, `docs/LEVEL2-ALIGN.md`): `align-session.js` records a line-only song
   while a lyric view is open and hands it to `align-helper.js`, a JSON-lines client for the helper: the Sonata engine, a separate
   program and download (pinned in `align/engine.json`; `align/install.sh` checks and installs it into
-  `~/.local/share/sonata-align/engine-X.Y.Z` with a private venv, or `SONATA_ALIGN_HOME`). Its code never
+  `~/.local/share/sonata-align/engine-X.Y.Z` with a private venv, or `SONATA_ALIGN_HOME`; Settings → Precise
+  timing runs that same script through `helper-installer.js`, and `engine-feed.js` offers newer engines from a
+  signed feed, any protocol-compatible one at least the pin, the one in `<home>/active-engine` runs). Its code never
   enters this repository (gate: `test/engine-boundary.test.js`); CI tests against the fake helper only. One helper process at most, quits after 10 min idle while a lyric view is open (2 min
   when none is); only word times are cached. Lyrics and timing entries are keyed by the recording's ISRC
   (`recording-id.js`; `title|artist` without one) and refused when its length differs by > 1.5 s.

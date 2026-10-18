@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Install, update and remove Precise timing's helper from Settings.** No terminal any more: Settings → Precise timing has a *Helper* line that says where things stand ("Not installed", "Installed: helper 0.2.1, Python 3.14, NVIDIA RTX 5080", "Update available: 0.2.2", "Needs an update") with the details behind its ⓘ, and the buttons that apply: **Install**, **Update**, **Repair** or **Remove…**. Install shows the helper's licence in the page first (Accept and install / Cancel); it is asked again only when the licence changes. Then it shows each step with real progress: the download, setting up Python, PyTorch (bytes as they come in), the other packages, a test start of the helper and, the first time, the models. **Cancel** stops it at any point. Nothing half-done is ever used: the new helper is built beside the old one and replaces it only once it starts, so a failed or cancelled install leaves the working one as it was, and a failure says in plain words what went wrong and what to do. **Remove…** asks in the page and keeps the downloaded models unless you untick it. It uses the same installer and the same checks as before (size, checksum and signature of every download, https only); in the AppImage it works as it is, with nothing to extract. A fresh install turns Precise word timing on.
+- **Helper updates no longer wait for a Sonata release.** Sonata now reads a signed list of helper versions (the Development channel's own list on Development) and offers a newer helper as soon as it is out: Settings, its section header and the rail say "Helper update available", and **Update** installs it, keeping the models. Any helper version this Sonata can talk to is accepted, never an older one than installed, and only when its list and its download are signed with the helper's key. *Update the helper automatically* (off by default) does it by itself; a changed licence is still shown to you first. Like Sonata's own updates, it checks only while *Check for updates automatically* is on.
+
 ## [0.15.45-dev.1] — Sheet notes on Apple's word timing, booklet pages turn on a click, and a new home for releases
 
 ### Added

@@ -607,18 +607,23 @@ function alignInstalled(recheck) {
     alignPaths = Object.assign(alignPaths || {}, alignHelperLib.helperPaths(process.env, __dirname))
     alignHealth = alignHelperLib.checkInstall(alignPaths)
     // an engine on a venv of another Python (state 'update') can't load: not installed until install.sh ran again
-    alignInstalledNow = alignHelperLib.isInstalled(alignPaths) && alignHealth.state !== 'update'
+    // while Settings installs, updates or removes it, the helper is off (its files are changing)
+    alignInstalledNow = alignHelperLib.isInstalled(alignPaths) && alignHealth.state !== 'update' && !(helperInstaller && helperInstaller.busy)
+    helperFiles = helperScan(alignPaths.home)
     showAlignRepair()
   }
   return alignInstalledNow
 }
-// A venv whose python is gone or lives inside another app's sandbox (the Codium snap): one notice in
-// Settings → Word timing with the repair command, while Precise word timing is on.
-// error: SHOWN — the repair notice; cleared once the install is healthy (checked at start and when Settings asks)
+// A venv whose python is gone or lives inside another app's sandbox (the Codium snap), or an engine older
+// than this Sonata needs: Settings → Precise timing's Helper row says it with its Repair / Update button,
+// the section header and the rail too (panel-helper.js; no second notice saying the same). The log gets it once.
+// error: SHOWN — the Helper row's state (helper-install-model.js stateRow); LOGGED-OK here
+let alignRepairLogged = ''
 function showAlignRepair() {
-  const text = settings.lyricsPreciseTiming ? alignHelperLib.repairText(alignHealth) : ''
-  if (!text) { notices.clear('align-repair'); return }
-  notices.show({ id: 'align-repair', place: { page: 'settings', section: 'timing' }, kind: 'error', task: true, text })
+  notices.clear('align-repair')   // the notice of builds up to 0.15.45 (the row says it now)
+  const text = alignHelperLib.repairText(alignHealth)
+  if (text && text !== alignRepairLogged) console.log('align: ' + text)
+  alignRepairLogged = text
 }
 function getAlignHelper() {
   alignInstalled()
@@ -2602,7 +2607,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2637,8 +2642,10 @@ function setSetting(key, value) {
     if (updater) updater.reset()
     backConfirm = false
     if (settings.checkForUpdates) checkForUpdates(false)
+    checkEngineFeed(true)   // the helper's feed follows the channel too
   }
-  else if (key === 'checkForUpdates') startUpdateChecks()
+  else if (key === 'checkForUpdates') { startUpdateChecks(); startHelperFeedChecks() }
+  else if (key === 'alignAutoUpdate') { helperAutoTried = ''; if (value) helperAutoUpdate() }
   else if (key === 'lyricsArtSpin' || key === 'lyricsArtSpinSpeed') {
     if (lyricsWindow && !lyricsWindow.isDestroyed()) lyricsWindow.webContents.send('lyrics-settings', { spin: !!settings.lyricsArtSpin, speed: settings.lyricsArtSpinSpeed })
     if (linerWindow && !linerWindow.isDestroyed() && linerReady) linerWindow.webContents.send('liner-opts', { spin: !!settings.lyricsArtSpin })
@@ -2699,12 +2706,234 @@ async function askAlignStatus() {
     const pong = await getAlignHelper().ping()
     console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
     alignStatusText = pong.device === 'cuda' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
-    if (notesSwitch) notesSwitch.learn(pong)
+    learnPong(pong)
   } catch (e) { // error: SHOWN — "Helper not working: …" in Settings → Precise timing
     console.log('align: helper not answering: ' + e.message)
     alignStatusText = 'Helper not working: ' + e.message
   } finally { alignAsking = false }
   pushPanel()
+}
+
+// --- Settings → Precise timing: Install, Update, Repair and Remove the helper (docs/LEVEL2-ALIGN.md
+// "Install"). helper-installer.js runs the one installer, align/install.sh (unpacked beside the asar in the
+// AppImage), with --progress; engine-feed.js reads the signed engine feed, so a newer helper is offered
+// without a Sonata release (any engine with a protocol this Sonata installs, at least align/engine.json's).
+// lifetime: OK — one installer object; its child only while a job runs (cancelled on quit); the feed is
+// asked 25 s after start and every 6 h while automatic update checks are on (two timers, cleared when off)
+// error: SHOWN — every job's outcome is the state row in Settings (helper-install-model.js failText); feed
+// errors are LOGGED-OK (nothing is offered, the installed helper keeps working)
+const helperInstallerLib = require('./helper-installer')
+const helperModel = require('./helper-install-model')
+const engineFeedLib = require('./engine-feed')
+const engineTestFeed = engineFeedLib.testEngineFeed(process.env)
+if (engineTestFeed) console.log('helper: TEST ENGINE FEED ' + engineTestFeed.prefix + ' (loopback only)')
+let helperInstaller = null
+let engineOffer = { state: 'current', offer: null, why: '' }   // engine-feed.js judgeOffer
+let engineFeedAt = 0
+let engineFeedChannel = ''
+let alignGpu = ''               // the last pong's card ('' until asked; 'CPU only' without CUDA)
+let helperConfirm = false       // Remove… pressed: the confirmation shows in Settings
+let helperModelsBytes = 0       // the models folder's size, read when the confirmation opens
+let helperFiles = { models: false, leftovers: false }
+let helperAutoTried = ''        // the version an automatic update last tried (one try per version)
+let helperPushTimer = null
+let helperFeedFirst = null
+let helperFeedTimer = null
+function learnPong(pong) {
+  alignGpu = pong.device === 'cuda' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
+  if (notesSwitch) notesSwitch.learn(pong)
+}
+// what is in the helper's folder besides a working install (one readdir; at start and after each change)
+function helperScan(home) {
+  const has = (dir) => { try { return fs.readdirSync(dir).some((f) => !f.startsWith('.')) } catch (e) { return false } }   // error: NOT-WORTH — no folder: nothing there
+  let names = []
+  try { names = fs.readdirSync(home) } catch (e) { names = [] }   // error: NOT-WORTH — no folder: nothing to remove
+  return { models: has(path.join(home, 'models')), leftovers: names.some((f) => /^(engine-|venv|active-engine$)/.test(f)) || has(path.join(home, 'python')) }
+}
+// error: NOT-WORTH — a file that vanishes while counting counts 0
+async function dirBytes(dir) {
+  let n = 0
+  let list = []
+  try { list = await fs.promises.readdir(dir, { withFileTypes: true }) } catch (e) { return 0 }
+  // loop: SERIAL-REQUIRED — the models folder (a few files, one level of subfolders), once per Remove… press
+  for (const d of list) {
+    const f = path.join(dir, d.name)
+    if (d.isDirectory()) n += await dirBytes(f)
+    else { try { n += (await fs.promises.stat(f)).size } catch (e) {} }   // error: NOT-WORTH — a file gone meanwhile counts 0
+  }
+  return n
+}
+function installedEngineVersion() {
+  alignInstalled()
+  return alignHealth && alignHealth.state === 'ok' ? (alignPaths.engineVersion || '') : ''
+}
+function engineCtx() {
+  const pin = alignHelperLib.enginePin(__dirname) || {}
+  return { appVersion: app.getVersion(), min: pin.version || '' }
+}
+function refreshOffer() { engineOffer = engineFeedLib.judgeOffer(engineOffer.offer, installedEngineVersion(), engineCtx()) }
+// progress moves the bars a few times a second: the panel and rail get it at most 4 times a second
+function helperChanged(st) {
+  if (!st || st.phase !== 'running') { clearTimeout(helperPushTimer); helperPushTimer = null; pushPanel(); pushRail(); return }
+  if (helperPushTimer) return
+  // lifetime: OK — one-shot, at most one pending (≤ 4 pushes a second while a job runs)
+  helperPushTimer = setTimeout(() => { helperPushTimer = null; pushPanel(); pushRail() }, 250)
+}
+function getHelperInstaller() {
+  if (helperInstaller) return helperInstaller
+  helperInstaller = helperInstallerLib.createHelperInstaller({
+    script: helperInstallerLib.scriptPath(__dirname),
+    home: () => { alignInstalled(); return alignPaths.home },
+    env: process.env,
+    log: (m) => console.log('helper install: ' + m),
+    onChange: helperChanged,
+    acceptedLicence: () => ({ sha: settings.alignLicence || '', version: settings.alignLicenceVersion || '' }),
+    onAccepted: (sha, engineVersion, licenceVersion) => { settings.alignLicence = sha; settings.alignLicenceVersion = licenceVersion || ''; saveSettings() },
+    // the helper stops while its files change (an alignment in progress is dropped; the song keeps its timing)
+    before: () => {
+      if (alignSession) alignSession.stop(false)
+      if (alignHelper) alignHelper.stop()
+      alignStatusText = ''
+      helperConfirm = false
+      alignInstalled(true)
+    },
+    models: (job, report) => helperModels(report),
+    cancelModels: () => { if (alignHelper) alignHelper.stop() },
+    after: helperAfter
+  })
+  return helperInstaller
+}
+// the install's last step: Demucs and the English aligner, when the install has no models yet (other
+// languages download on first use). Skipped while a game runs (they come on first use then).
+async function helperModels(report) {
+  alignInstalled(true)
+  const h = getAlignHelper()
+  const pong = await h.ping()
+  learnPong(pong)
+  const m = pong.models || {}
+  if ((m.htdemucs && m.en) || alignPaused()) return
+  await h.prepare('en', (msg) => report({ p: typeof msg.p === 'number' ? msg.p : null, detail: String(msg.detail || '') }))
+}
+function helperAfter(kind, job) {
+  const ok = !!(job && job.phase === 'done')
+  alignStatusText = ''
+  aboutCache = null
+  alignInstalled(true)
+  refreshOffer()
+  showAlignRepair()
+  // removed: the switch goes off (its row hides); a fresh install turns it on: that is what Install was
+  // pressed for (setSetting does what the switch does: the lyrics again, the helper's status, sheet notes)
+  if (ok && kind === 'remove' && settings.lyricsPreciseTiming) setSetting('lyricsPreciseTiming', false)
+  else if (ok && kind === 'install' && !settings.lyricsPreciseTiming && alignInstalled()) setSetting('lyricsPreciseTiming', true)
+  else if (ok) {
+    lyricsKey = null
+    if (!settings.lyricsPreciseTiming && alignHelper) alignHelper.stop()   // the models step's helper, when the switch is off
+    else if (settings.lyricsPreciseTiming) askAlignStatus()
+  }
+  pushRail()
+  pushPanel()
+}
+// Install / Update / Repair: the newest compatible engine from the feed, else the pinned one (the minimum)
+function helperStart(kind) {
+  const inst = getHelperInstaller()
+  if (inst.busy) return
+  helperConfirm = false
+  const o = { hasModels: helperFiles.models }
+  const off = engineOffer.offer
+  const pin = alignHelperLib.enginePin(__dirname) || {}
+  const active = installedEngineVersion()
+  const useFeed = off && !engineFeedLib.incompatible(off, engineCtx()) && (!active || !alignHelperLib.olderEngine(off.version, active)) &&
+    (kind !== 'repair' || off.version === (alignPaths.engineVersion || ''))
+  if (useFeed && off.version !== pin.version) {
+    o.pinText = engineFeedLib.pinText(off, pin.key)
+    o.version = off.version
+    o.licence = off.licence
+    if (engineTestFeed) o.from = engineTestFeed.prefix + 'engine-v' + off.version + '/'
+  } else o.version = pin.version || ''
+  if (off && off.version === o.version) o.licence = off.licence   // the feed names this engine's licence: version and SHA-256
+  inst.start(kind, o)
+}
+function helperAutoUpdate() {
+  if (!settings.alignAutoUpdate || engineOffer.state !== 'available' || !alignHealth || alignHealth.state !== 'ok') return
+  if ((helperInstaller && (helperInstaller.busy || helperInstaller.state().phase === 'licence')) || (alignSession && alignSession.active)) return
+  if (helperAutoTried === engineOffer.offer.version) return
+  helperAutoTried = engineOffer.offer.version
+  console.log('helper: updating to ' + engineOffer.offer.version + ' by itself (Update the helper automatically)')
+  helperStart('update')
+}
+async function checkEngineFeed(force) {
+  if (!settings.checkForUpdates) return
+  const ch = settings.updateChannel === 'dev' ? 'dev' : 'stable'
+  if (!force && ch === engineFeedChannel && Date.now() - engineFeedAt < 30 * 60 * 1000) return
+  engineFeedAt = Date.now()
+  engineFeedChannel = ch
+  const pin = alignHelperLib.enginePin(__dirname)
+  if (!pin || !pin.key) return
+  try {
+    const offer = await engineFeedLib.fetchEngineFeed({ channel: ch, fetchText, keys: [pin.key], test: engineTestFeed })
+    engineOffer = engineFeedLib.judgeOffer(offer, installedEngineVersion(), engineCtx())
+    console.log('helper: engine feed (' + ch + ') ' + (offer ? 'offers ' + offer.version + ': ' + engineOffer.state + (engineOffer.why ? ' (' + engineOffer.why + ')' : '') : 'has no engine yet'))
+  } catch (e) {   // error: LOGGED-OK — no feed, a network error or a refused feed: nothing is offered, the installed helper keeps working
+    console.log('helper: engine feed: ' + e.message)
+  }
+  helperAutoUpdate()
+  pushRail()
+  pushPanel()
+}
+function startHelperFeedChecks() {
+  clearTimeout(helperFeedFirst); clearInterval(helperFeedTimer)
+  helperFeedFirst = null; helperFeedTimer = null
+  if (!settings.checkForUpdates) return
+  // lifetime: OK — both cleared at the top here (checks off or restarted); they end with the app
+  helperFeedFirst = setTimeout(() => checkEngineFeed(true), 25 * 1000)
+  helperFeedTimer = setInterval(() => checkEngineFeed(true), 6 * 60 * 60 * 1000)
+  if (helperFeedFirst.unref) helperFeedFirst.unref()
+  if (helperFeedTimer.unref) helperFeedTimer.unref()
+}
+function helperAction(name) {
+  const inst = getHelperInstaller()
+  if (name === 'helper-install') helperStart('install')
+  else if (name === 'helper-update') helperStart('update')
+  else if (name === 'helper-repair') helperStart('repair')
+  else if (name === 'helper-accept') inst.accept()
+  else if (name === 'helper-decline') inst.decline()
+  else if (name === 'helper-cancel') inst.cancel()
+  else if (name === 'helper-dismiss') inst.dismiss()
+  else if (name === 'helper-remove') {
+    if (inst.busy) return
+    helperConfirm = true
+    helperModelsBytes = 0
+    alignInstalled()
+    // error: NOT-WORTH — dirBytes never rejects (unreadable files count 0)
+    dirBytes(path.join(alignPaths.home, 'models')).then((n) => { helperModelsBytes = n; pushPanel() })
+  } else if (name === 'helper-remove-cancel') helperConfirm = false
+  else if (name === 'helper-remove-keep' || name === 'helper-remove-all') {
+    if (!helperConfirm) return
+    helperConfirm = false
+    inst.remove(name === 'helper-remove-all')
+  }
+  pushPanel()
+}
+// Settings → Precise timing's helper block (panel-helper.js): everything it shows, from main's state
+function helperSnapshot() {
+  alignInstalled()
+  const inst = helperInstaller ? helperInstaller.state() : { phase: 'idle', kind: '', job: null, licence: null }
+  const h = alignHealth || { state: 'missing' }
+  const pin = alignHelperLib.enginePin(__dirname) || {}
+  const job = inst.job
+  return {
+    state: h.state, version: alignPaths.engineVersion || '', min: pin.version || '', want: h.want || pin.version || '', py: h.py || '', wantPy: alignPaths.enginePython || '',
+    target: h.target || '', home: String(alignPaths.home || '').replace(os.homedir(), '~'), gpu: alignGpu,
+    available: engineOffer.state === 'available' && h.state === 'ok' ? engineOffer.offer.version : '',
+    availableNotes: engineOffer.state === 'available' && engineOffer.offer.notes ? engineOffer.offer.notes.slice(0, 300) : '',
+    incompatible: engineOffer.state === 'incompatible' ? engineOffer.offer.version : '', incompatibleWhy: engineOffer.why || '',
+    phase: inst.phase, kind: inst.kind,
+    job: job ? Object.assign({}, job, { tail: [] }) : null,   // the output lines stay in main (they go to the log)
+    fail: job && job.phase === 'failed' ? helperModel.failText(job) : '',
+    licence: inst.phase === 'licence' && inst.licence ? { version: inst.licence.version, licenceVersion: inst.licence.licenceVersion || '', text: inst.licence.text, again: !!settings.alignLicence } : null,
+    confirmRemove: helperConfirm, modelsText: helperModelsBytes ? helperModel.bytesText(helperModelsBytes) : '',
+    models: helperFiles.models, leftovers: helperFiles.leftovers, autoUpdate: !!settings.alignAutoUpdate
+  }
 }
 
 // --- tray ---
@@ -2804,10 +3033,12 @@ let railBoundsKey = ''    // the last bounds applied, as JSON
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
+  if (helperInstaller && helperInstaller.busy) return 'installing'
   if (!settings.lyricsPreciseTiming) return 'off'
   if (!alignInstalled()) return alignHealth && alignHealth.state === 'update' ? 'update' : alignHealth && alignHealth.state !== 'missing' ? 'repair' : 'missing'
   if (alignPaused()) return 'paused'
   if (alignHealth && alignHealth.state === 'sandboxed') return 'repair'
+  if (engineOffer.state === 'available' && alignHealth && alignHealth.state === 'ok') return 'available'
   return alignHelper && alignHelper.running ? 'busy' : 'ready'
 }
 function contentSize() {
@@ -2936,7 +3167,7 @@ function accAction(page, type, id) {
   const after = panelModel.accReduce(before, { type, id })
   if (JSON.stringify(after) === JSON.stringify(before)) return
   saveAcc(page, after)
-  if (page === 'settings' && panelModel.isOpen(after, 'timing') && !panelModel.isOpen(before, 'timing')) askAlignStatus()
+  if (page === 'settings' && panelModel.isOpen(after, 'timing') && !panelModel.isOpen(before, 'timing')) { askAlignStatus(); checkEngineFeed(false) }
   seenWhatsNew()
   pushPanel()
 }
@@ -2997,6 +3228,7 @@ function panelSnapshot() {
     alignEngine: alignEngineVersion(),
     alignHome: alignPaths ? alignPaths.home : '',
     alignStatus: alignStatusText,
+    helper: helperSnapshot(),
     notesStatus: notesStatusText,
     notesModel: !!(notesSwitch && notesSwitch.model),
     notesModelSize: notesLogLib.sizeText(notesLogLib.RMVPE.bytes),
@@ -3324,7 +3556,8 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'curious-copy']
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'curious-copy',
+  'helper-install', 'helper-update', 'helper-repair', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return
@@ -3369,6 +3602,7 @@ function panelAction(name) {
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
   else if (name === 'gfx-restart') restartApp()
   else if (name === 'curious-copy') curiousCopy()
+  else if (name.startsWith('helper-')) helperAction(name)
 }
 
 // --- global shortcuts (shortcuts.js: X11 key grabs, or the desktop's portal on Wayland) ---
@@ -3577,6 +3811,7 @@ function createWindow() {
     if (listenSession) listenSession.stop()
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
+    if (helperInstaller) helperInstaller.stop()
     app.exit(0);
  });
 }
@@ -3966,6 +4201,7 @@ app.whenReady().then(async () => {
     if (listenSession) listenSession.stop()
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
+    if (helperInstaller) helperInstaller.stop()
     if (lyricsStore) lyricsStore.flush()
     if (linerStore) linerStore.flush()
     if (montageCache) montageCache.flush()
@@ -3986,6 +4222,7 @@ app.whenReady().then(async () => {
   startupStep('what\'s new', showWhatsNew)
   startupStep('auto-update question', askAutoUpdate)
   startupStep('precise timing install check', () => alignInstalled(true))
+  startupStep('helper update checks', startHelperFeedChecks)
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }

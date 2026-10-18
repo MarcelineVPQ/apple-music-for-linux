@@ -18,7 +18,7 @@
   const K = globalThis.SonataShortcutsModel
   const G = globalThis.SonataGfxModel
   const bridge = globalThis.sonataPanelBridge
-  if (!M || !MD || !K || !G || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
+  if (!M || !MD || !K || !G || !bridge || !globalThis.SonataPanelHelper || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
   const doc = document
   const icon = (name) => globalThis.SonataIcons.icon(doc, name)
   let uid = 0
@@ -378,6 +378,8 @@
       timing: () => [
         switchRow('lyricsListenRefine', 'Refine timing by listening (experimental)', 'Listens to Sonata\'s own audio while a lyric view is open to move estimated words to where they\'re sung. Analysed in memory, never saved or sent.',
           { disabled: (v) => !v.estimatedWordTiming, why: 'Needs Estimated word timing (Playback & lyrics) on' }),
+        // the helper: its state, Install / Update / Repair / Remove, progress, licence (panel-helper.js)
+        globalThis.SonataPanelHelper.create({ doc, el, setAttr, setText, nextId, bridge, markdown }),
         switchRow('lyricsPreciseTiming', 'Precise word timing (GPU, experimental)', 'Separates the vocals and lines up each word with the singing, on this computer, after a song has played once with a lyric view open. Audio stays in memory; only the word times are kept.',
           { hidden: (v) => !v.alignInstalled }),
         switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
@@ -388,11 +390,10 @@
             desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ~/.local/share/apple-music-for-linux/notes-log/, at most 1,000 songs (about 110 MB), oldest removed.' +
               (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
         textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
-        textBlock('note', (v) => (!v.alignInstalled
-          ? (v.alignState === 'update'
-            ? 'Precise word timing needs its helper updated to engine ' + (v.alignEngine || 'of this Sonata') + '. Run align/install.sh again from the Sonata source: it downloads the engine (a few MB), checks it, keeps the models and reuses the Python packages when they haven\'t changed.'
-            : 'Precise word timing needs the sonata-align helper, a separate download (the Sonata engine ' + (v.alignEngine || '') + ' with its own licence, about 10 GB with its Python packages and models). Install it with align/install.sh from the Sonata source: it checks the download, shows the helper\'s licence first and installs into ' + (v.alignHome || '~/.local/share/sonata-align') + '; deleting that folder removes it. This section notices it.')
-          : v.lyricsPreciseTiming ? (v.alignStatus || 'Asking the helper…') : ''))
+        switchRow('alignAutoUpdate', 'Update the helper automatically', 'When a newer helper is out, it is installed by itself (the models stay). A changed licence is still shown first.',
+          { hidden: (v) => !v.alignInstalled }),
+        // the helper's answer while it starts or when it doesn't work ("Ready on …" is in the state row above)
+        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && !/^Ready/.test(v.alignStatus || '') ? (v.alignStatus || 'Asking the helper…') : ''))
       ],
       appearance: () => [
         selectRow('theme', 'Theme', 'Ctrl+D switches between light and dark', [['system', 'Same as the desktop'], ['light', 'Light'], ['dark', 'Dark']]),
