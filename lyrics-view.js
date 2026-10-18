@@ -27,6 +27,11 @@ const T = require('./lyrics-timing')
 const S = require('./lyrics-syllables')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
+// A jump (a seek, a track change, a resume after sleep) snaps the list straight to the line: more than
+// JUMP_S of song time or JUMP_LINES lines since the last render. Only continuous play scrolls smoothly
+// (a long smooth scroll ran through every line, 0.15.41-dev.1).
+const JUMP_S = 3
+const JUMP_LINES = 2
 
 /**
  * Lines and layout facts for a 'lyrics-data' payload (estimated word timing when asked for, estimated
@@ -270,14 +275,14 @@ function createLyricsView(opts) {
   // Vertical only: scrollIntoView and a focus() that scrolls also scroll sideways (inline 'nearest') when
   // a line is wider than the list (a popped word at the edge), which pushed every line's start past
   // the card's left edge (0.15.39-dev.1). So the list scrolls by its scrollTop alone, always back at left 0.
-  function scrollToLine(el, block) {
+  function scrollToLine(el, block, snap) {
     const box = container.getBoundingClientRect()
     const r = el.getBoundingClientRect()
     let top = container.scrollTop + r.top - box.top
     if (block === 'center') top -= box.height * anchor() - r.height / 2
     else if (r.top >= box.top && r.bottom <= box.bottom) top = container.scrollTop   // 'nearest': already in view
     else if (r.bottom > box.bottom) top -= box.height - r.height
-    container.scrollTo({ top: Math.max(0, top), left: 0, behavior: still() ? 'auto' : 'smooth' })
+    container.scrollTo({ top: Math.max(0, top), left: 0, behavior: snap ? 'instant' : still() ? 'auto' : 'smooth' })   // 'instant': lyrics.html's list has scroll-behavior: smooth, which 'auto' follows
   }
   const stage = opts.layout === 'stage'
   // scroll: where the sung line is held, as a fraction of the list's height from its top (the lyrics
@@ -295,6 +300,9 @@ function createLyricsView(opts) {
   let shownNext = -1        // stage: line currently .next
   let scrollTarget = null
   let clock = null
+  let waiting = null        // a new song's lyrics wait for its first time sample (lyrics-timing trackGate); null: the clock is the song's
+  let shownTime = null      // the song time and the latest line of the last render (a jump snaps, see JUMP_S)
+  let shownLatest = -1
   let raf = 0
   let wake = 0
   let songKey = ''          // title|artist, matches 'lyrics-refined' to the song on screen
@@ -362,6 +370,7 @@ function createLyricsView(opts) {
   // lifetime: OK — setData replaces the container's children, so old line, word and dot elements and
   // their onclick closures are dropped per track
   function setData(data) {
+    const prevKey = songKey
     const prep = prepare(data)
     lines = prep.lines
     hyphenate = prep.hyphenate
@@ -369,6 +378,13 @@ function createLyricsView(opts) {
     refined = !!data.refined
     aligned = !!data.aligned
     alignState = typeof data.alignState === 'string' ? data.alignState : ''
+    if (songKey !== prevKey) {
+      // a new song: its lyrics wait for its own time, never drawn with the previous song's clock
+      waiting = T.trackGate(clock, data.duration, performance.now())
+      clock = null
+    }
+    shownTime = null
+    shownLatest = -1
     notesEl = null
     lineEls = []
     interludes = []
@@ -445,6 +461,7 @@ function createLyricsView(opts) {
         // lifetime: OK — one click handler per line, dropped with the line on the next setData
         el.onclick = () => {
           opts.onSeek(line.t)
+          waiting = null
           clock = T.seekClock(clock, line.t, performance.now())
           render(line.t)
           updateFrames()
@@ -654,6 +671,9 @@ function createLyricsView(opts) {
     if (!lines.length || lines[0].t === null) return
     const gi = T.interludeAt(interludes, time)
     const { latest, live: liveNow } = T.liveLines(lines, time)
+    const jump = shownTime === null || Math.abs(time - shownTime) > JUMP_S || Math.abs(latest - shownLatest) > JUMP_LINES
+    shownTime = time
+    shownLatest = latest
     // during an interlude nobody sings: the dots take the next line's place
     const next = new Set(gi >= 0 ? [] : liveNow)
     // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
@@ -695,14 +715,14 @@ function createLyricsView(opts) {
       // the target changes (per line, not per word)
       if (target !== scrollTarget && !(keys && container.querySelector('.line:focus-visible'))) {
         scrollTarget = target
-        if (target) scrollToLine(target, 'center')
+        if (target) scrollToLine(target, 'center', jump)
       }
       // Tab into the list lands on the sung line, unless the keyboard is already in it
       if (keys && latest >= 0 && !container.contains(doc.activeElement)) setRoving(lineEls[latest])
     }
     // after the scroll target is taken (it reads positions with transforms); reduced motion: no slide
     // loop: NOT-WORTH — the elements a dots row moved (at most the window's lines), per open/close
-    if (slides && !still()) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
+    if (slides && !still() && !jump) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
   }
 
   const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }
@@ -784,8 +804,16 @@ function createLyricsView(opts) {
     if (wantFrames()) schedule(T.clockTime(clock, performance.now()))
   }
 
-  // isPlaying is sent along since 0.15.10; older pushes (undefined) fall back to "time stopped moving"
-  function setTime(playbackTime, isPlaying) {
+  // isPlaying is sent along since 0.15.10; older pushes (undefined) fall back to "time stopped moving".
+  // key (since 0.15.42): the song the time is for (main's lyrics key); a push for another song (the
+  // previous one's last, or the next one's before its lyrics arrive) is dropped. A new song's first
+  // samples that still carry the previous song's position are dropped too (lyrics-timing trackSample).
+  function setTime(playbackTime, isPlaying, key) {
+    if (typeof key === 'string' && key !== songKey) return
+    if (waiting) {
+      if (!T.trackSample(waiting, playbackTime, isPlaying, performance.now())) return
+      waiting = null
+    }
     clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
     if (doc.visibilityState !== 'visible') {
       stopFrames()

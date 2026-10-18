@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The lyrics no longer race through the song when a new one starts.** When one song ran into the next (an album played in order), the new song's lyrics could light up and scroll through every line in a rush before starting properly, because the first moment of the new song still carried the previous song's position. Each song's lyrics now wait for its own time. A seek, a click on a line or coming back to the window after a while jumps straight to the right line instead of scrolling through all the lines between. In the lyrics window, the Studio and the visualizer.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added

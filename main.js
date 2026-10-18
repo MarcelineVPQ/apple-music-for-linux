@@ -759,6 +759,7 @@ async function lyricsTick() {
     state = await appleWC().executeJavaScript(nowPlayingScript)
   } catch (e) { return }
   if (!state || !state.ok || !lyricViews().length) return
+  const sampledAt = Date.now()   // when state.playbackTime was read (a lyrics lookup below may take a while)
 
   const key = state.title + '|' + state.artist
   // loop: NOT-WORTH — lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
@@ -814,8 +815,10 @@ async function lyricsTick() {
     vizArt = key + '|' + big
     vizWindow.webContents.send('viz-nowplaying', { title: state.title, artist: state.artist, artwork: big })
   }
-  // isPlaying lets the views stop their word-highlight clock right away on pause
-  sendLyrics('lyrics-time', state.playbackTime, state.isPlaying)
+  // isPlaying lets the views stop their word-highlight clock right away on pause; key: the song the time
+  // is for (the views drop a time for another song, lyrics-view.js setTime). After a slow lookup this
+  // tick's time is that old: the next tick (500 ms) sends a fresh one instead.
+  if (Date.now() - sampledAt < 250) sendLyrics('lyrics-time', state.playbackTime, state.isPlaying, key)
   if (stageShowing()) stageTick(state, key)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())

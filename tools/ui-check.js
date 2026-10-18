@@ -591,6 +591,43 @@ const BACKING = [
 ]
 const BACKING_WANT = { 0: { word: 0 }, 1: { word: 2 }, 2: { word: 2, after: true }, 3: { word: null } }
 
+// The track change (0.15.42 fix-lyrics-race): an album played in order raced the highlight through the
+// whole new song (it was drawn with the previous song's clock, then the first samples still carried the
+// old position). Replays it in the real window: song A playing near its end, song B's lyrics, two samples
+// with A's position, then B's own time. Nothing may light and the list may not scroll down; a seek then
+// lands at once (no smooth run through the lines between), forward and back.
+async function trackChangeStep(page, send, tag) {
+  const mk = (title, first, n, duration) => ({ title, artist: 'Sonata', album: 'Test', duration, source: 'apple', status: '', estimate: false, refined: false, aligned: false, lang: 'en',
+    lines: Array.from({ length: n }, (_, i) => { const t = first + i * 5; return { t, end: t + 4, text: 'Race check line ' + (i + 1), words: ['Race', 'check', 'line', String(i + 1)].map((w, k) => ({ t: t + k * 0.6, end: t + k * 0.6 + 0.5, text: w })) } }) })
+  const A = mk('Race A', 2, 40, 210)
+  const B = mk('Race B', 10, 38, 200)
+  const kA = 'Race A|Sonata'
+  const kB = 'Race B|Sonata'
+  await send('lyrics-data', A); await sleep(300)
+  for (const t of [199.2, 199.7, 200.2]) { await send('lyrics-time', t, true, kA); await sleep(250) }
+  // watch every frame from here: the most lines lit at once and the furthest the list scrolled
+  await page.ev(`(() => { const L = document.getElementById('lines'); const w = globalThis.__race = { lit: 0, top: 0, on: true }
+    const f = () => { if (document.querySelector('#song .t').textContent === 'Race B') { w.lit = Math.max(w.lit, document.querySelectorAll('#lines .line.active').length); w.top = Math.max(w.top, L.scrollTop) } if (w.on) requestAnimationFrame(f) }   /* lifetime: OK — test only, stops with __race.on; counts from song B's lyrics on */
+    requestAnimationFrame(f); return true })()`)
+  await send('lyrics-data', B); await sleep(150)
+  await send('lyrics-time', 200.6, true, kB); await sleep(450)    // B's first samples, still A's position
+  await send('lyrics-time', 201.1, true, kB); await sleep(450)
+  for (const t of [0.1, 0.6, 1.1, 1.6]) { await send('lyrics-time', t, true, kB); await sleep(480) }
+  const race = await page.ev(`(() => { const w = globalThis.__race; w.on = false; const first = document.querySelectorAll('#lines .line')[1]; return { lit: w.lit, top: w.top, firstLine: first ? first.offsetTop : 0, height: document.getElementById('lines').clientHeight } })()`)
+  check(tag + ' track change: no line of the new song lights from the old song\'s position', race.lit === 0, race)
+  check(tag + ' track change: the list never runs down through the new song', race.top <= Math.max(0, race.firstLine - race.height * 0.3), race)
+  // a seek forward and back: the list is at the line on the next frames, not a smooth scroll on its way
+  for (const [t, what] of [[150.3, 'forward'], [30.3, 'back']]) {
+    await send('lyrics-time', t, true, kB); await sleep(120)
+    const soon = await page.ev(`document.getElementById('lines').scrollTop`)
+    await sleep(900)
+    const later = await page.ev(`({ top: document.getElementById('lines').scrollTop, lit: [...document.querySelectorAll('#lines .line')].map((l, i) => (l.classList.contains('active') ? i : -1)).filter((i) => i >= 0) })`)
+    const want = Math.floor((t - 10) / 5)
+    check(tag + ' seek ' + what + ': snaps to the line (no smooth scroll through the lines between)', Math.abs(soon - later.top) <= 2 && later.lit.includes(want), { soon, later, want })
+  }
+  await send('lyrics-time', 30.3, false, kB); await sleep(200)
+}
+
 async function lyrics() {
   const mp = await mainProc()
   await mp.ev(viewCommand('rail', 'lyrics')); await sleep(2500)
@@ -690,6 +727,8 @@ async function lyrics() {
     check(tag + ' held note: when the voice stops (bounded to 0.6 s past the next line\'s start) "home" lets go', !(after.active[0] && after.homeNow) && !after.active[0] && after.active[1], after)   // lit = .now inside an .active line
     await send('lyrics-data', data); await sleep(300)
   }
+  await trackChangeStep(page, send, 'lyrics-' + LABEL)
+  await send('lyrics-data', data); await sleep(300)
   mp.c.close(); page.c.close()
 }
 
@@ -1369,6 +1408,9 @@ async function stage() {
   await sleep(1000); n = 0; await sleep(5000)
   await page.c.send('Page.stopScreencast')
   check('stage: paused, no frames for 5 s (nothing animates on its own)', n === 0, { frames: n })
+
+  await trackChangeStep(page, send, 'stage')
+  await feed(T0)
 
   await montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
 
