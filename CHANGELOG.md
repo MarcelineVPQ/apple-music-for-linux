@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.46-dev.1] — Install the precise-timing helper from Settings, How it works in About, and the Studio group on the rail
+
 ### Added
 
 - **About → For the Curious explains how it works.** Under the numbers, a new "How it works" group gives six short, plain explanations for the curious: how updates are built and checked before they install, where the lyrics and their word timing come from, what precise word timing and sheet notes do on your PC, what stays on your PC and what goes online, and where the Montage photos and liner notes come from, with their credits. Each topic is one line; the ⓘ beside it shows a few sentences (hover over it, Tab to it, or click it; Esc closes it).
@@ -20,9 +22,9 @@ See docs/RELEASING.md.
 
 ### Fixed
 
-- **The sheet-notes pitch line is a line again, not a row of dashes.** The helper's pitch line drops out for a moment on every consonant and every dip in its confidence that someone is singing, and the Studio broke the line at each one, so a sung phrase showed as short dashes. Now the line runs on through dropouts of up to a quarter of a second, following the voice straight across from one side to the other, and it stops only where the singing does. A lone blip shorter than a hop is left out, a single jumpy value is smoothed over, a stretch the helper heard an octave off is moved back in line, and vibrato keeps its full swing. On the songs we measured that is two to four times fewer pieces, and a typical piece lasts one to three seconds instead of a third of one. This covers the first play's pitch line and the pitch line drawn where the notes are unsure.
-- **Versions read "0.15.45 Dev" everywhere, never "0.15.45-dev.1".** The update toast ("Sonata 0.15.45 Dev is up to date (Development).") and every other place a version shows now say it the same way: update notices and desktop notifications, Settings → Updates, About's card and What's new, the rail's Development badge, For the curious and the helper's engine version. Settings' numbers come from what Sonata actually does: the update check interval, the sung-notes and sheet-notes limits and folders, the For the curious refresh, Discord's retry and the helper's idle time (which was wrong while a lyrics window is open: 10 minutes, not 2).
-- **About → Credits names what the precise-timing helper really uses.** The transcription models it no longer contains are gone; the 16 languages of its aligners, its Python libraries and the pitch model's network code are credited with their licences.
+- **The sheet-notes pitch line is a line again, not a row of dashes.** On a song's first play the pitch line broke at every consonant and every short pause in the voice, so a sung phrase showed as short dashes. Now it runs on through the phrase and stops only where the singing does; stray specks are left out, a jump that doesn't belong is smoothed over, and vibrato keeps its full swing. On the songs we measured that is two to four times fewer pieces, and a typical piece lasts one to three seconds instead of a third of a second. This covers the first play's pitch line and the pitch line drawn where the notes are unsure.
+- **Versions read "0.15.46 Dev" everywhere, never "0.15.46-dev.1".** The update toast ("Sonata 0.15.46 Dev is up to date (Development).") and every other place a version shows now say it the same way: update notices and desktop notifications, Settings → Updates, About's card and What's new, the rail's Development badge, For the curious and the helper's version. Settings' numbers come from what Sonata actually does: the update check interval, the sung-notes and sheet-notes limits and folders, the For the curious refresh, Discord's retry and the helper's idle time (which was wrong while a lyrics window is open: 10 minutes, not 2).
+- **About → Credits names what the precise-timing helper really uses.** Parts it no longer contains are gone, and everything it does use is credited with its licence.
 
 ## [0.15.45-dev.1] — Sheet notes on Apple's word timing, booklet pages turn on a click, and a new home for releases
 
