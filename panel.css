@@ -90,7 +90,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 }
 .notice.error { border-color: var(--s-notice-error-bd); background: var(--s-notice-error); }
 .notice-text { display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
-.notice-detail { color: var(--s-soft); font-size: 12px; }
+.notice-detail { color: var(--s-notice-soft-text); font-size: 12px; }
 .notice-x { position: absolute; top: 2px; right: 2px; color: var(--s-text); }
 .progress { height: 4px; border-radius: 2px; background: var(--s-track); overflow: hidden; }
 .progress i { display: block; height: 100%; background: var(--s-ring); transform-origin: left center; }
@@ -297,10 +297,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 
 /* Coming soon: the DS5 board's columns as groups, each plan a small card */
 .soon-head { display: flex; align-items: center; gap: 6px; margin: 12px 0 6px; font-size: 12px; font-weight: 650; }
-.count { padding: 0 6px; border-radius: 8px; background: var(--s-field); color: var(--s-soft); font-size: 11px; font-weight: 600; }
+.count { padding: 0 6px; border-radius: 8px; background: var(--s-field); color: var(--s-soft-field-text); font-size: 11px; font-weight: 600; }
 .soon-cards { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .soon-card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--s-edge); border-radius: 8px; background: var(--s-field); }
-.soon-card span { color: var(--s-soft); }
+.soon-card span { color: var(--s-soft-field-text); }   /* a field on the section's field: theme.js fits it */
 /* BACKLOG's titles and sentences start in lower case (they follow "Soon:"); a card starts a sentence */
 .soon-card strong, .soon-card span { display: block; }
 .soon-card strong::first-letter, .soon-card span::first-letter { text-transform: uppercase; }

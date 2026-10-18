@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The visualizer's words read over every scene.** The lyrics, the song title, the hint and the scene name now sit on dark plates sized to the text, so the aurora's glows, the nebula, the bars and the flying toasters pass behind the words without washing them out (they could drop to about 1.1:1 at the brightest spot; now at least 4.5:1 everywhere). The scenes themselves are as bright as before. The hint at the bottom right is easier to read.
+- **Notices read in dark mode with Glass.** A notice's detail line and its buttons were too faint over some album art (3.6:1 and 4.2:1); the notice's tint and its detail text now adjust so both reach 4.5:1 with any art and album colour.
+- **About → Coming soon: the cards' text and the count badges are a touch darker in light mode**, so they reach 4.5:1 with Glass on (they were 4.47:1).
+
 ## [0.15.44-dev.1] — The liner notes disc turns about its own centre
 
 ### Fixed
