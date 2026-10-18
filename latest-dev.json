@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.43-dev.1",
-  "file": "sonata-0.15.43-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.43-dev.1/sonata-0.15.43-dev.1-x86_64.AppImage",
-  "sha512": "76da9c42d38dc40bc4e99b8204d1956d59b0d0e231c383a72bd89ae7e07fb88c5aaf234a8fde61a1a98b856c230bade78f4519641a8e5faffec83cff5a5ae200",
-  "size": 127414493,
-  "date": "2026-10-18T11:42:32Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.43-dev.1",
-  "notes": "### Fixed\n\n- **The Studio's Liner notes tile should take the mouse everywhere again** (to confirm on that screen). Most of it ignored the mouse on a Wayland screen at a fractional scale (1.2): the no-drag holes cut for the left column's controls didn't line up with them. The Studio's left column is no longer a window-drag area at all, so nothing there depends on those holes; the window still moves by the header, the sheet-notes band and the queue's title. The three Studio tiles also share the column's width exactly, so the third can never run past it.\n\n### Changed\n\n- **Development builds show as \"0.15.43 Dev\".** The rail, Settings → Updates and About → App changes no longer show the build number on the end (\"-dev.1\"); the real version, the tags and the update feeds keep it, because the updater needs it.\n- **The sheet-notes band always shows while Sheet notes is on.** It no longer folds to one line when a song has nothing to draw yet: the staff stays, empty, with the reason in the band's top row, and the Band on top / Over the sung line buttons stay too.\n\n### Tests\n\n- The UI checker now tests the Studio the way a person uses it: every visible control must be reachable by the pointer (nothing over it, no drag area over it), the tiles must stay inside their column, and the real mouse (XTest), at the screen's scale, must light each tile at its centre and right edge, with all three tiles shown.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
+  "version": "0.15.44-dev.1",
+  "file": "sonata-0.15.44-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.44-dev.1/sonata-0.15.44-dev.1-x86_64.AppImage",
+  "sha512": "cfc596bbe4b7e64e95ead9854575fc4eecb5e5b626e411b5bc57d172b9598805261390eb8bbdfdec7dc7e47292a973d1c35937ebfc83574518c85932cb08a68e",
+  "size": 127422535,
+  "date": "2026-10-18T12:42:18Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.44-dev.1",
+  "notes": "### Fixed\n\n- **The disc on the liner notes' cover turns about its own centre.** A disc scan from the Cover Art Archive is often a photo of the CD lying on paper, off-centre (Radiohead's *In Rainbows*, the 2008 US CD), so it wobbled and jumped once it started spinning. Sonata now finds the disc in the scan (once per scan, remembered with the booklet) and shows exactly the disc, centred, filling the circle. A scan where no disc is found for sure is shown as before and kept still. The disc also no longer snaps back or blinks when the booklet's sources finish loading or the window is resized.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development."
 }
