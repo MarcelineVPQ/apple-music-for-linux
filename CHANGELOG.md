@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **About → For the Curious explains how it works.** Under the numbers, a new "How it works" group gives six short, plain explanations for the curious: how updates are built and checked before they install, where the lyrics and their word timing come from, what precise word timing and sheet notes do on your PC, what stays on your PC and what goes online, and where the Montage photos and liner notes come from, with their credits. Each topic is one line; the ⓘ beside it shows a few sentences (hover over it, Tab to it, or click it; Esc closes it).
+
 ## [0.15.45-dev.1] — Sheet notes on Apple's word timing, booklet pages turn on a click, and a new home for releases
 
 ### Added

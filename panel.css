@@ -319,7 +319,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   .sec-chev, .switch .knob, .toast { transition: none !important; }
 }
 @media (prefers-contrast: more) {
-  .panel, .sec, .btn, .select, .notice, .hero, .soon-card { border-color: var(--s-text); }
+  .panel, .sec, .btn, .select, .notice, .hero, .soon-card, .tip { border-color: var(--s-text); }
 }
 
 /* --- toasts (toast.html): bottom right of Apple's page, newest at the bottom --- */
@@ -345,3 +345,42 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .key-btn.capturing { border-color: var(--s-fill); }
 .key-text { align-self: center; font-size: 12px; font-variant-numeric: tabular-nums; }
 .row.warn .row-desc { color: var(--s-text); font-weight: 600; }
+
+/* About → For the Curious → How it works: a short line per topic, the explanation behind its ⓘ (the DS5
+   long-text rule, as the sheet-notes band in lyrics.html): a bubble under the row, the row's width, over
+   the rows below it; shown on hover, keyboard focus or a click. Nothing animates. */
+.row.has-tip { position: relative; }
+.info-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--s-soft);
+  font: italic 700 12px/1 Georgia, serif;
+  cursor: help;
+}
+.info-btn::before { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.info-btn:hover, .info-btn.open { color: var(--s-text); background: var(--s-hover); }
+.tip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 4px);
+  z-index: 5;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--s-edge);
+  border-radius: 8px;
+  background: var(--s-surface);
+  box-shadow: 0 6px 16px var(--s-shadow);
+  color: var(--s-text);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+}
+.tip.up { top: auto; bottom: calc(100% - 4px); }
