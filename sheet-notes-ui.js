@@ -72,7 +72,7 @@ function createSheetBand(opts) {
   exp.textContent = 'Experimental'
   const label = el(doc, 'span', 'sn-label', top)
   const msg = el(doc, 'span', 'sn-msg', top)
-  // where the staff sits (Settings → Precise timing → Sheet notes placement, remembered): two buttons,
+  // where the staff sits (Settings → Experimental → Sheet notes placement, remembered): two buttons,
   // shown while there is something to draw
   const placeSeg = el(doc, 'span', 'sn-place', top)
   placeSeg.setAttribute('role', 'group')

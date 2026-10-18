@@ -104,6 +104,9 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g }), 'All off')
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { pending: ['A'] }), expA: true }), '1 on · restart to apply')
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { safe: true }), expA: true, expB: true }), '2 on · safe start')
+  // Sheet notes in the Studio lives in Experimental too: counted when its row shows (the helper installed)
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g, sheetNotes: true, alignInstalled: true }), '1 on')
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g, sheetNotes: true, alignInstalled: false }), 'All off')
 })
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {

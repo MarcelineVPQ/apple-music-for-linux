@@ -413,7 +413,12 @@ test('wiring: the setting, the tile, main\'s state to the lyrics window, the bui
   assert.match(html, /ipcRenderer\.on\('lyrics-sheet', \(event, st\) => \{/)
   assert.match(html, /stage\.setBand\(sheetBand\.el\)/)
   const panel = read('panel-ui.js')
-  assert.match(panel, /switchRow\('sheetNotes', 'Sheet notes in the Studio \(Experimental\)'/)
+  // Settings → Experimental (beside the graphics switches; it applies at once), no longer in Precise timing
+  const expAt = panel.indexOf('experimental: () => ['), timingAt = panel.indexOf('timing: () => [')
+  const rowAt = panel.indexOf("switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)'")
+  assert.ok(expAt > 0 && rowAt > expAt, 'the Sheet notes switch is in the Experimental section')
+  assert.ok(!(rowAt > timingAt && rowAt < panel.indexOf('startup: () => [')), 'not in Precise timing')
+  assert.ok(panel.indexOf("selectRow('sheetPlace'") > expAt, 'its placement row goes with it')
   const files = require('../package.json').build.files
   for (const f of ['sheet-notes-model.js', 'sheet-notes-store.js', 'sheet-notes-ui.js', 'sheet-notes-glyphs.js', 'licenses/NotoMusic-OFL.txt']) assert.ok(files.includes(f), f)
   // the glyphs carry their own licence (OFL), named in the file

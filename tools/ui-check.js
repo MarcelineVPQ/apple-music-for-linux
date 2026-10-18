@@ -1226,7 +1226,7 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   // the tile is the setting: main turns it on (its own state push is held back here; the fixture's comes next)
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)
   let l = await stageLog()
-  check('sheet notes: the tile turns the setting on (Settings → Precise timing follows)', l.length === 1 && l[0][0] === 'sheet-notes' && l[0][1] === true && (await mp.ev(settingsFile)).sheetNotes === true, l)
+  check('sheet notes: the tile turns the setting on (Settings → Experimental follows)', l.length === 1 && l[0][0] === 'sheet-notes' && l[0][1] === true && (await mp.ev(settingsFile)).sheetNotes === true, l)
   const base = { on: true, installed: true, precise: true, key: 'fixture', wordSynced: false, timed: true, paused: false, error: '' }
   // first play: two sections' pitch lines back
   await send('lyrics-sheet', Object.assign({}, base, { aligned: false, pieces: fx.pieces.length, entryAt: '', entry: null, pitch: fx.pieces }))
@@ -1793,16 +1793,17 @@ async function experimental() {
     return {
       status: sec ? sec.querySelector('.sec-status').textContent : null,
       rows: body ? [...body.querySelectorAll('button.switch')].map((b) => { const r = b.closest('.row'); const q = r.getBoundingClientRect(); return { key: b.dataset.key, label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, checked: b.getAttribute('aria-checked'), disabled: b.disabled, at: [Math.round(b.getBoundingClientRect().left + 10), Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)], h: q.height } }) : [],
+      sheetInTiming: !!document.querySelector('#b-settings-timing button.switch[data-key="sheetNotes"]'),
       restart: body ? [...body.querySelectorAll('.action-row')].filter((r) => !r.hidden).map((r) => ({ label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, buttons: [...r.querySelectorAll('button')].filter((b) => !b.hidden).map((b) => b.textContent) })) : []
     }
   })()`)
   let st = await read()
   const gpu = await mp.ev(`${E}.app.getGPUFeatureStatus().gpu_compositing`)
   const soft = !/^enabled/.test(gpu)
-  check('experimental: the section lists the four switches from gfx-model.js, in order', st.rows.map((r) => r.key).join() === GFX.EXPERIMENTS.map((e) => e.key).join(), st.rows.map((r) => r.key))
+  check('experimental: the section lists the four switches from gfx-model.js, in order, then Sheet notes in the Studio (not in Precise timing)', st.rows.map((r) => r.key).join() === GFX.EXPERIMENTS.map((e) => e.key).concat('sheetNotes').join() && !st.sheetInTiming, [st.rows.map((r) => r.key), st.sheetInTiming])
   check('experimental: every switch is labelled Experimental and has its one-line description', st.rows.every((r) => / \(experimental\)$/.test(r.label) && r.desc.length > 20), st.rows.map((r) => [r.label, r.desc.slice(0, 40)]))
   check('experimental: all off by default; the header says "All off"', st.rows.every((r) => r.checked === 'false') && st.status === 'All off', [st.status, st.rows.map((r) => r.checked)])
-  const restartRows = st.rows.filter((r) => GFX.EXPERIMENTS.find((e) => e.key === r.key).restart)
+  const restartRows = st.rows.filter((r) => (GFX.EXPERIMENTS.find((e) => e.key === r.key) || {}).restart)
   check('experimental: ' + (soft ? 'drawing in software here (' + gpu + '): the restart switches are disabled and say why' : 'the GPU is on: the restart switches can be used'),
     soft ? restartRows.every((r) => r.disabled && /graphics card|X11/.test(r.desc)) : restartRows.every((r) => !r.disabled || /X11/.test(r.desc)), restartRows.map((r) => [r.key, r.disabled, r.desc]))
   check('experimental: no Restart now while nothing waits for a restart', !st.restart.length, st.restart)

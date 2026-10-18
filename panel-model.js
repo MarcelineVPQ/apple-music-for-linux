@@ -149,11 +149,12 @@
     return ''
   }
 
-  // Experimental's one line: how many switches are on, and whether a restart is waiting
+  // Experimental's one line: how many switches are on (the graphics switches, and Sheet notes in the Studio
+  // when its row shows: the word-timing helper installed), and whether a restart is waiting
   function experimentalStatus(st) {
     const g = st.gfx
     if (!g) return ''
-    const n = (g.keys || []).filter((k) => st[k] === true).length
+    const n = (g.keys || []).filter((k) => st[k] === true).length + (st.sheetNotes === true && st.alignInstalled ? 1 : 0)
     return [n ? n + ' on' : 'All off', g.safe ? 'safe start' : null, g.pending && g.pending.length ? 'restart to apply' : null].filter(Boolean).join(' · ')
   }
 

@@ -379,14 +379,6 @@
           { hidden: (v) => !v.alignInstalled }),
         switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
           { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on' }),
-        // Sonata's +1, Experimental: the Studio's Sheet notes tile is the same switch (sheet-notes-model.js)
-        switchRow('sheetNotes', 'Sheet notes in the Studio (Experimental)', '',
-          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
-            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (~/.config/apple-music-for-linux/sheet-notes/, at most 500 songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
-              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
-        selectRow('sheetPlace', 'Sheet notes placement', 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.',
-          [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !v.alignInstalled || !v.sheetNotes }),
-        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : '')),
         // a developer tool for judging the sung notes on live tracks: Development channel only
         switchRow('sungNotesLog', 'Sung notes (developer log)', '',
           { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
@@ -463,7 +455,7 @@
       // the switches still being tested (gfx-model.js EXPERIMENTS: names and descriptions in one place); each
       // row says what this start does with it, and a waiting change offers Restart now
       experimental: () => [
-        textBlock('note', () => 'Switches still being tested, all off until you turn them on. If a start with one on goes wrong, Sonata turns it off again by itself; About → Graphics shows what this start uses.'),
+        textBlock('note', () => 'Switches still being tested, all off until you turn them on. If a start with a graphics switch on goes wrong, Sonata turns it off again by itself; About → Graphics shows what this start uses.'),
         ...G.EXPERIMENTS.map((e) => switchRow(e.key, e.label, e.desc, {
           disabled: (v) => !!(v.gfx && v.gfx.blocked[e.key]),
           why: (v) => (v.gfx && v.gfx.blocked[e.key]) || '',
@@ -472,7 +464,16 @@
         actionRow('Restart to apply', (v) => (v.gfx && v.gfx.pending.length ? 'Waiting for a restart: ' + v.gfx.pending.join(', ') + '. Music stops for a moment.' : ''),
           [{ label: 'Restart now', action: 'gfx-restart', primary: true, tip: () => 'Close Sonata and start it again with these switches' }],
           { hidden: (v) => !v.gfx || !v.gfx.pending.length }),
-        textBlock('note', (v) => (v.gfx && v.gfx.safe ? 'Started with --safe-gpu: no experimental switch is used in this start, and your settings stay as they are.' : ''))
+        textBlock('note', (v) => (v.gfx && v.gfx.safe ? 'Started with --safe-gpu: no graphics switch is used in this start, and your settings stay as they are.' : '')),
+        // Sonata's +1: the Studio's Sheet notes tile is the same switch (sheet-notes-model.js); it applies at once,
+        // no restart, and needs the word-timing helper (shown only when it is installed)
+        switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)', '',
+          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (Precise timing) on',
+            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (~/.config/apple-music-for-linux/sheet-notes/, at most 500 songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
+              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+        selectRow('sheetPlace', 'Sheet notes placement', 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.',
+          [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !v.alignInstalled || !v.sheetNotes }),
+        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : ''))
       ]
     },
     about: {
