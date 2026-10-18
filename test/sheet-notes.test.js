@@ -734,3 +734,36 @@ test('wiring: main sends the lyric lines\' sung spans; the band labels from what
   assert.match(ui, /M\.nextSeen\(/)
   assert.match(ui, /M\.QUIET\.info/)
 })
+
+// Marcy 2026-10-18, Sabrina Carpenter "House Tour" at 2:29: a high stretch of the pitch line was drawn above the
+// staff with nothing to read it by, right under the label row. It now stays in the staff box's room, with ledger
+// lines above/below the staff and, beyond the room, along the edge (out) with a mark where it leaves.
+test('roomRuns: the pitch line stays in the staff box, with ledger lines and an honest edge', () => {
+  const within = M.roomRuns([[[0, 2], [0.05, 4], [0.1, 6]]])
+  assert.deepEqual(within, { runs: [{ pts: [[0, 2], [0.05, 4], [0.1, 6]], out: 0 }], ledgers: [], marks: [] })
+  const high = M.roomRuns([[[0, 6], [0.05, 9], [0.1, 11], [0.15, 12], [0.2, 16], [0.25, 17], [0.3, 11], [0.35, 8]]])
+  // never outside the room (the label row above, the syllables below)
+  for (const r of high.runs) for (const [, p] of r.pts) assert.ok(p <= M.ROOM.hi && p >= M.ROOM.lo, String(p))
+  // one stroke: each piece starts where the one before ended; the stretch past the top is marked out
+  assert.deepEqual(high.runs.map((r) => r.out), [0, 1, 0])
+  for (let i = 1; i < high.runs.length; i++) assert.deepEqual(high.runs[i].pts[0], high.runs[i - 1].pts[high.runs[i - 1].pts.length - 1])
+  assert.deepEqual(high.runs[1].pts.slice(1).map((x) => x[1]), [M.ROOM.hi, M.ROOM.hi])
+  assert.deepEqual(high.marks, [{ t: 0.2, pos: M.ROOM.hi, dir: 1 }])
+  // ledger lines under the stretch that reaches them, as a note there would have
+  assert.deepEqual(high.ledgers, [{ pos: 10, t0: 0.1, t1: 0.3 }, { pos: 12, t0: 0.15, t1: 0.25 }])
+  // below the staff: the same, mirrored
+  const low = M.roomRuns([[[0, 0], [0.05, -2], [0.1, -5], [0.15, 0]]])
+  assert.deepEqual(low.runs.map((r) => r.out), [0, -1, 0])
+  assert.deepEqual(low.marks, [{ t: 0.1, pos: M.ROOM.lo, dir: -1 }])
+  assert.deepEqual(low.ledgers, [{ pos: -2, t0: 0.05, t1: 0.1 }])
+  // the room is the staff box's: pos 12 is 20 px under its top (BASE 92, 6 px a step: room for the mark above it,
+  // clear of the label row), pos -2 above the syllables (108 px)
+  assert.equal(92 - M.ROOM.hi * 6, 20)
+  assert.ok(92 - M.ROOM.lo * 6 + 3 < 108)
+})
+
+test('the band draws the pitch line through roomRuns and keeps notes in the room (sheet-notes-ui.js)', () => {
+  const ui = require('fs').readFileSync(require('path').join(__dirname, '..', 'sheet-notes-ui.js'), 'utf8')
+  assert.match(ui, /const fitted = M\.roomRuns\(runs\)/)
+  assert.match(ui, /yOf\(Math\.max\(M\.ROOM\.lo, Math\.min\(M\.ROOM\.hi, n\.pos\)\)\)/)
+})
