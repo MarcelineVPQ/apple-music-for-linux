@@ -1,7 +1,7 @@
 // Pure part of tools/build-feed.js: picks the release latest.json /
 // latest-dev.json describes and writes the feed text. Kept separate so it can be
 // tested on fixture release lists without the network (test/update-feed.test.js).
-const { REPO, versionKey, isNewerVersion } = require('../update-feed')
+const { REPO, versionKey, isNewerVersion, downloadPrefix } = require('../update-feed')
 
 const STABLE_TAG = /^v(\d+\.\d+\.\d+)$/
 const DEV_TAG = /^v(\d+\.\d+\.\d+-dev\.\d+)$/
@@ -25,14 +25,16 @@ function selectRelease(releases, channel) {
   return best
 }
 
-// The feed file's exact text (what gets signed). measured = { sha512 (hex), size }.
-function feedText(channel, picked, measured) {
+// The feed file's exact text (what gets signed). measured = { sha512 (hex), size }. repo: the
+// repository whose releases `url` points at (the releases repository; the legacy one for the bridge
+// feeds that installs up to 0.15.18 / 0.15.44-dev.1 read, docs/RELEASING.md).
+function feedText(channel, picked, measured, repo = REPO) {
   if (!versionKey(picked.version)) throw new Error('bad version ' + picked.version)
   const feed = {
     channel,
     version: picked.version,
     file: picked.asset.name,
-    url: `https://github.com/${REPO}/releases/download/${picked.release.tag_name}/${picked.asset.name}`,
+    url: `${downloadPrefix(repo)}${picked.release.tag_name}/${picked.asset.name}`,
     sha512: measured.sha512,
     size: measured.size,
     date: picked.release.published_at || '',

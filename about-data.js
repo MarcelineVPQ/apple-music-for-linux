@@ -123,7 +123,7 @@ const NOT_AFFILIATED = 'Sonata is not affiliated with, endorsed by, or sponsored
 // About's hero card (the 42PS card, the same in every 42PS app: DS5 AboutPage.tsx StudioCard)
 const REPO = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
 const ISSUES_URL = REPO + '/issues'
-const RELEASES_URL = REPO + '/releases'
+const RELEASES_URL = 'https://github.com/' + require('./update-feed').REPO + '/releases'
 const LINKS = [
   { id: 'studio', label: '42pixelstudios.com', url: 'https://42pixelstudios.com/', icon: 'globe' },
   { id: 'profile', label: 'github.com/MarcelineVPQ', url: 'https://github.com/MarcelineVPQ', icon: 'github' },
