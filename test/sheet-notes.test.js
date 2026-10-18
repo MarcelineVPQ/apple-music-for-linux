@@ -485,7 +485,8 @@ test('over the sung line: the room opens by a border (no line text moves into it
   const lv = read('lyrics-view.js')
   // the room moves before the scroll is taken, so the line is centred with its room
   const i = lv.indexOf('const want = px > 0 ? target : null')
-  assert.ok(i > 0 && i < lv.indexOf("if (target) scrollToLine(target, 'center')"))
+  const scroll = lv.indexOf("if (target) scrollToLine(target, 'center'")   // (…, jump) since fix-lyrics-race
+  assert.ok(i > 0 && scroll > 0 && i < scroll)
   // one class and a custom property; FLIP from the measured before/after; reduced motion: no slides
   assert.match(lv, /el\.style\.setProperty\('--room', px \+ 'px'\); el\.classList\.add\('room'\)/)
   assert.match(lv, /const around = still\(\) \? \[\] : slideTargets\(null\)/)
