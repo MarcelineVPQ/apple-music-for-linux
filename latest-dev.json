@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.50-dev.1",
-  "file": "sonata-0.15.50-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.50-dev.1/sonata-0.15.50-dev.1-x86_64.AppImage",
-  "sha512": "d4d218c86a0398a5e4911395c941bc2d77ff4867df64cd8170b06cb96f1449be1526fac08d669630f45f5b2ddbf177a2f69431b3d644dacfd0ab26a7406d9efd",
-  "size": 127459515,
-  "date": "2026-10-18T22:16:54Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.50-dev.1",
-  "notes": "### Fixed\n\n- **Hyphenated lyrics are written as they are.** A line like \"Yeah-oh, oh-oh-oh-oh\" showed with a gap after every hyphen (\"Yeah- oh, oh- oh- oh- oh\"). Each part still lights up and pops on its own beat, now written together as in the lyrics. Dashes (— and –) and a spaced \" - \" keep their spaces.\n- **The sheet-notes label matches the staff.** In a vocal break, such as Mad Season's \"Wake Up (Live At the Moore)\" at 4:50, the band said \"pitch line here: notes unsure\" over an empty staff. When nobody sings in the part of the song the staff shows (a break, or after the lyrics end), it now says \"no singing here\", with the detail behind its ⓘ; \"pitch line here\" shows only while a pitch line is on the staff.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.50-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.51-dev.1",
+  "file": "sonata-0.15.51-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.51-dev.1/sonata-0.15.51-dev.1-x86_64.AppImage",
+  "sha512": "10fcb27fe1b3ea0a5f5e726034687e57b7521507d5d6def25a66dd8acd8992e1ea2b88ad52971efa543a1299d10adefcf500beb9f37b1925b1d9b6f7caad1e4c",
+  "size": 127467810,
+  "date": "2026-10-18T23:30:56Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.51-dev.1",
+  "notes": "### Fixed\n\n- **A long word's pop no longer runs into the next word.** In the Studio at a large size, a long word being sung grew into the space beside it, so \"amends, that's right\" read as \"amends,that's\" and \"predictable\" crowded \"it's\". The pop looks and moves exactly as before; a word that would come too close to its neighbour now grows toward the side with room (the start or end of a line grows outward), and only when both sides are tight does it grow a little less, so a clear gap always stays between words. Short words pop exactly as they did. Hyphenated words (\"Yeah-oh\") stay joined, backing vocals follow the same rule, and with reduced motion nothing pops, as before.\n- **The sheet-notes staff keeps a high or low voice readable.** In the Studio's sheet notes, a stretch of the pitch line above the staff was drawn with nothing to read it by, right under the band's buttons (Sabrina Carpenter's \"House Tour\" at 2:29), and anything higher was cut off without a sign. Above or below the staff the line now gets ledger lines, as a note would; past the room the staff has, it runs along the edge, dashed, with a small arrow pointing the way it went. Notes that high or low show the same way. Nothing is drawn into the label row any more.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.51-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
