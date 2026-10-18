@@ -723,3 +723,28 @@ test('validEntry: a version-2 entry still serves lyrics without hyphen runs; wit
   assert.equal(A.prepareLines(hy, { estimate: true, entry: v2h }).aligned, false)
   assert.equal(A.prepareLines(hy, { estimate: true, entry: Object.assign({}, v2h, { version: A.ENTRY_VERSION }) }).aligned, true)
 })
+
+// Hold attribution (0.15.41): "So Alive (Live)" line 53 (test/fixtures/hold-attribution.json)
+test('a held "it" before the line\'s last word: cached entries heal on read, new results come out right', () => {
+  const F = require('./fixtures/hold-attribution.json')
+  const raw = [{ t: 173.715, end: 182.193, text: F.text }]
+  const check = (words) => {
+    assert.equal(words[8].held, undefined)
+    assert.equal(words[8].end, 176.85)
+    assert.equal(words[9].t, 176.85)
+    assert.equal(words[9].held, true)
+    // the singer still holds "on" at 180 s: "on" is the word being sung, "it" is done
+    assert.equal(T.wordPos(words, 180).now, 9)
+    assert.equal(T.wordPos(words, 181.9).now, 9)
+  }
+  // a version-3 entry from before the fix, as her cache has it: healed by prepareLines, no new alignment
+  const cached = { version: A.ENTRY_VERSION, model: F.model, lyricsHash: A.lyricsHash(raw), lines: { 0: { text: F.text, words: F.words } } }
+  const shown = A.prepareLines(raw, { estimate: true, entry: cached })
+  assert.equal(shown.aligned, true)
+  check(shown.lines[0].words)
+  assert.equal(cached.lines[0].words[8].held, true)    // the stored entry is not changed
+  // a helper result with the same words (hold_from, as the helper sends it): the stored entry is right
+  const result = { stats: { aligner: 'en' }, lines: [{ line: 0, aligned: true, confidence: 0.6,
+    words: F.words.map((w) => Object.assign({ t: w.t, end: w.end, text: w.text }, w.held ? { held: true, hold_from: w.holdFrom } : {})) }] }
+  check(A.entryFromResult(result, raw, null).lines[0].words)
+})

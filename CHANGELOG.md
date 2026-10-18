@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A held last word stays lit for its whole hold.** With Precise word timing, a line whose singer holds the last word ("you can make it o—n", "on my o—wn", "at a—ll") sometimes gave the long hold to the short word before it, so the highlight sat on "it" and the held word only lit up at the very end. The hold now goes to the last word. Songs aligned before are corrected when they play, with no new alignment.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added

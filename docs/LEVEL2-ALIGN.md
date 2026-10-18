@@ -399,3 +399,5 @@ labelled.
   submit to LRCLIB" flow after the user corrects it.
 
 **Held notes (0.15.34):** after the Viterbi pass, `extend_holds` lets each word's end follow the separated vocal stem while it stays loud (`hold_db` 24 dB below the song's loud singing, 15 dB above its quiet frames, `hold_gap` 4 frames, `hold_max` 8 s, never past the next word − 0.04 s). Words extended by ≥ 0.2 s carry `held` and `hold_from`. `--param hold=0` turns it off (the bench's "before"). Numbers: docs/LYRIC-TIMING.md "Held notes".
+
+**Hold attribution (0.15.41):** the CTC path puts a held line-final word on its last letters, so `extend_holds` can give the hold to the function word before it ("make it o—n"). Sonata moves such holds back (lyrics-timing.js `reattributeHolds`, on helper results and on cache reads); the helper output is unchanged. `align/bench.py` stores word starts and `hold_from` and scores the words as Sonata shows them (`aligned_as_shown`). docs/LYRIC-TIMING.md "Hold attribution".

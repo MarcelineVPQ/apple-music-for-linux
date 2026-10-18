@@ -57,6 +57,18 @@ def estimate(lines):
     return json.loads(out)
 
 
+def shown(res, model):
+    """The aligned words as Sonata shows them: lyrics-timing.js reattributeHolds (a hold the aligner gave
+    to a function word before the line's last word moves to that word), run through node."""
+    js = ("const T=require(process.argv[1]);let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const r=JSON.parse(d);"
+          "process.stdout.write(JSON.stringify(r.lines.map((ws)=>T.reattributeHolds(ws.map((w)=>Object.assign({},w,"
+          "w.held?{holdFrom:w.hold_from}:{})),r.model).map((w)=>w.t))))})")
+    lines = [[w for w in r['words']] for r in res]
+    out = subprocess.run(['node', '-e', js, os.path.join(REPO, 'lyrics-timing.js')],
+                         input=json.dumps({'lines': lines, 'model': model}), capture_output=True, text=True, check=True).stdout
+    return json.loads(out)
+
+
 def errors(pred_lines, gt):
     """abs word-start errors (s) for all words, per line pairs."""
     out = []
@@ -118,6 +130,7 @@ def main():
     line_rows = []
     all_est, all_al, all_al_only = [], [], []
     all_est_on_aligned = []
+    all_shown = []
     for row in songs:
         loaded = load_song(row['Filepath'])
         if not loaded:
@@ -166,21 +179,29 @@ def main():
                                   # the aligner's own word ends (absolute s) and holds, for the held-note check
                                   'ends': [w.get('end') for w in r['words']],
                                   'held': [bool(w.get('held')) for w in r['words']],
+                                  # the aligner's word starts and hold starts (absolute s), for the hold checks
+                                  'starts': [w.get('t') for w in r['words']],
+                                  'hold_from': [w.get('hold_from') for w in r['words']],
                                   'est_err': None})
         # aligned where accepted, else keep the estimate (what Sonata would show)
+        shown_starts = shown(res, name)
         merged = []
+        shown_merged = []
         aligned_only = []
         est_on_aligned = []
-        for r, e, g in zip(res, est_words, gt):
+        for r, e, g, sh in zip(res, est_words, gt, shown_starts):
             if r['aligned']:
                 ws = [w['t'] - a.bias for w in r['words']]
                 merged.append(ws)
+                shown_merged.append([t - a.bias for t in sh])
                 aligned_only.append((ws, g))
                 est_on_aligned.append((e, g))
             else:
                 merged.append(e)
+                shown_merged.append(e)
         e_est = errors(est_words, gt)
         e_al = errors(merged, gt)
+        all_shown += errors(shown_merged, gt)
         e_only = errors([x for x, _ in aligned_only], [g for _, g in aligned_only])
         e_est_only = errors([x for x, _ in est_on_aligned], [g for _, g in est_on_aligned])
         all_est += e_est
@@ -202,6 +223,8 @@ def main():
         'lines': sum(s['lines'] for s in per_song),
         'estimate': summary(all_est),
         'aligned_with_fallback': summary(all_al),
+        # the same with Sonata's hold attribution (lyrics-timing.js reattributeHolds) on the aligned lines
+        'aligned_as_shown': summary(all_shown),
         'aligned_lines_only': summary(all_al_only),
         'estimate_on_same_lines': summary(all_est_on_aligned),
         'audio_s': round(sum(s['duration_s'] for s in per_song), 1),

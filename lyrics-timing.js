@@ -454,6 +454,62 @@ function boundHolds(lines) {
   return out
 }
 
+// Hold attribution (0.15.41): a CTC aligner emits a held vowel mostly as blank, so on "you can make it
+// o—————n" it puts "on" at the end of the hold (on its last letters) and extend_holds then gives the
+// whole sustained voice to the word before ("it" held 4.8 s, "on" 0.4 s). Singers hold line ends, not
+// a mid-line "it": when a short function word before the line's last word (or the last word of a
+// phrase, before , ; : . ! ?) holds at least MOVE_HOLD s, and that last word spans at most MOVE_SHORT s,
+// the hold moves to the last word: it starts where the function word's sung part ends (its holdFrom)
+// and holds to its own end. Only there: moving mid-line holds measured far worse on JamendoLyrics
+// (201 of 278 next-word starts worse), see docs/LYRIC-TIMING.md "Hold attribution".
+const MOVE_HOLD = 0.6
+const MOVE_SHORT = 0.7
+// short function words per aligner language (the cache entry's model: 'en', 'xlsr-de', …); a language
+// without a list is left alone
+const FUNCTION_WORDS = {
+  en: 'a an the to of in on at by for from with and or but if as is it its it\'s i i\'m my me we us our you your he him his she her they them their this that not do be am are was were has have had can will just',
+  de: 'der die das den dem des ein eine einen einem einer und oder aber mit von zu zum zur in im an am auf aus bei für ich du er sie es wir ihr mich dich mir dir sich so wie nicht ist',
+  fr: 'le la les un une des de du et ou mais à au aux en dans sur par pour avec je j\' tu il elle on nous vous ils elles me te se ma ta sa mon ton son ce c\' que qu\' qui ne n\' pas est',
+  es: 'el la los las un una unos unas de del y o pero a al en con por para sin yo tu tú él me te se mi su sus que es lo le'
+}
+const FUNCTION_SETS = Object.fromEntries(Object.entries(FUNCTION_WORDS).map(([k, v]) => [k, new Set(v.split(' '))]))
+function functionWords(model) {
+  const m = String(model || '').toLowerCase().match(/^(?:xlsr-)?([a-z]{2})\b/)
+  return (m && FUNCTION_SETS[m[1]]) || null
+}
+const bare = (text) => String(text || '').toLowerCase().replace(/[’‘]/g, '\'').replace(/^[^\p{L}']+|[^\p{L}']+$/gu, '')
+const PHRASE_END = /[,;:.!?…]["”')\]]*$/
+
+/**
+ * One aligned line's words with misplaced holds moved to the phrase's last word (see above). `model`:
+ * the aligner's model name (picks the function words). New word objects where something moved, else
+ * the same array. Idempotent: a moved word is no longer held, so it can't match again.
+ */
+function reattributeHolds(words, model) {
+  const fw = functionWords(model)
+  if (!fw || !Array.isArray(words) || words.length < 2) return words
+  let out = words
+  // loop: NOT-WORTH — one line's words · once per aligned line per cache read / helper result
+  for (let k = 0; k < words.length - 1; k++) {
+    const a = out[k]
+    const b = out[k + 1]
+    const from = Number(a.holdFrom)
+    if (!a.held || !Number.isFinite(from) || +a.end - from < MOVE_HOLD) continue
+    if (PHRASE_END.test(String(a.text)) || !fw.has(bare(a.text))) continue
+    if (!(k + 1 === words.length - 1 || PHRASE_END.test(String(b.text)))) continue
+    if (!(+b.end - +b.t <= MOVE_SHORT) || !(+b.t > from)) continue
+    const sung = Math.max(0.02, (b.holdFrom != null ? +b.holdFrom : +b.end) - +b.t)
+    const t = Math.round(from * 1000) / 1000
+    const nb = { t, end: +b.end, text: b.text }
+    const hf = Math.round((t + sung) * 1000) / 1000
+    if (+b.end - hf >= 0.2) { nb.held = true; nb.holdFrom = hf }
+    if (out === words) out = words.slice()
+    out[k] = { t: +a.t, end: t, text: a.text }
+    out[k + 1] = nb
+  }
+  return out
+}
+
 function reuseRepeats(lines) {
   if (!lines || !lines.length) return lines
   const src = new Map()   // key -> { line, kind }
@@ -529,6 +585,7 @@ function clockTime(clock, nowMs) {
 
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
+  MOVE_HOLD, MOVE_SHORT, reattributeHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
   lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime,
   PACE, songPace, learnedPace, learnedOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
