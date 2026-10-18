@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.49-dev.1] — Instrumentals say "Instrumental"
+
 ### Fixed
 
 - **Instrumentals say "Instrumental".** A song with no vocals, such as Mad Season's 13-minute "November Hotel (Live At the Moore)", showed "No lyrics available for this song" and "Sheet notes need lyrics with line timing", as if something had failed. When LRCLIB marks this recording as instrumental (same title, artist and length), or the title itself says "(Instrumental)", the lyrics window now shows a calm, large "Instrumental", with where that comes from behind its ⓘ, and the sheet-notes band says "Instrumental" too. Sonata remembers it, so the song shows it at once next time and LRCLIB isn't asked again; an instrumental is never retried or reported as a busy service. Apple Music having no lyrics is not taken as proof on its own, and lyrics from any source always win.
