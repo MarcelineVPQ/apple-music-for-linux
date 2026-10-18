@@ -103,6 +103,8 @@
       "json-salvage.js",
       "updater.js",
       "about-data.js",
+      "curious-model.js",
+      "curious-sampler.js",
       "CHANGELOG.md",
       "BACKLOG.md",
       "wheel-volume.js",

@@ -99,7 +99,7 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.equal(P.sectionStatus('settings', 'startup', {}), 'All off')
   assert.equal(P.sectionStatus('settings', 'appearance', s), 'Dark · album colours · Glass')
   assert.equal(P.sectionStatus('settings', 'updates', Object.assign({}, s, { checkForUpdates: false })), 'Development · no automatic checks')
-  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits'])
+  assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits', 'curious'])
 })
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {

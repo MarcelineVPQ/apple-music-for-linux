@@ -277,11 +277,15 @@ function entryFromResult(result, raw, heard, meta = {}) {
     })
     if (!ok) continue
     lines[i] = { text: line.text, words }
+    // the helper's confidence in the line (0..1), for About → For the Curious (0.15.42; older entries have none)
+    const conf = Number(r.confidence)
+    if (Number.isFinite(conf)) lines[i].conf = Math.round(conf * 1000) / 1000
     n++
   }
-  return {
+  const st = (result && result.stats) || {}
+  const out = {
     version: ENTRY_VERSION,
-    model: meta.model || (result && result.stats && result.stats.aligner) || '',
+    model: meta.model || st.aligner || '',
     lyricsHash: lyricsHash(raw),
     duration: meta.duration || 0,
     aligned: n,
@@ -289,6 +293,31 @@ function entryFromResult(result, raw, heard, meta = {}) {
     lines,
     rejected
   }
+  // what About → For the Curious shows (0.15.42; entries aligned before carry none of it): the helper's
+  // version, when the song was aligned, and the seconds of separation and alignment work on its device
+  if (meta.engine) out.engine = meta.engine
+  if (meta.at) { out.firstAt = meta.at; out.lastAt = meta.at }
+  const work = jobSeconds(st)
+  if (work != null) { out.workS = work; out.device = st.device || '' }
+  return out
+}
+
+/** A job's separation + emissions + alignment seconds from the helper's stats (model loading left out), or null. */
+function jobSeconds(st) {
+  const parts = ['separate_s', 'emissions_s', 'align_s'].map((k) => Number(st && st[k])).filter(Number.isFinite)
+  return parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : null
+}
+
+// the For the Curious fields of a merged entry: the first alignment's date, the latest one's, and the work
+// summed over every job (unknown once one job's seconds are: an entry from before 0.15.42 stays unknown)
+function curiousFields(prev, add) {
+  const out = {}
+  const firstAt = (prev && prev.firstAt) || (prev && prev.lines && Object.keys(prev.lines).length ? null : add.firstAt)
+  if (firstAt) out.firstAt = firstAt
+  if (add.lastAt) out.lastAt = add.lastAt
+  const known = !prev || !prev.lines || !Object.keys(prev.lines).length || prev.workS != null
+  if (known && add.workS != null) out.workS = Math.round(((prev && prev.workS) || 0) * 100 + add.workS * 100) / 100
+  return out
 }
 
 /** The log text for a result's rejected lines: ' · rejected: line 12 (0.14) "Hey-hey…", …' ('' for none). */
@@ -413,14 +442,18 @@ function mergeEntry(prev, add, sec, total, raw) {
   const lines = Object.assign({}, add.lines, (prev && prev.lines) || {})
   const done = [...new Set([...((prev && prev.done) || []), sec.from])].sort((a, b) => a - b)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, sec.from, sec.to), lines) : {}
-  return Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total, whole: !!(prev && prev.whole) })
+  const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total, whole: !!(prev && prev.whole) })
+  delete merged.firstAt; delete merged.workS
+  return Object.assign(merged, curiousFields(prev, add))
 }
 
 /** prev entry (sections) + the whole-song pass -> the complete entry: whole-song words win. */
 function mergeWhole(prev, add, secs, raw) {
   const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, 0, raw.length - 1), lines) : {}
-  return Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
+  const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
+  delete merged.firstAt; delete merged.workS
+  return Object.assign(merged, curiousFields(prev, add))
 }
 
 /** The sections a later play aligns again for an entry's missed lines (none once MAX_FILLS plays tried). */
@@ -556,7 +589,7 @@ function createAlignSession(deps) {
           messages = null
           pcm = null
           if (sec && result && result.stats && result.stats.kept) s.kept.add(sec.from)
-          const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
+          const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until, engine: deps.engine || '', at: (deps.date ? deps.date() : new Date()).toISOString() })
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
           if (s.fills) s.entry.fills = s.fills
           deps.store.set(alignedKey(s.title, s.artist), s.entry)
@@ -703,7 +736,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
+  alignedKey, lyricsHash, validEntry, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

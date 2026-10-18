@@ -62,7 +62,9 @@
         // card above them carries the links
         { id: 'whatsnew', title: 'App changes', icon: 'scroll' },
         { id: 'soon', title: 'Coming soon', icon: 'flag' },
-        { id: 'credits', title: 'Credits', icon: 'heart' }
+        { id: 'credits', title: 'Credits', icon: 'heart' },
+        // the honest numbers (curious-model.js); main samples only while this section is open and shown
+        { id: 'curious', title: 'For the Curious', icon: 'activity' }
       ]
     }
   }

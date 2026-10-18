@@ -349,6 +349,10 @@ labelled.
 4. **Apply + cache**:
    - Store the result in lyrics-store as `aligned|title|artist` with
      `{version:1, model, lyricsHash, duration, lines}`.
+   - Since 0.15.42 an entry also keeps, for About → For the Curious (curious-model.js): `engine` (the
+     sonata-align version), `firstAt` / `lastAt` (ISO dates of the first and latest job), `workS` and
+     `device` (the helper's separation + emissions + alignment seconds, summed over the song's jobs; left
+     out once an older job's seconds are unknown) and each line's `conf` (the helper's confidence, 0..1).
    - Words of aligned lines replace the estimate; unaligned lines keep it.
    - The lyrics hash invalidates the entry when the lyrics change.
    - If the song is still playing, send it live like `lyrics-refined`.

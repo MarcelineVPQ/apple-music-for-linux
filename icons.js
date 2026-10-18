@@ -27,6 +27,8 @@
     power: ['path:M12 2v10', 'path:M18.4 6.6a9 9 0 1 1-12.77.04'],
     scroll: ['path:M15 12h-5', 'path:M15 8h-5', 'path:M19 17V5a2 2 0 0 0-2-2H4', 'path:M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3'],
     flag: ['path:M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z', 'path:M4 22v-7'],
+    // About → For the Curious (Lucide "activity")
+    activity: ['path:M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2'],
     heart: ['path:M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z'],
     external: ['path:M15 3h6v6', 'path:M10 14 21 3', 'path:M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'],
     // About's hero card links (the DS5 About's icons)

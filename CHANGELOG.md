@@ -7,6 +7,14 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **For the Curious.** About has a new section of honest numbers on how Sonata hears your music. Your library: how many songs have Apple's own word timing, Sonata's precise timing, timing refined by listening, estimated timing or plain lyrics, how many words this PC has aligned, the held notes found, the refinements from later plays, each cache's size and the oldest and newest alignment. Now playing: where the song's timing comes from (with the aligner's version and model), the alignment's score, the held words, how long the helper worked on it, and, when its sung notes exist, the melismas, the vocal range and the key, and whether this is its first play with the lyrics open. Under the hood: CPU, memory and frames for each window, the precise-timing helper's state and graphics memory, the audio output format and the versions. What Sonata doesn't keep or can't read says "Not yet known" and why, never a guess. The numbers are read only while the section is open and the window shown, again every 5 seconds; nothing runs when it's closed. Copy for a bug report puts them on the clipboard as plain text, without lyrics, song names or personal data.
+
+### Changed
+
+- **Precise word timing keeps a few more facts per song** for For the Curious: the helper's version, when the song was aligned, the helper's confidence in each line and how long it worked on the song. Songs aligned before this version say "Not yet known" for those until they're aligned again.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added
