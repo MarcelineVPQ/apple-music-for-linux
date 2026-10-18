@@ -1,5 +1,5 @@
 // On-disk lyrics cache: songs played before load instantly (also offline) and the lyrics
-// service gets fewer requests. Only good results are stored (the resolver never passes empty
+// service gets fewer requests. Only good results are stored (the resolver never passes empty (but an instrumental verdict)
 // or failed lookups). Bounded by entry count and total size; least recently used goes first.
 // lifetime: one Map in memory (≤ maxEntries), one JSON file; writes are debounced and atomic
 // (temp file + rename), so a crash never leaves a half-written cache.

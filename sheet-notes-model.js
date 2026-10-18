@@ -320,7 +320,7 @@ function regionAt(regions, t) {
  * The band's mode. st: { on (the setting), installed (the helper), precise (Precise word timing on),
  * wordSynced (the lyrics have their own word timing: Apple's or LRC words, which Sonata doesn't align; their
  * notes are worked out on those times, so they go through the same first-play / later-play states),
- * timed (line-synced lyrics), aligned (the words on screen are aligned on this PC), doc (the cached notes
+ * timed (line-synced lyrics), instrumental ('lrclib' | 'title': the evidence, lyrics-sources.js), aligned (the words on screen are aligned on this PC), doc (the cached notes
  * for these lyrics, expanded) , pitch (first-play pitch pieces so far), paused (a game runs),
  * error (the last pitch/notes failure, text) }
  * -> { band: 'off' | 'notes' | 'line' | 'message', label, text, info }
@@ -346,6 +346,8 @@ const say = (band, label, text, info) => Object.assign({ band, label }, info ? {
 function mode(st) {
   const s = st || {}
   if (!s.on) return say('off', '', '')
+  // an instrumental: nothing is sung, so there is no melody line to set (not a missing setting or a failure)
+  if (s.instrumental) return say('message', '', 'Instrumental', 'Sheet notes follow the sung melody, and this recording is instrumental: ' + (s.instrumental === 'title' ? 'its title says so.' : 'LRCLIB (lrclib.net) marks it so.'))
   if (!s.installed) return say('message', '', 'Needs Precise timing’s helper (Settings → Precise timing)', 'Sheet notes are worked out by Precise word timing’s helper on this PC. Install it in Settings → Precise timing.')
   if (!s.precise) return say('message', '', 'Needs Precise word timing on (Settings → Precise timing)', 'Sheet notes are worked out on this PC by Precise word timing’s helper: turn Precise word timing on in Settings → Precise timing.')
   // the notes are on the clock of the words on screen: aligned ones, or the lyrics' own word timing

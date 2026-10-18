@@ -740,13 +740,13 @@ function getSheetStore() {
   return sheetStore
 }
 // the song on screen changed (lyricsTick): its cached notes, if these lyrics have them
-function setSheetSong(key, title, artist, lines, prep) {
+function setSheetSong(key, title, artist, lines, prep, instrumental) {
   const hash = alignSessionLib.lyricsHash(lines || [])
   const timed = !!(lines && lines.length && lines[0].t != null)
   // end: where the lyrics end on the align session's own reckoning (lyricSpan): past it the first play's band
   // has nothing left to hear, so "Listening and learning" stops (sheet-notes-model.js listening())
   const span = timed ? alignSessionLib.lyricSpan(lines) : null
-  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, error: '', end: span ? Math.round(span.end * 10) / 10 : 0 }
+  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, instrumental: instrumental || '', error: '', end: span ? Math.round(span.end * 10) / 10 : 0 }
   // (lyrics with their own word timing too: their notes are worked out on those times, align-session.js)
   if (settings.sheetNotes && title && timed) {
     const e = getSheetStore().get(title, artist)
@@ -760,7 +760,7 @@ function sendSheet() {
   if (!lyricsWindow || lyricsWindow.isDestroyed()) return
   const on = !!settings.sheetNotes
   const st = on && sheet ? {
-    on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, aligned: sheet.aligned,
+    on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, instrumental: sheet.instrumental, aligned: sheet.aligned,
     paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length, end: sheet.end,
     entryAt: sheet.entry ? sheet.entry.created || '1' : '', place: settings.sheetPlace
   } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
@@ -954,10 +954,10 @@ async function lyricsTick() {
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
     // the lookup's state for the empty view and its ⓘ (lyrics-view.js statusText); the version note while
     // the lines are shown untimed (versionNote)
-    const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry }
+    const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry, instrumental: got.instrumental || null }
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
     sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
-    setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep)
+    setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '')
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''

@@ -252,6 +252,10 @@
     color: var(--s-soft);
     text-align: center;
   }
+  /* an instrumental (lyrics-view.js statusText kind): a calm state of the song in the lyrics' own type, not a
+     grey error line; its evidence sits behind the ⓘ */
+  #empty.instrumental { padding: 40px 20px; color: var(--s-text); }
+  #empty.instrumental .say { font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
   /* the ⓘ beside #empty's and #lead's text (info-tip.js; the .sn-info look below), its bubble under the text */
   #empty .sn-info, #lead .sn-info { vertical-align: middle; margin: -4px -4px -4px 2px; }
   #empty .sn-tip, #lead .sn-tip { text-align: left; }
@@ -284,6 +288,8 @@
   body.stage #credits { font-size: 13px; text-align: left; }
   body.stage #source { font-size: 12px; text-align: left; }
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
+  body.stage #empty.instrumental { padding: 48px 0; }
+  body.stage #empty.instrumental .say { font-size: 46px; }
   body.stage #lead { font-size: 12px; text-align: left; padding: 4px 0 10px; }
   #band { margin: 6px 18px 8px 22px; position: relative; }
   /* the sheet-notes band (sheet-notes-ui.js, Experimental): the staff and the pitch line, theme tokens
