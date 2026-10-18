@@ -275,7 +275,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
   background: linear-gradient(90deg, var(--s-accent), var(--s-accent-mix-text), var(--s-accent-2-text));
 }
 .hero-logo { grid-row: 1 / span 4; width: 64px; height: 64px; filter: drop-shadow(0 2px 8px var(--s-shadow)); }
-.hero-eyebrow { font-size: 10px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; color: var(--s-accent-text); }
+.hero-eyebrow { font-size: 10px; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; color: var(--s-accent-field-text); }
 .hero-title { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.15; }
 .hero-by { margin: 0; font-size: 12.5px; }
 .hero-version { margin: 0; color: var(--s-soft); font-size: 12px; }

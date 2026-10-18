@@ -288,7 +288,8 @@
     return { el: r, update(s) { last = s.v || {}; if (last.shortcuts && !last.shortcuts.capture && capturing === action.id && doc.activeElement !== keyBtn) capturing = null; paint(last) } }
   }
 
-  // a read-only readout: one row per [{ id, label, value }] (About → Graphics), updated in place
+  // a read-only readout: one row per [{ id, label, value }] (About → Graphics and About → For the Curious:
+  // one block for both), updated in place
   function readoutBlock(fn) {
     const box = el('div', 'group readout')
     let shown = ''
@@ -308,7 +309,7 @@
             return x.r
           }))
         }
-        // loop: NOT-WORTH — ≤ 8 rows per state push while About → Graphics is open
+        // loop: NOT-WORTH — ≤ ~25 rows per state push while About → Graphics or For the Curious is open
         for (const r of rows) { const x = made.get(r.id); setText(x.label, r.label); setText(x.desc, r.value) }
       }
     }
@@ -548,6 +549,37 @@
         readoutBlock((v) => (v.gfx ? v.gfx.rows : [])),
         textBlock('note', () => 'Measured while this section is open. To compare a switch: open an album with an animated cover, read the CPU line after a minute, flip the switch in Settings → Experimental, restart, and read it again.')
       ],
+      // the honest numbers (curious-model.js rows; main samples only while this section is open and shown)
+      curious: () => {
+        const rows = (id) => (v) => (v.curious ? v.curious[id] : [])
+        // "Copy for a bug report": main copies the plain text; the line after it says what happened (a live region)
+        const copy = el('div', 'row action-row')
+        const copyBtn = el('button', 'btn', 'Copy for a bug report')
+        copyBtn.type = 'button'
+        const said = el('p', 'note')
+        setAttr(said, 'role', 'status')
+        // lifetime: OK — one click listener, dropped with the section's body
+        copyBtn.addEventListener('click', (e) => { if (e.isTrusted && !copyBtn.disabled) bridge.send('action', 'curious-copy') })
+        const btns = el('div', 'btns')
+        btns.appendChild(copyBtn)
+        copy.append(btns)
+        return [
+          textBlock('note', () => 'For the curious: how Sonata hears your music, counted on this PC. Only real numbers; what Sonata doesn\'t keep yet says so.'),
+          textBlock('note', (v) => (v.curious ? 'Read at ' + v.curious.at.slice(11) + ', again every 5 seconds while this is open.' : 'Reading…')),
+          group('Your library', [readoutBlock(rows('library'))]),
+          group('Now playing', [readoutBlock(rows('now'))]),
+          group('Under the hood', [readoutBlock(rows('hood'))]),
+          {
+            el: (() => { const g = el('div', 'group'); g.append(copy, said); return g })(),
+            update(s) {
+              const c = s.v && s.v.curious
+              copyBtn.disabled = !c
+              setAttr(copyBtn, 'title', c ? 'Copies the numbers above as plain text, without lyrics, song names or personal data' : 'Waiting for the first numbers')
+              setText(said, c ? (c.copied || 'Plain text, without lyrics, song names or personal data.') : '')
+            }
+          }
+        ]
+      },
       // the DS5 Credits: "Built on" as prose, then one What | Credit table (each other group a header row,
       // the hyphenation patterns as rows of their own), then the trademark line
       credits: () => {
@@ -617,6 +649,7 @@
     if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
     if (id === 'credits') return 'Built on · Third-party assets and code'
     if (id === 'graphics') { const g = s.v && s.v.gfx; return !g ? '' : g.safe ? 'Safe start (--safe-gpu)' : g.active.length ? g.active.length + ' experimental on' : 'No experimental switches' }
+    if (id === 'curious') return s.v && s.v.curious ? s.v.curious.summary : 'Honest numbers, read while open'
     return ''
   }
 
@@ -833,7 +866,7 @@
     if (S.page !== page) buildPage(S.page)
     setText(title, M.PAGES[page].title)
     // About's hero card shows the version and channel, so its header says what the page holds (DS5)
-    setText(sub, page === 'about' ? 'Changes, plans and credits'
+    setText(sub, page === 'about' ? 'Changes, plans, credits and numbers'
       : 'Sonata ' + (S.v.version || '') + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
     renderMenu()

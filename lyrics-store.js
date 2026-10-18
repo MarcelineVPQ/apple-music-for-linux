@@ -94,6 +94,10 @@ function createLyricsStore(opts) {
     flush() {
       if (timer) { clearTimeout(timer); save() }
     },
+    // About → For the Curious (read only while it is open): a value without marking it recently used, and
+    // every entry as [key, value, size] (size: its share of the file, in characters)
+    peek(key) { load(); const e = map.get(key); return e ? e.value : null },
+    entries() { load(); return [...map].map(([k, e]) => [k, e.value, e.size]) },
     get size() { load(); return map.size },
     get bytes() { load(); return bytes }
   }

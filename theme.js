@@ -120,6 +120,14 @@
     const accent2 = (palette && hexRgb(palette.accent2)) || null
     const accent2Text = accent2 ? fitText(accent2) : accentText
     const mixText = accent2 ? fitText(hueBlend(accent, accent2)) : accentText
+    // the accent as words on a field (--s-field's tint over the card: the About hero card's eyebrow): the
+    // accent text pushed further toward the text colour until 4.5:1 with the field too (0.15.42: it was
+    // 3.84:1 dark / 4.32:1 light with album colour and Glass)
+    const fieldA = dark ? 0.08 : 0.06
+    const fieldOk = (c) => Math.min(worstContrast(c, overLayers().concat([[text, fieldA]])), worstContrast(c, matLayers().concat([[text, fieldA]]), matBackdrops)) >= TARGET + 0.15
+    let accentFieldText = accentText
+    // loop: NOT-WORTH — at most 25 steps
+    for (let i = 0; i < 25 && !fieldOk(accentFieldText); i++) accentFieldText = mix(accentFieldText, text, 0.08)
     // dim words (lyric lines not being sung): the text, faded only as far as 3:1 allows
     let dimA = 0.35
     const dimOk = (a) => Math.min(worstContrast(mix(surface, text, a), overLayers()), worstContrast(mix(surface, text, a), matLayers(), matBackdrops)) >= 3
@@ -160,6 +168,7 @@
       '--s-accent-text': css(accentText),
       '--s-accent-2-text': css(accent2Text),
       '--s-accent-mix-text': css(mixText),
+      '--s-accent-field-text': css(accentFieldText),
       '--s-dim': css(dim),
       '--s-upcoming': css(upcoming),
       '--s-active': css(accent, activeA),
@@ -167,7 +176,7 @@
       '--s-ring': css(ring),
       '--s-fill': css(fill),
       '--s-on-fill': css(onBtn),
-      '--s-field': css(text, dark ? 0.08 : 0.06),
+      '--s-field': css(text, fieldA),
       '--s-track': css(text, dark ? 0.22 : 0.24),
       '--s-knob': css(WHITE),
       '--s-edge': dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)',

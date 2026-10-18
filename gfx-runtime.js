@@ -4,14 +4,14 @@
 //   const gfx = createGfx({ app, … }); gfx.beforeReady()     at module load, before 'ready'
 //   gfx.ready({ … })                                           in 'ready', after the settings are loaded
 //   gfx.painted()                                              when the main window's first page loaded
-//   gfx.snapshot() / gfx.readout(open, appleWC)                the panel's state, About → Graphics
+//   gfx.snapshot() / gfx.readout(open, kindOf)                 the panel's state, About → Graphics
 // Docs: docs/research/hdr-hw-accel-apple-music-2026-10.md section 5.
 const M = require('./gfx-model')
 const H = require('./hdr-screens')
 
 const HEALTHY_MS = 20 * 1000     // a start counts as healthy 20 s after its first page loaded
-const SAMPLE_MS = 5 * 1000       // About → Graphics: one /proc sample every 5 s while it is open
-const WINDOW_MS = 60 * 1000      // ... averaged over the last minute
+const SAMPLE_MS = 5 * 1000       // About → Graphics: one CPU reading every 5 s while it shows (cpu-sampler.js,
+                                 // shared with For the Curious; averaged over its last minute)
 
 function createGfx(o) {
   const { app, fs, path } = o
@@ -19,6 +19,8 @@ function createGfx(o) {
   const log = o.log || ((m) => console.log(m))
   const extra = o.extra || {}        // per-switch runtime parts (the decode probe), added by later steps
   const execFile = o.execFile || require('child_process').execFile
+  // the one CPU sampler (cpu-sampler.js), shared with About → For the Curious
+  const cpuSampler = o.cpuSampler || require('./cpu-sampler').createCpuSampler({ metrics: () => app.getAppMetrics(), now: () => Date.now() })
   let start = { safe: false, active: [], inactive: {}, switches: [], line: '' }
   let ctx = M.startContext({ platform: process.platform, argv: process.argv, env: process.env })
   let atStart = { disable: [], notice: '' }
@@ -27,7 +29,6 @@ function createGfx(o) {
   let crashed = false
   let healthTimer = null
   let healthyAt = 0
-  let samples = []
   let sampleTimer = null
   let readoutOpen = false
   let cpu = null
@@ -171,28 +172,18 @@ function createGfx(o) {
     return out
   }
 
-  // About → Graphics open or closed: /proc samples every 5 s only while it shows (no background polling)
-  // pids(): [{ pid, kind: 'gpu' | 'page' | 'other' }]
-  function readout(open, pids) {
+  // About → Graphics open or closed: a CPU reading every 5 s only while it shows (no background polling)
+  // kindOf(pid, type) -> 'gpu' | 'page' | 'other' (Apple's page is the one with its pid)
+  function readout(open, kindOf) {
     if (open === readoutOpen) return
     readoutOpen = open
     clearInterval(sampleTimer)
     sampleTimer = null
-    samples = []
     cpu = null
     if (!open) return
-    // loop: NOT-WORTH — one /proc read of Sonata's ~10 processes every 5 s, only while About → Graphics shows
     const take = () => {
-      const ticks = {}
-      for (const p of pids()) {
-        try {
-          const n = M.statTicks(fs.readFileSync('/proc/' + p.pid + '/stat', 'utf8'))
-          if (n !== null) ticks[p.pid] = { kind: p.kind, ticks: n }
-        } catch (e) { /* error: NOT-WORTH — a process that just ended: left out of this sample */ }
-      }
-      const now = Date.now()
-      samples = M.trimSamples(samples.concat([{ t: now, ticks }]), now, WINDOW_MS)
-      cpu = M.cpuOver(samples, 100)
+      cpuSampler.sample()
+      cpu = cpuSampler.over(kindOf)
       if (hooks) hooks.changed()
     }
     take()

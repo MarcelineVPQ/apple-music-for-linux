@@ -66,7 +66,9 @@
         { id: 'soon', title: 'Coming soon', icon: 'flag' },
         { id: 'credits', title: 'Credits', icon: 'heart' },
         // the graphics readout (gfx-model.js graphicsRows): what this start uses, measured while it shows
-        { id: 'graphics', title: 'Graphics', icon: 'monitor' }
+        { id: 'graphics', title: 'Graphics', icon: 'monitor' },
+        // the honest numbers (curious-model.js); main samples only while this section is open and shown
+        { id: 'curious', title: 'For the Curious', icon: 'activity' }
       ]
     }
   }

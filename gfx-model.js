@@ -11,7 +11,6 @@
 //   crashTurnOff()     a GPU-process crash while running: the riskiest active switch goes off for the
 //                      next start (the DS5 recordGpuCrash rule)
 //   graphicsRows()     About → Graphics, the read-only readout
-//   cpuOver()          the readout's CPU line from /proc samples
 ;(function (root) {
   'use strict'
 
@@ -222,43 +221,6 @@
     }).map((e) => e.name)
   }
 
-  // --- the readout's CPU line: /proc samples [{ t (ms), ticks: { pid: { kind, ticks } } }], 100 ticks/s ---
-  // -> { seconds, total, gpu, page } in % of one core over the window (≤ 60 s), or null with < 2 samples
-  function cpuOver(samples, hz) {
-    const list = (samples || []).filter((x) => x && x.ticks)
-    if (list.length < 2) return null
-    const a = list[0]
-    const b = list[list.length - 1]
-    const secs = (b.t - a.t) / 1000
-    if (!(secs > 0)) return null
-    const per = { total: 0, gpu: 0, page: 0 }
-    // loop: NOT-WORTH — Sonata's processes (≤ ~12), once per sample while About → Graphics is open
-    for (const pid of Object.keys(b.ticks)) {
-      const now = b.ticks[pid]
-      const then = a.ticks[pid]
-      const d = Math.max(0, now.ticks - (then && then.kind === now.kind ? then.ticks : now.ticks))
-      const pct = d / (hz || 100) / secs * 100
-      per.total += pct
-      if (now.kind === 'gpu') per.gpu += pct
-      if (now.kind === 'page') per.page += pct
-    }
-    const r = (x) => Math.round(x * 10) / 10
-    return { seconds: Math.round(secs), total: r(per.total), gpu: r(per.gpu), page: r(per.page) }
-  }
-  // the CPU ticks of one /proc/<pid>/stat line (utime + stime), or null
-  function statTicks(text) {
-    const m = /\)\s+(.*)$/.exec(String(text || '').trim())
-    if (!m) return null
-    const f = m[1].split(/\s+/)
-    const n = Number(f[11]) + Number(f[12])
-    return Number.isFinite(n) ? n : null
-  }
-  // keep the samples of the last `windowMs` (and the one just before, so the window is full)
-  function trimSamples(samples, now, windowMs) {
-    const keep = samples.filter((x) => now - x.t <= windowMs)
-    const older = samples.filter((x) => now - x.t > windowMs)
-    return older.length ? [older[older.length - 1]].concat(keep) : keep
-  }
 
   // About → Graphics' decoding line: Apple's page asks MediaCapabilities about Apple's top artwork stream
   // (H.264 High 1080², "powerEfficient" = a hardware decoder) and the graphics process's /proc maps say which
@@ -296,7 +258,7 @@
   }
   const pct = (x) => (Math.round(x * 10) / 10).toFixed(1) + ' %'
 
-  const api = { EXPERIMENTS, REASONS, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, crashTurnOff, pendingRestart, cpuOver, statTicks, trimSamples, decodeLabel, graphicsRows }
+  const api = { EXPERIMENTS, REASONS, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, crashTurnOff, pendingRestart, decodeLabel, graphicsRows }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataGfxModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

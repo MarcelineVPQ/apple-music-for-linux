@@ -1,0 +1,109 @@
+{
+ "format": 1,
+ "created": "2026-10-17T08:31:00.000Z",
+ "sonata": "0.15.41-dev.1",
+ "song": {
+  "title": "Precise Song",
+  "artist": "Singer C",
+  "album": "",
+  "duration": 25,
+  "appleId": null
+ },
+ "models": {
+  "f0": "rmvpe",
+  "notes": "sonata-notes 2026-10-17",
+  "aligner": "en",
+  "params": {},
+  "vthr": 0.7
+ },
+ "language": "en",
+ "duration_s": 25,
+ "tuning": 0,
+ "key": {
+  "name": "G minor",
+  "tonic_pc": 7,
+  "mode": "minor",
+  "fifths": -2,
+  "source": "ks-notes"
+ },
+ "beats": [],
+ "bars": [],
+ "meter": null,
+ "tempo_bpm": null,
+ "lines": [],
+ "syllables": [],
+ "notes": [
+  {
+   "t": 10.2,
+   "end": 10.4,
+   "midi": 55,
+   "cents": 0,
+   "name": "G3",
+   "syl_index": 0,
+   "line": 0,
+   "word": 0,
+   "syl": 0,
+   "melisma": true,
+   "conf": 0.9
+  },
+  {
+   "t": 10.4,
+   "end": 10.6,
+   "midi": 57,
+   "cents": 0,
+   "name": "A3",
+   "syl_index": 0,
+   "line": 0,
+   "word": 0,
+   "syl": 0,
+   "melisma": true,
+   "conf": 0.9
+  },
+  {
+   "t": 10.7,
+   "end": 11.1,
+   "midi": 62,
+   "cents": 0,
+   "name": "D4",
+   "syl_index": 1,
+   "line": 0,
+   "word": 1,
+   "syl": 0,
+   "melisma": false,
+   "conf": 0.8
+  },
+  {
+   "t": 18.1,
+   "end": 18.3,
+   "midi": 74,
+   "cents": 0,
+   "name": "D5",
+   "syl_index": 5,
+   "line": 2,
+   "word": 0,
+   "syl": 0,
+   "melisma": true,
+   "conf": 0.7
+  },
+  {
+   "t": 18.3,
+   "end": 18.5,
+   "midi": 72,
+   "cents": 0,
+   "name": "C5",
+   "syl_index": 5,
+   "line": 2,
+   "word": 0,
+   "syl": 0,
+   "melisma": true,
+   "conf": 0.7
+  }
+ ],
+ "confidence": {
+  "overall": 0.8
+ },
+ "stats": {
+  "f0_s": 2.5,
+  "notes_s": 0.5
+ }
+}

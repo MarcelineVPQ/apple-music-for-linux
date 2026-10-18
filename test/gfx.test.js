@@ -93,21 +93,6 @@ test('gfx: "applies at restart" lists the switches the next start changes', () =
   assert.deepEqual(G.pendingRestart({ expRiskB: true }, x), [], 'on but not usable here: no restart helps')
 }))
 
-test('gfx: CPU readout from /proc samples: % of one core over the window, by process kind', () => {
-  assert.equal(G.statTicks('1234 (sonata (gpu)) S 1 2 3 4 5 6 7 8 9 10 250 50 0 0'), 300)
-  assert.equal(G.statTicks('garbage'), null)
-  const s = [
-    { t: 0, ticks: { 1: { kind: 'other', ticks: 100 }, 2: { kind: 'gpu', ticks: 50 }, 3: { kind: 'page', ticks: 10 } } },
-    { t: 10000, ticks: { 1: { kind: 'other', ticks: 110 }, 2: { kind: 'gpu', ticks: 70 }, 3: { kind: 'page', ticks: 40 }, 4: { kind: 'other', ticks: 999 } } }
-  ]
-  assert.deepEqual(G.cpuOver(s, 100), { seconds: 10, total: 6, gpu: 2, page: 3 }, 'a new process counts from its first sample')
-  assert.equal(G.cpuOver(s.slice(0, 1), 100), null)
-  const many = Array.from({ length: 20 }, (_, i) => ({ t: i * 5000, ticks: {} }))
-  const kept = G.trimSamples(many, 95000, 60000)
-  assert.equal(kept[0].t, 30000, 'one sample older than the window stays, so the window is full')
-  assert.equal(kept[kept.length - 1].t, 95000)
-})
-
 test('gfx: About → Graphics rows say acceleration, what this start uses and the CPU line', () => withFake(() => {
   const start = G.startFlags({ expRiskA: true }, WAYLAND)
   const rows = G.graphicsRows({ gpu: { gpu_compositing: 'enabled' }, start, cpu: { seconds: 60, total: 10.84, gpu: 2.04, page: 8.3 } })
@@ -252,7 +237,7 @@ test('gfx: the panel builds Experimental from the one registry and offers Restar
   assert.match(ui, /action: 'gfx-restart'/)
   assert.match(ui, /graphics: \(\) => \[\s*readoutBlock/)
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
-  assert.match(main, /'gfx-restart'\]/, 'main accepts the action')
+  assert.match(main, /const PANEL_ACTIONS = \[[^\]]*'gfx-restart'/, 'main accepts the action')
   // decided before 'ready': the runtime is created and asked before app.whenReady()
   assert.ok(main.indexOf('gfx.beforeReady()') > 0 && main.indexOf('gfx.beforeReady()') < main.indexOf('app.whenReady()'))
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'panel.html'), 'utf8'), /<script src="gfx-model\.js"><\/script>\s*<script src="markdown-lite\.js">/)

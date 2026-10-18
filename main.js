@@ -22,6 +22,7 @@ const settingsStore = require('./settings-store');
 const noticesModel = require('./notices-model');
 const updaterLib = require('./updater');
 const aboutDataLib = require('./about-data');
+const curiousSamplerLib = require('./curious-sampler')
 const themeLib = require('./theme');
 const miniModel = require('./mini-model');
 const coverModel = require('./cover-model');
@@ -55,7 +56,10 @@ const appName = 'Sonata'
 // Settings → Experimental (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
 // are decided here, before 'ready', from the settings file; a start marker turns them off again when a
 // start with them never got healthy. --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
-const gfx = require('./gfx-runtime').createGfx({ app, fs, path, settingsStore, extra: { decode: decodeProbe() } })
+// the one CPU sampler (cpu-sampler.js) for About → Graphics and About → For the Curious: it reads only
+// when one of them asks, while it shows
+const cpuSampler = require('./cpu-sampler').createCpuSampler({ metrics: () => app.getAppMetrics(), now: () => Date.now() })
+const gfx = require('./gfx-runtime').createGfx({ app, fs, path, settingsStore, cpuSampler, extra: { decode: decodeProbe() } })
 gfx.beforeReady()
 
 // NOTE on sandboxing: recent Ubuntu restricts unprivileged user namespaces via
@@ -74,6 +78,7 @@ let lyricsPoll = null
 let lyricsKey = ''
 let lyricsRetry = null  // { key, attempt, at } after a failed lyrics lookup
 let lyricsArt = ''
+let curiousTrack = null  // the lyrics feed's song: { key, startAligned, startRefined } (About → For the Curious)
 let shuttingDown = false
 let lastfm = null
 let scrobbleQueue = null   // scrobbles waiting for Last.fm (lastfm.js createScrobbleQueue; lastfm-pending.json)
@@ -641,6 +646,17 @@ function getAlignHelper() {
   return alignHelper
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
+// the sonata-align version this Sonata ships (align/sonata_align.py VERSION), read once: kept in each new
+// aligned entry and shown in About → For the Curious
+let alignEngine = null
+function alignEngineVersion() {
+  if (alignEngine === null) {
+    alignInstalled()
+    // error: NOT-WORTH — the file unreadable: no version kept ('')
+    try { alignEngine = (/^VERSION\s*=\s*'([^']+)'/m.exec(fs.readFileSync(path.join(path.dirname(alignPaths.server), 'sonata_align.py'), 'utf8')) || [])[1] || '' } catch (e) { alignEngine = '' }
+  }
+  return alignEngine
+}
 function getAlignSession() {
   if (!alignSession) {
     alignSession = alignSessionLib.createAlignSession({
@@ -650,6 +666,7 @@ function getAlignSession() {
       send: sendLyrics,
       now: () => performance.now(),
       log: (m) => console.log('align:', m),
+      engine: alignEngineVersion(),
       paused: () => alignPaused(),
       notes: {
         wanted: () => notesActive() && getNotesSwitch().wanted(),
@@ -908,6 +925,8 @@ async function lyricsTick() {
     // their words that much after their stamps until enough lines are aligned/refined (lyrics-timing repace)
     const onset = prep.onset != null ? prep.onset : heardOnset
     alignNote = alignNoteNow()
+    // About → For the Curious' "first or later play": what this song started with (one object per track change)
+    curiousTrack = { key, startAligned: !!prep.aligned, startRefined: !!refined }
     // "Written by …" at the end of the lyrics: the TTML's songwriters (Apple lyrics), else the catalog's
     // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
@@ -2798,7 +2817,8 @@ function panelSnapshot() {
     backToStable: settings.updateChannel === 'dev' || updateFeed.isDevVersion(app.getVersion()),
     backConfirm,
     shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null,
-    gfx: gfx.snapshot(app.getGPUFeatureStatus())
+    gfx: gfx.snapshot(app.getGPUFeatureStatus()),
+    curious: curious ? curious.state() : null
   })
   const shownAbout = settings.panelShown && settings.panelPage === 'about'
   return {
@@ -2867,18 +2887,111 @@ function watchScreens() {
   // lifetime: NOT-WORTH — three screen listeners for the app's life, only with HDR output on
   for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, later)   // loop: NOT-WORTH — three event names, once
 }
-// About → Graphics is on screen: the readout samples /proc (every 5 s) only then
+// an About section is on screen: open, the panel shown on About, the main window shown and not minimised.
+// About → Graphics and For the Curious read the CPU sampler only then.
+function aboutShowing(id) {
+  return !!(mainAlive() && panelAlive() && panelMounted && mainWindow.isVisible() && !mainWindow.isMinimized() &&
+    settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), id))
+}
+// both: on every state push and when the main window is shown, hidden, minimised or restored
+function aboutSync() { gfxReadout(); curiousSync() }
+// About → Graphics: a CPU reading every 5 s (cpu-sampler.js) while it shows
 function gfxReadout() {
-  const open = mainAlive() && mainWindow.isVisible() && settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), 'graphics')
-  gfx.readout(open, () => {
+  gfx.readout(aboutShowing('graphics'), (pid, type) => {
     const page = appleView && !appleWC().isDestroyed() ? appleWC().getOSProcessId() : 0
-    return app.getAppMetrics().map((m) => ({ pid: m.pid, kind: m.type === 'GPU' ? 'gpu' : m.pid === page ? 'page' : 'other' }))
+    return type === 'GPU' ? 'gpu' : pid === page ? 'page' : 'other'
   })
+}
+// About → For the Curious (curious-sampler.js): samples only while the section is open and the main window
+// shown; every change of those (a state push, the window shown, hidden, minimised or restored) asks again
+// lifetime: OK — one sampler for the app's life, created on the section's first open; its one-shot refresh
+// timer runs only while open (curious-sampler.js)
+let curious = null
+const curiousOpen = () => aboutShowing('curious')
+function curiousSync() {
+  const open = curiousOpen()
+  if (!curious && !open) return
+  if (!curious) curious = curiousSamplerLib.createCuriousSampler(curiousDeps())
+  curious.sync(open)
+}
+function curiousViews() {
+  const out = []
+  const add = (name, wc, shown) => { if (wc && !wc.isDestroyed()) out.push({ name, wc, pid: wc.getOSProcessId(), shown: !!shown }) }
+  const winShown = (w) => !!(w && !w.isDestroyed() && w.isVisible() && !w.isMinimized())
+  if (appleView) add('Apple\'s page', appleWC(), true)
+  if (railAlive()) add('Rail', railView.webContents, true)
+  if (panelAlive()) add('This panel', panelView.webContents, settings.panelShown)
+  if (toastAlive()) add('Toasts', toastView.webContents, true)
+  if (lyricsWindow && !lyricsWindow.isDestroyed()) add(settings.lyricsStage ? 'Studio' : 'Lyrics window', lyricsWindow.webContents, winShown(lyricsWindow))
+  if (miniWindow && !miniWindow.isDestroyed()) add('Mini player', miniWindow.webContents, winShown(miniWindow))
+  if (vizWindow && !vizWindow.isDestroyed()) add('Visualizer', vizWindow.webContents, winShown(vizWindow))
+  if (linerWindow && !linerWindow.isDestroyed()) add('Liner notes', linerWindow.webContents, winShown(linerWindow))
+  if (coverWindow && !coverWindow.isDestroyed()) add('Cover', coverWindow.webContents, winShown(coverWindow))
+  return out
+}
+function curiousFiles() {
+  const ud = app.getPath('userData')
+  // error: NOT-WORTH — a file or folder not there yet: null / 0 ("No file yet")
+  const size = (f) => { try { return fs.statSync(path.join(ud, f)).size } catch (e) { return null } }
+  const dir = (d) => {
+    let files = 0; let bytes = 0
+    // loop: NOT-WORTH — ≤ 1,000 files (the notes log's cap; the montage folder ≤ 300), once a minute while For the Curious is open
+    // error: NOT-WORTH — no folder or a file removed meanwhile: counted as nothing
+    try { for (const n of fs.readdirSync(d)) { try { bytes += fs.statSync(path.join(d, n)).size; files++ } catch (e) {} } } catch (e) { return null }
+    return { files, bytes }
+  }
+  const notes = curiousNotesDir()
+  return { lyricsFile: size('lyrics-cache.json'), linerFile: size('liner-notes-cache.json'), montageFile: size('montage-cache.json'), montageDir: dir(path.join(ud, 'montage')), notesDir: notes ? dir(notes) : null }
+}
+function curiousNotesDir() {
+  const d = notesLogLib.logDir(process.env, alignHelperLib.inAppSandbox)
+  return fs.existsSync(d) ? d : null
+}
+function curiousDeps() {
+  const { execFile } = require('child_process')
+  const { pickSinkInput, ownProcessTree } = require('./audio-listen')
+  return {
+    cpu: cpuSampler,
+    views: curiousViews,
+    nowPlaying: () => appleWC().executeJavaScript(nowPlayingScript),
+    store: { peek: (k) => (lyricsStore ? lyricsStore.peek(k) : null), entries: () => (lyricsStore ? lyricsStore.entries() : []) },
+    track: () => curiousTrack,
+    settings: () => ({ estimate: !!settings.estimatedWordTiming, precise: preciseTimingOn(), listen: !!settings.lyricsListenRefine && !!settings.estimatedWordTiming, installed: alignInstalled(), dev: settings.updateChannel === 'dev' }),
+    files: curiousFiles,
+    notesDir: curiousNotesDir,
+    notesSuffix: (artist, title) => notesLogLib.fileName(new Date(), artist, title).slice(8),
+    helper: () => ({ installed: alignInstalled(), running: !!(alignHelper && alignHelper.running), pid: alignHelper ? alignHelper.pid : 0, paused: alignPaused() }),
+    ownSinkInput: (list) => pickSinkInput(list, ownProcessTree(process.pid)),
+    execFile,
+    platform: process.platform,
+    versions: () => [
+      ['Sonata', app.getVersion() + (appImagePath ? '' : ' (from source)')],
+      ['Electron', process.versions.electron + ' (castlabs, with Widevine)'],
+      ['Chromium', process.versions.chrome],
+      ['Node', process.versions.node],
+      ['sonata-align', alignEngineVersion() ? alignEngineVersion() + (alignInstalled() ? ' (shipped with this Sonata; helper installed)' : ' (shipped with this Sonata; helper not installed)') : 'Not yet known'],
+      ['System', process.platform + ' ' + require('os').release() + (process.platform === 'linux' ? ', ' + (process.env.XDG_SESSION_TYPE || 'session type not set') : '')]
+    ],
+    push: pushPanel,
+    isOpen: curiousOpen,
+    now: () => performance.now(),
+    date: () => new Date(),
+    log: (m) => console.error(m)
+  }
+}
+// "Copy for a bug report": the numbers shown now as plain text (no lyrics, no song names, no paths)
+function curiousCopy() {
+  const text = curious ? curious.report() : ''
+  if (!text) return
+  // error: SHOWN — the line under the button says whether it was copied (Electron 44+: writeText may return a Promise)
+  Promise.resolve().then(() => clipboard.writeText(text))
+    .then(() => curious.copiedNote('Copied: ' + text.split('\n').length + ' lines of plain text, no lyrics, song names or personal data.'),
+      (e) => { console.error('for the curious: copy failed:', e.message); curious.copiedNote('Could not copy: ' + e.message) })
 }
 // sends the panel's state if it changed; one JSON compare otherwise
 function pushPanel() {
   if (!panelAlive() || !panelMounted) return
-  gfxReadout()
+  aboutSync()
   const s = panelSnapshot()
   const json = JSON.stringify(s)
   if (json === panelSent) return
@@ -3017,7 +3130,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart']
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'curious-copy']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return
@@ -3061,6 +3174,7 @@ function panelAction(name) {
   else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
   else if (name === 'gfx-restart') restartApp()
+  else if (name === 'curious-copy') curiousCopy()
 }
 
 // --- global shortcuts (shortcuts.js: X11 key grabs, or the desktop's portal on Wayland) ---
@@ -3185,6 +3299,9 @@ function createWindow() {
   // below 996 px). Maximize and fullscreen arrive as resizes; the fullscreen events are listened to
   // as well in case a window manager resizes before announcing them.
   mainWindow.on('resize', pushRail)
+  // lifetime: OK — four listeners for the window's life: About → Graphics and For the Curious sample only while the window shows
+  // loop: NOT-WORTH — four event names, once
+  for (const ev of ['show', 'hide', 'minimize', 'restore']) mainWindow.on(ev, aboutSync)
   mainWindow.on('enter-full-screen', pushRail)
   mainWindow.on('leave-full-screen', pushRail)
   // lifetime: OK — one listener · the window's focus goes to the view that had it (a BaseWindow has no
