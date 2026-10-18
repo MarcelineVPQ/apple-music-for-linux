@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.44-dev.2] — Updates come from the new releases repository
+
 ### Changed
 
 - **Updates come from a new place: [MarcelineVPQ/sonata-releases](https://github.com/MarcelineVPQ/sonata-releases).** Sonata's releases, its signed update feeds and the complete source of each release (`sonata-X.Y.Z-source.tar.gz`, GPL-3.0, with `SHA256SUMS`) now live in a repository that holds only those; each release's AppImage is built there from exactly its published source. Nothing to do: this build arrived through the old feed, and from now on Sonata reads the new one, with the same signing key and the same checks (signature, size, SHA-512). About → Releases opens the new page.
