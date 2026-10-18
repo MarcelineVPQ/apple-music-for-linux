@@ -175,6 +175,10 @@
      queue's head over its list; each patch has a no-drag hole (i) per control in it. #grip itself has
      no region of its own. */
   #grip { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+  /* The Studio's left column is not a drag area: on Marcy's Wayland session at a 1.2 scale the no-drag holes
+     cut for its controls didn't line up, and most of the Liner notes tile ignored the mouse (0.15.42-dev.1).
+     The window moves by #grip's patches (the header, the band, the queue's title) as before. */
+  body.stage { -webkit-app-region: no-drag; }
   #grip > .ga { position: absolute; -webkit-app-region: drag; }
   #grip > .ga > i { position: absolute; -webkit-app-region: no-drag; }
   @media (prefers-reduced-motion: reduce) { #lines { scroll-behavior: auto; } }
@@ -525,13 +529,18 @@
 
   #layers { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--s-edge); }
   #layers .k { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-soft); margin-bottom: 8px; display: block; }
-  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  /* minmax(0, 1fr): a plain 1fr can't shrink below its words, and the third tile ran past the column under
+     the lyrics (0.15.42-dev.1: only a sliver of Liner notes took the mouse) */
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
   .tile {
     -webkit-app-region: no-drag;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 5px;
+    min-width: 0;
+    text-align: center;
+    overflow-wrap: anywhere;
     padding: 9px 4px 8px;
     border-radius: 10px;
     border: 1px solid var(--s-edge);

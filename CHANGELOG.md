@@ -7,6 +7,20 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.43-dev.1] — The Liner notes tile takes the mouse, and the sheet-notes band always shows
+
+### Fixed
+
+- **The Studio's Liner notes tile should take the mouse everywhere again** (to confirm on that screen). Most of it ignored the mouse on a Wayland screen at a fractional scale (1.2): the no-drag holes cut for the left column's controls didn't line up with them. The Studio's left column is no longer a window-drag area at all, so nothing there depends on those holes; the window still moves by the header, the sheet-notes band and the queue's title. The three Studio tiles also share the column's width exactly, so the third can never run past it.
+
+### Changed
+
+- **The sheet-notes band always shows while Sheet notes is on.** It no longer folds to one line when a song has nothing to draw yet: the staff stays, empty, with the reason in the band's top row, and the Band on top / Over the sung line buttons stay too.
+
+### Tests
+
+- The UI checker now tests the Studio the way a person uses it: every visible control must be reachable by the pointer (nothing over it, no drag area over it), the tiles must stay inside their column, and the real mouse (XTest), at the screen's scale, must light each tile at its centre and right edge, with all three tiles shown.
+
 ## [0.15.42-dev.1] — Sheet notes in the Studio, Experimental switches, For the Curious, and steadier lyrics timing
 
 ### Added

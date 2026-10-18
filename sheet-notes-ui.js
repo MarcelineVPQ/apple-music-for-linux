@@ -288,13 +288,15 @@ function createSheetBand(opts) {
     const drawn = m.band === 'notes' || m.band === 'line'
     const place = s.place === 'over' ? 'over' : 'band'
     root.classList.toggle('over', drawn && place === 'over')
-    placeSeg.hidden = !drawn
+    // the placement buttons and the staff always show while Sheet notes is on (Marcy 2026-10-18: "i dont
+    // like it being hidden arbitrarily"): a song with nothing to draw gets an empty staff and its message
+    placeSeg.hidden = false
     // loop: NOT-WORTH — two buttons, per state push
     for (const b of placeBtns) b.setAttribute('aria-pressed', String(b.dataset.place === place))
     label.textContent = m.label
     msg.textContent = m.text
     msg.hidden = !m.text
-    box.hidden = m.band !== 'notes' && m.band !== 'line'
+    box.hidden = m.band === 'off'
     const want = m.band === 'notes' ? 'notes:' + (s.key || '') + ':' + (entry && entry.created) : m.band === 'line' ? 'line:' + pieces.length + ':' + (s.key || '') : ''
     if (want && want !== built) {
       stopAnim()
@@ -302,7 +304,7 @@ function createSheetBand(opts) {
       else buildLine()
       nowIdx = -2
     }
-    if (!want) { stopAnim(); built = '' }
+    if (!want) { stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
     if (opts.onLayout) opts.onLayout()
     setTime()
   }

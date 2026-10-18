@@ -426,7 +426,7 @@ function createStage(opts) {
     el.tNotes.title = sheetOn ? 'Sheet notes are on (Experimental): click to fold the band away' : 'The sung melody as notes above the lyrics, in sync (Experimental): click to turn on'
     const was = el.band.hidden
     el.band.hidden = !(has && sheetOn) || sheetOver
-    el.band.classList.toggle('msg', sheetMsg)
+    el.band.classList.toggle('msg', false)   // never folded to one line: the staff always shows (sheet-notes-ui.js)
     el.layers.hidden = el.tNotes.hidden && el.tMontage.hidden && el.tLiner.hidden
     return was !== el.band.hidden
   }

@@ -1269,6 +1269,57 @@ async function montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
 // signature, syllables, the note being sung marked); a one-line message when there is nothing to draw;
 // contrast of its words (4.5:1) and of its lines and notes (3:1) in light/dark x album colour x Glass with
 // screenshots; reduced motion (pages, no animation); 0 frames paused; the cost while playing, band on vs off.
+// Every visible control can be reached by the pointer: nothing lies over it, and the Studio's tiles stay
+// inside their column (a .click() from here never sees a cover; Marcy's Liner notes tile, 0.15.42-dev.1,
+// ran past the column under the lyrics and only a sliver took the mouse). Run wherever the layout changes.
+async function pointerReach(page, where, mp) {
+  const covered = await page.ev(`(() => {
+    const out = []
+    for (const b of document.querySelectorAll('button, [role="button"], input[type="range"], .tile, .q-row')) {
+      const r = b.getBoundingClientRect()
+      if (b.hidden || r.width < 2 || r.height < 2 || getComputedStyle(b).visibility === 'hidden' || getComputedStyle(b).display === 'none') continue
+      if (r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue
+      const x = Math.min(innerWidth - 1, Math.max(0, r.left + r.width / 2)), y = Math.min(innerHeight - 1, Math.max(0, r.top + r.height / 2))
+      if (b.closest('[inert]')) continue   // the cover's back face until it flips: not reachable on purpose
+      // scrolled out of its list's view (lyric lines, queue rows): only the visible part counts
+      let sc = b.parentElement
+      while (sc && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) sc = sc.parentElement
+      if (sc) { const v = sc.getBoundingClientRect(); if (y < v.top || y > v.bottom || x < v.left || x > v.right) continue }
+      const hit = document.elementFromPoint(x, y)
+      // the window's drag patches (#grip .ga, -webkit-app-region: drag) take a real mouse press although
+      // elementFromPoint never sees them (pointer-events: none): a control under one, outside its holes, is dead
+      const inR = (q) => { const g = q.getBoundingClientRect(); return x >= g.left && x <= g.right && y >= g.top && y <= g.bottom }
+      for (const ga of document.querySelectorAll('#grip > .ga')) if (inR(ga) && ![...ga.children].some(inR)) out.push((b.id || b.className) + ' under a drag patch ' + JSON.stringify(ga.getBoundingClientRect()) + ' @' + Math.round(x) + ',' + Math.round(y))
+      if (hit && hit !== b && !b.contains(hit)) out.push((b.id || b.className || b.tagName) + ' under ' + (hit.id ? '#' + hit.id : hit.tagName.toLowerCase() + '.' + String(hit.className).split(' ').join('.')) + ' @' + Math.round(x) + ',' + Math.round(y))
+    }
+    return out
+  })()`)
+  check('stage: every visible control is reachable by the pointer, ' + where + ' (nothing lies over it)', covered.length === 0, covered)
+  const spill = await page.ev(`(() => {
+    const np = document.getElementById('np'), t = document.querySelector('.tiles')
+    if (!np || !t || !document.body.classList.contains('stage')) return []
+    const c = np.getBoundingClientRect(), pr = parseFloat(getComputedStyle(np).paddingRight) || 0
+    return [...t.children].filter((b) => !b.hidden && b.getBoundingClientRect().right > c.right - pr + 0.5).map((b) => b.id + ' ends at ' + Math.round(b.getBoundingClientRect().right) + ', column content ends at ' + Math.round(c.right - pr))
+  })()`)
+  check('stage: the Studio tiles stay inside their column, ' + where, spill.length === 0, spill)
+  // and the way Marcy uses it: the real mouse (XTest) over each tile's centre must light it (:hover).
+  // Drag regions and window stacking are decided outside the page, so only real input sees them.
+  if (!mp) return
+  const wb = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); return w ? w.getContentBounds() : null })()`)
+  // XTest moves in device pixels: a fractional scale (Marcy's DP-5 is 1.2) multiplies the page's CSS pixels
+  const k = await mp.ev(`${E}.screen.getPrimaryDisplay().scaleFactor`)
+  const tiles = await page.ev(`[...document.querySelectorAll('.tiles > .tile')].filter((b) => !b.hidden).map((b) => { const r = b.getBoundingClientRect(); return [b.id, Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2), Math.round(r.left + r.width - 8)] })`)
+  const dead = []
+  // loop: the three tiles, two points each · test only
+  for (const [id, cx, cy, rx] of tiles) {
+    for (const px of [cx, rx]) {
+      x('move', Math.round((wb.x + px) * k), Math.round((wb.y + cy) * k)); await sleep(200)
+      if (!await page.ev(`document.getElementById(${JSON.stringify(id)}).matches(':hover')`)) dead.push(id + ' @' + px + ',' + cy)
+    }
+  }
+  x('move', wb.x + 2, wb.y + wb.height - 2); await sleep(100)
+  check('stage: the real mouse lights every Studio tile, centre and right edge, ' + where, tiles.length > 0 && dead.length === 0, { k, tiles, dead })
+}
 async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   const fx = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'test', 'fixtures', 'sheet-notes', 'cortez-feel-stripped.json'), 'utf8'))
   const T = 31.4
@@ -1283,6 +1334,7 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)
   let l = await stageLog()
   check('sheet notes: the tile turns the setting on (Settings → Experimental follows)', l.length === 1 && l[0][0] === 'sheet-notes' && l[0][1] === true && (await mp.ev(settingsFile)).sheetNotes === true, l)
+  await pointerReach(page, 'all three tiles shown (Sheet notes on)', mp)
   const base = { on: true, installed: true, precise: true, key: 'fixture', wordSynced: false, timed: true, paused: false, error: '' }
   // first play: two sections' pitch lines back
   await send('lyrics-sheet', Object.assign({}, base, { aligned: false, pieces: fx.pieces.length, entryAt: '', entry: null, pitch: fx.pieces }))
@@ -1399,7 +1451,8 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   await send('lyrics-sheet', Object.assign({}, base, { wordSynced: true, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
   await sleep(500)
   const msg = await band()
-  check('sheet notes: a song with its own word timing: the band is one line saying why', !msg.hidden && msg.msg && msg.h < 60 && /its own word timing/.test(msg.label), msg)
+  // since 0.15.43-dev.1 the band never folds (Marcy: no hiding it arbitrarily): full height, an empty staff, the reason on top
+  check('sheet notes: a song with its own word timing: the band stays whole (empty staff) and says why', !msg.hidden && !msg.msg && msg.h >= 150 && /its own word timing/.test(msg.label), msg)
   // the tile off: the band folds away and the lyrics take the room
   await stageLog()
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)
@@ -1889,10 +1942,12 @@ async function stage() {
       c('form'), c('close'), c('b-play'), c('seek-bar'), c('vol-bar'), c('a-fav'), c('a-more'), c('cover-btn'), [Math.round(lines.left + 60), Math.round(lines.top + 120), 'a lyric line'], c('q-list')] }
   })()`)
   const reg = await page.ev(REGIONS_AT(pts.points))
-  const want = (n) => /header|queue title|left column/.test(n) ? 'drag' : 'no-drag'
+  // the left column is no drag area since 0.15.43-dev.1 (lyrics.html: its no-drag holes missed on Wayland at 1.2)
+  const want = (n) => /header|queue title/.test(n) ? 'drag' : 'no-drag'
   const wrong = reg.filter((r) => r.region !== want(r.name))
-  check('stage drag regions (lyrics scrolled ' + pts.above + ' lines up over the header, the queue scrolled ' + pts.scrolled + ' px): the header, the queue\'s title and the left column drag; every control and both lists don\'t', pts.above >= 3 && pts.scrolled > 0 && !wrong.length, { wrong, all: reg })
+  check('stage drag regions (lyrics scrolled ' + pts.above + ' lines up over the header, the queue scrolled ' + pts.scrolled + ' px): the header and the queue\'s title drag; the left column, every control and both lists don\'t', pts.above >= 3 && pts.scrolled > 0 && !wrong.length, { wrong, all: reg })
 
+  await pointerReach(page, 'the Studio')
   // --- every control does something you can see or hear ---
   await send('lyrics-time', T0, false); await sleep(600)
   await stageLog()
