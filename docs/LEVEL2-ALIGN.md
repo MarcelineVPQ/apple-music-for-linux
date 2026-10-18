@@ -138,6 +138,8 @@ loaded between songs; the alignment model is swapped per language and the separa
 → {"cmd":"align","id":"s1","song":"s3","offset":27.0,"lines":[...],"audio":{"stream":true,...}}   a section: its stem is kept
 → {"cmd":"align","id":"f1","song":"s3","final":true,"lines":[...]}   the whole-song pass from the kept stems (no audio)
 → {"cmd":"forget","song":"s3"}   drop that song's kept stems (queued behind its jobs; no reply)
+→ {"cmd":"separate","id":"g1","song":"s4","offset":27.0,"audio":{"stream":true,...}}   a section separated only (lyrics with their own word timing)
+→ {"cmd":"notes","id":"n2","song":"s4","given":{"syllables":[...],"lines":[...]},"audio"?:{...}}   notes on the lyrics' own times
 ← {"type":"progress","id":"a1","stage":"download|separate|emissions|align|transcribe","p":0.42,"detail":"en 512/1262 MB"}
 ← {"type":"result","id":"a1","source":"aligned","lines":[{"line":0,"aligned":true,"confidence":0.61,
      "words":[{"t":12.41,"end":12.70,"text":"Hello","conf":0.72}]}],"stats":{"separate_s":2.0,...,"language":"en"}}
@@ -277,8 +279,30 @@ docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
   are the aligned ones. A song aligned before the switch was on (a complete cache entry, no notes) is
   recorded once more and aligned as a whole for its notes (`missing()`); a failed notes step is tried
   again at most twice (`no-model` waits for the switch's download).
-- **Nothing to draw:** one line says why (no helper, Precise timing off, the song has its own word
-  timing, no line timing, paused for a game).
+- **Lyrics with their own word timing** (Apple's word/syllable lyrics, enhanced LRC; most popular
+  songs): never aligned, so at first they had no stem and no notes. With Sheet notes on and no
+  notes cached for these lyrics (sheet-notes-store.js `missing()`), the song is recorded the same way
+  (one `parec`, only while a lyric view is open) and each section is only separated
+  (`{"cmd":"separate","id","song","offset","audio":{stream}}`: Demucs, the stem kept in the song cache
+  under its own key; no alignment model is loaded), then its pitch line is asked as above. Once the
+  song was heard to the end, `{"cmd":"notes","id","song","given":{"syllables","lines"}}` works out the
+  notes from the kept sections (stitched; or, when a section wasn't kept or the helper lost them
+  (`no-stem`), with the song's audio streamed and separated once) on the syllable table Sonata sends:
+  align-session.js `givenSyllables`, each lead-vocal word's syllables as the views pop them (Apple's own
+  `syl` times, else lyrics-syllables.js's split of the word's own [t, end]; background vocals left out).
+  The helper (notes_step.py `run_given`) runs the same RMVPE + note model as for an aligned song; the
+  notes are cached in the same store and format (title|artist file, the lyrics' hash), so the next play
+  shows the staff on the lyrics' own clock (`mode()` takes `wordSynced` like `aligned`). Nothing goes into
+  the lyrics store. Left before its end (a skip, the view closed, a seek past part of it): no notes this
+  time, the jobs still queued are skipped and the kept sections forgotten; the next play tries again.
+  One job at a time, the VRAM checks (separation: the alignment's working set + Demucs + the margin;
+  the notes: as below), the gaming guard and the one-helper rule are the same as for aligned songs.
+  Measured 2026-10-18 (RTX 5080, the real helper driven by align-session.js, Cortez – Feel (Stripped),
+  4:01, its JamendoLyrics word annotations standing in for Apple's times): 6 sections separated and
+  their pitch lines, then the notes from the stitched sections, 7.7 s wall in all (model loads
+  included); the notes step RMVPE load 0.23 s, f0 0.31 s, note model 0.44 s; 363 notes on 368
+  syllables, E major, spread 4 cents (all notes); the helper's peak about 1.9 GB of graphics memory.
+- **Nothing to draw:** one line says why (no helper, Precise timing off, no line timing, paused for a game).
 
 **The staff** (`layout()`): each note at its spelled pitch (the note model's line-of-fifths name), as
 long as it was held (no rhythm quantising), the key signature (K-S on the notes: the helper has no
@@ -324,8 +348,9 @@ for the developer log (~1.1 s per song), +0.6 GB VRAM while either runs. The ban
 
 **Known limits:** the key is guessed from the notes (Rxbyn: G major for the research's G minor;
 Cortez: E major for F♯ minor), so a key signature can be the relative or a neighbour; songs with
-Apple's own word timing are never aligned, so they get no notes yet; the first play's line trails a
-section behind.
+Apple's own word timing get notes only when they are heard to the end in one play, and their syllables
+are Apple's own only where Apple timed syllables (else the views' estimated split of each word); the
+first play's line trails a section behind.
 
 ## Install footprint
 

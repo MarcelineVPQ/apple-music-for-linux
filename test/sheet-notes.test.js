@@ -208,7 +208,8 @@ test('mode: off folds the band away; the switch on says why there is nothing to 
   assert.equal(M.mode({ on: false }).band, 'off')
   assert.equal(M.mode(Object.assign({}, base, { installed: false })).band, 'message')
   assert.match(M.mode(Object.assign({}, base, { precise: false })).text, /Precise word timing on/)
-  assert.match(M.mode(Object.assign({}, base, { wordSynced: true })).text, /its own word timing/)
+  // Apple-timed lyrics are no longer turned away: their notes come from their own word times (sheet-notes-given.test.js)
+  assert.equal(M.mode(Object.assign({}, base, { wordSynced: true })).band, 'line')
   assert.match(M.mode(Object.assign({}, base, { timed: false })).text, /line timing/)
 })
 

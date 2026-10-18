@@ -155,7 +155,7 @@ function idleDelay(idleFor, warm, coldMs = IDLE_MS, warmMs = WARM_IDLE_MS) {
 
 /**
  * createAlignHelper({ paths, env?, log?, idleMs?, warmIdleMs?, warm?, jobTimeoutMs? }, deps?)
- *   -> { installed(), ping(), align(id, messages), viewsChanged(), release(), stop(), running }
+ *   -> { installed(), ping(), align(id, messages), notes, pitch, separate, givenNotes, prepareNotes, viewsChanged(), release(), forget, stop(), running }
  * warm() -> true while a lyric view is open (the longer idle limit applies)
  * deps (tests): { spawn, setTimeout, clearTimeout, now, isInstalled }
  */
@@ -362,6 +362,16 @@ function createAlignHelper(opts, deps = {}) {
      * job's song id and offset). -> result { pitch: { t0, hop, v }, stats }; error codes no-stem, no-model, low-vram
      */
     pitch(id, song, offset) { return request(id, [{ cmd: 'pitch', id, song, offset }], jobTimeoutMs) },
+    /**
+     * Sheet notes for lyrics with their own word timing (Apple's): one section only separated and kept
+     * (align-session.js separateMessages; no alignment). -> result { kept, stats }; error code low-vram
+     */
+    separate(id, messages) { return request(id, messages, jobTimeoutMs) },
+    /**
+     * The notes of such a song on the times its lyrics carry (align-session.js givenNotesMessages): from
+     * the kept sections, or from the streamed song. -> result { notes, stats }; codes no-stem, no-model, low-vram
+     */
+    givenNotes(id, messages) { return request(id, messages, jobTimeoutMs) },
     /** Downloads the RMVPE pitch model (only when the Sung notes switch is turned on). Error code checksum. */
     prepareNotes() {
       const id = '__notes' + (++pingN)

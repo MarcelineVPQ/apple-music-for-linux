@@ -318,7 +318,8 @@ function regionAt(regions, t) {
 
 /**
  * The band's mode. st: { on (the setting), installed (the helper), precise (Precise word timing on),
- * wordSynced (the lyrics have their own word timing: Apple's or LRC words, which Sonata doesn't align),
+ * wordSynced (the lyrics have their own word timing: Apple's or LRC words, which Sonata doesn't align; their
+ * notes are worked out on those times, so they go through the same first-play / later-play states),
  * timed (line-synced lyrics), aligned (the words on screen are aligned on this PC), doc (the cached notes
  * for these lyrics, expanded) , pitch (first-play pitch pieces so far), paused (a game runs),
  * error (the last pitch/notes failure, text) }
@@ -333,11 +334,11 @@ function mode(st) {
   if (!s.on) return { band: 'off', label: '', text: '' }
   if (!s.installed) return { band: 'message', label: 'Experimental', text: 'Sheet notes need Precise word timing’s helper (Settings → Precise timing)' }
   if (!s.precise) return { band: 'message', label: 'Experimental', text: 'Sheet notes need Precise word timing on (Settings → Precise timing)' }
-  if (s.doc && s.doc.notes && s.doc.notes.length && s.aligned) {
+  // the notes are on the clock of the words on screen: aligned ones, or the lyrics' own word timing
+  if (s.doc && s.doc.notes && s.doc.notes.length && (s.aligned || s.wordSynced)) {
     const g = s.gate || gate(s.doc)
     return { band: 'notes', label: 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), text: g.song === 'line' ? 'Pitch line only: ' + g.why : '' }
   }
-  if (s.wordSynced) return { band: 'message', label: 'Experimental', text: 'No sheet notes for this song yet: it has its own word timing, and Sonata works out notes only for songs it times itself' }
   if (!s.timed) return { band: 'message', label: 'Experimental', text: 'Sheet notes need lyrics with line timing' }
   if (s.paused) return { band: (s.pitch && s.pitch.length) ? 'line' : 'message', label: 'First play · pitch line', text: 'Paused while a game runs' }
   if (s.pitch && s.pitch.length) return { band: 'line', label: 'First play · pitch line', text: s.error || '' }

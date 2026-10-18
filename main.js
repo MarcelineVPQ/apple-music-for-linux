@@ -682,7 +682,7 @@ function sungNotesDone(s, result, lineOffset) {
   if (!sungNotesOn() || !result || !result.notes) return       // turned off meanwhile: nothing is written
   const info = s.info || {}
   const doc = notesLogLib.buildDoc(result.notes, { title: s.title, artist: s.artist, album: info.album, duration: info.duration, appleId: info.appleId, isrc: info.isrc },
-    { version: app.getVersion(), aligner: (s.entry && s.entry.model) || '', stats: result.stats, lineOffset })
+    { version: app.getVersion(), aligner: s.given ? 'given' : (s.entry && s.entry.model) || '', stats: result.stats, lineOffset })
   // error: SHOWN — a failed write (disk full, permissions) is the status line
   try {
     const out = notesLogLib.writeLog(notesLogLib.logDir(process.env, alignHelperLib.inAppSandbox), doc)
@@ -727,7 +727,8 @@ function setSheetSong(key, title, artist, lines, prep) {
   const hash = alignSessionLib.lyricsHash(lines || [])
   const timed = !!(lines && lines.length && lines[0].t != null)
   sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, error: '' }
-  if (settings.sheetNotes && title && timed && !prep.wordSynced) {
+  // (lyrics with their own word timing too: their notes are worked out on those times, align-session.js)
+  if (settings.sheetNotes && title && timed) {
     const e = getSheetStore().get(title, artist)
     if (sheetModel.entryValid(e, hash)) sheet.entry = e
   }

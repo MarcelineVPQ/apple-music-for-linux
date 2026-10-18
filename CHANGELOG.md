@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Sheet notes for songs with Apple's own word timing.** Most popular songs come with Apple's word-by-word or syllable lyrics, and until now the Studio's sheet-notes band turned them away ("it has its own word timing"), so they never got notes. Now, with Sheet notes on, such a song is treated like any other: on its first play the band draws the pitch line as each part of the song is heard, and Sonata works out the notes on Apple's own word and syllable times (the precise-timing helper separates the vocals and follows their pitch; nothing is re-timed). From the next play the notes show on the staff, in sync with Apple's words. A song left before its end gets its notes on a later play. It still needs Precise word timing and its helper, and like all of it, it pauses while a game runs.
+
 ### Changed
 
 - **Updates come from a new place: [MarcelineVPQ/sonata-releases](https://github.com/MarcelineVPQ/sonata-releases).** Sonata's releases, its signed update feeds and the complete source of each release (`sonata-X.Y.Z-source.tar.gz`, GPL-3.0, with `SHA256SUMS`) now live in a repository that holds only those; each release's AppImage is built there from exactly its published source. Nothing to do: this build arrived through the old feed, and from now on Sonata reads the new one, with the same signing key and the same checks (signature, size, SHA-512). About → Releases opens the new page.
