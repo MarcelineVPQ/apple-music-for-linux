@@ -6,8 +6,17 @@ installer, plain-lyrics mode and transcription). As built: recording runs only w
 is open (the lyrics window or, since 0.15.24, the visualizer, like Level 1; one shared parec for the
 visualizer, Level 1 and Level 2), the song is aligned once its lyric span was heard
 (≥ 90 %) via stream mode, so no audio file is ever written (since 0.15.33 progressively: each section of
-lines is aligned while the song plays, then the whole song once more, see docs/LYRIC-TIMING.md), and the helper is the user's venv
-python running the `align/` scripts shipped unpacked next to app.asar.
+lines is aligned while the song plays, then the whole song once more, see docs/LYRIC-TIMING.md).
+
+**The helper is a separate download (since 0.15.45).** Up to 0.15.44 Sonata shipped the helper's Python
+in `align/`. Now the helper is the Sonata engine, its own program with its own licence: a release
+(`sonata-engine-X.Y.Z-linux-x86_64.tar.gz` on MarcelineVPQ/sonata-releases, tag `engine-vX.Y.Z`:
+compiled modules for Python 3.12, an entry script, its venv recipe, its licence and third-party notices).
+Sonata pins the one it wants in `align/engine.json` (version, protocol, file, URL, size, SHA-256, the
+engine's Ed25519 signing key) and carries only the generic bootstrap (`align/install.sh`), the protocol
+client (align-helper.js) and the session. Python file names below (sonata_align.py, server.py,
+notes_step.py, ...) are the engine's; they are no longer in this repository (test/engine-boundary.test.js
+keeps it that way). See "Install" below.
 Level 1 (docs/LISTEN-SPEC.md) nudges estimated words toward onsets it hears. Level 2 finds where
 each word is actually sung: it separates the vocals and force-aligns the KNOWN lyrics to them on
 the GPU. A fallback mode transcribes songs that have no lyrics anywhere.
@@ -120,9 +129,12 @@ probability; `align_conf` when re-timed). **It can mishear, so the UI must label
 - WER is measured against JamendoLyrics' normalised lyrics (accents and punctuation stripped on
   both sides), so it is slightly pessimistic for numbers and spelled-out words.
 
-## Helper protocol (`align/sonata-align`)
+## Helper protocol (protocol 2)
 
-The helper is spawned by Sonata and speaks JSON lines on stdin/stdout. stdout carries only
+The helper is spawned by Sonata (`<venv>/bin/python -u <home>/engine-X.Y.Z/main.py`) and speaks JSON
+lines on stdin/stdout. Its pong carries `"protocol": 2` (none = 1, the helper shipped inside Sonata up
+to 0.15.44); align-helper.js speaks 1 and 2 and refuses another with code `protocol` ("Update Precise
+timing"). New fields are additive; both sides ignore what they don't know. stdout carries only
 protocol messages; logs go to stderr. One job runs at a time and the rest queue. Models stay
 loaded between songs; the alignment model is swapped per language and the separator stays loaded.
 
@@ -161,7 +173,7 @@ Demucs waits for the GPU. After each job the allocator's cache goes back to the 
 (`torch.cuda.empty_cache`). Before each GPU job the free VRAM (`torch.cuda.mem_get_info`) must cover
 the working set (1.8 GB) + any model still to load + a 1 GB margin (`SONATA_ALIGN_VRAM_MARGIN_GB`),
 else `low-vram` and nothing runs. `SONATA_ALIGN_VRAM_FRACTION` hard-caps the process (benches).
-align/bench.py, 6 English songs, before → after: CPU 66–71 → 31 s, wall the same (20.0 s), peak
+the engine's bench.py, 6 English songs, before → after: CPU 66–71 → 31 s, wall the same (20.0 s), peak
 VRAM 3184 → 3100 MB reserved, at rest 3184 → 1402 MB reserved (the helper process 3.5 → 1.7 GB in
 nvidia-smi), accuracy identical.
 
@@ -185,11 +197,11 @@ Model files download on first use with `progress` messages (`stage: "download"`)
 GPU is used when available. `SONATA_ALIGN_DEVICE=cpu` forces the CPU path, which also runs on
 machines without NVIDIA (slow, see above). AMD/ROCm is not tested.
 
-Files: `align/sonata_align.py` (pipeline), `align/server.py` (protocol), `align/sonata-align`
-(launcher), `align/install.sh` + `requirements.txt`, `align/bench.py`,
-`align/bench_transcribe.py`, `align/test_align.py` (unit tests: Viterbi, windows, text, language,
-PCM, protocol, holds, paths, GPU budget, stitching). test/align-install.test.js covers install.sh's
-and the launcher's path choices.
+Files (engine): sonata_align.py (pipeline), server.py (protocol), the launcher, setup-venv.sh +
+requirements.txt, bench.py, bench_transcribe.py, test_align.py (unit tests: Viterbi, windows, text,
+language, PCM, protocol, holds, paths, GPU budget, stitching). In Sonata: `align/install.sh` (the
+bootstrap), `align/engine.json` (the pin), test/align-install.test.js (the bootstrap's checks and path
+choices), test/fake-align-helper fixtures (the protocol without the engine).
 
 ## Sung notes (developer log, experimental)
 
@@ -203,7 +215,7 @@ stem (CPU, 16 kHz; the stitched sections or the separated song: no second separa
 lines and each character's first frame (`Aligner.last_char_first`), one song at most. Sonata
 (align-session.js) then queues `{"cmd":"notes","id","song","syl"}` behind whatever waits, so the
 alignment itself is never delayed; `syl` is lyrics-syllables.js's split of every word (the one the
-views use). The helper (align/notes_step.py) runs RMVPE on the stem, times each syllable at the first
+views use). The helper (the engine's notes_step.py) runs RMVPE on the stem, times each syllable at the first
 aligned frame of its letters, gates frames to within 35 dB of the stem's loud singing, calls
 `notes.notes_from`, frees RMVPE and the allocator cache, and answers `{"type":"result","notes":{…}}`.
 main.js adds the song's identity and writes the file (notes-log.js). Error codes: `no-stem` (nothing
@@ -211,7 +223,7 @@ kept for that song, e.g. the helper restarted), `no-model`, `low-vram` (needs 0.
 margin free), plus `checksum` for the download. Every outcome is the one status line under the
 switch.
 
-**The model's interface** (align/notes.py; the model is align/sung_notes.py, vendored unchanged from
+**The model's interface** (the engine's notes.py; the model is its sung_notes.py, vendored unchanged from
 research `research/notes-proto/sung_notes.py` cfb48c7 (research-gpu-pipeline branch), numpy only, no I/O):
 
     notes_from(f0, times, conf, syllables, opts=None) -> dict
@@ -241,7 +253,8 @@ appleId, isrc (0.15.42; null when Apple gave none)}, `sonata` (version), `models
 `validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 1000 files,
 the oldest removed. About 110 kB per song.
 
-**Judging a live track.** `python3 tools/notes-log.py <file>` prints the notes per lyric line ("line
+**Judging a live track.** The engine's notes-log.py tool (`python3 notes-log.py <file>` in the
+engine repository's tools; it moved there with the note model it imports) prints the notes per lyric line ("line
 text:  E4 F♯4–G4 …", – joining a melisma) and the same word by word; `--png <picture>.png --t0 34 --dur 25`
 draws the research prototype's staff view (system Python with matplotlib).
 
@@ -249,11 +262,10 @@ draws the research prototype's staff view (system Python with matplotlib).
 1.1 s wall: RMVPE load 0.27 s, f0 0.36–0.42 s on the GPU, the note model 0.41–0.46 s on the CPU.
 Extra VRAM while it runs about 0.6 GB (2.0 GB process peak with the alignment models resident).
 
-Files: align/notes_step.py (the step, the download), align/notes.py (the interface),
-align/sung_notes.py (the model), align/rmvpe.py (the network, RVC's code, MIT; mel filters from
-torchaudio), align/test_notes.py (synthetic voice, syllables, download and checksum, protocol;
-`SONATA_TEST_RMVPE=<rmvpe.pt>` adds a real RMVPE run), notes-log.js, test/notes-log.test.js,
-tools/notes-log.py.
+Files (engine): notes_step.py (the step, the download), notes.py (the interface), sung_notes.py (the
+model), rmvpe.py (the network, RVC's code, MIT; mel filters from torchaudio), test_notes.py (synthetic
+voice, syllables, download and checksum, protocol; `SONATA_TEST_RMVPE=<rmvpe.pt>` adds a real RMVPE
+run), the notes-log.py tool. In Sonata: notes-log.js, test/notes-log.test.js.
 
 ## Sheet notes in the Studio (experimental)
 
@@ -327,16 +339,38 @@ Cortez: E major for F♯ minor), so a key signature can be the relative or a nei
 Apple's own word timing are never aligned, so they get no notes yet; the first play's line trails a
 section behind.
 
+## Install
+
+`align/install.sh` (from Sonata's source; the AppImage carries it unpacked too) installs the pinned engine:
+
+1. picks the home (below) and reads `align/engine.json`;
+2. downloads the release file and its `.sig` (`--from DIR|URL` for a mirror or a local copy), and refuses
+   it unless its size, its SHA-256 and its Ed25519 signature (OpenSSL 3, the key in the pin) all match;
+3. prints the helper's EULA.md, its licence, and installs only after "yes" at the terminal
+   (`--accept-licence` for scripts; with no terminal and no flag it stops);
+4. unpacks it into `<home>/engine-X.Y.Z/` (stamp `.installed`: SHA-256 and when the licence was accepted);
+5. runs the engine's own setup-venv.sh: a Python 3.12 venv in `<home>/venv` (python3.12 from the system,
+   else uv's managed 3.12 in `<home>/python`), torch 2.11 from the PyTorch index (`--cpu` for CPU wheels),
+   the rest from the engine's pinned requirements. A venv on another Python (an install from before
+   0.15.45 on 3.13) is moved aside to `venv.old-<date>` and rebuilt; an up-to-date venv is reused;
+6. checks that the engine answers a ping in that venv.
+
+Updating = running it again when Sonata pins a new engine (Settings and the rail say "Helper needs an
+update": align-helper.js `checkInstall` state `update`); only a few MB download unless the requirements
+changed. Removing = deleting the home (models included). `SONATA_ENGINE_DIR` points Sonata at an
+unpacked engine or an engine checkout instead (engine work only). Sonata's CI never downloads the engine:
+its tests use the fake helper.
+
 ## Install footprint
 
 Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it;
 `$XDG_DATA_HOME/sonata-align` only when XDG_DATA_HOME is not inside another app's sandbox). Nothing
 is installed system-wide.
 
-**The venv's Python (0.15.38).** A venv's `bin/python` is a link to the interpreter it was made
-from. install.sh builds it from a system Python 3.10–3.13 (3.12 first; `SONATA_ALIGN_PYTHON`
-overrides), never one under `~/snap`, `/snap`, `~/.var/app` or an AppImage mount, and never lets uv
-download one (except `--uv-python`, into `<home>/python`). The first install came from the Codium
+**The venv's Python (0.15.38; Python 3.12 only since 0.15.45).** A venv's `bin/python` is a link to the
+interpreter it was made from. The engine's setup-venv.sh builds it from Python 3.12 (`SONATA_ALIGN_PYTHON`
+overrides), never one under `~/snap`, `/snap`, `~/.var/app` or an AppImage mount; without a system 3.12
+uv downloads one into `<home>/python`. The first install came from the Codium
 snap's terminal: uv put Python in `~/snap/codium/495/` and the snap set XDG_DATA_HOME there, so a
 snap refresh would have broken Precise timing. Sonata checks the install at start and when
 Settings asks (align-helper.js `checkInstall`): a dangling or sandboxed python gets a notice in
@@ -346,7 +380,7 @@ Settings → Precise timing and the rail says "Helper needs a rebuild". The fix 
 
 | Part | Size |
 |---|---|
-| venv (a system Python 3.10–3.13, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1 GB |
+| venv (Python 3.12, torch 2.11 cu128 + CUDA libs 4.2 GB, triton 0.6 GB, demucs, transformers, faster-whisper) | 7.1 GB |
 | CPU-only venv (`install.sh --cpu`, estimate) | ~1 GB |
 | htdemucs | 84 MB |
 | aligner per language (en / xlsr-xx / mms) | 1.26 GB each |
@@ -364,7 +398,7 @@ Sonata is GPL-3.0. Nothing below is bundled into Sonata. The user's own install 
 
 | Component | Licence | Notes |
 |---|---|---|
-| align/ code (ours) | GPL-3.0 (repo licence) | |
+| the helper (the Sonata engine, ours) | its own licence, shown at install | separate program and download; the copies shipped in Sonata up to 0.15.44 stay GPL-3.0 |
 | PyTorch / torchaudio | BSD-3 / BSD-2 | |
 | NVIDIA CUDA/cuDNN wheels | NVIDIA EULA (redistributable runtime) | pulled by pip, not by us |
 | Demucs code + htdemucs weights | MIT | |
@@ -374,7 +408,7 @@ Sonata is GPL-3.0. Nothing below is bundled into Sonata. The user's own install 
 | transformers / huggingface_hub | Apache-2.0 | |
 | faster-whisper / CTranslate2 | MIT / MIT | |
 | Whisper large-v3-turbo weights (+ CTranslate2 conversion, dropbox-dash, formerly mobiuslabsgmbh) | MIT | |
-| RMVPE network code (RVC, align/rmvpe.py) + rmvpe.pt weights | MIT | Sung notes developer log only |
+| RMVPE network code (RVC, the engine's rmvpe.py) + rmvpe.pt weights | MIT | Sung notes developer log only |
 | onnxruntime (Silero VAD inside faster-whisper) | MIT (VAD model MIT) | |
 | soundfile (libsndfile), PyAV (FFmpeg) | BSD-3 (LGPL-2.1 libs, dynamically linked) | |
 | Bench songs (JamendoLyrics) | CC BY / BY-SA / BY-NC / BY-ND / … per song | kept only in `~/.local/share/sonata-align/bench/`, unmodified, never in the repo; used only for local measurement |
@@ -480,4 +514,4 @@ labelled.
 
 **Held notes (0.15.34):** after the Viterbi pass, `extend_holds` lets each word's end follow the separated vocal stem while it stays loud (`hold_db` 24 dB below the song's loud singing, 15 dB above its quiet frames, `hold_gap` 4 frames, `hold_max` 8 s, never past the next word − 0.04 s). Words extended by ≥ 0.2 s carry `held` and `hold_from`. `--param hold=0` turns it off (the bench's "before"). Numbers: docs/LYRIC-TIMING.md "Held notes".
 
-**Hold attribution (0.15.41):** the CTC path puts a held line-final word on its last letters, so `extend_holds` can give the hold to the function word before it ("make it o—n"). Sonata moves such holds back (lyrics-timing.js `reattributeHolds`, on helper results and on cache reads); the helper output is unchanged. `align/bench.py` stores word starts and `hold_from` and scores the words as Sonata shows them (`aligned_as_shown`). docs/LYRIC-TIMING.md "Hold attribution".
+**Hold attribution (0.15.41):** the CTC path puts a held line-final word on its last letters, so `extend_holds` can give the hold to the function word before it ("make it o—n"). Sonata moves such holds back (lyrics-timing.js `reattributeHolds`, on helper results and on cache reads); the helper output is unchanged. the engine's bench.py stores word starts and `hold_from` and scores the words as Sonata shows them (`aligned_as_shown`). docs/LYRIC-TIMING.md "Hold attribution".

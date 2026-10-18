@@ -244,7 +244,7 @@ node tools/drift-check/section-bench.js [--limit 79]          # GPU, spawns its 
 # DOM proof: isolated Electron, see the header of tools/drift-check/dom-check.js
 ```
 
-JamendoLyrics is read from align/bench.py's copy (`~/.local/share/sonata-align/bench`), and its
+JamendoLyrics is read from the engine's bench.py's copy (`~/.local/share/sonata-align/bench`), and its
 aligned words from `<bench>/results/auto-j0.json` (in that bench folder). The `--audio` onsets are cached in `--work`.
 
 ## Not verified
@@ -274,7 +274,7 @@ the highlight ends ≥ 250 ms before the voice; *held frames lit*: share of 50 m
 where the held word is the lit one.
 
 **Changes**
-1. **Aligner** (`align/sonata_align.py` `extend_holds`): after the alignment, each word's end follows the
+1. **Aligner** (the engine's sonata_align.py `extend_holds`): after the alignment, each word's end follows the
    separated vocal stem while it stays loud (within 24 dB of the song's loud singing and 15 dB above its
    quiet frames, dips up to 80 ms), never past the next word's start − 0.04 s or 8 s; an extension of 0.2 s
    or more marks the word `held` with `hold_from` (where the sung part ends). Aligned cache entries move to
@@ -309,7 +309,7 @@ are often cut short: the "after" is understated): estimate 61 % → 41 % ended e
 54 %, all frames lit 38 % → 46 %. Her aligned songs themselves can't be re-measured here (no audio); they are
 re-aligned with holds on their next play.
 
-The aligner rows come from two `align/bench.py` runs on the RTX 5080, `--param hold=0` and the default; the
+The aligner rows come from two the engine's bench.py runs on the RTX 5080, `--param hold=0` and the default; the
 bench file now stores the aligner's word ends and holds. In the app, `tools/ui-check.js lyrics` checks a held
 word over the next line's start: both lines lit, the held word lit and settled into its sustain, and released
 0.6 s past an anchor-only next line.
@@ -391,7 +391,7 @@ real helper, RTX 5080, in eight slices of ten songs, VRAM capped at 40 %).
 
 "(Hey-hey-ay-ay-ay)" was one word to all three splitters, so the estimate weighed it as about two
 syllables and the aligner placed it as one token. Now `lyrics-timing.js` `splitWords` (used by
-align-session.js too) and `align/sonata_align.py` `split_words` split at white space and at every hyphen
+align-session.js too) and the engine's sonata_align.py `split_words` split at white space and at every hyphen
 between two letters, the hyphen staying on the piece before it ("(Hey-", "hey-", "ay-", "ay-", "ay)").
 One fixture, `test/fixtures/split-words.json`, is checked by both test suites. A hyphen piece gets no
 breath weight (`wordWeight`). The views write the pieces of a run together, without spaces
@@ -512,7 +512,7 @@ frames (the "n" at the end of the hold), and `extend_holds` then follows the lou
 the hold itself is real; only its owner is wrong.
 
 **What the bench says about moving holds** (79 JamendoLyrics songs, ±0.5 s anchors, the aligner's own
-starts, ends and `hold_from` now stored by `align/bench.py`). Of 278 mid-line words held ≥ 0.5 s, moving
+starts, ends and `hold_from` now stored by the engine's bench.py). Of 278 mid-line words held ≥ 0.5 s, moving
 the next word's start to the hold's start made it worse for 201 and better for 68: mid-line holds ("la
 cellule", "tu musa", "a menos") are mostly real. Line-final words after a held function word are the
 other way round ("care at all": "all" 1.22 s late → 0.10 s early).
@@ -530,7 +530,7 @@ Spanish "no no" wrongly until "no" left the list. The bench gives the same three
 1.0 s for the last word.
 
 **Numbers.** JamendoLyrics, all words (aligned, rejected lines keep the estimate), new `aligned_as_shown`
-row of `align/bench.py`: median 0.033 s, 87.2 % ≤ 0.1 s, 96.1 % ≤ 0.3 s, mean 0.084 s, before and
+row of the engine's bench.py: median 0.033 s, 87.2 % ≤ 0.1 s, 96.1 % ≤ 0.3 s, mean 0.084 s, before and
 after; 3 words move, all closer to the annotation (1.22 → 0.10, 0.73 → 0.05, 0.81 → 0.07 s). Her
 library (a copy of her cache, 2026-10-17, 90 aligned entries, 3,656 lines): 31 pairs of a word held
 ≥ 0.6 s before a short last word; 13 move (10 songs: "make it on", "on my own" ×4, "at all" ×4, "on us",

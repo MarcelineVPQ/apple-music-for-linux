@@ -1,33 +1,38 @@
 #!/bin/sh
-# Install sonata-align into a private venv (no system packages, no sudo).
-#   ./install.sh             GPU build (CUDA 12.8 wheels; works on CPU too, ~7 GB)
-#   ./install.sh --cpu       CPU-only build (~1 GB, much slower)
-#   ./install.sh --rebuild   a new venv; the old one is moved aside to venv.old-<date> (rollback: move
-#                            it back), the downloaded models in <home>/models stay
-#   ./install.sh --dry-run   print the home and the Python it would use; change nothing
-#   ./install.sh --uv-python no system Python 3.10-3.13: let uv download Python 3.12 into
-#                            <home>/python (Sonata's own folder, never another app's)
-# Models download on first use (or: echo '{"cmd":"prepare","id":"p"}' | ./sonata-align).
-#
-# The venv is always built from a system Python (python3.12, 3.13, 3.11 or 3.10 on PATH, or
-# SONATA_ALIGN_PYTHON), never from one inside another app's sandbox or runtime: ~/snap, /snap,
-# ~/.var/app (Flatpak) or an AppImage mount. A venv's python is a link to the interpreter it was
-# made from; in 2026-10 it pointed into ~/snap/codium/495/ (uv run from the Codium snap's terminal,
-# which also sets XDG_DATA_HOME to the snap's folder), and a snap refresh would have broken it.
-# Same home rule as align/sonata-align, sonata_align.data_dir and align-helper.js helperPaths.
+# Installs Precise word timing's helper (the Sonata engine, a separate download) into a private
+# folder: no sudo, no system packages. Generic: download -> verify -> licence -> unpack -> venv.
+#   ./install.sh               GPU build (CUDA 12.8 wheels; works on CPU too, ~7 GB)
+#   ./install.sh --cpu         CPU-only build (~1 GB, much slower)
+#   ./install.sh --rebuild     a new venv; the old one is moved aside to venv.old-<date> (rollback: move
+#                              it back), the downloaded models in <home>/models stay
+#   ./install.sh --dry-run     print the home, the pinned engine and what is installed; change nothing
+#   ./install.sh --accept-licence   accept the helper's licence without the prompt (it is still printed)
+#   ./install.sh --from DIR|URL     fetch the pinned file from there instead of the release (a mirror,
+#                              a local copy): its size, SHA-256 and signature must still match the pin
+# The engine Sonata wants is pinned in engine.json beside this script (version, file, size, SHA-256,
+# the engine's Ed25519 signing key); anything else is refused. It is unpacked into
+# <home>/engine-X.Y.Z/, which builds the venv in <home>/venv from its own recipe (setup-venv.sh,
+# Python 3.12). Models download on first use. The home: SONATA_ALIGN_HOME, else
+# $XDG_DATA_HOME/sonata-align (outside app sandboxes), else ~/.local/share/sonata-align; never inside
+# another app's sandbox (~/snap, /snap, ~/.var/app, an AppImage mount). Same rule as align-helper.js
+# helperPaths. Removing it: delete the home (the models are in it too).
 set -e
 
-CPU=0 REBUILD=0 DRY=0 UVPY=0
-for a in "$@"; do
-  case "$a" in
-    --cpu) CPU=1 ;;
-    --rebuild) REBUILD=1 ;;
+CPU="" REBUILD="" DRY=0 ACCEPT=0 FROM=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cpu) CPU=--cpu ;;
+    --rebuild) REBUILD=--rebuild ;;
     --dry-run) DRY=1 ;;
-    --uv-python) UVPY=1 ;;
-    *) echo "unknown option: $a" >&2; exit 2 ;;
+    --accept-licence|--accept-license) ACCEPT=1 ;;
+    --from) FROM="$2"; shift ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
+  shift
 done
 
+HERE="$(dirname "$(readlink -f "$0")")"
+PIN="$HERE/engine.json"
 REAL_HOME="$(readlink -f "$HOME" 2>/dev/null || echo "$HOME")"
 # true for a path inside another app's sandbox or runtime (resolved, so links count where they lead)
 in_sandbox() {
@@ -37,7 +42,6 @@ in_sandbox() {
   esac
   return 1
 }
-
 if [ -n "$SONATA_ALIGN_HOME" ]; then
   HOME_DIR="$SONATA_ALIGN_HOME"
 elif [ -n "$XDG_DATA_HOME" ] && [ "${XDG_DATA_HOME#/}" != "$XDG_DATA_HOME" ] && ! in_sandbox "$XDG_DATA_HOME"; then
@@ -49,114 +53,94 @@ if in_sandbox "$HOME_DIR"; then
   echo "refusing to install into $HOME_DIR: it is inside another app's sandbox (set SONATA_ALIGN_HOME elsewhere)" >&2
   exit 1
 fi
-VENV="$HOME_DIR/venv"
-HERE="$(dirname "$(readlink -f "$0")")"
 
-# a Python the venv can be built from: 3.10-3.13 (torch 2.11, demucs and ctranslate2 wheels), outside any sandbox
-py_ok() {
-  [ -x "$1" ] || return 1
-  in_sandbox "$1" && return 1
-  "$1" -c 'import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 13) else 1)' 2>/dev/null
-}
-pick_python() {
-  if [ -n "$SONATA_ALIGN_PYTHON" ]; then
-    if py_ok "$SONATA_ALIGN_PYTHON"; then echo "$SONATA_ALIGN_PYTHON"; return 0; fi
-    echo "SONATA_ALIGN_PYTHON=$SONATA_ALIGN_PYTHON is not usable (Python 3.10-3.13, not inside an app sandbox)" >&2
-    return 1
-  fi
-  for v in 3.12 3.13 3.11 3.10 3; do
-    IFS=:
-    for d in $PATH; do
-      unset IFS
-      [ -n "$d" ] || continue
-      in_sandbox "$d" && continue
-      if py_ok "$d/python$v"; then echo "$d/python$v"; return 0; fi
-    done
-    unset IFS
-  done
-  return 1
-}
+# the pin: one "key": value per line (written by tools/pin-engine.js)
+pin() { sed -n 's/^ *"'"$1"'": *"\{0,1\}\([^",]*\)"\{0,1\},\{0,1\} *$/\1/p' "$PIN" | head -n 1; }
+[ -f "$PIN" ] || { echo "no engine.json beside $0" >&2; exit 1; }
+VERSION="$(pin version)" FILE="$(pin file)" URL="$(pin url)" SIZE="$(pin size)" SHA="$(pin sha256)" KEY="$(pin key)"
+for v in VERSION FILE URL SIZE SHA KEY; do
+  eval "[ -n \"\$$v\" ]" || { echo "engine.json has no $(echo $v | tr A-Z a-z)" >&2; exit 1; }
+done
+case "$FILE" in */*|.*) echo "engine.json: bad file name $FILE" >&2; exit 1 ;; esac
+ENGINE="$HOME_DIR/engine-$VERSION"
+if [ -n "$FROM" ]; then URL="${FROM%/}/$FILE"; fi
 
-venv_state() {
-  [ -e "$VENV/bin/python" ] || [ -L "$VENV/bin/python" ] || { echo missing; return; }
-  [ -x "$VENV/bin/python" ] || { echo broken; return; }
-  if in_sandbox "$VENV/bin/python"; then echo sandboxed; return; fi
-  if [ -f "$VENV/pyvenv.cfg" ]; then
-    cfg_home="$(sed -n 's/^home *= *//p' "$VENV/pyvenv.cfg" | head -n 1)"
-    if [ -n "$cfg_home" ] && in_sandbox "$cfg_home"; then echo sandboxed; return; fi
-  fi
-  echo ok
-}
-
-PY=""
-if [ "$UVPY" = 0 ]; then PY="$(pick_python)" || PY=""; fi
-STATE="$(venv_state)"
 if [ "$DRY" = 1 ]; then
   echo "home: $HOME_DIR"
-  echo "python: ${PY:-none}"
-  echo "venv: $STATE"
+  echo "engine: $VERSION ($FILE, $SIZE bytes, sha256 $SHA)"
+  echo "from: $URL"
+  if [ -f "$ENGINE/.installed" ]; then echo "installed: yes ($ENGINE)"; else echo "installed: no"; fi
+  [ -x "$ENGINE/setup-venv.sh" ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run $CPU
   exit 0
 fi
 
-if [ "$STATE" = broken ] || [ "$STATE" = sandboxed ]; then
-  if [ "$REBUILD" = 0 ]; then
-    echo "the venv in $VENV is $STATE (its python: $(readlink "$VENV/bin/python" 2>/dev/null || echo '?'))." >&2
-    echo "rebuild it from a normal terminal: $0 --rebuild   (the models are kept, the old venv is moved aside)" >&2
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -c1-64; else shasum -a 256 "$1" | cut -c1-64; fi; }
+fetch() {   # fetch URL-or-path DEST
+  case "$1" in
+    http://*|https://*)
+      if command -v curl >/dev/null 2>&1; then curl -fL# --retry 3 --proto '=https,http' -o "$2" "$1"
+      elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
+      else echo "needs curl or wget to download the engine" >&2; return 1; fi ;;
+    file://*) cp "${1#file://}" "$2" ;;
+    *) cp "$1" "$2" ;;
+  esac
+}
+# Ed25519 over the exact bytes (base64 signature, the key as base64 SPKI DER), with OpenSSL 3
+verify_sig() {   # verify_sig FILE SIGFILE
+  command -v openssl >/dev/null 2>&1 || { echo "needs openssl (3.0 or newer) to check the engine's signature" >&2; return 1; }
+  printf -- '-----BEGIN PUBLIC KEY-----\n%s\n-----END PUBLIC KEY-----\n' "$KEY" > "$TMPD/key.pem"
+  base64 -d "$2" > "$TMPD/sig.bin" 2>/dev/null || { echo "the signature file is not base64" >&2; return 1; }
+  openssl pkeyutl -verify -pubin -inkey "$TMPD/key.pem" -rawin -in "$1" -sigfile "$TMPD/sig.bin" >/dev/null 2>&1
+}
+
+mkdir -p "$HOME_DIR"
+TMPD="$(mktemp -d "$HOME_DIR/.download.XXXXXX")"
+trap 'rm -rf "$TMPD"' EXIT
+
+if [ -f "$ENGINE/.installed" ] && [ "$(sed -n 's/^sha256=//p' "$ENGINE/.installed")" = "$SHA" ]; then
+  echo "engine $VERSION is already installed in $ENGINE"
+else
+  echo "downloading the Sonata engine $VERSION ($SIZE bytes) from $URL"
+  fetch "$URL" "$TMPD/$FILE"
+  fetch "$URL.sig" "$TMPD/$FILE.sig"
+  got="$(wc -c < "$TMPD/$FILE" | tr -d ' ')"
+  [ "$got" = "$SIZE" ] || { echo "refused: the download is $got bytes, the pin says $SIZE" >&2; exit 1; }
+  [ "$(sha256 "$TMPD/$FILE")" = "$SHA" ] || { echo "refused: the download's SHA-256 is not the pinned one" >&2; exit 1; }
+  verify_sig "$TMPD/$FILE" "$TMPD/$FILE.sig" || { echo "refused: the engine's signature does not check out" >&2; exit 1; }
+  echo "checked: size, SHA-256 and signature match the pin"
+  mkdir -p "$TMPD/x"
+  tar -xzf "$TMPD/$FILE" -C "$TMPD/x" --no-same-owner
+  SRC="$TMPD/x/sonata-engine-$VERSION"
+  [ -f "$SRC/ENGINE.json" ] && [ -x "$SRC/setup-venv.sh" ] || { echo "refused: the archive is not an engine $VERSION" >&2; exit 1; }
+  # the licence, before anything is installed
+  echo
+  echo "================ Licence of the Precise timing helper ================"
+  cat "$SRC/EULA.md"
+  echo "====================================================================="
+  echo
+  if [ "$ACCEPT" = 1 ]; then
+    echo "licence accepted (--accept-licence)"
+  elif [ -r /dev/tty ] && (: < /dev/tty) 2>/dev/null; then
+    printf 'Type "yes" to accept the licence and install: '
+    read -r answer < /dev/tty || answer=""
+    [ "$answer" = yes ] || { echo "not accepted: nothing installed"; exit 1; }
+  else
+    echo "no terminal to ask: run it again with --accept-licence once you have read the licence above" >&2
     exit 1
   fi
-fi
-if [ -z "$PY" ] && [ "$UVPY" = 0 ]; then
-  echo "no system Python 3.10-3.13 found outside app sandboxes." >&2
-  echo "install one from your distribution (Ubuntu/Debian: sudo apt install python3.12-venv or python3.13-venv)," >&2
-  echo "or set SONATA_ALIGN_PYTHON=/path/to/python3.x, or run $0 --uv-python (uv downloads Python 3.12 into $HOME_DIR/python)" >&2
-  exit 1
+  rm -rf "$ENGINE.new"
+  mv "$SRC" "$ENGINE.new"
+  printf 'version=%s\nsha256=%s\nlicence_accepted=%s\n' "$VERSION" "$SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENGINE.new/.installed"
+  rm -rf "$ENGINE"
+  mv "$ENGINE.new" "$ENGINE"
+  echo "engine $VERSION unpacked into $ENGINE"
 fi
 
-# uv's cache and Python downloads: never inside an app sandbox either
-if [ -n "$XDG_CACHE_HOME" ] && in_sandbox "$XDG_CACHE_HOME"; then export UV_CACHE_DIR="$HOME/.cache/uv"; fi
-export UV_PYTHON_INSTALL_DIR="$HOME_DIR/python"
-UV="$(command -v uv || true)"
-if [ "$UVPY" = 1 ] && [ -z "$UV" ]; then echo "--uv-python needs uv (https://docs.astral.sh/uv/)" >&2; exit 1; fi
-
-INDEX=https://download.pytorch.org/whl/cu128
-[ "$CPU" = 1 ] && INDEX=https://download.pytorch.org/whl/cpu
-mkdir -p "$HOME_DIR"
-
-OLD=""
-if [ "$REBUILD" = 1 ] && [ "$STATE" != missing ]; then
-  OLD="$VENV.old-$(date +%Y%m%d-%H%M%S)"
-  mv "$VENV" "$OLD"
-  echo "moved the old venv to $OLD"
-fi
-# a failed build puts the old venv back
-restore() {
-  if [ -n "$OLD" ] && [ -d "$OLD" ]; then
-    rm -rf "$VENV"
-    mv "$OLD" "$VENV"
-    echo "build failed: the old venv is back in $VENV" >&2
-  fi
-}
-trap 'restore' EXIT
-
-if [ ! -x "$VENV/bin/python" ]; then
-  if [ "$UVPY" = 1 ]; then
-    UV_PYTHON_DOWNLOADS=automatic "$UV" venv --python 3.12 --python-preference only-managed "$VENV"
-  elif [ -n "$UV" ]; then
-    UV_PYTHON_DOWNLOADS=never "$UV" venv --python "$PY" --python-preference only-system "$VENV"
-  else
-    "$PY" -m venv "$VENV"
-  fi
-fi
-if [ -n "$UV" ]; then
-  "$UV" pip install --python "$VENV/bin/python" --index-url "$INDEX" torch==2.11.0 torchaudio==2.11.0
-  "$UV" pip install --python "$VENV/bin/python" -r "$HERE/requirements.txt" --extra-index-url "$INDEX"
-else
-  "$VENV/bin/python" -m pip install --upgrade pip
-  "$VENV/bin/python" -m pip install --index-url "$INDEX" torch==2.11.0 torchaudio==2.11.0
-  "$VENV/bin/python" -m pip install -r "$HERE/requirements.txt" --extra-index-url "$INDEX"
-fi
-"$VENV/bin/python" -c 'import torch, torchaudio, demucs; print("torch", torch.__version__, "cuda" if torch.cuda.is_available() else "cpu")'
-trap - EXIT
-echo "installed in $VENV (python: $(readlink -f "$VENV/bin/python"))"
-[ -n "$OLD" ] && echo "the old venv is in $OLD: once Precise timing works, remove it (rm -rf '$OLD'); to roll back: rm -rf '$VENV' && mv '$OLD' '$VENV'"
+sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" $CPU $REBUILD
+"$ENGINE/sonata-align" --check >/dev/null || { echo "the engine does not start in the venv: run $0 --rebuild" >&2; exit 1; }
+echo "Precise word timing's helper is installed (engine $VERSION in $HOME_DIR). Sonata notices it in Settings → Word timing."
+# older engines stay beside it (a few MB each) until removed by hand
+for d in "$HOME_DIR"/engine-*; do
+  [ -d "$d" ] && [ "$d" != "$ENGINE" ] && case "$d" in *.new) ;; *) echo "an older engine is still in $d (remove it with rm -rf '$d' once this one works)" ;; esac
+done
 exit 0

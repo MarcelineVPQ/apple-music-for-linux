@@ -337,7 +337,7 @@ test('wordWeight: punctuation adds a short breath', () => {
 // --- hyphen runs as words (0.15.39) ---
 const SPLIT = require('./fixtures/split-words.json')
 
-test('splitWords: white space and hyphen runs, the same cases as align/sonata_align.py split_words', () => {
+test('splitWords: white space and hyphen runs, the same cases as the engine split_words (test/fixtures/split-words.json)', () => {
   for (const [text, words] of SPLIT.cases) assert.deepEqual(T.splitWords(text), words, text)
 })
 

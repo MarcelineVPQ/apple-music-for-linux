@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **Precise word timing's helper is now a separate download.** Sonata no longer carries the helper's code: `align/install.sh` downloads the helper release this Sonata asks for (pinned in `align/engine.json`), refuses it unless its size, SHA-256 and signature match, shows the helper's licence and installs only after you type "yes". Already installed? Run `align/install.sh` once more: it keeps your downloaded models, and moves a Python 3.13 or older venv aside to build the Python 3.12 one the helper needs (about 7 GB of packages again). Until then Settings → Word timing and the rail say "Helper needs an update"; estimated timing and Refine by listening keep working without it.
+
 ## [0.15.44-dev.2] — Updates come from the new releases repository
 
 ### Changed
