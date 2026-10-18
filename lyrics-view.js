@@ -432,9 +432,13 @@ function createLyricsView(opts) {
     const glue = text != null ? T.wordGlue(text, words) : null
     // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
     words.forEach((w, i) => {
-      if (i && !(glue && glue[i])) parent.appendChild(doc.createTextNode(' '))
+      const joined = !!(i && glue && glue[i])
+      if (i && !joined) parent.appendChild(doc.createTextNode(' '))
       const span = doc.createElement('span')
       span.className = 'w'
+      // a hyphen piece written straight after the previous one ("Yeah-" "oh,"): the two touch as written
+      // (lyrics-view.css .w.gj / .w.gn: no word gap or bold-width slack at the joint)
+      if (joined) { span.classList.add('gj'); spans[i - 1].classList.add('gn') }
       span.dataset.text = w.text
       const r = doc.createElement('span')
       r.className = 'r'
