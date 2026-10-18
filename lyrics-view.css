@@ -47,6 +47,17 @@
   -webkit-text-stroke: 0.024em currentColor;
   visibility: hidden;
 }
+/* hyphen pieces written together ("Yeah-oh" sung as "Yeah-" and "oh", each with its own time and pop,
+   lyrics-view.js wordSpans): at the joint no word gap, and no reserved bold width (its slack, split
+   either side of the text, read as a space: "Yeah- oh"). .gj: joined to the word before; .gn: the next
+   word is joined to it. The box is then the regular text's width; the sung bold copy (.b, absolute)
+   reaches a hair past it either side, like the pop's scale, so nothing reflows and the pop is unchanged. */
+.w.gj { margin-inline-start: 0; }
+.w.gn { margin-inline-end: 0; }
+.w.gj::after, .w.gn::after { content: none; }
+/* centred over the narrower box: a line too long for its box is start-aligned (CSS Text), so the bold
+   copy gets room either side and stays centred on the regular text */
+.w.gj > .b, .w.gn > .b { left: -50%; right: -50%; }
 .line.active .w.now > .r { visibility: hidden; }
 .line.active .w.now > .b { visibility: visible; }
 .line.active .w { opacity: 0.4; }

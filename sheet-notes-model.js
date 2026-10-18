@@ -559,10 +559,100 @@ function listening(m, pieces, t, end) {
   return LISTENING
 }
 
-/** The label above the band for a mode + the stretch at the playhead ('Notes · G minor · pitch line here'). */
-function labelAt(m, region) {
-  if (m.band !== 'notes' || !region || region.show === 'notes') return m.label
-  return m.label + (region.show === 'line' ? ' · pitch line here: notes unsure' : ' · notes unsure here')
+/**
+ * What the staff can show, as merged [t0, t1] spans in song time (0.15.50: the label said "pitch line
+ * here" over an empty staff in a vocal break, Marcy on Mad Season "Wake Up (Live At the Moore)").
+ * notes: the drawn notes ({ t, end }); runs: the drawn pitch-line runs (pitchRuns); syllables: the sung
+ * syllables ({ t, end }). -> { sung, notes, line }: sung is any of the three (someone sings there).
+ */
+function spansOf(list) {
+  const xs = list.filter((x) => x[1] > x[0]).sort((p, q) => p[0] - q[0])
+  const out = []
+  // loop: NOT-WORTH — the song's notes, runs or syllables (hundreds), once per build
+  for (const x of xs) {
+    const last = out[out.length - 1]
+    if (last && x[0] <= last[1]) last[1] = Math.max(last[1], x[1])
+    else out.push([x[0], x[1]])
+  }
+  return out
+}
+// lyrics: the lyric lines' sung spans ([[t0, t1]], main's sung: lyricSpans), so a line the notes left out
+// (one the aligner didn't trust has no syllables here) still counts as sung
+function staffSpans(notes, runs, syllables, lyrics) {
+  const n = (notes || []).map((x) => [x.t, x.end])
+  const l = (runs || []).filter((r) => r.length).map((r) => [r[0][0], r[r.length - 1][0]])
+  const y = (syllables || []).map((x) => [x.t, x.end])
+  const ly = (lyrics || []).filter((x) => Array.isArray(x)).map((x) => [Number(x[0]), Number(x[1])])
+  return { notes: spansOf(n), line: spansOf(l), sung: spansOf(n.concat(l, y, ly)) }
+}
+
+/**
+ * The timed lyric lines' sung spans, [[t, end]] (s, 2 decimals): from the line's start to its end as the
+ * interlude dots reckon it (lineEnd: lyrics-timing.js, words or the line's end, else a guess), so "no
+ * singing here" and the dots agree. lineEnd(line, next) -> s.
+ */
+function lyricSpans(lines, lineEnd) {
+  const timed = (lines || []).filter((l) => l && l.t != null && Number.isFinite(Number(l.t)))
+  const r2 = (x) => Math.round(x * 100) / 100
+  // loop: NOT-WORTH — the song's lines (tens), once per track change
+  return timed.map((l, i) => [r2(l.t), r2(lineEnd(l, timed[i + 1]))]).filter((x) => Number.isFinite(x[1]) && x[1] > x[0])
+}
+
+/**
+ * The stretch of song time the staff shows at t: the playhead sits HEAD_AT across the box, the staff
+ * starts after the gutter (clef and key). paged (reduced motion): the page holding t.
+ * v: { width, gutter, pps, headAt, paged } -> { a, b }
+ */
+function viewWindow(t, v) {
+  const span = Math.max(1, (v.width - v.gutter) / v.pps)
+  if (v.paged) { const p = Math.floor(t / span); return { a: p * span, b: (p + 1) * span } }
+  const a = t - (v.width * v.headAt - v.gutter) / v.pps
+  return { a, b: a + span }
+}
+
+const touches = (spans, a, b) => (spans || []).some((x) => x[0] < b && x[1] > a)
+/** What the window [a, b) has on the staff: { sung, notes, line } (booleans). */
+function seenIn(sp, w) {
+  return { sung: touches(sp && sp.sung, w.a, w.b), notes: touches(sp && sp.notes, w.a, w.b), line: touches(sp && sp.line, w.a, w.b) }
+}
+
+/**
+ * The next song time after t when something enters or leaves the window (Infinity: none), so the label
+ * changes with the staff: a span's start reaching the window's end, its end leaving the window's start;
+ * paged, the page's end.
+ */
+function nextSeen(sp, t, w, paged) {
+  if (paged) return w.b > t ? w.b : Infinity
+  let best = Infinity
+  // loop: NOT-WORTH — the song's merged spans (tens to hundreds), per note change while playing and shown
+  for (const k of ['sung', 'notes', 'line']) {
+    for (const x of (sp && sp[k]) || []) {
+      const enter = x[0] - (w.b - t)
+      const leave = x[1] + (t - w.a)
+      if (enter > t && enter < best) best = enter
+      if (leave > t && leave < best) best = leave
+    }
+  }
+  return best
+}
+
+// nobody sings in the window shown (a break, or after the lyrics end): the staff is empty and the label says so
+const QUIET = {
+  text: 'no singing here',
+  info: 'Nobody sings in this stretch of the staff: an instrumental break, or past the end of the lyrics.'
+}
+
+/**
+ * The label above the band for a mode + the stretch at the playhead ('Notes · G minor · pitch line
+ * here: notes unsure'), matching what is drawn: seen (seenIn() for the window shown) "no singing here"
+ * when the window has nothing sung; the pitch-line clause only while a pitch-line run is in view.
+ * Without seen, the stretch at the playhead alone decides (as before 0.15.50).
+ */
+function labelAt(m, region, seen) {
+  if (m.band !== 'notes') return m.label
+  if (seen && !seen.sung) return m.label + ' · ' + QUIET.text
+  if (!region || region.show === 'notes') return m.label
+  return m.label + (region.show === 'line' && (!seen || seen.line) ? ' · pitch line here: notes unsure' : ' · notes unsure here')
 }
 
 /** The time of the next note start or end, or region edge, after t (Infinity: none). */
@@ -596,5 +686,6 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, LISTENING, listening, labelAt, nextChange, noteAt
+  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, LISTENING, listening,
+  staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }

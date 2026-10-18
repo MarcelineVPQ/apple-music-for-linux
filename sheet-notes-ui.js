@@ -124,6 +124,10 @@ function createSheetBand(opts) {
   let page = -1             // reduced motion: the page shown
   let duration = 0
   let live = null           // M.listening() while "Listening and learning" is up, else null
+  let sung = []             // the lyric lines' sung spans (main's M.lyricSpans), per song
+  let spans = null          // M.staffSpans(): what the staff can show (drawn notes, pitch line, singing), per build
+  let drawn = null          // { notes, runs } the notes build drew (null: no notes build on the strip)
+  let boxW = 600            // the staff box's width, read in place() (no layout read on the note-change timeout)
 
   const pps = () => PPS[m.band === 'line' ? 'line' : 'notes']
   const headAt = () => HEAD_AT[m.band === 'line' ? 'line' : 'notes']
@@ -165,6 +169,8 @@ function createSheetBand(opts) {
     const lineSpans = gated.regions.filter((r) => r.show === 'line')
     const runs = M.pitchRuns(doc2.pitch, clef, lay.fifths, gated.song === 'line' ? null : lineSpans)
     drawRuns(svg, runs, x, 'pl')
+    drawn = { notes: gated.song === 'line' ? [] : lay.notes.filter((n) => n.show === 'notes'), runs }
+    respan()
     items = []
     let sylRight = -1e9
     // loop: NOT-WORTH — the song's notes (hundreds), once per build (a new song, new notes, a form change)
@@ -194,6 +200,8 @@ function createSheetBand(opts) {
     built = 'notes:' + (st.key || '') + ':' + (entry && entry.created)
   }
 
+  function respan() { spans = drawn && doc2 ? M.staffSpans(drawn.notes, drawn.runs, doc2.syllables, sung) : null }
+
   function drawRuns(svg, runs, x, cls) {
     // loop: NOT-WORTH — the line's voiced runs (hundreds), once per build or new piece
     for (const run of runs) {
@@ -215,14 +223,20 @@ function createSheetBand(opts) {
     strip.style.width = W + 'px'
     const svg = sv(doc, 'svg', { class: 'sn-svg', width: W, height: STAFF_H }, strip)
     drawRuns(svg, M.pitchRuns(line, clef, 0, null), (t) => r1(t * pps()), 'pl first')
+    drawn = null
+    spans = null
     items = []
     built = 'line:' + pieces.length + ':' + (st.key || '')
   }
 
   // --- moving: one compositor animation; re-synced only when it drifts ---
   function stripX(t) { return (box.clientWidth || 600) * headAt() - gutter - t * pps() }
+  // the song time the staff shows at t (M.viewWindow), from the width place() last read
+  const reduced = () => !!(opts.reducedMotion && opts.reducedMotion())
+  const windowAt = (t) => M.viewWindow(t, { width: boxW, gutter, pps: pps(), headAt: headAt(), paged: reduced() })
   function place(t) {
     const w = box.clientWidth || 600
+    boxW = w
     head.style.transform = 'translateX(' + r1(w * headAt()) + 'px)'
     if (opts.reducedMotion && opts.reducedMotion()) {
       // pages: the strip stays put until the playhead reaches the page's end; the playhead steps
@@ -264,13 +278,20 @@ function createSheetBand(opts) {
         if (it.g.getAttribute('class') !== c) { it.g.setAttribute('class', c); if (it.syl) it.syl.className = 's' + state }
       }
     }
-    const lab = M.labelAt(m, M.regionAt(gated && gated.regions, t))
-    if (label.textContent !== lab) { label.textContent = lab; label.hidden = !lab }
+    // the label says what the staff shows (M.labelAt): "no singing here" over an empty window, the
+    // pitch-line clause only with a run in view; its ⓘ explains the quiet one (the mode's own ⓘ comes first)
+    const seen = spans ? M.seenIn(spans, windowAt(t)) : null
+    const lab = M.labelAt(m, M.regionAt(gated && gated.regions, t), seen)
+    if (label.textContent !== lab) {
+      label.textContent = lab
+      label.hidden = !lab
+      info.set(m.info || (seen && !seen.sung ? M.QUIET.info : ''))
+    }
   }
   function schedule(t) {
     if (wake) { clearTimeout(wake); wake = 0 }
     if (!lay || m.band !== 'notes' || !opts.playing() || doc.visibilityState !== 'visible') return
-    const next = M.nextChange(lay, gated && gated.regions, t + 0.005)
+    const next = Math.min(M.nextChange(lay, gated && gated.regions, t + 0.005), spans ? M.nextSeen(spans, t + 0.005, windowAt(t + 0.005), reduced()) : Infinity)
     if (next === Infinity) return
     // loop: NOT-WORTH — one-shot at the next note start or end, re-planned from the clock each time
     // lifetime: OK — at most one pending (wake); cleared on every re-plan, pause, hide and a new song
@@ -308,6 +329,7 @@ function createSheetBand(opts) {
     const s = next || { on: false }
     if ('entry' in s) entry = s.entry || null
     if ('pitch' in s) pieces = Array.isArray(s.pitch) ? s.pitch.slice() : []
+    if ('sung' in s) sung = Array.isArray(s.sung) ? s.sung : []
     if (s.key !== st.key) { nowIdx = -2 }
     st = s
     duration = Number(opts.duration ? opts.duration() : 0) || 0
@@ -339,8 +361,8 @@ function createSheetBand(opts) {
       if (m.band === 'notes') buildNotes()
       else buildLine()
       nowIdx = -2
-    }
-    if (!want) { stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
+    } else if ('sung' in s && m.band === 'notes') respan()
+    if (!want) { drawn = null; spans = null; stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
     if (opts.onLayout) opts.onLayout()
     setTime()
   }
