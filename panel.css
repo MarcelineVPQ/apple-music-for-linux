@@ -290,7 +290,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .md p { margin: 4px 0; }
 .md ul { margin: 4px 0; padding-left: 18px; }
 .md li { margin: 3px 0; }
-.md code { padding: 0 3px; border-radius: 4px; background: var(--s-field); font-size: 11.5px; }
+.md code { padding: 0 3px; border-radius: 4px; background: var(--s-field); font-size: 11.5px; overflow-wrap: anywhere; }
 .about-btns { margin-top: 10px; }
 .link { color: var(--s-text); text-decoration: underline; text-decoration-color: var(--s-ring); text-underline-offset: 2px; overflow-wrap: anywhere; }
 .about-list { font-size: 12.5px; line-height: 1.45; }
