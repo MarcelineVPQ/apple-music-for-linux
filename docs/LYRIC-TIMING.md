@@ -596,3 +596,45 @@ Broadway (Live) +0.99, Stay (Wasting Time) +0.97, January Friend (Live) +0.83. A
 in almost every song (median +0.2 to +1.0 s), at the line's start rather than its end.
 
 Not covered: per-line leads on back-to-back stamps before the line's own section is aligned.
+
+## Lyrics that don't fit the recording (0.15.47)
+
+Marcy 2026-10-18, two Mad Season live tracks (*Live At the Moore*):
+
+- *I Don't Wanna Be a Soldier* (557.1 s): LRCLIB's record claims 557 s but carries the 352 s studio LRC
+  (lines end at 359.2 s). The lookup's ±5 s length filter can't see that. Each section was aligned inside
+  wrong windows; the highlight ran 4-5 lines behind and lines 25/26 were rejected.
+- *I Don't Know Anything* (6:23): the LRC ends at 2:48 with a line "(repeat all)".
+
+**The rule** (recording-id.js `timingMismatch`, LRCLIB line-synced lyrics only; Apple's own timing is never
+judged): `runs-past-end` when the last line starts > 5 s after the recording ends; `ends-early` when the
+recording is marked live or alternate (title or live album) and its lyrics end > 20 s before 75 % of its
+length (the Soldier: 359.2 + 20 = 379.2 < 417.8 s). Studio songs are left out on purpose (Layla's piano
+coda, Free Bird's solo: their singing ends at ~45-55 %). Over her 27 cached lyrics with a known length only
+the Soldier trips it (64 %; the next LRCLIB one is at 91 %). LRCLIB's own `duration` isn't a separate test
+(the lookup already takes only records within 5 s, and this one claims the right length); a low section
+confidence isn't one either (22 of 32 lines still passed inside the wrong windows; BACKLOG Idea).
+
+**Shorthand** (lyrics-shorthand.js, a table per language, English first): "(repeat all)", "(x2)", "Oh no x3",
+"Chorus x2", "[Chorus]" with no line under it, "(repeat chorus)", "(repeat 1st verse)". Markers are never
+shown; labels with lines under them name blocks; the rest is written out (a chorus reference without a
+labelled chorus takes the longest run sung twice, "verse N" without labels the N-th stanza between
+interludes; a reference to nothing is dropped and logged).
+
+**Better source first** (lyrics-sources.js `hitProblem`): a hit with shorthand or a mismatch sends the
+lookup to LRCLIB's search, whose hits are tried in pickHit's order for one that is complete and fits (often
+the live record's plain lyrics); the first one stays when none is.
+
+**What happens then** (main.js, align-session.js): the line times are dropped (`untimed`); the views show
+the lines un-highlighted with a note (lyrics-view.js `versionNote`, ≤ 60 characters, the numbers behind
+the ⓘ). With Precise word timing on, the song is recorded and, once heard to its end, aligned once as a
+whole in the helper's plain-lyrics mode (every line `t: null`; engine 0.2.3 bounds each line by its
+positional band: JamendoLyrics test AAE 0.257 s with the whole-song separator). The entry is stored with
+`plain: true` and the rule's numbers (`mismatch`); every later play places the lines at their aligned words
+(`plainTimed`). Lines the helper didn't find are `quiet`: kept in order, never lit and given no estimated
+words (un-highlighted rather than guessed). LRCLIB's plain lyrics (no timing given) take the same path.
+There is no first-play highlight: without line times there are no sections, and aligning part of the
+song would squeeze every line into the part heard (BACKLOG Idea: progressive plain alignment).
+One log line when it fires: `lyrics: "<title>" by <artist>: line timing is for another version (ends-early:
+lyrics end at 359.23 s, the recording runs 557.09 s, 64 %); lines placed from the audio`, or
+`…: shorthand "(repeat all)": 20 line(s) written out`.

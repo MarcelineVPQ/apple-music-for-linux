@@ -48,6 +48,51 @@ function normIsrc(v) {
   return /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(s) ? s : ''
 }
 
+// Lyrics timed for another version (0.15.47, Marcy 2026-10-18: Mad Season "I Don't Wanna Be a Soldier (Live
+// At the Moore)", 557.1 s, got an LRCLIB record whose line times end at 359.2 s: someone uploaded the 352 s
+// studio LRC under a 557 s entry, so LRCLIB's own duration matches and the lookup's ±5 s length filter can't
+// see it; the highlight ran 4-5 lines behind and the later sections were rejected inside the wrong windows).
+// The rule (timingMismatch), conservative on purpose: a false positive hides good timing on the first play.
+// Only line-synced LRCLIB lyrics are judged: Apple's own timing for Apple's lyrics of this recording is
+// never discarded (her Apple lyrics include a 1,016 s track whose singing ends at 22 %).
+//   runs-past-end  the last line starts more than PAST_END_S after the recording ends: timed for a longer
+//                  version (no recording sings after its own end)
+//   ends-early     the recording is marked live or alternate (variantTitle, or a live album) and its lyrics
+//                  end (last line's end) more than EARLY_MARGIN_S before EARLY_SHARE of its length: timed for
+//                  a shorter version. Only for marked recordings: a studio song with a long instrumental coda
+//                  (Layla's piano coda, Free Bird's solo: the singing ends at ~45-55 %) is normal, and the
+//                  lookup already refuses LRCLIB records of another length or another kind (live vs studio).
+//                  This song: 359.2 + 20 = 379.2 s < 0.75 × 557.1 = 417.8 s.
+// Her 27 cached lyrics with a known length (2026-10-18): only this song trips it (64 %); the next lowest
+// LRCLIB one is at 91 %. LRCLIB's own `duration` is not a separate test: the lookup already takes only
+// records within 5 s of the recording (lyrics-sources pickHit; get-cached matches ±2 s itself), and this
+// record claims the right length. A low alignment confidence is not one either: here 22 of 32 lines still
+// passed inside the wrong windows, while hard-to-hear singing can reject many lines of a right LRC.
+const MIN_JUDGED_S = 120
+const PAST_END_S = 5
+const EARLY_MARGIN_S = 20
+const EARLY_SHARE = 0.75
+
+/**
+ * Whether lyric lines' timing fits the recording. lines: the lyric lines [{ t, end?, text }]; rec:
+ * { source, duration, title, album }. -> null (fits, or nothing to judge) or
+ * { reason: 'runs-past-end' | 'ends-early', lyricsEnd (s), duration (s), share (lyricsEnd / duration) }
+ */
+function timingMismatch(lines, rec) {
+  const r = rec || {}
+  const duration = Number(r.duration)
+  if (r.source !== 'lrclib' || !(duration >= MIN_JUDGED_S) || !Array.isArray(lines)) return null
+  const timed = lines.filter((l) => l && Number.isFinite(l.t) && String(l.text || '').trim())
+  if (!timed.length || timed.some((l) => Array.isArray(l.words) && l.words.length)) return null   // word-timed LRC: not judged
+  const last = timed[timed.length - 1]
+  const lyricsEnd = Number.isFinite(last.end) ? last.end : last.t
+  const out = (reason) => ({ reason, lyricsEnd: Math.round(lyricsEnd * 100) / 100, duration: Math.round(duration * 100) / 100, share: Math.round((lyricsEnd / duration) * 100) / 100 })
+  if (last.t > duration + PAST_END_S) return out('runs-past-end')
+  const marked = variantTitle(r.title) || isLive('', r.album)
+  if (marked && lyricsEnd + EARLY_MARGIN_S < EARLY_SHARE * duration) return out('ends-early')
+  return null
+}
+
 /** The recording facts of a now-playing state: { title, artist, isrc, duration, appleId }. */
 function songOf(state) {
   const s = state || {}
@@ -164,6 +209,6 @@ function lookup(store, prefix, song, opts = {}) {
 function put(store, key, value, song) { store.set(key, stamp(value, song)) }
 
 module.exports = {
-  DURATION_TOLERANCE_S, TIMING_NEAR_S, TIMING_SAME_SHARE,
-  normIsrc, songOf, legacyKey, recordingKey, trackKey, variantTitle, durationFits, stamp, timingMatches, lookup, put
+  DURATION_TOLERANCE_S, TIMING_NEAR_S, TIMING_SAME_SHARE, MIN_JUDGED_S, PAST_END_S, EARLY_MARGIN_S, EARLY_SHARE,
+  timingMismatch, normIsrc, songOf, legacyKey, recordingKey, trackKey, variantTitle, durationFits, stamp, timingMatches, lookup, put
 }

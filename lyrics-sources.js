@@ -270,28 +270,51 @@ function asPlain(hit) {
  * for the studio version (and the other way round), since those stamps would be off all song long.
  */
 function pickHit(hits, duration, title, album) {
+  return rankHits(hits, duration, title, album)[0] || null
+}
+/** Every usable hit in pickHit's order of preference (pickHit takes the first). */
+function rankHits(hits, duration, title, album) {
   const list = Array.isArray(hits) ? hits : []
   const near = list.filter((h) => h && (!duration || !h.duration || Math.abs(h.duration - duration) <= 5))
-  if (title == null) return near.find((h) => h.syncedLyrics) || near.find((h) => h.plainLyrics) || null
+  if (title == null) return [...near.filter((h) => h.syncedLyrics), ...near.filter((h) => !h.syncedLyrics && h.plainLyrics)]
   const live = isLive(title, album)
   const same = near.filter((h) => isLive(h.trackName || h.name, h.albumName) === live)
   const other = near.filter((h) => !same.includes(h))
-  const plain = other.find((h) => h.plainLyrics) || other.find((h) => h.syncedLyrics)
-  return same.find((h) => h.syncedLyrics) || same.find((h) => h.plainLyrics) || (plain ? asPlain(plain) : null)
+  const plain = [...other.filter((h) => h.plainLyrics), ...other.filter((h) => !h.plainLyrics && h.syncedLyrics)].map(asPlain).filter(Boolean)
+  return [...same.filter((h) => h.syncedLyrics), ...same.filter((h) => !h.syncedLyrics && h.plainLyrics), ...plain]
+}
+
+/**
+ * What is wrong with an LRCLIB hit's lines for this recording, or '': 'shorthand' (a marker such as
+ * "(repeat all)" stands for sung lines, lyrics-shorthand.js) or the reason its line times are for another
+ * version (recording-id timingMismatch). state: { duration, title, album }.
+ */
+function hitProblem(lines, state) {
+  if (!lines || !lines.length) return 'empty'
+  const sh = require('./lyrics-shorthand').expandShorthand(lines)
+  if (sh && (sh.added || sh.unresolved.length)) return 'shorthand'
+  const m = R.timingMismatch(lines, { source: 'lrclib', duration: state.duration, title: state.title, album: state.album })
+  return m ? m.reason : ''
 }
 
 /**
  * Look a song up on LRCLIB. state: { title, artist, album, duration }.
  * deps.fetch(url, { headers }) -> Response-like { ok, status, json() }.
  * Exact match first (/api/get), then a looser search (/api/search).
- * Throws on network/HTTP errors other than 404.
+ * Throws on network/HTTP errors other than 404 (the error's `status`: the HTTP status, 0 when LRCLIB
+ * couldn't be reached), also when the exact lookup failed that way and the search found nothing (not
+ * known to have no lyrics, so not "no lyrics").
  */
 async function fetchLrclib(state, deps) {
   const headers = { 'User-Agent': deps.userAgent || 'Sonata' }
   const get = async (url) => {
-    const res = await deps.fetch(url, { headers })
+    let res
+    try { res = await deps.fetch(url, { headers }) } catch (e) {
+      // error: PASSES-ON — offline, DNS, refused: status 0 for the caller's message and retry
+      throw Object.assign(new Error('lrclib unreachable: ' + ((e && e.message) || 'network error')), { status: 0 })
+    }
     if (res.status === 404) return null
-    if (!res.ok) throw new Error('lrclib HTTP ' + res.status)
+    if (!res.ok) throw Object.assign(new Error('lrclib HTTP ' + res.status), { status: res.status })
     return res.json()
   }
   const base = deps.base || 'https://lrclib.net'
@@ -302,13 +325,25 @@ async function fetchLrclib(state, deps) {
   // get-cached checks LRCLIB's own database only (no slow external lookups,
   // which LRCLIB rate-limits); any failure there just moves on to search.
   let lines = []
+  let exactFailed = null
   try {
     lines = lrclibLines(await get(base + '/api/get-cached?' + q))
-  } catch (e) { /* error: NOT-WORTH — falls through to search, whose failure throws to the caller */ }
-  if (!lines.length) {
+  } catch (e) { exactFailed = e /* error: PASSES-ON — falls through to search; thrown below if that finds nothing */ }
+  // a hit written as shorthand or timed for another version (hitProblem): the search's other hits are
+  // tried for one that is complete and fits; the first one stays when none is (main.js writes it out / drops
+  // its times)
+  const problem = lines.length ? hitProblem(lines, state) : ''
+  if (!lines.length || problem) {
     const s = new URLSearchParams({ track_name: state.title, artist_name: state.artist || '' })
-    lines = lrclibLines(pickHit(await get(base + '/api/search?' + s), state.duration, state.title || '', state.album))
+    let hits = null
+    try { hits = await get(base + '/api/search?' + s) } catch (e) { if (!lines.length) throw e /* error: PASSES-ON — with a hit in hand, its lines stand */ }
+    const ranked = rankHits(hits, state.duration, state.title || '', state.album).map(lrclibLines).filter((l) => l.length)
+    const good = problem || ranked.length ? ranked.find((l) => !hitProblem(l, state)) : null
+    if (good && problem && deps.log) deps.log('lrclib: "' + state.title + '": the first hit was ' + problem + ', took another search hit that fits')
+    if (good) lines = good
+    else if (!lines.length) lines = ranked[0] || []
   }
+  if (!lines.length && exactFailed) throw exactFailed
   return lines
 }
 
@@ -323,6 +358,11 @@ async function fetchLrclib(state, deps) {
  * An Apple lookup that fails is tried again APPLE_RETRY_MS.length times (a page mid-navigation is
  * back within seconds), then LRCLIB (when on) stands in, marked appleFailed and kept off the disk
  * store, so the next play asks Apple again. Neither: error 'apple' (main.js retries a few times).
+ * LRCLIB failing (5xx, 429, unreachable): error 'lrclib' with `lrclib` { status, message } and `apple`
+ * ('none': Apple has no lyrics for it, 'failed': Apple's lookup failed too); main.js retries (retryPlan).
+ * No lyrics anywhere: { lines: [], source: '', none: 'apple' | 'both' } ('both': LRCLIB was asked and had
+ * none too). Only that definitive answer is kept in memory (NONE_TTL_MS), never a failure, so a song whose
+ * lookup failed is asked again; nothing empty goes to the disk store.
  */
 // Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25),
 // 3 = the lyrics language (xml:lang) is stored too (0.15.26), 4 = the songwriters (<songwriters>) too.
@@ -330,6 +370,30 @@ async function fetchLrclib(state, deps) {
 const TTML_PARSE = 4
 // the waits before the 2nd and 3rd Apple attempt of one lookup
 const APPLE_RETRY_MS = [1000, 3000]
+// a definitive "no lyrics on Apple Music or LRCLIB" is reused for this long (a song played again soon)
+const NONE_TTL_MS = 10 * 60 * 1000
+
+// Retries of a lookup that failed (main.js, per song): LRCLIB is often only briefly overloaded (Marcy
+// 2026-10-18: HTTP 503 on about 2 of 3 requests, 200 on the next), so the first retries come fast and then
+// back off; each wait is jittered ±RETRY_JITTER so many clients don't retry in step, and a song gets at
+// most LRCLIB_MAX_TRIES lookups per session (counting the first). Apple failing alone: APPLE_RETRY_S, then
+// the window says Apple's lyrics didn't load.
+const LRCLIB_RETRY_S = [1, 2, 4, 8, 30, 120]
+const LRCLIB_MAX_TRIES = 10
+const APPLE_RETRY_S = [30, 60, 120]
+const RETRY_JITTER = 0.2
+/**
+ * The wait (ms) before the next lookup after `tries` failed lookups of a song (1 = the first failed), or
+ * null when no more are made. error: the result's error ('lrclib' | 'apple'). rand() in [0, 1) (tests).
+ */
+function retryPlan(error, tries, rand = Math.random) {
+  const steps = error === 'lrclib' ? LRCLIB_RETRY_S : error === 'apple' ? APPLE_RETRY_S : null
+  const max = error === 'lrclib' ? LRCLIB_MAX_TRIES : APPLE_RETRY_S.length + 1
+  if (!steps || !(tries >= 1) || tries >= max) return null
+  const base = steps[Math.min(tries - 1, steps.length - 1)] * 1000
+  return Math.round(base * (1 + RETRY_JITTER * (2 * rand() - 1)))
+}
+
 // lifetime: OK — a one-shot wait inside one lookup, settled after ms (nothing holds it)
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -347,10 +411,13 @@ function createLyricsResolver(deps) {
   // are shared, so lyrics + visualizer windows trigger one fetch per track. Only used while lyrics or
   // the visualizer is open. loop: none.
   const cache = new Map()
+  const noneAt = new Map()     // key -> when a definitive "no lyrics" came (only those stay in `cache` empty)
+  const now = deps.now || Date.now
   return async function getLyrics(state) {
     // one recording: studio and live with the same title are two lookups (recording-id.js)
     const song = R.songOf(state)
     const key = R.trackKey(song)
+    if (noneAt.has(key) && now() - noneAt.get(key) > NONE_TTL_MS) { noneAt.delete(key); cache.delete(key) }
     if (cache.has(key)) return cache.get(key)
     const job = (async () => {
       // the on-disk store first (songs played before); LRCLIB results only while LRCLIB is enabled.
@@ -366,6 +433,7 @@ function createLyricsResolver(deps) {
         return result
       }
       let appleFailed = ''
+      let appleError = null
       const sleep = deps.sleep || realSleep
       // loop: SERIAL-REQUIRED — at most 1 + APPLE_RETRY_MS.length (3) Apple attempts per lookup, each after the last failed
       for (let attempt = 0; ; attempt++) {
@@ -379,6 +447,7 @@ function createLyricsResolver(deps) {
           // error: SHOWN — a failed Apple lookup (page mid-navigation, Apple's API erring) is tried again; then
           // LRCLIB stands in with a note that Apple's didn't load, or the window says they didn't load (main.js retries)
           appleFailed = (e && e.message) || 'failed'
+          appleError = e
           if (attempt >= APPLE_RETRY_MS.length) break
           await sleep(APPLE_RETRY_MS[attempt])
         }
@@ -391,21 +460,27 @@ function createLyricsResolver(deps) {
           // standing in for Apple's that didn't load: shown, not stored (the next play asks Apple again)
           if (lines.length) return appleFailed ? { lines, source: 'lrclib', appleFailed: true } : remember({ lines, source: 'lrclib' })
         } catch (e) {
-          // error: SHOWN — logged, and the window says the lyrics service is busy; main.js retries (30 s, 60 s, 120 s)
+          // error: SHOWN — logged, and the window says which service failed and how (lyrics-view statusText);
+          // main.js retries (retryPlan: fast at first, then backing off)
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
-          // the service failed (busy, rate limit, offline): not the same as "no lyrics"
-          return { lines: [], source: '', error: 'busy' }
+          // the service failed (overloaded, rate limit, offline): not the same as "no lyrics"
+          const status = e && Number.isInteger(e.status) ? e.status : 0
+          return { lines: [], source: '', error: 'lrclib', lrclib: { status, message: (e && e.message) || '' }, apple: appleFailed ? 'failed' : 'none' }
         }
+        // Apple's lookup failed and LRCLIB has none: Apple's is still unknown
+        if (!appleFailed) return { lines: [], source: '', none: 'both' }
       }
       // Apple's lookup failed and nothing stood in: not "no lyrics"
-      return appleFailed ? { lines: [], source: '', error: 'apple' } : { lines: [], source: '' }
+      return appleFailed ? { lines: [], source: '', error: 'apple', appleError: (appleError && appleError.message) || appleFailed } : { lines: [], source: '', none: 'apple' }
     })()
     cache.set(key, job)
-    if (cache.size > 50) cache.delete(cache.keys().next().value)
+    if (cache.size > 50) { const old = cache.keys().next().value; cache.delete(old); noneAt.delete(old) }
     const result = await job
-    if (!result.lines.length || result.appleFailed) cache.delete(key)
+    // kept: lyrics, and a definitive "none on Apple Music or LRCLIB" (for NONE_TTL_MS); never a failure
+    if (result.none === 'both') noneAt.set(key, now())
+    else if (!result.lines.length || result.appleFailed) cache.delete(key)
     return result
   }
 }
 
-module.exports = { APPLE_RETRY_MS, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }

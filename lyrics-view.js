@@ -25,6 +25,7 @@
 // closing slides the lines around it with a transform (FLIP), never a height animation.
 const T = require('./lyrics-timing')
 const S = require('./lyrics-syllables')
+const { createInfoTip } = require('./info-tip')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
 // A jump (a seek, a track change, a resume after sleep) snaps the list straight to the line: more than
@@ -119,6 +120,79 @@ function timingNote(lines, aligned, refined, alignState) {
 function timingNoteBase(lines, aligned, refined) {
   if (aligned) return lines.some((l) => l.estimated) ? 'Word timing aligned on this PC (some lines estimated)' : 'Word timing aligned on this PC'
   return refined ? 'Word timing estimated, refined by listening' : 'Word timing estimated'
+}
+
+// --- the lookup's state and the version note (the ⓘ rule, info-tip.js: visible text ≤ TEXT_MAX characters,
+// the rest behind the ⓘ) ---
+
+const mmss = (s) => { const v = Math.max(0, Math.round(Number(s) || 0)); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0') }
+const clockAt = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+// how LRCLIB failed, from the HTTP status (0: not reached)
+function lrclibFailure(status) {
+  if (status === 429) return { short: 'is rate-limited', long: 'answered HTTP 429: too many requests just now' }
+  if (status >= 500) return { short: 'is overloaded', long: 'answered HTTP ' + status + ': busy or overloaded' }
+  if (status > 0) return { short: 'is failing', long: 'answered HTTP ' + status }
+  return { short: 'is unreachable', long: 'could not be reached (offline, or the site is down)' }
+}
+
+/**
+ * The empty view's text when a song has no lines: what is true about each source. data: 'lyrics-data'
+ * ({ title, status, lookup: { lrclib: { status }, apple: 'none' | 'failed', appleError, none, lrclibOn,
+ * retry: { tries, max, at } } }). -> { text, info }
+ *   status 'lrclib'         LRCLIB failing, a retry is due (Apple has none, or Apple's failed too)
+ *   status 'lrclib-failed'  LRCLIB kept failing: no more retries this play
+ *   status 'apple'          Apple's lookup failed and nothing stood in, a retry is due
+ *   status 'apple-failed'   Apple's lookup kept failing
+ *   none                    no lyrics: on Apple Music and LRCLIB ('both'), on Apple Music with LRCLIB off ('apple')
+ */
+function statusText(data) {
+  const d = data || {}
+  if (!d.title) return { text: 'Play a song to see its lyrics', info: '' }
+  const lk = d.lookup || {}
+  const retry = lk.retry || null
+  const next = retry && retry.at ? ' Try ' + retry.tries + ' of ' + retry.max + ' failed; the next one at ' + clockAt(retry.at) + '.' : ''
+  const appleNone = lk.apple !== 'failed'
+  const appleWhy = appleNone ? 'Apple Music has no lyrics for this recording.' : 'Apple Music’s lyrics lookup failed' + (lk.appleError ? ' (' + lk.appleError + ')' : '') + '.'
+  if (d.status === 'lrclib' || d.status === 'lrclib-failed') {
+    const f = lrclibFailure(lk.lrclib && Number(lk.lrclib.status))
+    const lr = ' LRCLIB (lrclib.net), the free lyrics database Sonata asks next, ' + f.long + '.'
+    if (d.status === 'lrclib-failed') {
+      return { text: appleNone ? 'No Apple lyrics; LRCLIB kept failing, asks again next play' : 'Apple’s and LRCLIB’s lyrics didn’t load; next play retries',
+        info: appleWhy + lr + ' Sonata tried ' + ((retry && retry.max) || '') + ' times and stopped for now; the next time this song plays it asks again.' }
+    }
+    return { text: (appleNone ? 'No Apple lyrics; LRCLIB ' : 'Apple’s lyrics didn’t load; LRCLIB ') + f.short + ', retrying',
+      info: appleWhy + lr + next }
+  }
+  if (d.status === 'apple') return { text: 'Apple Music’s lyrics didn’t load, trying again…', info: appleWhy + next }
+  if (d.status === 'apple-failed') return { text: 'Apple Music’s lyrics didn’t load; next play asks again', info: appleWhy + ' Sonata tried a few times and stopped for now; the next time this song plays it asks again.' }
+  if (lk.none === 'both') return { text: 'No lyrics on Apple Music or LRCLIB for this song', info: 'Apple Music has no lyrics for this recording, and LRCLIB (lrclib.net) has none for it either.' }
+  if (lk.none === 'apple' && !lk.lrclibOn) return { text: 'No Apple Music lyrics for this song', info: 'Apple Music has no lyrics for this recording. Sonata can also look on LRCLIB (lrclib.net), a free lyrics database: Settings → Playback & lyrics → LRCLIB lyrics.' }
+  return { text: 'No lyrics available for this song', info: '' }
+}
+
+/**
+ * The note over lyrics whose line times are for another version (main.js: recording-id timingMismatch),
+ * while the lines show untimed. v: { precise, reason?, lyricsEnd?, duration? }. -> { text, info }
+ */
+function versionNote(v) {
+  if (!v) return { text: '', info: '' }
+  const later = ' Sonata works out each line’s time from this recording’s audio on this PC once the song has played to its end; a line it can’t find stays un-highlighted. From the next play the lyrics follow the singing.'
+  // LRCLIB's plain lyrics: the source note already says they aren't time-synced
+  if (v.reason === 'untimed') return v.precise ? { text: 'No line timing: Sonata times these lyrics after this play', info: 'LRCLIB has these lyrics without line times.' + later } : { text: '', info: '' }
+  if (v.reason === 'shorthand') {
+    const fact = 'LRCLIB’s lyrics say ' + (v.marker ? '“' + v.marker + '”' : 'a repeat') + ' instead of the sung lines, so Sonata wrote them out (' + (v.added || 0) + ' more lines). Their times aren’t known.'
+    return v.precise ? { text: 'Lyrics were shorthand, written out: timed after this play', info: fact + later }
+      : { text: 'Lyrics were shorthand, written out: shown without timing', info: fact + ' With Precise word timing on (Settings → Precise timing) Sonata can time the lines from this recording’s audio on this PC.' }
+  }
+  const fact = v.reason === 'runs-past-end' ? 'LRCLIB’s line times run to ' + mmss(v.lyricsEnd) + ', past the end of this recording (' + mmss(v.duration) + '), so they belong to a longer version.'
+    : v.reason === 'ends-early' ? 'LRCLIB’s line times end at ' + mmss(v.lyricsEnd) + ', but this recording runs ' + mmss(v.duration) + ', so they belong to a shorter version.'
+      : 'LRCLIB’s line times don’t fit this recording.'
+  if (v.precise) {
+    return { text: 'Lyric timing is for another version: timed after this play',
+      info: fact + ' Sonata leaves them out rather than highlight the wrong lines.' + later }
+  }
+  return { text: 'Lyric timing is for another version, so it’s hidden',
+    info: fact + ' Sonata leaves them out rather than highlight the wrong lines. With Precise word timing on (Settings → Precise timing) it can time the lines from this recording’s audio on this PC.' }
 }
 
 /**
@@ -415,12 +489,18 @@ function createLyricsView(opts) {
     else container.removeAttribute('lang')
     if (!lines.length) {
       wordTimed = false
-      const text = opts.emptyText ? opts.emptyText(data) : null
+      // emptyText(data): a string, or { text, info } (the longer explanation behind an ⓘ)
+      const got = opts.emptyText ? opts.emptyText(data) : null
+      const say = got && typeof got === 'object' ? got : { text: got || '', info: '' }
       container.innerHTML = ''
-      if (text) {
+      if (say.text) {
         const empty = doc.createElement('div')
         empty.id = 'empty'
-        empty.textContent = text
+        const span = doc.createElement('span')
+        span.className = 'say'
+        span.textContent = say.text
+        empty.appendChild(span)
+        if (say.info) createInfoTip(doc, empty).set(say.info)
         container.appendChild(empty)
       }
       return
@@ -430,6 +510,18 @@ function createLyricsView(opts) {
     const gaps = prep.gaps
     let g = 0
     container.innerHTML = ''
+    // lyrics timed for another version, shown untimed (main.js data.version): the note says why, over the lines
+    const vnote = opts.notes ? versionNote(data.version) : null
+    if (vnote && vnote.text) {
+      const lead = doc.createElement('div')
+      lead.id = 'lead'
+      const span = doc.createElement('span')
+      span.className = 'say'
+      span.textContent = vnote.text
+      lead.appendChild(span)
+      createInfoTip(doc, lead).set(vnote.info)
+      container.appendChild(lead)
+    }
     // loop: NOT-WORTH — the song's lines (and the countdowns before them), once per track
     lines.forEach((line, i) => {
       while (g < gaps.length && gaps[g].index === i) {
@@ -698,8 +790,9 @@ function createLyricsView(opts) {
     const jump = shownTime === null || Math.abs(time - shownTime) > JUMP_S || Math.abs(latest - shownLatest) > JUMP_LINES
     shownTime = time
     shownLatest = latest
-    // during an interlude nobody sings: the dots take the next line's place
-    const next = new Set(gi >= 0 ? [] : liveNow)
+    // during an interlude nobody sings: the dots take the next line's place. A `quiet` line (its place from
+    // the audio not found, align-session plainTimed) is never lit: un-highlighted rather than guessed
+    const next = new Set(gi >= 0 ? [] : liveNow.filter((i) => !lines[i].quiet))
     // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
     for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current') }
     for (const i of next) {
@@ -948,4 +1041,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, statusText, versionNote, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }

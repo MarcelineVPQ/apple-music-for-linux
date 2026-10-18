@@ -237,11 +237,24 @@
     text-align: center;
   }
   #empty {
+    position: relative;
     padding: 24px 20px;
     font-size: 13px;
     color: var(--s-soft);
     text-align: center;
   }
+  /* lyrics timed for another version, shown untimed (lyrics-view.js versionNote): a quiet note over the lines */
+  #lead {
+    position: relative;
+    padding: 6px 20px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--s-soft);
+    text-align: center;
+  }
+  /* the ⓘ beside #empty's and #lead's text (info-tip.js; the .sn-info look below), its bubble under the text */
+  #empty .sn-info, #lead .sn-info { vertical-align: middle; margin: -4px -4px -4px 2px; }
+  #empty .sn-tip, #lead .sn-tip { text-align: left; }
   [hidden] { display: none !important; }
 
   /* ===== the stage (body.stage): the lyrics window grown into the now-playing screen =====
@@ -271,6 +284,7 @@
   body.stage #credits { font-size: 13px; text-align: left; }
   body.stage #source { font-size: 12px; text-align: left; }
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
+  body.stage #lead { font-size: 12px; text-align: left; padding: 4px 0 10px; }
   #band { margin: 6px 18px 8px 22px; position: relative; }
   /* the sheet-notes band (sheet-notes-ui.js, Experimental): the staff and the pitch line, theme tokens
      only. Nothing here transitions or animates: the strip moves by one Web Animation of its transform
@@ -994,11 +1008,8 @@
     room: () => (sheetBand && stage.shown ? sheetBand.room : 0),
     onRoom: (el) => placeOver(el),
     onFrame: (time) => updateRing(time),
-    emptyText: (data) => !data.title ? 'Play a song to see its lyrics'
-      : data.status === 'busy' ? 'Lyrics service busy, trying again…'
-      : data.status === 'apple' ? "Apple Music's lyrics didn't load, trying again…"
-      : data.status === 'apple-failed' ? "Apple Music's lyrics didn't load. Sonata asks again the next time this song plays."
-      : 'No lyrics available for this song'
+    // what is true about each source (lyrics-view.js statusText: ≤ 60 characters, the rest behind the ⓘ)
+    emptyText: (data) => require('./lyrics-view').statusText(data)
   })
 
   // lifetime: OK — the lyrics feed's listeners ('lyrics-data', '-refined', '-aligned', '-time'), added once at load, released with the window
@@ -1019,7 +1030,7 @@
     linesEl.scrollTo({ top: 0, left: 0, behavior: 'instant' })
     view.setData(data)
     // screen readers hear the lyrics' state once per song (no lyrics, service busy), never the lines
-    const empty = linesEl.querySelector('#empty')
+    const empty = linesEl.querySelector('#empty .say')
     const say = document.getElementById('say')
     const text = data.title && empty ? empty.textContent : ''
     if (say.textContent !== text) say.textContent = text

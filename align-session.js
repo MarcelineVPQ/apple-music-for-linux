@@ -40,6 +40,7 @@ const ENTRY_VERSION = 3
 const SAME_WORDS_SINCE = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
+const PLAIN_END_SLACK = 5     // s: a plain song counts as heard to its end this close to it (the track change comes early)
 const FRAME = 0.02             // the aligner's frame hop: section slices start on it, so the helper can stitch
                                // the kept sections into the whole-song pass without moving a frame (0.15.38)
 
@@ -72,6 +73,70 @@ function lyricsHash(lines) {
     h = Math.imul(h, 0x01000193) >>> 0
   }
   return h.toString(16).padStart(8, '0')
+}
+
+// --- lyrics timed for another version (0.15.47; recording-id.js timingMismatch) ---
+// When the lyrics' line times don't fit the recording, they are dropped and the helper places the lines
+// from the audio alone: its plain-lyrics mode (lines with `t: null`, protocol 1 and 2; engine 0.2.3 bounds
+// each line by its positional band, JamendoLyrics AAE 0.257 s with the whole-song separator; 0.2.1 searches
+// the whole song). Without line times there are no sections, so such a song is aligned once, as a whole,
+// after it was heard to the end; its entry carries `plain: true` (and the rule's `mismatch` numbers), and
+// a later play shows the lines at the times the helper found (plainTimed) before anything else.
+
+/** The lyric lines without their timing (t: null; no end, no words): what the views show un-highlighted. */
+function untimed(raw) {
+  return (raw || []).map((l) => {
+    const out = { t: null, text: String((l && l.text) || '') }
+    if (l && l.agent) out.agent = l.agent
+    return out
+  })
+}
+
+/** Lyrics with some words: the songs the plain-lyrics mode can align (line times not needed). */
+function canAlignPlain(raw) {
+  return !!raw && raw.length > 0 && !T.hasWordTiming(raw) && raw.some((l) => splitWords(l && l.text).length)
+}
+
+const PLAIN_MIN_SHARE = 0.3   // a plain entry places the lines only when at least this share of them was aligned
+const PLAIN_LINE_GAP = 3      // s between unaligned lines before the first / after the last aligned one
+
+/**
+ * The lines placed at the times a plain entry found: an aligned line starts at its first word and ends at
+ * its last; the lines between two aligned ones share the gap evenly, those before the first and after the
+ * last sit PLAIN_LINE_GAP s apart (only to keep the order: they are `quiet`, never lit and given no
+ * estimated words, the accuracy rule). No words (applyAligned adds the aligned ones). null when too few
+ * lines were aligned to place the rest.
+ */
+function plainTimed(lines, entry) {
+  if (!entry || !entry.plain || !entry.lines || !Array.isArray(lines) || !lines.length) return null
+  const at = lines.map((line, i) => {
+    const a = entry.lines[i]
+    if (!a || a.text !== line.text || !Array.isArray(a.words) || !a.words.length) return null
+    return { t: a.words[0].t, end: a.words[a.words.length - 1].end }
+  })
+  const known = at.map((a, i) => (a ? i : -1)).filter((i) => i >= 0)
+  const wordy = lines.filter((l) => splitWords(l.text).length).length
+  if (known.length < Math.max(2, PLAIN_MIN_SHARE * wordy)) return null
+  const t = at.map((a) => (a ? a.t : null))
+  const first = known[0], last = known[known.length - 1]
+  const r3 = (v) => Math.round(v * 1000) / 1000
+  // loop: NOT-WORTH — the song's lines, once per track change
+  const room = at[first].t >= first * PLAIN_LINE_GAP     // else they share the time from 0 evenly
+  for (let i = 0; i < first; i++) t[i] = r3(room ? at[first].t - (first - i) * PLAIN_LINE_GAP : at[first].t * i / first)
+  for (let i = last + 1; i < lines.length; i++) t[i] = r3(at[last].end + (i - last - 1) * PLAIN_LINE_GAP + 0.1)
+  // loop: NOT-WORTH — the aligned lines and the runs between them, once per track change
+  for (let k = 0; k + 1 < known.length; k++) {
+    const a = known[k], b = known[k + 1]
+    const from = at[a].end, to = at[b].t
+    for (let i = a + 1; i < b; i++) t[i] = r3(from + (to - from) * (i - a) / (b - a))
+  }
+  return lines.map((line, i) => {
+    const out = { t: t[i], text: line.text }
+    if (line.agent) out.agent = line.agent
+    if (at[i]) out.end = at[i].end
+    else out.quiet = true            // not found in the audio: shown, never lit (no guessed words)
+    return out
+  })
 }
 
 /** Line-synced lyrics without word timing, with some text: the songs alignment can improve. */
@@ -131,6 +196,14 @@ function applyAligned(lines, entry) {
  */
 function prepareLines(raw, opts = {}) {
   const lines = raw || []
+  // timed for another version (opts.plain; raw: untimed()): a plain entry places the lines, else they stay untimed
+  if (opts.plain) {
+    const entry = opts.entry && opts.entry.plain ? validEntry(opts.entry, lyricsHash(lines), lines) : null
+    const timed = entry ? plainTimed(lines, entry) : null
+    if (!timed) return { lines, wordSynced: false, aligned: false, plain: true }
+    const got = applyAligned(opts.estimate ? T.estimateWords(timed) : timed, entry)
+    return { lines: got.lines, wordSynced: false, aligned: got.used, plain: true, placed: true }
+  }
   if (T.hasWordTiming(lines)) return { lines, wordSynced: true, aligned: false }
   const base = opts.estimate ? T.estimateWords(lines) : lines
   const entry = opts.entry ? validEntry(opts.entry, lyricsHash(lines), lines) : null
@@ -318,6 +391,8 @@ function entryFromResult(result, raw, heard, meta = {}) {
   // version, when the song was aligned, and the seconds of separation and alignment work on its device
   if (meta.engine) out.engine = meta.engine
   if (meta.at) { out.firstAt = meta.at; out.lastAt = meta.at }
+  // aligned from the audio alone, the lyrics' line times dropped (recording-id timingMismatch's numbers)
+  if (meta.plain) { out.plain = true; if (meta.mismatch) out.mismatch = meta.mismatch }
   const work = jobSeconds(st)
   if (work != null) { out.workS = work; out.device = st.device || '' }
   return out
@@ -594,6 +669,8 @@ function givenNotesMessages(id, song, raw, syllables, pcm, opts = {}) {
  *     (separate), then the notes on the lyrics' own times (givenNotes), see "sheet notes for lyrics with
  *     their own word timing" above
  *   store: { get, set }   send(channel, payload)   now() (ms, same base as the clock)   log
+ *   resend?(key): a plain song's lines were placed from the audio while it is still on screen (main sends
+ *     the song's lyrics again, so the views get them with their new line times)
  *
  * Progressive (0.15.33): the song is aligned section by section while it plays (sections()), one
  * helper job at a time; each section's words are cached (merged into one entry, `partial` until
@@ -672,7 +749,8 @@ function createAlignSession(deps) {
     const whole = !sec || (s.secs.length === 1 && sec === s.secs[0] && req.offset === 0)
     const notes = whole && !!(deps.notes && deps.notes.wanted() && deps.helper.notes)
     if (notes) s.notesQueued = true
-    const until = Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
+    // a plain song (timed for another version): the whole recording as heard, to its end
+    const until = s.plain ? s.buf.end : Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
     const spans = s.buf.spans
     let pcm = s.buf.pcm(until, req.offset)
     const id = 'a' + (++jobs)
@@ -687,7 +765,7 @@ function createAlignSession(deps) {
     // A no-model refusal is remembered so the song isn't recorded again for nothing.
     // Separate once per song: a section's stem stays in the helper (song id + offset); the final pass
     // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
-    const fromKept = () => !sec && s.secs.every((x) => s.kept.has(x.from))
+    const fromKept = () => !sec && s.secs.length > 0 && s.secs.every((x) => s.kept.has(x.from))
     const run = () => {
       if (s.failed) { pcm = null; return null }
       // gaming guard: a job not started yet is skipped; its lines fill in on a later play
@@ -710,13 +788,17 @@ function createAlignSession(deps) {
           messages = null
           pcm = null
           if (sec && result && result.stats && result.stats.kept) s.kept.add(sec.from)
-          const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until, engine: deps.engine || '', at: (deps.date ? deps.date() : new Date()).toISOString() })
+          // (a plain song was heard whole before it was sent: its lines have no times to check against)
+          const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, s.plain ? null : lineHeard, { duration: until, engine: deps.engine || '', at: (deps.date ? deps.date() : new Date()).toISOString(), plain: !!s.plain, mismatch: s.plain && s.plain.reason ? s.plain : null })
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
           if (s.fills) s.entry.fills = s.fills
           s.entry = withOffset(s.entry, s.raw)
           R.put(deps.store, s.storeKey, s.entry, s.rec)
           log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
-          if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
+          // a plain song's lines get their times only now: main sends the song again (prepareLines places them)
+          if (song && song.key === s.key && add.aligned) {
+            if (s.plain) { if (deps.resend) deps.resend(s.key) } else deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
+          }
           if (notes) submitNotes(s, req.lines, sec ? sec.from : 0)
           if (sec && !whole && s.kept.has(sec.from) && deps.notes && deps.notes.pitchWanted && deps.notes.pitchWanted() && deps.helper.pitch) return sectionPitch(s, req.offset, what).then(() => s.entry)
           return s.entry
@@ -897,6 +979,14 @@ function createAlignSession(deps) {
       job = s.given ? submitSeparate(s, sec) : submit(s, sec)
     }
     if (s.next < s.secs.length && !final) return job
+    // a plain song (no sections): the whole recording once it was heard to its end
+    if (s.plain) {
+      if (!final && time < s.span.end) return null
+      if (heardWhole(s)) job = submit(s, null)
+      else log('"' + s.title + '" was not heard to the end: its lines are placed from the audio on a later play')
+      wrapUp(s)
+      return job
+    }
     if (s.given) {
       if (heardWhole(s)) job = submitGivenNotes(s)
       else { s.cancelled = true; log('no sheet notes for "' + s.title + '" this time: it was not heard to the end') }
@@ -939,6 +1029,22 @@ function createAlignSession(deps) {
         if (!secs.length) return
         log('recording "' + title + '" for its sheet notes (its own word timing)')
         song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: lyricSpan(raw), secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false }
+        return
+      }
+      // timed for another version (info.plain: recording-id timingMismatch, or true for a song that has a
+      // plain entry; raw: untimed()): aligned once as a whole from the audio, unless a plain entry is complete
+      if (enabled && info && info.plain) {
+        const dur = Number(info.duration)
+        if (!canAlignPlain(raw) || !(dur > 0)) return
+        const hash = lyricsHash(raw)
+        const found = findAligned(deps.store, title, artist, raw, info)
+        const valid = validEntry(found.entry, hash, raw)
+        const have = valid && valid.plain ? valid : null      // an entry aligned in the wrong windows is replaced
+        const complete = !!(have && !have.partial)
+        const notesOnly = complete && !!(deps.notes && deps.notes.missing && deps.notes.missing(title, artist, hash))
+        if (complete && !notesOnly) return
+        if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
+        song = { id: 's' + (++songs), key, title, artist, raw, hash, span: { start: 0, end: Math.max(0, dur - PLAIN_END_SLACK) }, secs: [], secCount: 0, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info, storeKey: found.key, rec: found.song, plain: typeof info.plain === 'object' ? info.plain : true }
         return
       }
       if (!enabled || !canAlign(raw)) return
@@ -993,7 +1099,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, findAligned, lyricsHash, validEntry, canAlign, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
+  alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

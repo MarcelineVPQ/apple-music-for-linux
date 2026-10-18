@@ -80,7 +80,11 @@ let miniPoll = null
 let lyricsWindow = null
 let lyricsPoll = null
 let lyricsKey = ''
-let lyricsRetry = null  // { key, attempt, at } after a failed lyrics lookup
+let lyricsRetry = null  // { key, tries, at } after a failed lyrics lookup
+// failed lookups per song this session (lyrics-sources retryPlan caps them); bounded, oldest dropped
+// lifetime: OK — at most LYRICS_TRIES_MAX songs, for the app's life
+const lyricsTries = new Map()
+const LYRICS_TRIES_MAX = 200
 let lyricsArt = ''
 let curiousTrack = null  // the lyrics feed's song: { key, startAligned, startRefined } (About → For the Curious)
 let shuttingDown = false
@@ -517,6 +521,7 @@ const nextItemScript = `(() => {
 
 const lyricsSources = require('./lyrics-sources')
 const recordingId = require('./recording-id')
+const lyricsShorthand = require('./lyrics-shorthand')
 
 // Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
 // Chromium's network stack, like the rest of the app.
@@ -655,6 +660,8 @@ function getAlignSession() {
       now: () => performance.now(),
       log: (m) => console.log('align:', m),
       engine: alignEngineVersion(),
+      // a plain song placed from the audio while on screen: the next tick sends its lyrics again
+      resend: (key) => { if (lyricsKey === key) lyricsKey = null },
       paused: () => alignPaused(),
       notes: {
         wanted: () => notesActive() && getNotesSwitch().wanted(),
@@ -874,23 +881,31 @@ async function lyricsTick() {
 
   // one recording (title|artist plus its ISRC, else its length): a live cut titled like the studio one is a new song
   const key = recordingId.trackKey(recordingId.songOf(state))
-  // loop: NOT-WORTH — lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
-  // 30 s, 60 s, then every 120 s · only while a lyric view is open and the song unchanged ·
-  // stops on success, track change or when the last view closes · cost one lookup per retry.
-  // A failed Apple lookup with nothing standing in (error 'apple') is retried 3 times (30, 60, 120 s),
-  // then the window says Apple's lyrics didn't load (status 'apple-failed'); the next play asks again.
-  // error: NOT-WORTH — backoff capped at 120 s, so a down service is never hammered
+  // loop: NOT-WORTH — lyrics retry · when a lyrics service failed, refetch the same song on lyrics-sources
+  // retryPlan: LRCLIB failing (overloaded, rate-limited, unreachable) after 1, 2, 4, 8, 30 s, then every
+  // 120 s (±20 % jitter), at most LRCLIB_MAX_TRIES lookups per song per session; Apple failing with nothing
+  // standing in after 30, 60, 120 s, then the window says Apple's lyrics didn't load ('apple-failed'; the
+  // next play asks again) · only while a lyric view is open and the song unchanged · stops on success,
+  // track change or when the last view closes · cost one lookup per retry.
+  // error: NOT-WORTH — jittered backoff capped at 120 s and a per-song cap, so a down service is never hammered
   const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
   if (key !== lyricsKey || retryDue) {
     lyricsKey = key
     const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
     let status = got.error || ''
+    let retry = null
     if (got.error) {
-      const attempt = lyricsRetry && lyricsRetry.key === key ? lyricsRetry.attempt + 1 : 0
-      if (got.error === 'apple' && attempt >= 3) { lyricsRetry = null; status = 'apple-failed' }
-      else lyricsRetry = { key, attempt, at: Date.now() + [30, 60, 120][Math.min(attempt, 2)] * 1000 }
+      const tries = (lyricsTries.get(key) || 0) + 1
+      lyricsTries.delete(key)
+      lyricsTries.set(key, tries)
+      if (lyricsTries.size > LYRICS_TRIES_MAX) lyricsTries.delete(lyricsTries.keys().next().value)
+      const wait = lyricsSources.retryPlan(got.error, tries)
+      if (wait == null) { lyricsRetry = null; status = got.error === 'apple' ? 'apple-failed' : 'lrclib-failed' }
+      else lyricsRetry = { key, tries, at: Date.now() + wait }
+      retry = { tries, max: got.error === 'apple' ? lyricsSources.APPLE_RETRY_S.length + 1 : lyricsSources.LRCLIB_MAX_TRIES, at: lyricsRetry ? lyricsRetry.at : 0 }
     } else {
       lyricsRetry = null
+      lyricsTries.delete(key)
       prefetchNextLyrics(key)
     }
     // word timing is chosen here, by priority: Apple/LRC word timing (never touched) > aligned on
@@ -899,11 +914,25 @@ async function lyricsTick() {
     const precise = preciseTimingOn()
     const aligner = precise ? getAlignSession() : alignSession
     const rec = { duration: state.duration, isrc: state.isrc, appleId: state.appleId }
-    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise, { album: state.album, duration: state.duration, appleId: state.appleId, isrc: state.isrc, lang: got.lang || '' })
-    const prep = alignSessionLib.prepareLines(got.lines || [], {
-      estimate: !!settings.estimatedWordTiming,
-      entry: precise ? aligner.entryFor(state.title, state.artist, got.lines || [], rec) : null
-    })
+    // LRCLIB lyrics written as shorthand ("(repeat all)", "(x2)", "[Chorus]" with nothing under it;
+    // lyrics-shorthand.js): the markers are never shown, the lines they stand for are written out, untimed
+    const sh = got.source === 'lrclib' ? lyricsShorthand.expandShorthand(got.lines || []) : null
+    const base = sh ? sh.lines : (got.lines || [])
+    if (sh) console.log('lyrics: "' + state.title + '" by ' + state.artist + ': shorthand ' + sh.markers.map((m) => JSON.stringify(m.text)).join(', ') + ': ' + sh.added + ' line(s) written out' + (sh.unresolved.length ? ', ' + sh.unresolved.length + ' marker(s) with nothing to repeat dropped' : '') + (sh.timed ? ' (labels only: timing kept)' : ''))
+    const shorthand = sh && !sh.timed ? { reason: 'shorthand', marker: (sh.markers.find((m) => m.kind !== 'label') || sh.markers[0]).text, added: sh.added } : null
+    const stored = precise ? aligner.entryFor(state.title, state.artist, base, rec) : null
+    // lyrics timed for another version (recording-id.js timingMismatch; a song with a plain entry is marked
+    // so), written out from shorthand, or LRCLIB's plain lyrics (no timing given): no line times are used,
+    // the helper places the lines from the audio (align-session.js untimed / plainTimed), and until it has,
+    // the lines show un-highlighted with a note saying why
+    const mismatch = shorthand ? null : recordingId.timingMismatch(base, { source: got.source, duration: state.duration, title: state.title, album: state.album })
+    const untimedLrclib = got.source === 'lrclib' && base.length > 0 && base[0].t == null
+    // (a plain entry marks only LRCLIB lyrics: Apple's own timing for Apple's lyrics is never dropped)
+    const plain = shorthand || mismatch || (got.source === 'lrclib' && stored && stored.plain ? (stored.mismatch || true) : null) || (untimedLrclib ? { reason: 'untimed' } : null)
+    if (mismatch) console.log('lyrics: "' + state.title + '" by ' + state.artist + ': line timing is for another version (' + mismatch.reason + ': lyrics end at ' + mismatch.lyricsEnd + ' s, the recording runs ' + mismatch.duration + ' s, ' + Math.round(mismatch.share * 100) + ' %); ' + (precise ? 'lines placed from the audio' : 'shown untimed (precise timing off)'))
+    const lyricLines = plain ? alignSessionLib.untimed(base) : base
+    if (aligner) aligner.setLyrics(key, state.title, state.artist, lyricLines, precise, { album: state.album, duration: state.duration, appleId: state.appleId, isrc: state.isrc, lang: got.lang || '', plain })
+    const prep = alignSessionLib.prepareLines(lyricLines, { estimate: !!settings.estimatedWordTiming, entry: stored, plain: !!plain })
     let lines = prep.lines
     let refined = false
     let heardOnset = null
@@ -920,8 +949,12 @@ async function lyricsTick() {
     // "Written by …" at the end of the lyrics: the TTML's songwriters (Apple lyrics), else the catalog's
     // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
-    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
-    setSheetSong(key, state.title, state.artist, got.lines || [], prep)
+    // the lookup's state for the empty view and its ⓘ (lyrics-view.js statusText); the version note while
+    // the lines are shown untimed (versionNote)
+    const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry }
+    const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
+    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
+    setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep)
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
