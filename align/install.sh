@@ -12,7 +12,7 @@
 # The engine Sonata wants is pinned in engine.json beside this script (version, file, size, SHA-256,
 # the engine's Ed25519 signing key); anything else is refused. It is unpacked into
 # <home>/engine-X.Y.Z/, which builds the venv in <home>/venv from its own recipe (setup-venv.sh,
-# Python 3.12). Models download on first use. The home: SONATA_ALIGN_HOME, else
+# on the Python named in engine.json, 3.14). Models download on first use. The home: SONATA_ALIGN_HOME, else
 # $XDG_DATA_HOME/sonata-align (outside app sandboxes), else ~/.local/share/sonata-align; never inside
 # another app's sandbox (~/snap, /snap, ~/.var/app, an AppImage mount). Same rule as align-helper.js
 # helperPaths. Removing it: delete the home (the models are in it too).

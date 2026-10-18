@@ -31,9 +31,11 @@ const MAX_CRASHES = 3
 // The helper protocol versions this client speaks (the pong's "protocol"; none = 1, the helper that
 // shipped inside Sonata up to 0.15.44). A helper with another one is refused: "Update Precise timing".
 const PROTOCOLS = [1, 2]
-const ENGINE_PYTHON = '3.12'   // the engine's compiled modules are for this Python (its venv must be it)
 
-/** The engine release this Sonata wants (align/engine.json: version, protocol, file, url, size, sha256, key). */
+/**
+ * The engine release this Sonata wants (align/engine.json: version, protocol, python, file, url, size,
+ * sha256, key). "python" (X.Y) is the Python its compiled modules are for: the venv must be on it.
+ */
 function enginePin(appDir) {
   const dir = path.join(String(appDir || __dirname), 'align')   // read through the asar (Electron's fs)
   // error: NOT-WORTH — no pin (a broken checkout): no engine is wanted, Settings says "not installed"
@@ -82,7 +84,7 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = engine
     engine = env.SONATA_ENGINE_DIR
     server = exists(path.join(engine, 'main.py')) ? path.join(engine, 'main.py') : path.join(engine, 'server.py')
   }
-  return { home, python: path.join(home, 'venv', 'bin', 'python'), server, engine, engineVersion: env.SONATA_ENGINE_DIR ? '' : version, override: !!env.SONATA_ENGINE_DIR, stray, userHome: env.HOME || '' }
+  return { home, python: path.join(home, 'venv', 'bin', 'python'), server, engine, engineVersion: env.SONATA_ENGINE_DIR ? '' : version, enginePython: env.SONATA_ENGINE_DIR ? '' : String((pin && pin.python) || ''), override: !!env.SONATA_ENGINE_DIR, stray, userHome: env.HOME || '' }
 }
 
 /**
@@ -140,10 +142,11 @@ function checkInstall(paths, io = fs) {
   if (inAppSandbox(real, paths.userHome) || inAppSandbox(cfgHome, paths.userHome)) return { state: 'sandboxed', python: py, target: real }
   if (!paths.override) {
     const want = paths.engineVersion || ''
+    const wantPy = paths.enginePython || ''
     let engineThere = false
     // error: SHOWN — no engine (or not the pinned one) is the 'update' state, which Settings explains
     try { io.accessSync(paths.server, fs.constants.R_OK); engineThere = true } catch (e) { engineThere = false }
-    if (!engineThere || (pyVersion && pyVersion !== ENGINE_PYTHON)) return { state: 'update', python: py, target: real, want }
+    if (!engineThere || (wantPy && pyVersion && pyVersion !== wantPy)) return { state: 'update', python: py, target: real, want }
   }
   return { state: 'ok', python: py, target: real }
 }
@@ -448,4 +451,4 @@ function createAlignHelper(opts, deps = {}) {
   }
 }
 
-module.exports = { PROTOCOLS, ENGINE_PYTHON, enginePin, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }
+module.exports = { PROTOCOLS, enginePin, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }
