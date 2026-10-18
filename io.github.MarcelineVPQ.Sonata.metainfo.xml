@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.45-dev.1" date="2026-10-18" type="development">
+      <description>
+        <p>Sheet notes for songs with Apple's word timing, booklet pages turn on a click, and updates from the new releases repository</p>
+      </description>
+    </release>
     <release version="0.15.44-dev.1" date="2026-10-18" type="development">
       <description>
         <p>The liner notes disc turns about its own centre</p>
