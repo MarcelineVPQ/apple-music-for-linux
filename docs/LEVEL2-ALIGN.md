@@ -333,8 +333,10 @@ labelled.
    button that runs `install.sh` and later `prepare` with progress. A second toggle, "Transcribe
    songs without lyrics (may mishear)", is greyed out without a GPU.
 2. **Helper lifetime** (main.js, AVIEW verdict comments): spawn `align/sonata-align` on demand
-   when there's a job. It is one child process. Send `quit` after 2 minutes idle (frees 2.7 GB of
-   VRAM) and kill it on app quit. If it crashes, show a log line plus a status in Settings, and
+   when there's a job. It is one child process. Send `quit` after 10 minutes idle while a lyric view
+   (lyrics window, Studio, visualizer) is open and 2 minutes when none is (0.15.42; it holds ~1.8 GB of
+   VRAM idle; align-helper.js `IDLE_MS` / `WARM_IDLE_MS`), at once when a game starts (gaming guard),
+   and kill it on app quit. If it crashes, show a log line plus a status in Settings, and
    don't respawn more than once per song.
 3. **Capture**: reuse the Level 1 listener (`audio-listen.js`, 22.05 kHz s16 stereo; the bench
    shows no accuracy loss vs 44.1 kHz). main keeps a song-time-indexed buffer (≈ 88 KB/s, 21 MB for

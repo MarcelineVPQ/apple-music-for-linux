@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **Precise word timing starts sooner.** The word-timing helper now stays ready for 10 minutes between songs while the lyrics window, the Studio or the visualizer is open (it used to quit after 2 minutes and needed about 5 seconds to start again, so a new song's first words often came late). With no lyrics open it still quits after 2 minutes, and it still steps aside at once when a game starts or Sonata quits.
+
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 
 ### Added

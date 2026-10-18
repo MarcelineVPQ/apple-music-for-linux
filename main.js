@@ -594,7 +594,8 @@ function getSharedListener() {
 // after the hand-over.
 // lifetime: one session + one helper client for the app's life. The session records only while a
 // lyric view is open, the song plays and it isn't aligned yet; the helper process (one child) is
-// spawned for a job, quits after 2 min idle and is killed on setting off and quit (align-helper.js).
+// spawned for a job, quits after 10 min idle while a lyric view is open (2 min when none is), at once
+// when a game starts (gaming guard), and is killed on setting off and quit (align-helper.js).
 // error: helper not installed, crashing or refusing -> one log line, the song keeps its current timing
 // The install is checked at start and whenever Settings asks (install.sh runs outside Sonata), not
 // per poll tick.
@@ -623,7 +624,8 @@ function showAlignRepair() {
 }
 function getAlignHelper() {
   alignInstalled()
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, log: (m) => console.log('align:', m) })
+  // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, log: (m) => console.log('align:', m) })
   return alignHelper
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
@@ -741,6 +743,7 @@ function startLyricsFeed() {
   vizArt = null
   // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
+  if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
 }
 function stopLyricsFeedIfIdle() {
   if (lyricViews().length) return
@@ -749,6 +752,7 @@ function stopLyricsFeedIfIdle() {
   lyricsRetry = null
   if (listenSession) listenSession.stop()
   if (alignSession) alignSession.stop(true)   // a song heard to the end is still aligned
+  if (alignHelper) alignHelper.viewsChanged()   // no view: the 2-minute idle limit, counted from the last job
 }
 
 // error: NOT-WORTH — a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
