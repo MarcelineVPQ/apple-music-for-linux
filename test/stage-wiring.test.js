@@ -100,11 +100,16 @@ test('the song\'s actions: read once per song while the Studio shows (and after 
   const st = fn(main, 'async function stageTick(')
   assert.match(st, /if \(key !== stageSongKey\) \{ stageSongKey = key; stageSongRead\(state, key\) \}/)
   // the only callers: the song changing (stageTick) and an action that changed the song's state (stageDone)
-  assert.equal((main.match(/stageSongRead\(/g) || []).length, 3, 'definition + stageTick + stageDone')
+  // ... and a favourite write's read that lags it (Apple's ratings read trails its write: Marcy 2026-10-18,
+  // the ☆ stayed an outline): read again at most twice, per write, while the read still disagrees
+  assert.equal((main.match(/stageSongRead\(/g) || []).length, 4, 'definition + stageTick + stageDone + the lagging re-read')
   const done = fn(main, 'function stageDone(')
   assert.match(done, /if \(ok && \/favorite\|library\|playlist\/\.test\(action\)\)/)
   const block = main.slice(main.indexOf('// --- the Studio\'s song actions'), main.indexOf('// --- the Studio\'s Montage'))
-  for (const t of ['setInterval(', 'setTimeout(']) assert.ok(!block.includes(t), 'no ' + t)
+  assert.ok(!block.includes('setInterval('), 'no setInterval(')
+  assert.equal(block.split('setTimeout(').length - 1, 1, 'one timer: the lagging read')
+  assert.match(fn(main, 'function settleStageSong('), /if \(wait\) \{\s*w\.tries\+\+[\s\S]*stageReread = setTimeout\(\(\) => \{ stageReread = null; if \(stageWrote === w\) stageSongRead\(null, ''\) \}, wait\)/)
+  assert.match(main, /const STAGE_REREAD_MS = \[3000, 10000\]/)
   // the source-neutral interface: the Studio asks songSource, never MusicKit itself
   assert.ok(!/MusicKit/.test(block), 'no MusicKit in the Studio\'s action code')
   assert.match(main, /const songSource = songActions\.createAppleSource\(/)

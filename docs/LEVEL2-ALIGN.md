@@ -283,7 +283,9 @@ docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
   jobs keep their order, only while the Studio shows the band, and never while a game runs. The line
   is 20 values a second (MIDI × 10, 0 = no voice), drawn from the right edge back (the band shows the
   last ~14 s): it follows each section by about the section's length, because a section is separated
-  only once it has been heard.
+  only once it has been heard. While none of the heard line is in view (a long section, a solo after
+  one), the band's message row says so (sheet-notes-model.js `lineGap`: "This part’s line shows once it
+  has been sung", the ⓘ names where the heard line ends) instead of an empty staff.
   The client draws it continuous through a phrase (sheet-notes-model.js `cleanPitch`, `LINE`): dropouts
   up to 250 ms are bridged in a straight line in MIDI (log frequency) unless the voice lands more than
   7 semitones away, a value 9.5–14.5 semitones off its ±250 ms median is folded back an octave, a lone

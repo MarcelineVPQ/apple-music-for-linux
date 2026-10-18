@@ -530,6 +530,32 @@ function pitchRuns(pitch, clef, fifths, spans) {
   return runs.filter((r) => r.length > 1)
 }
 
+/**
+ * First play: what the band says while none of the heard line is in its view. A section's line comes
+ * only after the section is sung, and the band scrolls with the playhead (the last ~14-25 s), so through
+ * a long section, or a solo after one, the drawn line has scrolled off to the left and the staff was
+ * empty with no word why (Marcy 2026-10-18, Mad Season "Wake Up (Live At the Moore)" at 5:44: lines
+ * 1-15 drawn, ending at 4:20). runs: pitchRuns(); [from, to): the song time the band shows.
+ * -> null while some of the line is in view, else { text, info }
+ */
+function lineGap(runs, from, to) {
+  if (!runs || !runs.length) return null
+  let last = 0
+  // loop: NOT-WORTH — the line's voiced runs (tens to a few hundred), on the 2/s time pushes of the first play's band only
+  for (const r of runs) {
+    const a = r[0][0]
+    const b = r[r.length - 1][0]
+    if (b >= from && a < to) return null
+    if (a < to && b > last) last = b
+  }
+  const clock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0')
+  return {
+    text: 'This part’s line shows once it has been sung',
+    info: 'On a first play Sonata hears each part of the song once it has been sung, so the line follows a part behind' +
+      (last > 0 ? ': the line heard so far ends at ' + clock(last) + '.' : '.') + ' On the next play the notes show as they are sung.'
+  }
+}
+
 /** The label above the band for a mode + the stretch at the playhead ('Notes · G minor · pitch line here'). */
 function labelAt(m, region) {
   if (m.band !== 'notes' || !region || region.show === 'notes') return m.label
@@ -567,5 +593,5 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, labelAt, nextChange, noteAt
+  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, lineGap, labelAt, nextChange, noteAt
 }

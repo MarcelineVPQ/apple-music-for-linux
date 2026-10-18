@@ -588,3 +588,25 @@ test('band CSS: the label row wraps instead of cutting its words off; the staff 
   assert.doesNotMatch(rule('.sn-msg'), /ellipsis|nowrap/)
   assert.match(rule('.sn-staff'), /position: relative; height: 132px/)
 })
+
+test('first play: a realistic piece draws visible runs; once they scroll off, the band says why it is empty', () => {
+  // the helper's pitch reply (align/server.py "pitch": { t0, hop 0.05, v MIDI x 10, 0 = no voice }), two sections
+  const fx = fixture('cortez-feel-stripped')
+  const line = M.mergePitch(fx.pieces)
+  const runs = M.pitchRuns(line, 'treble8', 0, null)
+  assert.ok(runs.length > 0, 'the line has runs')
+  // on the staff (or a few ledger lines off it), not off the band
+  assert.ok(runs.every((r) => r.every(([t, pos]) => t >= 25 && t < 50 && pos > -8 && pos < 16)))
+  // the band's view (the last ~14-25 s up to the playhead): line in view, nothing to say
+  assert.equal(M.lineGap(runs, 30, 45), null)
+  assert.equal(M.lineGap(runs, 45, 52), null)
+  // a long next section (Marcy 2026-10-18: Mad Season at 5:44, the heard line ended at 4:20): the staff
+  // was empty with no word; now the band says the part shows once sung, and where the heard line ends
+  const g = M.lineGap(runs, 80, 95)
+  assert.ok(g && g.text.length <= M.TEXT_MAX)
+  assert.match(g.text, /once it has been sung/)
+  const end = runs[runs.length - 1][runs[runs.length - 1].length - 1][0]
+  assert.match(g.info, new RegExp('ends at 0:' + String(Math.floor(end)).padStart(2, '0')))
+  // nothing heard yet: mode() already says so (no runs, no gap note)
+  assert.equal(M.lineGap([], 0, 10), null)
+})

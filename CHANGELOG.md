@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+- **The Studio's ☆ Favorite star fills after you favourite a song.** Apple Music takes a moment before its own read of your ratings shows a new Favorite, and Sonata read it only once, right after the click, so the star stayed an outline even though the song was favourited. The star now shows what Apple answered to the Favorite itself and checks again a few seconds later until Apple's read agrees. Each read is written to the log, so a star that stays wrong can be explained.
+- **The first play's pitch line no longer leaves an empty staff without a word.** On a song's first play each part's pitch line comes once that part has been sung, and the band shows the last few seconds, so during a long part or a solo the line heard so far had scrolled away and the staff looked broken. The band now says the part's line shows once it has been sung, and its ⓘ tells where the line heard so far ends.
+
 ## [0.15.46-dev.1] — Install the precise-timing helper from Settings, How it works in About, and the Studio group on the rail
 
 ### Added

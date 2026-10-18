@@ -39,7 +39,7 @@ test('state: the song\'s ids, link, favourite and library state, read in two req
     'catalog/us/songs/1440892370': { data: { data: [{ relationships: { library: { data: [{ id: 'i.abc' }] }, artists: { data: [{ id: '3093' }] } } }] } }
   } })
   const st = A.cleanState(await p.run(A.stateScript))
-  assert.deepEqual(st, { ok: true, id: '1440892370', title: 'Losing My Religion', artist: 'R.E.M.', url: 'https://music.apple.com/us/album/out-of-time/1440833098?i=1440892370', favorite: true, inLibrary: true, albumId: '1440833098', artistId: '3093' })
+  assert.deepEqual(st, { ok: true, id: '1440892370', title: 'Losing My Religion', artist: 'R.E.M.', url: 'https://music.apple.com/us/album/out-of-time/1440833098?i=1440892370', favorite: true, read: { kind: 'catalog', path: '/v1/me/ratings/songs?ids=1440892370', got: 'value 1' }, inLibrary: true, albumId: '1440833098', artistId: '3093' })
   assert.equal(p.log.length, 2)
   assert.deepEqual(p.log[1].params, { include: 'artists', relate: 'library' })
   // not in the library: an empty library relation; no relation at all: unknown (Add to Library stays offered)
@@ -248,4 +248,59 @@ test('the Studio\'s buttons from the state: the star and the ✓ only when Apple
   assert.deepEqual(S.libraryButton({ ok: true, inLibrary: true }), { done: true, icon: 'check', label: 'In your library', title: 'Already in your library' })
   for (const v of [false, null, undefined]) assert.equal(S.libraryButton({ ok: true, inLibrary: v }).icon, 'plus')
   assert.equal(S.libraryButton({ ok: false, inLibrary: true }).done, false)
+})
+
+// Apple's answers as recorded from amp-api.music.apple.com (Marcy's HTTP cache, 2026-10-18, Mad Season
+// "Wake Up (Live At the Moore)", catalog id 596227994): the ratings read right after her Favorite still
+// said 404 (not rated), so the one read after the action left the star an outline
+const WAKE_UP = { id: '596227994', attributes: { name: 'Wake Up (Live At the Moore)', artistName: 'Mad Season', url: 'https://music.apple.com/us/album/wake-up-live-at-the-moore/596227985?i=596227994', playParams: { id: '596227994', kind: 'song' } } }
+const NOT_FOUND = Object.assign(new Error('Resource with requested id was not found'), { errorCode: 'NOT_FOUND', status: 404 })
+const RATED = { data: { data: [{ id: '596227994', type: 'ratings', href: '/v1/me/ratings/songs/596227994', attributes: { value: 1 } }] } }
+
+test('the favourite read logs what it asked and what Apple answered (one line per read)', async () => {
+  // rated: Apple's ids read with the song's rating
+  const on = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': RATED } }).run(A.stateScript))
+  assert.equal(on.favorite, true)
+  assert.equal(A.readLine(on), 'Studio: favourite read for "Wake Up (Live At the Moore)": catalog id via /v1/me/ratings/songs?ids=596227994 -> value 1 (star on)')
+  // not rated: { data: [] } (recorded) or a 404
+  const none = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': { data: { data: [] } } } }).run(A.stateScript))
+  assert.equal(none.favorite, false)
+  assert.match(A.readLine(none), /-> no rating \(0 entries\) \(star off\)$/)
+  const nf = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': NOT_FOUND } }).run(A.stateScript))
+  assert.equal(nf.favorite, false)
+  assert.match(A.readLine(nf), /-> error 404 Resource with requested id was not found \(star off\)$/)
+  // several entries: the song's own one counts
+  const two = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': { data: { data: [{ id: '1', attributes: { value: -1 } }, { id: '596227994', attributes: { value: 1 } }] } } } }).run(A.stateScript))
+  assert.equal(two.favorite, true)
+  // a library song: the library kind
+  const lib = A.cleanState(await page({ item: { id: 'i.xyz', attributes: { name: 'A', playParams: { id: 'i.xyz', isLibrary: true } } } }).run(A.stateScript))
+  assert.match(A.readLine(lib), /library id via \/v1\/me\/ratings\/library-songs\?ids=i\.xyz/)
+  // nothing known: no line; what crosses is bounded (one line, no newlines)
+  assert.equal(A.readLine(A.cleanState(null)), '')
+  const evil = A.cleanState({ ok: true, id: '1', title: 'x', read: { kind: 'songs', path: '/a\nb', got: 'y'.repeat(500) } })
+  assert.ok(!/\n/.test(A.readLine(evil)) && evil.read.got.length === 160)
+})
+
+test('Favorite takes Apple\'s reply to the write; a read that lags it keeps the star the write set', async () => {
+  // the PUT's reply carries the rating Apple now holds; DELETE answers nothing (0)
+  const p = page({ item: WAKE_UP, answers: { 'ratings/songs/596227994': RATED } })
+  const src = A.createAppleSource({ run: p.run })
+  assert.equal(await src.favorite('596227994', true), true)
+  assert.equal(await src.favorite('596227994', false), false)
+  assert.equal(await A.createAppleSource({ run: page({ answers: { 'ratings/songs/1': {} } }).run }).favorite('1', true), null, 'no rating in the reply')
+  // the read right after (Apple's 404, recorded): the write wins while the read lags, for that song only
+  const stale = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': NOT_FOUND } }).run(A.stateScript))
+  const s = A.settleFavorite(stale, { id: '596227994', on: true })
+  assert.equal(s.agree, false)
+  assert.equal(s.st.favorite, true)
+  const S = require('../stage-model')
+  assert.equal(S.favoriteButton(s.st).icon, 'starOn')
+  // Apple's read catches up: agree, nothing held
+  const fresh = A.cleanState(await page({ item: WAKE_UP, answers: { 'me/ratings/songs': RATED } }).run(A.stateScript))
+  assert.deepEqual(A.settleFavorite(fresh, { id: '596227994', on: true }), { st: fresh, agree: true })
+  // another song playing by then, or no write: Apple's read as it is
+  assert.equal(A.settleFavorite(Object.assign({}, stale, { id: '1' }), { id: '596227994', on: true }).st.favorite, false)
+  assert.equal(A.settleFavorite(stale, null).st.favorite, false)
+  // undo: a read still saying favourite shows the star off
+  assert.equal(A.settleFavorite(fresh, { id: '596227994', on: false }).st.favorite, false)
 })
