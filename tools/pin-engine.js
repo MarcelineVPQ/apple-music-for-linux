@@ -11,7 +11,7 @@ const path = require('path')
 const { execFileSync } = require('child_process')
 
 const RELEASES = 'https://github.com/MarcelineVPQ/sonata-releases/releases/download/'
-const FILE_RE = /^sonata-engine-(\d+\.\d+\.\d+)-linux-x86_64\.tar\.gz$/
+const FILE_RE = /^sonata-engine-(\d+\.\d+\.\d+(?:-dev\.\d+)?)-linux-x86_64\.tar\.gz$/
 
 /** The pin for one artifact (throws when the signature doesn't check with `key`). */
 function pinFor(dir, key) {

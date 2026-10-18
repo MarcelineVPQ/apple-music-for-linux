@@ -43,6 +43,13 @@ const SCHEMA = {
   montage: [false, bool, 'Montage behind the lyrics'],
   lyricsPreciseTiming: [false, bool, 'Precise word timing'],
   alignGamingPause: [true, bool, 'Pause word timing while gaming'],
+  // Settings → Precise timing's helper: update it by itself when a new one is out (off until Marcy decides),
+  // and the SHA-256 of the helper licence accepted last (asked again when the text changes)
+  alignAutoUpdate: [false, bool, 'Update the helper automatically'],
+  // Settings → Precise timing → Build for: Auto (the card found: gpu-detect.js) or one PyTorch build
+  alignBackend: ['auto', oneOf('auto', 'cuda', 'rocm', 'xpu', 'cpu'), 'Helper build'],
+  alignLicence: ['', (v) => typeof v === 'string' && /^([0-9a-f]{64})?$/.test(v), 'Accepted helper licence'],
+  alignLicenceVersion: ['', (v) => typeof v === 'string' && /^[\w.+-]{0,40}$/.test(v), 'Accepted helper licence version'],
   sungNotesLog: [false, bool, 'Sung notes (developer log)'],
   sheetNotes: [false, bool, 'Sheet notes in the Studio'],
   sheetPlace: ['band', oneOf('band', 'over'), 'Sheet notes placement'],

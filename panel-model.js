@@ -139,7 +139,7 @@
     if (page === 'settings') {
       switch (id) {
         case 'playback': return [st.lrclibFallback ? 'LRCLIB on' : 'Apple lyrics only', st.estimatedWordTiming ? 'estimated words' : 'line timing', st.notifications ? 'notifications' : null].filter(Boolean).join(' · ')
-        case 'timing': return [onOff('Listening', !!st.lyricsListenRefine && !!st.estimatedWordTiming), st.alignInstalled ? onOff('Precise', !!st.lyricsPreciseTiming) : 'Precise: helper not installed'].join(' · ')
+        case 'timing': return [onOff('Listening', !!st.lyricsListenRefine && !!st.estimatedWordTiming), timingHelper(st)].join(' · ')
         case 'appearance': return [{ system: 'System theme', light: 'Light', dark: 'Dark' }[st.theme] || 'System theme', st.adaptiveColor ? 'album colours' : 'no album colours', st.adaptiveColor && st.glass ? 'Glass' : null].filter(Boolean).join(' · ')
         case 'windows': return [st.miniAlwaysOnTop ? 'Mini player on top' : null, st.lyricsAlwaysOnTop ? 'lyrics on top' : null].filter(Boolean).join(' · ') || 'Nothing kept on top'
         case 'shortcuts': return K.statusLine(st.shortcuts)
@@ -150,6 +150,17 @@
       }
     }
     return ''
+  }
+
+  // Precise timing's part of the line: the helper's job or news first, else the switch
+  function timingHelper(st) {
+    const h = st.helper || {}
+    if (h.phase === 'licence') return 'helper licence to accept'
+    if (h.phase === 'running' || h.phase === 'licence-fetch') return h.kind === 'remove' ? 'removing the helper' : 'installing the helper'
+    if (h.state === 'update') return 'helper needs an update'
+    if (h.state === 'broken' || h.state === 'sandboxed') return 'helper needs a repair'
+    if (h.available && st.alignInstalled) return 'helper update available'
+    return st.alignInstalled ? onOff('Precise', !!st.lyricsPreciseTiming) : 'Precise: helper not installed'
   }
 
   // Experimental's one line: how many switches are on (the graphics switches, and Sheet notes in the Studio
