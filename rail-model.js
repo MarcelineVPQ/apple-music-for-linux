@@ -91,21 +91,27 @@
   // show in the side panel beside Apple's page; pressing the item of the page the panel shows hides
   // the panel, any other shows it with that page (aria-pressed: shown with this page). An open task
   // there (an update, a repaired file, what's new) puts a dot on the item while it isn't shown.
+  // The Studio leads a group (Marcy 2026-10-18): Lyrics and Liner Notes sit under it as sub-items
+  // (parent: 'stage'; indented with a guide line, and still one click away in the icon column), then
+  // the Mini Player (the next most used), the Visualizer, Settings, About. The keyboard walks them in
+  // this order, sub-items included.
   const ITEMS = [
     // the Studio (internally the stage: lyrics.html body.stage), the lyrics window grown into the
     // now-playing screen; first on the rail (Marcy 2026-10-17: the standout feature). Pressed while the
     // Studio shows; pressing it then shrinks it back to the lyrics window
     { id: 'stage', label: 'Studio', keyName: 'stage', kind: 'toggle', tipOn: 'Shown · click to shrink it to the lyrics window', tipOff: 'Click to open the Studio: the lyrics with the song and what plays next' },
-    { id: 'lyrics', label: 'Lyrics', keyName: 'lyrics', kind: 'toggle' },
-    { id: 'visualizer', label: 'Visualizer', keyName: 'visualizer', kind: 'toggle' },
+    { id: 'lyrics', label: 'Lyrics', keyName: 'lyrics', kind: 'toggle', parent: 'stage', tipOff: 'Click to open the compact lyrics window' },
+    // the playing album's booklet (the Studio's Liner notes tile, the menus' "Liner Notes…")
+    { id: 'liner', label: 'Liner Notes', keyName: 'liner', kind: 'toggle', parent: 'stage', tipOn: 'Open · click to close the booklet', tipOff: 'Click to open the booklet of the playing album', tipIdle: 'Nothing is playing · play a song, then this opens its album\'s booklet' },
     { id: 'mini', label: 'Mini Player', keyName: 'mini', kind: 'toggle' },
+    { id: 'visualizer', label: 'Visualizer', keyName: 'visualizer', kind: 'toggle' },
     { id: 'settings', label: 'Settings', keyName: 'settings', kind: 'panel' },
     { id: 'about', label: 'About', keyName: 'about', kind: 'panel' }
   ]
   // what the rail view may send: its items, the pin and lock, 'mounted', 'expand'/'collapse' (widen
   // the view over Apple's page while open), 'focus-apple-next'/'focus-apple-prev' (Tab out: to Apple's
   // page, or Shift+Tab to the panel when it shows)
-  const COMMANDS = ['lyrics', 'stage', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
+  const COMMANDS = ['lyrics', 'stage', 'liner', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'mounted', 'expand', 'collapse', 'focus-apple-next', 'focus-apple-prev']
 
   // Pin and lock exclude each other, as in the DS5 app: keeping it open unlocks it, locking it
   // unpins it. -> the new { pinned, locked } after toggling `which` ('pin' | 'lock')
@@ -128,12 +134,15 @@
       const key = keys[it.keyName] || ''
       const active = it.kind === 'panel' ? !!panel.shown && panel.page === it.id : !!open[it.id]
       const head = it.label + (key ? ' (' + key + ')' : '')
+      // Liner Notes with nothing playing: the tooltip says so (a press then says it in a toast too)
+      const idle = !active && it.tipIdle && s && s.song === false
       const what = it.kind === 'toggle'
-        ? (active ? it.tipOn || 'Open · click to close' : it.tipOff || 'Click to open')
+        ? (active ? it.tipOn || 'Open · click to close' : idle ? it.tipIdle : it.tipOff || 'Click to open')
         : (active ? 'Shown beside the page · click to hide it' : 'Click to show it beside the page')
       // a task waiting there: the dot, said in the tooltip and to screen readers (not colour alone)
       const task = it.kind === 'panel' && !active && reminders[it.id] ? String(reminders[it.id]) : ''
-      return { id: it.id, label: it.label, kind: it.kind, key, ariaKeys: ariaKeys(key), active, task, tip: head + '\n' + what + (task ? '\nWaiting: ' + task : '') }
+      const sub = it.parent ? ITEMS.find((p) => p.id === it.parent) : null
+      return { id: it.id, label: it.label, kind: it.kind, parent: it.parent || '', group: sub ? sub.label : '', key, ariaKeys: ariaKeys(key), active, task, tip: head + '\n' + what + (task ? '\nWaiting: ' + task : '') }
     })
   }
 

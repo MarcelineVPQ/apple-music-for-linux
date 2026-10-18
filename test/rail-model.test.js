@@ -89,18 +89,21 @@ test('keyboard: arrows wrap, Home/End jump, Esc closes, modified keys and others
 })
 
 test('items: order, shortcuts in tooltips, active state from open windows and the panel', () => {
-  const s = { open: { lyrics: true }, panel: { shown: true, page: 'settings' }, keys: { lyrics: 'Ctrl+Shift+L', stage: 'Ctrl+Shift+S', visualizer: 'Ctrl+Shift+V', mini: 'Ctrl+M', settings: '', about: '' } }
+  const s = { open: { lyrics: true }, panel: { shown: true, page: 'settings' }, keys: { lyrics: 'Ctrl+Shift+L', stage: 'Ctrl+Shift+S', liner: '', visualizer: 'Ctrl+Shift+V', mini: 'Ctrl+M', settings: '', about: '' } }
   const items = M.railItems(s)
-  assert.deepEqual(items.map((i) => i.id), ['stage', 'lyrics', 'visualizer', 'mini', 'settings', 'about'])   // the Studio first (Marcy 2026-10-17)
-  assert.deepEqual(items.map((i) => i.active), [false, true, false, false, true, false])
+  // the Studio first (Marcy 2026-10-17) with Lyrics and Liner Notes under it, then the Mini Player (2026-10-18)
+  assert.deepEqual(items.map((i) => i.id), ['stage', 'lyrics', 'liner', 'mini', 'visualizer', 'settings', 'about'])
+  assert.deepEqual(items.map((i) => i.active), [false, true, false, false, false, true, false])
   assert.match(items[0].tip, /^Studio \(Ctrl\+Shift\+S\)\nClick to open the Studio: the lyrics with the song/)
   assert.match(items[1].tip, /^Lyrics \(Ctrl\+Shift\+L\)\nOpen · click to close$/)
-  assert.match(items[2].tip, /^Visualizer \(Ctrl\+Shift\+V\)\nClick to open$/)
+  assert.match(items[2].tip, /^Liner Notes\nClick to open the booklet of the playing album$/)   // no invented shortcut
+  assert.equal(items[2].ariaKeys, '')
   assert.equal(items[3].ariaKeys, 'Control+M')
-  assert.equal(items[4].kind, 'panel')
-  assert.match(items[4].tip, /^Settings\nShown beside the page · click to hide it$/)   // no invented shortcut
-  assert.match(items[5].tip, /^About\nClick to show it beside the page$/)
-  assert.equal(items[4].ariaKeys, '')
+  assert.match(items[4].tip, /^Visualizer \(Ctrl\+Shift\+V\)\nClick to open$/)
+  assert.equal(items[5].kind, 'panel')
+  assert.match(items[5].tip, /^Settings\nShown beside the page · click to hide it$/)
+  assert.match(items[6].tip, /^About\nClick to show it beside the page$/)
+  assert.equal(items[5].ariaKeys, '')
   assert.ok(M.railItems(null).every((i) => !i.active))
   // the Studio showing: Studio and Lyrics both pressed; Studio says a press shrinks it back
   const st = M.railItems({ open: { lyrics: true, stage: true }, keys: s.keys })
@@ -109,12 +112,46 @@ test('items: order, shortcuts in tooltips, active state from open windows and th
   assert.equal(st[0].ariaKeys, 'Control+Shift+S')
   // the panel hidden: nothing active; a task on a page shows as its dot, said in words
   const hidden = M.railItems({ panel: { shown: false, page: 'settings' }, reminders: { settings: 'Sonata 0.16.0 is available.' } })
-  assert.equal(hidden[4].active, false)
-  assert.equal(hidden[4].task, 'Sonata 0.16.0 is available.')
-  assert.match(hidden[4].tip, /Waiting: Sonata 0\.16\.0 is available\./)
+  assert.equal(hidden[5].active, false)
+  assert.equal(hidden[5].task, 'Sonata 0.16.0 is available.')
+  assert.match(hidden[5].tip, /Waiting: Sonata 0\.16\.0 is available\./)
   // shown with that page: the dot goes (the page itself shows the task)
-  assert.equal(M.railItems({ panel: { shown: true, page: 'settings' }, reminders: { settings: 'x' } })[4].task, '')
+  assert.equal(M.railItems({ panel: { shown: true, page: 'settings' }, reminders: { settings: 'x' } })[5].task, '')
   assert.ok(M.COMMANDS.includes('about') && M.COMMANDS.includes('settings') && M.COMMANDS.includes('stage'))
+})
+
+test('Studio group: Lyrics and Liner Notes are its sub-items, right under it; every item is a command', () => {
+  const items = M.railItems({})
+  assert.deepEqual(items.filter((i) => i.parent).map((i) => [i.id, i.parent, i.group]), [['lyrics', 'stage', 'Studio'], ['liner', 'stage', 'Studio']])
+  assert.ok(items.filter((i) => !i.parent).every((i) => i.parent === '' && i.group === ''))
+  // sub-items follow their parent with nothing in between (the guide line runs unbroken)
+  M.ITEMS.forEach((it, i) => { if (it.parent) assert.ok(M.ITEMS[i - 1].id === it.parent || M.ITEMS[i - 1].parent === it.parent, it.id) })
+  for (const it of M.ITEMS) assert.ok(M.COMMANDS.includes(it.id), it.id)
+  assert.ok(M.COMMANDS.includes('liner'))
+})
+
+test('Liner Notes: pressed while the booklet is open; with nothing playing the tooltip says so', () => {
+  const liner = (s) => M.railItems(s).find((i) => i.id === 'liner')
+  assert.equal(liner({ open: { liner: true } }).active, true)
+  assert.match(liner({ open: { liner: true }, song: false }).tip, /^Liner Notes\nOpen · click to close the booklet$/)
+  assert.match(liner({ song: false }).tip, /^Liner Notes\nNothing is playing · play a song, then this opens its album's booklet$/)
+  assert.match(liner({ song: true }).tip, /Click to open the booklet of the playing album$/)
+  assert.match(liner({ song: null }).tip, /Click to open the booklet/)   // not asked yet: no claim
+  // only Liner Notes has a nothing-playing tooltip
+  assert.ok(M.railItems({ song: false }).filter((i) => /Nothing is playing/.test(i.tip)).map((i) => i.id).join() === 'liner')
+})
+
+test('keyboard: arrows walk the rail in its order, sub-items included (7 items, the pin, the lock)', () => {
+  const order = M.ITEMS.map((i) => i.id).concat(['pin', 'lock'])
+  assert.deepEqual(order, ['stage', 'lyrics', 'liner', 'mini', 'visualizer', 'settings', 'about', 'pin', 'lock'])
+  let i = 0
+  const seen = [order[i]]
+  for (let n = 1; n < order.length; n++) { i = M.railKey('ArrowDown', i, order.length).index; seen.push(order[i]) }
+  assert.deepEqual(seen, order)
+  assert.equal(order[M.railKey('ArrowDown', 0, order.length).index], 'lyrics')     // Studio -> its first sub-item
+  assert.equal(order[M.railKey('ArrowDown', 2, order.length).index], 'mini')       // the last sub-item -> the Mini Player
+  assert.equal(order[M.railKey('ArrowUp', 3, order.length).index], 'liner')
+  assert.equal(order[M.railKey('ArrowUp', 0, order.length).index], 'lock')         // wraps
 })
 
 test('pin: one name, pressed state, Ctrl+B in the tooltip, the floating case explained', () => {

@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **The rail groups the Studio with Lyrics and Liner Notes, and the Mini Player moves up.** The rail now reads Studio, then under it Lyrics and Liner Notes (indented, a smaller icon on a thin guide line, so they read as the Studio's even with the rail closed to its icons, and stay one click away), then Mini Player, Visualizer, Settings and About. **Liner Notes is new on the rail:** it opens the booklet of the playing album (as the Studio's Liner notes tile and the menus' *Liner Notes…* do), is marked while the booklet is open, and a second press closes it; with nothing playing, its tooltip and a notice say so. ↑ / ↓ walk the rail in this order, the sub-items included, and screen readers hear "Lyrics, in Studio".
+
 ## [0.15.45-dev.1] — Sheet notes on Apple's word timing, booklet pages turn on a click, and a new home for releases
 
 ### Added

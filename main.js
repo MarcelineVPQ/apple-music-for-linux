@@ -1754,7 +1754,7 @@ async function openLinerNotes(album, from, opts) {
   } else if (linerStore && byName) linerStore.set('name:' + (byName.album + '|' + byName.artist).toLowerCase(), String(raw.id))   // offline next time: the album this name found
   else if (linerStore && fromSong && !want) linerStore.set('song:' + fromSong, String(raw.id))
   const err = raw ? null : linerSources.failure(res && res.online === false ? 'offline' : 'apple', (res && res.message) || 'Apple Music didn\'t answer')
-  if (!linerWindow || linerWindow.isDestroyed()) createLinerWindow(from)
+  if (!linerWindow || linerWindow.isDestroyed()) { createLinerWindow(from); pushRail() }
   else { if (linerWindow.isMinimized()) linerWindow.restore(); linerWindow.show(); linerWindow.focus() }
   linerPlayingKey = ''
   linerOpenAt = opts && /^(credits|recording)$/.test(opts.section || '') ? { section: opts.section, n: ++linerOpenSeq } : null
@@ -1798,6 +1798,7 @@ function createLinerWindow(from) {
     if (linerWindow !== win) return
     linerWindow = null; linerReady = false; linerFollow = false; linerAlbum = null; linerData = null; linerSung = null
     syncLinerPoll()
+    pushRail()   // the rail's Liner Notes item
   })
 }
 // lifetime: OK — registered once at module load (see the note at ipcMain 'lyrics-command')
@@ -2364,6 +2365,7 @@ function startNowPlayingLoop() {
     setPlaying(!!state.isPlaying)
     if (tray) updateTrayTooltip(state)
     if (linerWindow) linerPlaying(state)   // the booklet's playing track (sent on change only)
+    railSong = !!state.title
     // the rail's album tint (one artwork fetch per track change, while the main window shows) and
     // its status dots (Discord reconnecting, the align helper starting/stopping): sent on change only
     if ((railMounted || panelMounted) && mainWindow.isVisible()) refreshPalette(state)
@@ -2799,6 +2801,7 @@ const SONATA_VIEW_PREFS = (preload) => ({ preload: path.join(__dirname, preload)
 // command names, checked here.
 let railMounted = false   // rail.html said 'mounted'
 let railWide = false      // the rail view is widened over Apple's page (unpinned, open)
+let railSong = null       // the now-playing poll found a song (null: not asked yet)
 let railSent = ''         // the last state sent, as JSON
 let railBoundsKey = ''    // the last bounds applied, as JSON
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
@@ -2857,10 +2860,11 @@ function railSnapshot() {
     mode: layout.mode,
     room: layout.room,
     wide: railWide && layout.mode !== 'pinned' && !settings.railLocked,
-    open: { lyrics: !!lyricsWindow, stage: !!lyricsWindow && !!settings.lyricsStage, visualizer: !!vizWindow, mini: !!miniWindow },
+    open: { lyrics: !!lyricsWindow, stage: !!lyricsWindow && !!settings.lyricsStage, liner: !!linerWindow, visualizer: !!vizWindow, mini: !!miniWindow },
+    song: railSong,   // a song is playing or paused (the rail's Liner Notes says when there's none)
     panel: { shown: !!settings.panelShown, page: settings.panelPage },
     reminders: notices.reminders().pages,
-    keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
+    keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, liner: '', visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     precise: railPrecise(),
@@ -3288,6 +3292,7 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'focus-apple-prev') focusView('rail', true)
   else if (command === 'lyrics') toggleLyricsWindow()
   else if (command === 'stage') toggleStage()
+  else if (command === 'liner') railLinerNotes()
   else if (command === 'visualizer') toggleVisualizer()
   else if (command === 'mini') toggleMiniPlayer()
   else if (command === 'settings') togglePanelPage('settings')
@@ -3295,6 +3300,14 @@ ipcMain.on('rail:command', (event, command) => {
   else if (command === 'pin') toggleRailPin()
   else if (command === 'lock') toggleRailFlag('lock')
 })
+// the rail's Liner Notes (under the Studio): the booklet open -> close it; else the playing album's booklet.
+// Nothing playing: a toast says so, so the press never does nothing
+function railLinerNotes() {
+  if (linerWindow && !linerWindow.isDestroyed()) { linerWindow.close(); return }
+  openLinerNotes(null, mainWindow)
+    .then((ok) => { if (!ok) toast('Nothing is playing: play a song, then Liner Notes opens its album\'s booklet') })
+    .catch((e) => console.error('rail liner notes failed:', e.message))   // error: LOGGED-OK — the booklet didn't open; the next press tries again
+}
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — only from Apple's view, top frame; anything else is dropped. 'last' (Tab past Apple's end):
 // the next view; 'first' (Shift+Tab before its start, or a fresh page's first Tab): the previous one

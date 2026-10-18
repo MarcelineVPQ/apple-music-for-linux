@@ -277,10 +277,10 @@ async function keys() {
   // arrows, Home/End
   const order = []
   x('key', 'home'); await sleep(150); order.push((await v.rail.ev(RAIL_STATE)).focused)
-  for (let i = 0; i < 8; i++) { x('key', 'down'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused) }
+  for (let i = 0; i < 9; i++) { x('key', 'down'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused) }
   x('key', 'up'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused)
   x('key', 'end'); await sleep(120); order.push((await v.rail.ev(RAIL_STATE)).focused)
-  check('arrow keys move focus (Home, Down x8 wraps, Up, End)', JSON.stringify(order) === JSON.stringify(['stage', 'lyrics', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock', 'stage', 'lock', 'lock']), order)
+  check('arrow keys move focus (Home, Down x9 wraps, Up, End; the Studio\'s sub-items in order)', JSON.stringify(order) === JSON.stringify(['stage', 'lyrics', 'liner', 'mini', 'visualizer', 'settings', 'about', 'pin', 'lock', 'stage', 'lock', 'lock']), order)
   x('key', 'esc'); await sleep(500)
   r = await v.rail.ev(RAIL_STATE)
   let L = await mp.ev(LAYOUT)
@@ -357,7 +357,7 @@ async function keys() {
   check('nav has an accessible name', r.navLabel === 'Sonata')
   const btns = r.rows.filter((x) => x.button)
   check('every button has aria-label + tooltip', btns.every((b) => b.aria.label && b.aria.title), btns.map((b) => b.aria.label))
-  check('every item carries aria-pressed (windows open, the panel showing its page)', ['lyrics', 'stage', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)))
+  check('every item carries aria-pressed (windows open, the panel showing its page)', ['lyrics', 'stage', 'liner', 'visualizer', 'mini', 'settings', 'about', 'pin', 'lock'].every((id) => ['true', 'false'].includes(btns.find((b) => b.id === id).aria.pressed)))
   check('tooltips name the shortcuts', /Ctrl\+Shift\+L/.test(btns.find((b) => b.id === 'lyrics').aria.title) && /Ctrl\+Shift\+S/.test(btns.find((b) => b.id === 'stage').aria.title) && /Ctrl\+Shift\+V/.test(btns.find((b) => b.id === 'visualizer').aria.title) && /Ctrl\+M/.test(btns.find((b) => b.id === 'mini').aria.title))
   check('aria-keyshortcuts set', btns.find((b) => b.id === 'lyrics').aria.keys === 'Control+Shift+L')
   const st = r.rows.filter((x) => !x.button)

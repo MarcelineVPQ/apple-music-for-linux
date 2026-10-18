@@ -100,7 +100,7 @@ test('main: rail commands are checked (rail view, top frame, known names) and ru
   assert.match(h, /event\.sender !== railView\.webContents/)
   assert.match(h, /event\.senderFrame\.parent/)
   assert.match(h, /railModel\.COMMANDS\.includes\(command\)/)
-  for (const fn of ['toggleLyricsWindow()', 'toggleVisualizer()', 'toggleMiniPlayer()', "togglePanelPage('settings')", "togglePanelPage('about')", 'toggleRailPin()', "toggleRailFlag('lock')", "focusView('rail', false)", "focusView('rail', true)"]) assert.ok(h.includes(fn), fn)
+  for (const fn of ['toggleLyricsWindow()', 'railLinerNotes()', 'toggleVisualizer()', 'toggleMiniPlayer()', "togglePanelPage('settings')", "togglePanelPage('about')", 'toggleRailPin()', "toggleRailFlag('lock')", "focusView('rail', false)", "focusView('rail', true)"]) assert.ok(h.includes(fn), fn)
   assert.match(h, /command === 'expand'\) \{ if \(!settings\.railLocked && !settings\.railPinned\)/)
   assert.equal((src.match(/ipcMain\.on\('rail:command'/g) || []).length, 1)
   const f = src.slice(src.indexOf("ipcMain.on('rail:focus-in'"), src.indexOf("ipcMain.on('rail:focus-in'") + 300)
@@ -128,6 +128,26 @@ test('main: the pin and the lock are remembered settings, off by default, toggle
   assert.equal(S.railLocked, false)
   assert.match(src, /railModel\.toggleFlags\(/)
   assert.match(src, /locked: !!settings\.railLocked/)
+})
+
+test('main: the rail\'s Liner Notes closes an open booklet, else opens the playing album\'s; nothing playing -> a toast', () => {
+  const src = read('main.js')
+  const f = src.slice(src.indexOf('function railLinerNotes()'), src.indexOf('function railLinerNotes()') + 500)
+  assert.match(f, /if \(linerWindow && !linerWindow\.isDestroyed\(\)\) \{ linerWindow\.close\(\); return \}/)
+  assert.match(f, /openLinerNotes\(null, mainWindow\)/)
+  assert.match(f, /if \(!ok\) toast\('Nothing is playing/)
+  assert.match(src, /liner: !!linerWindow/)
+  assert.match(src, /song: railSong/)
+})
+
+test('rail-ui: sub-items get the sub class, the group\'s last one ends the guide line, and say their group', () => {
+  const src = read('rail-ui.js')
+  assert.match(src, /b\.classList\.add\('sub'\)/)
+  assert.match(src, /b\.classList\.add\('last'\)/)
+  assert.match(src, /setAttribute\('aria-description', 'In ' \+ parent\.label\)/)
+  const css = read('rail.css')
+  assert.match(css, /\.link\.sub \{[^}]*min-height: 32px/)   // the hit-target floor
+  assert.match(read('icons.js'), /\n    liner: \['path:/)   // its own booklet icon
 })
 
 test('rail-ui: no timers, no animation frames, no observers; untrusted clicks ignored; no HTML strings', () => {

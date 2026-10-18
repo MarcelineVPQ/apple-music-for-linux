@@ -101,6 +101,47 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 }
 .link:active { transform: scale(0.96); transition: transform 90ms; }
 
+/* the Studio's group (Marcy 2026-10-18): Lyrics and Liner Notes under it, indented with a smaller icon
+   and a thin guide line from under the Studio's icon (x 26, the icon column's centre), so in the
+   collapsed column too they read as the Studio's and stay one click away (no flyout). Rows 32 px
+   (the hit-target floor); labels a touch smaller and softer, full text colour on hover or active */
+.link.sub {
+  position: relative;
+  min-height: 32px;
+  padding-left: 26px;
+}
+.link.sub::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--s-soft);
+  opacity: 0.55;
+  pointer-events: none;
+}
+/* the first sub-item's line starts right under the Studio's icon; the last one's ends at its icon */
+.link.group + .link.sub::before { top: -10px; }
+.link.sub.last::before { bottom: 50%; }
+/* the connector's short tick to the sub-item's icon */
+.link.sub::after {
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  width: 5px;
+  height: 1px;
+  background: var(--s-soft);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.link.sub .ic,
+.link.sub .ic svg { width: 16px; height: 16px; flex-basis: 16px; }
+.link.sub .label { font-size: 12.5px; color: var(--s-soft); }
+.link.sub:hover .label,
+.link.sub.active .label { color: var(--s-text); }
+
 .ic {
   position: relative;
   display: grid;
