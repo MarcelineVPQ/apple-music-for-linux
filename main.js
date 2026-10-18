@@ -1746,6 +1746,9 @@ const trackInfoScript = `(async () => {
 
 // The playing song's source (song-actions.js): Apple Music's adapter; the Studio and the ⋯ menus ask it
 const songSource = songActions.createAppleSource({ run: (code) => (mainAlive() ? appleWC().executeJavaScript(code) : Promise.reject(new Error('Apple Music\'s page isn\'t open'))) })
+// for the UI checker (process.mainModule.exports, its test copy only): the source (its methods can be stood in for),
+// and the queue and song the Studio's menus act on (the checker feeds the page a queue main didn't read)
+module.exports.studioTest = { source: songSource, setQueue: (q) => { stageQueueLast = stageModel.cleanQueue(q) }, setSong: (st) => { stageSong = songActions.cleanState(st) } }
 /**
  * One song action from a menu or the Studio: 'favorite' | 'undo-favorite' | 'library' | 'link' | 'share'.
  * info: { id, title, artist, url }; done(action, ok, extra) tells the place it came from.

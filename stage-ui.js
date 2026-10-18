@@ -531,7 +531,7 @@ function createStage(opts) {
     if (!cur) return
     const li = cur.parentElement
     const above = li.previousElementSibling && li.previousElementSibling.previousElementSibling ? li.previousElementSibling.previousElementSibling : li.previousElementSibling || li
-    el.list.scrollTop = Math.max(0, above.offsetTop - 4)
+    el.list.scrollTop = Math.max(0, el.list.scrollTop + above.getBoundingClientRect().top - el.list.getBoundingClientRect().top - 4)
     if (force) {
       cur.classList.remove('flash')
       void cur.offsetWidth   // restart the glow

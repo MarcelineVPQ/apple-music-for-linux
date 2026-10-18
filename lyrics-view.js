@@ -13,8 +13,9 @@
 // in test/lyrics-view.test.js.
 //
 // Karaoke: the word being sung is lit as a whole (.w.now). Apple words timed in several spans carry
-// their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word and only
-// the syllable being sung pops (.s.now); other words pop as a whole, as before. Words without Apple
+// their syllables (word.syl, lyrics-sources.js): those render as .s spans inside the word; the word pops
+// as a whole from its baseline and the syllable being sung glows (.s.now), so the syllables of one word
+// keep one baseline and one size (0.15.42: "dis·tance", "ba·by"). Words without Apple
 // syllables get estimated ones (lyrics-syllables.js: hyphenation patterns for data.lang, en-US by
 // default), once per line when the lyrics load or a line's timing is refined or aligned.
 //
@@ -185,22 +186,26 @@ function backingAnchor(words, bg) {
  * (physical left and right). box: { align: 'left'|'right'|'center' (the row's text-align), width (the
  * line's content width), words: [{ left, right, top }] (main words, px from the line's left edge),
  * anchor (backingAnchor), lead (px from the row's start to its first word's box), bgWidth (the row's
- * width on one line) }. { 0, 0 } (the line's own alignment, as before) when there's no anchor, the
+ * width on one line), arrow (px: the ↳ that hangs before the row's first word, with its gap) }. A
+ * left-aligned row always starts at least `arrow` in, so the ↳ sits inside the line's text column (under
+ * the main line's start), never hanging out to its left: the same for an anchored row, one under the first
+ * word, one with no anchor and a wrapped one (0.15.42). { 0, 0 } (the line's own alignment) when there's no anchor, the
  * anchor word isn't on the line's last row (a wrapped line: the backing sits under the last row), or
  * the backing doesn't fit on one row (it wraps as before). A backing row that would run past the line's
  * end moves back just enough to fit. Right-aligned rows are padded from the right (mirrored), centred
  * rows on the side that moves them.
  */
 function backingOffset(box) {
-  const none = { start: 0, end: 0 }
-  if (!box || !box.anchor || !Array.isArray(box.words) || !box.words.length) return none
+  const r = (v) => Math.round(Math.max(0, v) * 2) / 2
+  const arrow = box && box.align === 'left' && box.arrow > 0 ? box.arrow : 0
+  const none = { start: r(arrow), end: 0 }
+  if (!box || !box.anchor || !Array.isArray(box.words) || !box.words.length) return box ? none : { start: 0, end: 0 }
   const w = box.words[box.anchor.index]
   const lastRow = box.words[box.words.length - 1].top
   const free = box.width - box.bgWidth
   if (!w || !(free > BG_SPARE) || Math.abs(w.top - lastRow) > 1) return none
   // BG_SPARE: layout widths are whole pixels, so a row fitted to the line's end keeps a pixel spare (never wraps)
-  const x = Math.min(free - BG_SPARE, Math.max(0, (box.anchor.after ? w.right : w.left) - (box.lead || 0)))
-  const r = (v) => Math.round(Math.max(0, v) * 2) / 2
+  const x = Math.max(arrow, Math.min(free - BG_SPARE, Math.max(0, (box.anchor.after ? w.right : w.left) - (box.lead || 0))))
   if (box.align === 'right') return { start: 0, end: r(free - x) }
   if (box.align === 'center') return { start: r(2 * x - free), end: r(free - 2 * x) }
   return { start: r(x), end: 0 }
@@ -551,6 +556,12 @@ function createLyricsView(opts) {
   // (its sizes differ), again after a resize or new word timing (bgKey null); never per frame.
   const xOf = (n) => { let x = 0; for (; n; n = n.offsetParent) x += n.offsetLeft; return x }   // loop: NOT-WORTH — a node's few offset parents
   const alignOf = (a) => a === 'right' || a === 'end' ? 'right' : a === 'center' || a === '-webkit-center' ? 'center' : 'left'
+  // the ↳'s width with its gap (lyrics-view.css .bgv::before: absolute, translateX(-100% - 0.12em)), read with the batch's layout
+  function arrowOf(row) {
+    const cs = doc.defaultView.getComputedStyle(row, '::before')
+    const w = parseFloat(cs.width)
+    return Number.isFinite(w) && cs.content !== 'none' ? w + 0.12 * (parseFloat(cs.fontSize) || 0) : 0
+  }
   function placeBacking(only) {
     const todo = []
     // loop: NOT-WORTH — the song's lines (or the stage's 1-3 shown ones) · when lyrics load, after a resize or new
@@ -575,7 +586,8 @@ function createLyricsView(opts) {
         words: e.words.map((s) => { const l = xOf(s) - base; return { left: l, right: l + s.offsetWidth, top: s.offsetTop } }),
         anchor: backingAnchor(lines[i].words, lines[i].bg),
         lead: xOf(e.bg[0]) - xOf(row),
-        bgWidth: row.offsetWidth
+        bgWidth: row.offsetWidth,
+        arrow: arrowOf(row)
       })
     })
     // loop: NOT-WORTH — the lines to place (above): class off, two style writes each
@@ -596,8 +608,8 @@ function createLyricsView(opts) {
     if (!spans.origins) {
       const tops = spans.map((s) => s.offsetTop)
       spans.origins = tops.map((top, k) => side === 'right'
-        ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% 65%' : '')
-        : (k === 0 || tops[k - 1] !== top ? '0% 65%' : ''))
+        ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% var(--oy, 65%)' : '')
+        : (k === 0 || tops[k - 1] !== top ? '0% var(--oy, 65%)' : ''))
     }
     return spans.origins[i]
   }
@@ -610,14 +622,6 @@ function createLyricsView(opts) {
     if (!bgFrame) bgFrame = requestAnimationFrame(() => { bgFrame = 0; placeBacking() })
   })
   let bgFrame = 0
-
-  // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
-  // edge, last at the right edge)
-  function sylOrigin(span, j, origin) {
-    if (origin === '0% 65%') return j === 0 ? origin : ''
-    if (origin === '100% 65%') return j === span.syl.length - 1 ? origin : ''
-    return ''
-  }
 
   // word and syllable classes for one line's words; only touches the DOM when the position changed
   function paintWords(spans, words, time, last, side) {
@@ -633,13 +637,9 @@ function createLyricsView(opts) {
     if (pos.now >= 0) {
       const span = spans[pos.now]
       const origin = stage ? '' : edgeOrigin(spans, pos.now, side)
-      if (span.syl) {
-        if (pos.syl >= 0) {
-          span.syl[pos.syl].classList.add('now')
-          if (!stage) span.syl[pos.syl].style.transformOrigin = sylOrigin(span, pos.syl, origin)
-        }
-      }
-      else if (!stage) span.style.transformOrigin = origin
+      // a word with syllables pops as a whole, from its baseline (lyrics-view.css .w.hs --oy); its sung syllable only glows
+      if (span.syl && pos.syl >= 0) span.syl[pos.syl].classList.add('now')
+      if (!stage) span.style.transformOrigin = origin
     }
     // loop: HOT-PATH-OK — one line's words (~5-12) per word/syllable change (returns above when nothing moved)
     for (let i = 0; i < spans.length; i++) {

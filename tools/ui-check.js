@@ -762,7 +762,7 @@ const FOCUS_NOW = `(() => {
 })()`
 // the controls Tab should reach, in DOM order (visible, enabled, tabindex >= 0, not under aria-hidden)
 const TABBABLES = (rootSel) => `[...(document.querySelector(${JSON.stringify(rootSel)}) || document.body).querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
-  .filter((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return !el.disabled && el.tabIndex >= 0 && r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden], [aria-hidden="true"]') })
+  .filter((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return !el.disabled && el.tabIndex >= 0 && r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden], [aria-hidden="true"], [inert]') })
   .map((el) => el.id || el.dataset.rail || el.dataset.key || (el.className && String(el.className).split(' ')[0]) || el.tagName)`
 const emulateReduce = (page, on) => page.c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }] })
 const focusWin = (mp, title) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes(${JSON.stringify(title)})); if (!w) return false; w.focus(); w.webContents.focus(); return true })()`)
@@ -1020,6 +1020,16 @@ async function montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
   t = await tileNow()
   let f = await facts()
   check('montage: with photos it shows behind the lyrics (tile "On"), the first photo in, its credit: author · licence · Wikimedia Commons', t.pressed === 'true' && t.small === 'On' && t.box && f.visible && f.photo === photos[0].id && t.credit && t.creditText === 'Ann Example · CC BY-SA 4.0 · Wikimedia Commons', { t, f })
+  // a click on the photo area (the lyrics' empty space, never a line) shows the next photo; a click on a line doesn't
+  const empty = await page.ev(`(() => { const r = document.getElementById('lines').getBoundingClientRect(); return [Math.round(r.right - 20), Math.round(r.bottom - 30)] })()`)
+  x('click', empty[0], empty[1]); await sleep(600)
+  const f2 = await facts()
+  await page.ev(`(document.querySelector('#lines .line').click(), true)`); await sleep(400)
+  const f3 = await facts()
+  check('montage: a click on the photo area shows the next photo (a click on a lyric line seeks instead)', f2.photo === photos[1].id && f3.photo === photos[1].id, { before: photos[0].id, afterEmpty: f2.photo, afterLine: f3.photo })
+  // round to the first photo again (3 photos) for the readability loop below
+  await page.ev('(montage.next(), montage.next(), true)'); await sleep(800)
+  check('montage: next photo cycles through the set', (await facts()).photo === photos[0].id, await facts())
 
   // readable over every photo in every theme: the words over the shade the page chose, over the photo's own extremes
   const MEASURE = `(() => {
@@ -1204,6 +1214,291 @@ async function montageStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
   await mp.ev(`(() => { const s = ${E}.shell; if (s.__origOpen) { s.openExternal = s.__origOpen; delete s.__origOpen } return true })()`)
 }
 
+// --- the Studio's interactivity (studio-actions): the song's actions, the cover turning over to the credits, the
+// song's links and chips, the one list (its order, the card, the rows' menus, the scroll), the seek bar's hover and
+// the Studio's keys. Each control clicked with the command it sends to main and what it visibly does (the note
+// under the actions, a menu, the cover, the list). Native menus are recorded (their items), one is shown for a
+// screenshot. The source's network calls are stood in for (main.js studioTest) for the success paths; the
+// failure paths are the logged-out page's real answers.
+async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) {
+  const MX = `require.cache[require('path').join(${E}.app.getAppPath(), 'main.js')].exports.studioTest`
+  const note = () => page.ev(`[document.getElementById('act-note').textContent, document.getElementById('act-note').className]`)
+  const clear = () => page.ev(`(document.getElementById('act-note').textContent = '', document.getElementById('say').textContent = '', true)`)
+  const click = (id) => page.ev(`(document.getElementById(${JSON.stringify(id)}).click(), true)`)
+  const waitNote = async (re) => { for (let i = 0; i < 30; i++) { const n = await note(); if (re.test(n[0])) return n; await sleep(150) } return note() }
+  await mp.ev(`(() => { const { Menu } = ${E}; if (!Menu.prototype.__orig) { Menu.prototype.__orig = Menu.prototype.popup; Menu.prototype.popup = function (o) { globalThis.__lastMenu = this; (globalThis.__menus = globalThis.__menus || []).push({ labels: this.items.map((i) => i.type === 'separator' ? '-' : i.label + (i.enabled ? '' : ' (off)')), x: o && o.x, y: o && o.y }); if (globalThis.__showMenus) return Menu.prototype.__orig.call(this, o) } } globalThis.__menus = []; return true })()`)
+  const menus = () => mp.ev('globalThis.__menus.splice(0)')
+  const pick = (label, sub) => mp.ev(`(() => { let m = globalThis.__lastMenu; let it = m.items.find((i) => i.label === ${JSON.stringify(label)}); ${sub ? `it = it.submenu.items.find((i) => i.label === ${JSON.stringify(sub)});` : ''} if (!it) return false; it.click(); return true })()`)
+  const key = np.title + '|' + np.artist
+  await stageLog(); await clear()
+
+  // --- 1. nothing known (the logged-out page): every action says what failed ---
+  const fails = [['a-fav', 'song-favorite', /^Favorite didn't go through: nothing is playing/], ['a-lib', 'song-library', /^Add to Library didn't go through: nothing is playing/],
+    ['a-link', 'song-link', /^The link wasn't copied: nothing is playing/], ['a-pl', 'song-playlists', /^Adding to the playlist didn't go through: nothing is playing/]]
+  for (const [id, cmd, re] of fails) {
+    await clear(); await click(id); const n = await waitNote(re); const l = await stageLog()
+    check('studio: ' + id + ' sends "' + cmd + '" and, with nothing playing, says what failed (' + n[0] + ')', l.length === 1 && l[0][0] === cmd && re.test(n[0]) && n[1] === 'error', { l, n })
+  }
+  for (const [id, cmd] of [['a-album', 'song-album'], ['a-artist', 'song-artist']]) {
+    await clear(); await click(id); const n = await waitNote(/couldn't be opened/); const l = await stageLog()
+    check('studio: ' + id + ' sends "' + cmd + '" (Apple\'s page comes to the front) and says it couldn\'t be opened when no link is on screen', l.length === 1 && l[0][0] === cmd && /couldn't be opened/.test(n[0]), { l, n })
+  }
+  await focusWin(mp, 'Lyrics'); await sleep(300)
+  check('studio: an error note reaches screen readers (the status line)', /couldn't be opened/.test(await page.ev(`document.getElementById('say').textContent`)))
+
+  // --- 2. a song playing (the source stood in for): the real state shown, each action's confirmation ---
+  const url = 'https://music.apple.com/us/album/wayfarers/1700000000?i=1700000013'
+  await mp.ev(`(() => { const t = ${MX}; globalThis.__src = []; const s = t.source
+    s.favorite = async (id, on) => { globalThis.__src.push(['favorite', id, on]) }
+    s.addToLibrary = async (id) => { globalThis.__src.push(['library', id]) }
+    s.playlists = async () => { globalThis.__src.push(['playlists']); return [{ id: 'p.1', name: 'Road trip' }, { id: 'p.2', name: 'Campfire songs' }] }
+    s.addToPlaylist = async (p, id) => { globalThis.__src.push(['playlist', p, id]) }
+    if (!s.__state) s.__state = s.state
+    s.state = async () => ({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, favorite: false, inLibrary: false, albumId: '1700000000', artistId: '42' })
+    t.setSong({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, rating: 1, inLibrary: false, albumId: '1700000000', artistId: '42' })
+    t.setQueue(${JSON.stringify(stageQueue())})
+    return true })()`)
+  const src = () => mp.ev('globalThis.__src.splice(0)')
+  await send('stage-song', { key, ok: true, id: '1700000013', title: np.title, artist: np.artist, url, favorite: true, inLibrary: false, albumId: '1700000000', artistId: '42' }); await sleep(300)
+  let a = await page.ev(`[document.getElementById('a-fav').getAttribute('aria-pressed'), document.getElementById('a-fav').dataset.icon, document.getElementById('a-fav').title, document.getElementById('a-lib').getAttribute('aria-disabled')]`)
+  check('studio: Favorite shows the real state (a favourite: pressed, the filled star, "Undo Favorite")', a[0] === 'true' && a[1] === 'starOn' && /^Undo Favorite/.test(a[2]) && a[3] === 'false', a)
+  await clear(); await click('a-fav'); let n = await waitNote(/Removed/); let l = await stageLog(); let sv = await src()
+  check('studio: Favorite on a favourite asks to undo it (the state wanted) and says "Removed from Favorites"', l[0] && l[0][0] === 'song-favorite' && l[0][1] === false && sv.some((c) => c[0] === 'favorite' && c[1] === '1700000013' && c[2] === false) && n[0] === 'Removed from Favorites' && n[1] === '', { l, sv, n })
+  await clear(); await click('a-lib'); n = await waitNote(/Added to Library/); sv = await src(); await stageLog()
+  check('studio: Add to Library adds it and says "Added to Library"', sv.some((c) => c[0] === 'library') && n[0] === 'Added to Library', { sv, n })
+  // in the library: disabled with the reason; a click says it (nothing sent)
+  await send('stage-song', { key, ok: true, id: '1700000013', title: np.title, url, favorite: false, inLibrary: true }); await sleep(300)
+  a = await page.ev(`[document.getElementById('a-lib').getAttribute('aria-disabled'), document.getElementById('a-lib').title, document.getElementById('a-lib').getAttribute('aria-label'), document.getElementById('a-fav').getAttribute('aria-pressed'), document.getElementById('a-fav').dataset.icon]`)
+  await clear(); await click('a-lib'); n = await note(); l = await stageLog()
+  check('studio: in the library, Add to Library is disabled with the reason ("Already in your library"), and a click says so without asking Apple', a[0] === 'true' && a[1] === 'Already in your library' && a[2] === 'In your library' && a[3] === 'false' && a[4] === 'starOff' && n[0] === 'Already in your library' && !l.length, { a, n, l })
+  // Add to a Playlist: the user's playlists in a menu at the button; a pick adds it and names the playlist
+  await clear(); await click('a-pl'); await sleep(500); let m = await menus(); await stageLog()
+  const plAt = await page.ev(`(() => { const r = document.getElementById('a-pl').getBoundingClientRect(); return [Math.round(r.left), Math.round(r.bottom + 2)] })()`)
+  check('studio: Add to a Playlist opens a menu of the user\'s playlists at the button', m.length === 1 && m[0].labels.join('|') === 'Add to a Playlist (off)|-|Road trip|Campfire songs' && m[0].x === plAt[0] && m[0].y === plAt[1], m)
+  await pick('Road trip'); n = await waitNote(/Added to/); sv = await src()
+  check('studio: a playlist picked: added, and the note names it ("Added to “Road trip”")', sv.some((c) => c[0] === 'playlist' && c[1] === 'p.1' && c[2] === '1700000013') && n[0] === 'Added to “Road trip”', { sv, n })
+  // Copy Link: the clipboard holds the song's link
+  await mp.ev(`(${E}.clipboard.writeText(''), true)`)
+  await clear(); await click('a-link'); n = await waitNote(/Link copied/); await stageLog()
+  check('studio: Copy Link puts the song\'s link on the clipboard and says "Link copied"', (await mp.ev(`${E}.clipboard.readText()`)) === url && n[0] === 'Link copied', n)
+  // More: the shared builder's items (View Album Cover, Liner Notes…, Share); Share › Copy Song and Link
+  await click('a-more'); await sleep(400); m = await menus(); await stageLog()
+  check('studio: More opens the shared menu: View Album Cover, Liner Notes…, Share', m.length === 1 && m[0].labels.join('|') === 'View Album Cover|Liner Notes…|-|Share', m)
+  await clear(); await pick('Share', 'Copy Song and Link'); n = await waitNote(/copied/)
+  check('studio: Share › Copy Song and Link copies "title — artist" and the link', (await mp.ev(`${E}.clipboard.readText()`)) === np.title + ' — ' + np.artist + '\\n' + url && n[0] === 'Song and link copied', n)
+  // the real menu on screen, for the record (closed with Esc)
+  await mp.ev('(globalThis.__showMenus = true, true)')
+  await focusWin(mp, 'Lyrics'); await click('a-more'); await sleep(900)
+  xshot(path.join(OUT, 'studio-more-menu.png'), W, H)
+  x('key', 'Escape'); await sleep(400)
+  await mp.ev('(globalThis.__showMenus = false, true)'); await menus(); await stageLog()
+  check('studio: the More menu closed with Esc and the Studio is still open', await winOpen(mp, 'Lyrics'))
+
+  // --- 3. the cover turns over to the credits ---
+  const credits = { key, liner: true, rows: [{ role: 'Written by', names: 'Traditional', src: 'apple' }, { role: 'Performed by', names: 'The Juniper Lane Band', src: 'apple' }, { role: 'Musicians', names: 'Ada Lane (lead vocals, banjo), Ben Juniper (fiddle)', src: 'mb' }, { role: 'Produced by', names: 'Cora Field', src: 'mb' }, { role: 'Mastered by', names: 'Dee Stone', src: 'mb', album: true }],
+    chips: [{ who: 'Apple Music', what: 'catalog', href: '' }, { who: 'MusicBrainz', what: 'credits · CC0', href: '' }] }
+  await send('stage-credits', credits); await sleep(200)
+  const flipNow = () => page.ev(`(() => { const f = document.getElementById('flip'); const b = document.getElementById('cover-back'); return { turned: f.classList.contains('turned'), expanded: document.getElementById('cover-btn').getAttribute('aria-expanded'), backInert: b.inert, frontInert: document.getElementById('cover-btn').inert, focus: document.activeElement && document.activeElement.id, say: document.getElementById('say').textContent, rows: [...b.querySelectorAll('dt')].map((d) => d.textContent), more: !document.getElementById('cb-more').hidden, size: [Math.round(b.getBoundingClientRect().width), Math.round(document.getElementById('cover').getBoundingClientRect().width)] } })()`)
+  // the hint on hover, for the record
+  const cv = await page.ev(`(() => { const r = document.getElementById('cover-btn').getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] })()`)
+  x('move', cv[0], cv[1]); await sleep(400)
+  const hint = await page.ev(`getComputedStyle(document.getElementById('flip-hint')).opacity`)
+  xshot(path.join(OUT, 'studio-cover-hover.png'), W, H)
+  check('studio: hovering the cover shows the "Credits" hint; its tooltip says what a click does', hint === '1' && /Credits \(C\): turn the cover over/.test(await page.ev(`document.getElementById('cover-btn').title`)), hint)
+  // the turn, frame by frame (0 / 25 / 50 / 75 / 100 % of its 0.4 s), for Marcy to judge
+  await page.ev(`(document.getElementById('cover-btn').click(), true)`)
+  const tr = await page.ev(`(() => { const a = document.getElementById('flip-in').getAnimations(); if (!a.length) return null; a[0].pause(); return { n: a.length, dur: a[0].effect.getTiming().duration, easing: a[0].effect.getTiming().easing } })()`)
+  for (const pct of [0, 25, 50, 75, 100]) {
+    await page.ev(`(() => { const a = document.getElementById('flip-in').getAnimations()[0]; if (a) a.currentTime = ${pct * 4}; return true })()`); await sleep(200)
+    xshot(path.join(OUT, 'studio-flip-' + String(pct).padStart(3, '0') + '.png'), W, H)
+  }
+  await page.ev(`(document.getElementById('flip-in').getAnimations().forEach((a) => a.finish()), true)`); await sleep(200)
+  check('studio: the turn is one 0.4 s ease-out transition of the transform (a CSS transition, nothing per frame)', tr && tr.n === 1 && tr.dur === 400 && /cubic-bezier/.test(tr.easing), tr)
+  let fl = await flipNow()
+  check('studio: a click on the cover turns it to the credits (aria-expanded, the front inert, focus on "Show the cover", the credits read out)', fl.turned && fl.expanded === 'true' && fl.frontInert && !fl.backInert && fl.focus === 'cb-close' && /^Credits\. Written by: Traditional\. Performed by: The Juniper Lane Band\. Musicians/.test(fl.say) && fl.rows.join('|') === 'Written by|Performed by|Musicians|Produced by|Mastered by' && fl.more, fl)
+  check('studio: the back is the cover\'s exact size', fl.size[0] === fl.size[1] && fl.size[0] >= 196, fl.size)
+  xshot(path.join(OUT, 'studio-credits.png'), W, H)
+  await focusWin(mp, 'Lyrics'); await sleep(150)
+  x('key', 'Escape'); await sleep(600)
+  fl = await flipNow()
+  check('studio: Esc turns it back (focus back on the cover) and leaves the window open', !fl.turned && fl.expanded === 'false' && fl.backInert && fl.focus === 'cover-btn' && await winOpen(mp, 'Lyrics'), fl)
+  await click('cover-btn'); await sleep(500)
+  const bk = await page.ev(`(() => { const r = document.getElementById('cover-back').getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.bottom - 14)] })()`)
+  x('click', bk[0], bk[1]); await sleep(600)
+  check('studio: a click on the back turns it back', !(await flipNow()).turned)
+  // More in the liner notes: the booklet at Credits (or, logged out, the tile says no album was found)
+  await click('cover-btn'); await sleep(500); await stageLog()
+  await click('cb-more'); await sleep(300); l = await stageLog()
+  let saw = null
+  for (let i = 0; i < 40 && !saw; i++) { await sleep(250); if (await winOpen(mp, 'Liner Notes')) saw = 'booklet'; else if (await page.ev(`document.getElementById('t-liner').querySelector('small').textContent === 'No album found'`)) saw = 'no album found' }
+  check('studio: "More in the liner notes" asks for the booklet at Credits, and something visible happens (' + saw + ')', l.length === 1 && l[0][0] === 'credits-liner' && !!saw, { l, saw })
+  if (saw === 'booklet') { await mp.ev(`(${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Liner Notes')).close(), true)`); await sleep(600) }
+  await focusWin(mp, 'Lyrics')
+  // a new song turns it back to the new cover
+  await send('stage-np', Object.assign({}, np, { title: 'The Parting Glass' })); await sleep(500)
+  check('studio: a new song turns the cover back to its front (the new song\'s cover)', !(await flipNow()).turned)
+  await send('stage-np', np); await send('stage-credits', credits); await sleep(300)
+  // C turns it; Reduce motion: a cross-fade, no turn
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)'); await focusWin(mp, 'Lyrics'); await sleep(150)
+  x('key', 'c'); await sleep(600)
+  check('studio: C turns the cover over', (await flipNow()).turned)
+  x('key', 'c'); await sleep(600)
+  await emulateReduce(page, true); await sleep(200)
+  await click('cover-btn'); await sleep(450)
+  const rm = await page.ev(`[getComputedStyle(document.getElementById('flip-in')).transform, getComputedStyle(document.getElementById('cover-back')).opacity, getComputedStyle(document.getElementById('cover-btn')).opacity]`)
+  check('studio: with Reduce motion the cover cross-fades (no turn)', rm[0] === 'none' && rm[1] === '1' && rm[2] === '0', rm)
+  await click('cb-close'); await sleep(400); await emulateReduce(page, false)
+
+  // --- 4. contrast with the back, the note and a row's credits showing, in all 8 themes ---
+  await click('cover-btn'); await sleep(600)
+  await page.ev(`(stage.said({ kind: 'error', text: "Favorite didn't go through. Try again in a moment" }), document.getElementById('act-note').getAnimations().forEach((a) => a.pause()), true)`)
+  for (const adaptive of [true, false]) {
+    for (const glass of [true, false]) {
+      await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', adaptive)); await mp.ev(viewCommand('panel', 'set', 'glass', glass)); await sleep(600)
+      for (const dark of [false, true]) {
+        await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(800)
+        const tag = 'studio-' + (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '')
+        xshot(path.join(OUT, tag + '.png'), W, H)
+        const au = await page.ev(PAGE_AUDIT('#np'))
+        judge(tag + ' (the credits, the actions, the error note)', au, { minHit: 24 })
+      }
+    }
+  }
+  await page.ev(`(document.getElementById('act-note').getAnimations().forEach((a) => a.finish()), true)`)
+  await click('cb-close'); await sleep(500)
+  await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true)); await sleep(500)
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'dark', true)`); await sleep(700)
+
+  // --- 5. the song's words are links; the chips; the card ---
+  for (const [id, cmd] of [['np-title', 'song-album'], ['np-album', 'song-album'], ['np-artist', 'song-artist'], ['chip-live', 'liner-recording'], ['next-card', 'next']]) {
+    await click(id); await sleep(300); l = await stageLog()
+    if (id === 'chip-live') { let saw2 = null; for (let i = 0; i < 30 && !saw2; i++) { await sleep(250); if (await winOpen(mp, 'Liner Notes')) saw2 = 'booklet'; else if (await page.ev(`document.getElementById('t-liner').querySelector('small').textContent === 'No album found'`)) saw2 = 'no album found' } check('studio: the live chip opens the booklet at the recording (or says no album was found): ' + saw2, !!saw2) }
+    check('studio: ' + id + ' sends "' + cmd + '"', l.length >= 1 && l[0][0] === cmd, l)
+    await focusWin(mp, 'Lyrics')
+    if (await winOpen(mp, 'Liner Notes')) { await mp.ev(`(${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Liner Notes')).close(), true)`); await sleep(500) }
+  }
+  await focusWin(mp, 'Lyrics'); await sleep(200)
+  await page.ev(`(document.getElementById('q-list').scrollTop = document.getElementById('q-list').scrollHeight, true)`); await sleep(200)
+  await click('chip-track'); await sleep(250)
+  const chip = await page.ev(`(() => { const l = document.getElementById('q-list'); const c = l.querySelector('.q-row.cur'); return { flash: c.classList.contains('flash'), top: Math.round(c.getBoundingClientRect().top - l.getBoundingClientRect().top) } })()`)
+  check('studio: "Track N of M" brings the song playing back near the top of the list and it glows once', chip.flash && chip.top > 30 && chip.top < 130, chip)
+  await page.ev(`(document.getAnimations().forEach((a) => a.finish()), true)`)
+
+  // --- 6. the rows' menus: the ⋯ on hover, right-click, Shift+F10; Credits of another song in a popover ---
+  const rowAt = await page.ev(`(() => { const b = document.querySelector('#q-list button.q-row:not(.played):not(#next-card)'); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2), b.dataset.index, b.dataset.id] })()`)
+  x('move', rowAt[0], rowAt[1]); await sleep(400)
+  const hov = await page.ev(`(() => { const b = document.querySelector('#q-list button.q-row[data-index="${rowAt[2]}"]'); const m = b.parentElement.querySelector('.q-menu'); return [getComputedStyle(m).visibility, m.getAttribute('aria-label'), m.title] })()`)
+  xshot(path.join(OUT, 'studio-row-hover.png'), W, H)
+  check('studio: hovering a row shows its ⋯ (named, with its tooltip)', hov[0] === 'visible' && /^More for /.test(hov[1]) && /Play Now, Play Next, Go to Album, Credits/.test(hov[2]), hov)
+  await page.ev(`(document.querySelector('#q-list button.q-row[data-index="${rowAt[2]}"]').parentElement.querySelector('.q-menu').click(), true)`); await sleep(400)
+  l = await stageLog(); m = await menus()
+  check('studio: a row\'s ⋯ asks for its menu (the row\'s index and id) and the shared builder\'s queue items open', l.length === 1 && l[0][0] === 'row-menu' && l[0][1].index === +rowAt[2] && l[0][1].id === rowAt[3] && m.length === 1 && m[0].labels.join('|') === 'Home on the Range (off)|-|Play Now|Play Next|-|Go to Album (off)|Credits', { l, m })
+  await pick('Credits'); await sleep(500)
+  const pop = await page.ev(`(() => { const p = document.getElementById('q-pop'); return { shown: !p.hidden, title: document.getElementById('q-pop-t').textContent, rows: [...p.querySelectorAll('dt')].map((d) => d.textContent), focus: document.activeElement && document.activeElement.id } })()`)
+  xshot(path.join(OUT, 'studio-row-credits.png'), W, H)
+  check('studio: Credits of another song opens its popover (focus on its ✕)', pop.shown && pop.title === 'Credits · Home on the Range' && pop.rows.includes('Performed by') && pop.focus === 'q-pop-x', pop)
+  const popAudit = await page.ev(PAGE_AUDIT('#q-pop'))
+  judge('studio: the row credits popover', popAudit, { minHit: 24 })
+  await focusWin(mp, 'Lyrics'); x('key', 'Escape'); await sleep(400)
+  check('studio: Esc closes the popover (the window stays)', (await page.ev(`document.getElementById('q-pop').hidden`)) && await winOpen(mp, 'Lyrics'))
+  await page.ev(`(document.querySelector('#q-list button.q-row[data-index="${rowAt[2]}"]').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })), true)`); await sleep(400)
+  l = (await stageLog()).filter((c) => c[0] === 'row-menu'); await menus()
+  check('studio: right-click on a row opens its menu', l.length >= 1 && l[0][1].index === +rowAt[2], l)
+  await page.ev(`(document.querySelector('#q-list button.q-row[data-index="${rowAt[2]}"]').focus({ focusVisible: true }), true)`); await focusWin(mp, 'Lyrics'); await sleep(150)
+  x('key', 'shift+F10'); await sleep(400)
+  l = await stageLog(); await menus()
+  check('studio: Shift+F10 on a row opens its menu', l.length === 1 && l[0][0] === 'row-menu' && l[0][1].index === +rowAt[2], l)
+  // the menu's Play Next and Play Now
+  await page.ev(`(document.querySelector('#q-list button.q-row[data-index="${rowAt[2]}"]').parentElement.querySelector('.q-menu').click(), true)`); await sleep(400); await stageLog(); await menus()
+  await clear(); await pick('Play Next'); n = await waitNote(/Play Next|Plays next/)
+  check('studio: the menu\'s Play Next answers in the note (logged out: the queue changed / not offered)', /Play Next didn't go through|Plays next/.test(n[0]), n)
+
+  // --- 7. the seek bar's hover: the time and the words sung there ---
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  const sk = await page.ev(`(() => { const r = document.getElementById('seek-bar').getBoundingClientRect(); return [Math.round(r.left + r.width * 0.2), Math.round(r.top + r.height / 2)] })()`)
+  x('move', sk[0] - 4, sk[1]); await sleep(100); x('move', sk[0], sk[1]); await sleep(400)
+  const tip = await page.ev(`[document.getElementById('seek-tip').hidden, document.getElementById('seek-tip').textContent, (stage.shown && 1)]`)
+  const atT = 0.2 * song.duration
+  const want = (song.lines.filter((ln) => ln.t <= atT).pop() || {}).text || ''
+  xshot(path.join(OUT, 'studio-seek-hover.png'), W, H)
+  check('studio: hovering the song position shows the time there and the words sung then ("' + want + '")', !tip[0] && tip[1].includes(want) && /^\d+:\d\d/.test(tip[1]), tip)
+  x('move', sk[0], sk[1] + 200); await sleep(300)
+  check('studio: the hover tip goes when the pointer leaves', await page.ev(`document.getElementById('seek-tip').hidden`))
+
+  // --- 8. the Studio's keys (focus on the page, not on a control) ---
+  await send('lyrics-time', T0, false); await sleep(400)
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)'); await focusWin(mp, 'Lyrics'); await sleep(150); await stageLog()
+  const keyIs = async (k, test, what) => { x('key', k); await sleep(350); const got = await stageLog(); check('studio: ' + k + ' ' + what, test(got), got) }
+  await keyIs('space', (g) => g.length === 1 && g[0][0] === 'play-pause', 'plays / pauses')
+  await keyIs('Right', (g) => g.length === 1 && g[0][0] === 'seek' && Math.abs(g[0][1] - (T0 + 5)) < 0.6, 'seeks 5 s on')
+  await keyIs('Left', (g) => g.length === 1 && g[0][0] === 'seek' && Math.abs(g[0][1] - (T0 - 5)) < 0.6, 'seeks 5 s back')
+  const starts = song.lines.map((ln) => ln.t)
+  const nextStart = starts.find((t) => t > T0 + 0.25)
+  await keyIs('Down', (g) => g.length === 1 && g[0][0] === 'seek' && Math.abs(g[0][1] - nextStart) < 0.06, 'goes to the next lyric line (' + nextStart + ' s)')
+  await keyIs('Up', (g) => g.length === 1 && g[0][0] === 'seek' && starts.some((t) => Math.abs(t - g[0][1]) < 0.06), 'goes to a lyric line\'s start')
+  await keyIs('f', (g) => g.length === 1 && g[0][0] === 'song-favorite', 'toggles Favorite')
+  // over a control the key is the control's: Space on a button clicks it, arrows on a slider move it
+  await page.ev(`(document.getElementById('vol-bar').focus({ focusVisible: true }), true)`); await sleep(100)
+  await keyIs('Right', (g) => g.length === 1 && g[0][0] === 'volume', 'on the volume moves the volume, not the song')
+  await page.ev(`(document.getElementById('b-next').focus({ focusVisible: true }), true)`); await sleep(100)
+  await keyIs('space', (g) => g.length === 1 && g[0][0] === 'next', 'on a button presses that button (not play/pause)')
+  await page.ev('(document.activeElement && document.activeElement.blur(), true)')
+  await page.ev(`(document.getAnimations().forEach((a) => a.finish()), true)`)
+
+  // --- 9. scrolling: never fought; the list at the start, the middle and the last song of an album ---
+  await page.ev(`(document.getElementById('q-list').scrollTop = 0, document.getElementById('q-list').dispatchEvent(new WheelEvent('wheel', { bubbles: true })), true)`); await sleep(100)
+  const q13 = Object.assign(stageQueue(), { position: 13 })
+  await send('stage-np', Object.assign({}, np, { title: 'The Parting Glass' })); await send('stage-queue', q13); await sleep(500)
+  check('studio: a new song while the user scrolls the list doesn\'t scroll it away from them', (await page.ev(`document.getElementById('q-list').scrollTop`)) === 0)
+  const lastQ = { position: 23, canPlay: true, container: stageQueue().container, items: stageQueue().items.slice(0, 24) }
+  const shots = [['start', 0], ['middle', 12], ['last', 23]]
+  for (const [tag, pos] of shots) {
+    const qq = tag === 'last' ? lastQ : Object.assign(stageQueue(), { position: pos })
+    await send('stage-np', Object.assign({}, np, { title: STAGE_TRACKS[pos] })); await send('stage-queue', qq); await sleep(4200)   // past the 4 s quiet after the wheel above
+    await page.ev(`(stage.setForm({ stage: true, linerNotes: true }), true)`); await sleep(500)
+    const f = await page.ev(`(() => { const l = document.getElementById('q-list'); const c = l.querySelector('.q-row.cur'); return { top: c ? Math.round(c.getBoundingClientRect().top - l.getBoundingClientRect().top) : -1, card: !document.getElementById('next-card').hidden && !!document.getElementById('next-card').closest('#q-list'), note: document.getElementById('q-note').hidden ? '' : document.getElementById('q-note').textContent, order: [...l.querySelectorAll(':scope > li')].map((li) => { const r = li.querySelector('.q-row'); return !r ? 'more' : r.id === 'next-card' ? 'card' : r.classList.contains('cur') ? 'cur' : r.classList.contains('played') ? 'played' : 'up' }).join('') } })()`)
+    xshot(path.join(OUT, 'studio-list-' + tag + '.png'), W, H)
+    if (tag === 'start') check('studio: the start of an album: the song playing first, the card after it, no played songs', f.order.startsWith('curcard') && !f.order.includes('played') && f.top >= 0 && f.top < 20, f)
+    if (tag === 'middle') check('studio: the middle: played songs above, the song playing near the top with one or two above it', f.top > 30 && f.top < 130 && f.card, f)
+    if (tag === 'last') check('studio: the last song: no card, the list ends with it, "That\'s the last one"', !f.card && f.order.endsWith('cur') && f.note === 'That\'s the last one', f)
+  }
+  await send('stage-np', np); await send('stage-queue', stageQueue()); await sleep(500)
+  await mp.ev(`(() => { const t = ${MX}; t.setSong({ ok: false }); if (t.source.__state) t.source.state = t.source.__state; return true })()`)
+  await page.ev(`(document.getAnimations().forEach((a) => a.finish()), true)`)
+  await stageLog(); await menus()
+}
+
+// --- a word with syllables pops as one, from its baseline (0.15.42: "dis·tance", "ba·by" were drawn with the sung
+// syllable raised and larger): while "dis" is sung the two syllables share one baseline and one size, and the word's
+// baseline stays where it was before the pop (within 1 px: the transform's origin is the baseline, --oy) ---
+async function syllableStep(mp, page, send, W, H, song, np) {
+  const ln = (t, text, words) => ({ t, end: t + 4, text, words })
+  const w = (text, t, end, syl) => Object.assign({ text, t, end }, syl ? { syl: syl.map(([x, a, b]) => ({ text: x, t: a, end: b })) } : {})
+  const lines = [ln(2, 'That\'s me in the corner', [w('That\'s', 2, 6)]),
+    ln(10, 'The distance in your eyes', [w('The', 10, 10.4), w('distance', 10.4, 12.6, [['dis', 10.4, 11.0], ['tance', 11.0, 12.6]]), w('in', 12.6, 12.9), w('your', 12.9, 13.3), w('eyes', 13.3, 14.5)]),
+    ln(16, 'Hold me, baby, hold me tight', [w('Hold', 16, 16.4), w('me,', 16.4, 16.8), w('baby,', 16.8, 18.4, [['ba', 16.8, 17.3], ['by,', 17.3, 18.4]]), w('hold', 18.4, 18.8), w('me', 18.8, 19.1), w('tight', 19.1, 20)])]
+  await send('lyrics-data', Object.assign({}, song, { lines })); await sleep(900)
+  const MEASURE = (word) => `(() => {
+    const ln = document.querySelector('#lines .line.active'); if (!ln) return null
+    const wd = [...ln.querySelectorAll('.ly-main .w')].find((x) => x.dataset.text === ${JSON.stringify(word)}); if (!wd) return 'no word'
+    const ss = [...wd.querySelectorAll('.s')]
+    let probe = ss[0].querySelector('i.__bl'); if (!probe) { probe = document.createElement('i'); probe.className = '__bl'; probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline'; ss[0].appendChild(probe) }
+    const box = wd.getBoundingClientRect()
+    return { now: wd.classList.contains('now'), base: +probe.getBoundingClientRect().bottom.toFixed(2), boxTop: +box.top.toFixed(2), boxH: +box.height.toFixed(2), syl: ss.map((s) => { const r = s.getBoundingClientRect(); return { text: s.textContent, sung: s.classList.contains('now'), bottom: +r.bottom.toFixed(2), h: +r.height.toFixed(2), transform: getComputedStyle(s).transform } }) }
+  })()`
+  for (const [word, before, during, tag] of [['distance', 10.1, 10.7, 'dis'], ['baby,', 16.5, 17.8, 'by']]) {
+    await send('lyrics-time', before, false); await sleep(900)
+    const a = await page.ev(MEASURE(word))
+    await send('lyrics-time', during, false); await sleep(900)
+    const b = await page.ev(MEASURE(word))
+    xshot(path.join(OUT, 'syllable-' + tag + '.png'), W, H)
+    const one = b && b.syl && b.syl.length === 2 && Math.abs(b.syl[0].bottom - b.syl[1].bottom) < 0.5 && Math.abs(b.syl[0].h - b.syl[1].h) < 0.5 && b.syl.every((x) => x.transform === 'none') && b.syl.some((x) => x.sung)
+    check('syllables: while "' + tag + '" is sung, the syllables of "' + word + '" share one baseline and one size (no syllable moves on its own)', !!one, b)
+    check('syllables: "' + word + '" pops from its baseline (it stays within 1 px; the baseline sits at ' + (a ? ((a.base - a.boxTop) / a.boxH * 100).toFixed(1) : '?') + '% of the word\'s box)', a && b && b.now && Math.abs(b.base - a.base) <= 1, { before: a && a.base, during: b && b.base })
+  }
+  await send('lyrics-data', song); await send('stage-np', np); await sleep(600)
+}
+
 async function stage() {
   const mp = await mainProc()
   // the commands the stage sends main (this test copy only): a second listener beside main's own
@@ -1234,8 +1529,12 @@ async function stage() {
     const r = (id) => { const e = document.getElementById(id); const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right), Math.round(b.width)] }
     const tx = (id) => document.getElementById(id).textContent
     return { stage: document.body.classList.contains('stage'), np: r('np'), lines: r('lines'), queue: r('queue'), size: getComputedStyle(document.querySelector('.line')).fontSize,
-      ctx: tx('ctx'), track: tx('chip-track'), live: tx('chip-live'), nextIn: tx('next-in'), nextT: tx('next-t'), title: tx('np-title'), album: tx('np-album'), tabAll: tx('tab-all'),
-      rows: document.querySelectorAll('#q-list .q-row').length, firstRow: (document.querySelector('#q-list .q-row .t') || {}).textContent, footL: tx('q-foot-l'), footR: tx('q-foot-r'),
+      ctx: tx('ctx'), track: tx('chip-track'), live: tx('chip-live'), nextIn: tx('next-in'), nextT: tx('next-t'), nextS: tx('next-s'), nextD: tx('next-d'), title: tx('np-title'), album: tx('np-album'),
+      order: [...document.querySelectorAll('#q-list > li')].map((li) => { const r = li.querySelector('.q-row'); return !r ? 'more' : r.id === 'next-card' ? 'card' : r.classList.contains('cur') ? 'cur' : r.classList.contains('played') ? 'played' : 'up' }),
+      titles: [...document.querySelectorAll('#q-list .q-row:not(#next-card) > .t')].map((t) => t.firstChild.textContent), tabs: !!document.querySelector('#tab-next, #tab-all, .seg'),
+      curTop: (() => { const l = document.getElementById('q-list'); const c = l.querySelector('.q-row.cur'); return c ? Math.round(c.getBoundingClientRect().top - l.getBoundingClientRect().top) : -1 })(),
+      dRight: [document.getElementById('next-d'), document.querySelector('#q-list .q-row:not(.cur):not(#next-card) .d')].map((e) => e ? Math.round(e.getBoundingClientRect().right) : -1),
+      footL: tx('q-foot-l'), footR: tx('q-foot-r'),
       band: document.getElementById('band').hidden, layers: document.getElementById('layers').hidden, montage: document.getElementById('t-montage').hidden, liner: document.getElementById('t-liner').hidden,
       tElapsed: tx('t-el'), tRem: tx('t-rem'), hScroll: [document.getElementById('lines'), document.getElementById('q-list')].map((e) => e.scrollWidth > e.clientWidth + 1) }
   })()`)
@@ -1244,7 +1543,12 @@ async function stage() {
   check('stage: "Track 13 of 24" from the queue (the autoplay song not counted), the live chip from the album title', facts.track === 'Track 13 of 24' && facts.footL === 'Track 13 of 24' && facts.live === 'Live · The Gorge', facts)
   const left = Math.ceil(song.duration - T0)
   check('stage: the next card counts down the playing song (Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ') and names the next song', facts.nextIn === 'Next · in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') && facts.nextT === 'The Parting Glass', facts)
-  check('stage: Up Next lists the 12 songs after it plus the autoplay one; Playing from the album; the Playlist tab counts 24', facts.rows === 12 && facts.firstRow.startsWith('The Parting Glass') && facts.ctx === 'Playing from Wayfarers: Live at the Gorge' && facts.tabAll === 'Playlist · 24', facts)
+  // the one list: 12 played, the one playing, the Next card, then the 11 after it (and the autoplay song); no tabs
+  const wantOrder = Array(12).fill('played').concat(['cur', 'card']).concat(Array(11).fill('up'))
+  check('stage: one list in order: the 12 songs played (dimmed), the one playing, the Next card, then the 11 after it; no tabs', facts.order.join() === wantOrder.join() && !facts.tabs && facts.ctx === 'Playing from Wayfarers: Live at the Gorge', facts.order)
+  check('stage: the next song is only in the card, never a row as well', facts.nextT === 'The Parting Glass' && !facts.titles.includes('The Parting Glass') && facts.titles[13] === 'Home on the Range', facts.titles.slice(11, 15))
+  check('stage: the card\'s subtitle has no length; the length sits in the rows\' column, right-aligned with them', facts.nextS === 'The Juniper Lane Band · Wayfarers: Live at the Gorge' && /^\d+:\d\d$/.test(facts.nextD) && Math.abs(facts.dRight[0] - facts.dRight[1]) <= 1, { nextS: facts.nextS, nextD: facts.nextD, dRight: facts.dRight })
+  check('stage: on open the song playing sits near the top of the list, one or two played songs above it', facts.curTop > 30 && facts.curTop < 130, facts.curTop)
   check('stage: no empty boxes or dead controls (no sheet notes yet: no band; the Montage and Liner notes tiles show (their row with them))', facts.band && !facts.layers && !facts.montage && !facts.liner, facts)
   check('stage: neither list scrolls sideways', facts.hScroll.every((h) => !h), facts.hScroll)
 
@@ -1271,14 +1575,10 @@ async function stage() {
   }
   await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true)); await sleep(600)
   await mp.ev(`(${E}.nativeTheme.themeSource = 'dark', true)`); await sleep(800)
-  // the Playlist tab and a duet moment for the record
-  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(400)
-  xshot(path.join(OUT, 'stage-dark-playlist.png'), W, H)
-  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
+  xshot(path.join(OUT, 'stage-dark-list-middle.png'), W, H)
 
   // --- drag regions while both lists are scrolled: late in the song (lines scrolled up over the header) ---
   await send('lyrics-time', 60.5, false); await sleep(1200)
-  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(400)
   await page.ev(`(() => { const q = document.getElementById('q-list'); q.scrollTop = q.scrollHeight; return q.scrollTop })()`); await sleep(300)
   const pts = await page.ev(`(() => {
     const c = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2), id] }
@@ -1287,11 +1587,10 @@ async function stage() {
     const vol = document.getElementById('vol').getBoundingClientRect()
     const lines = document.getElementById('lines').getBoundingClientRect()
     const above = [...document.querySelectorAll('#lines .line')].filter((l) => l.getBoundingClientRect().bottom < lines.top).length
-    return { above, scrolled: document.getElementById('q-list').scrollTop, points: [[Math.round(ctx.left + 20), Math.round(ctx.top + ctx.height / 2), 'header (playing from)'], [Math.round(ctx.right - 4), Math.round(ctx.top + 3), 'header (right end)'], [Math.round(qt.left + 10), Math.round(qt.top + qt.height / 2), 'queue title'], [Math.round(vol.left + 40), Math.round(vol.bottom + 30), 'left column below the volume'],
-      c('form'), c('close'), c('tab-next'), c('tab-all'), c('b-play'), c('seek-bar'), c('vol-bar'), [Math.round(lines.left + 60), Math.round(lines.top + 120), 'a lyric line'], c('q-list')] }
+    return { above, scrolled: document.getElementById('q-list').scrollTop, points: [[Math.round(ctx.left + 20), Math.round(ctx.top + ctx.height / 2), 'header (playing from)'], [Math.round(ctx.right - 4), Math.round(ctx.top + 3), 'header (right end)'], [Math.round(qt.left + 10), Math.round(qt.top + qt.height / 2), 'queue title'], [Math.round(vol.left + 40), Math.round(document.getElementById('act-note').getBoundingClientRect().bottom + 12), 'left column below the song\'s actions'],
+      c('form'), c('close'), c('b-play'), c('seek-bar'), c('vol-bar'), c('a-fav'), c('a-more'), c('cover-btn'), [Math.round(lines.left + 60), Math.round(lines.top + 120), 'a lyric line'], c('q-list')] }
   })()`)
   const reg = await page.ev(REGIONS_AT(pts.points))
-  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
   const want = (n) => /header|queue title|left column/.test(n) ? 'drag' : 'no-drag'
   const wrong = reg.filter((r) => r.region !== want(r.name))
   check('stage drag regions (lyrics scrolled ' + pts.above + ' lines up over the header, the queue scrolled ' + pts.scrolled + ' px): the header, the queue\'s title and the left column drag; every control and both lists don\'t', pts.above >= 3 && pts.scrolled > 0 && !wrong.length, { wrong, all: reg })
@@ -1328,17 +1627,21 @@ async function stage() {
   l = await stageLog()
   check('stage: a click half way along the song position seeks to the middle', l.length >= 1 && l[l.length - 1][0] === 'seek' && Math.abs(l[l.length - 1][1] - song.duration / 2) < 3, l)
   await send('lyrics-time', T0, false); await sleep(300)
-  await page.ev(`(document.querySelector('#q-list button.q-row').click(), true)`); await sleep(300)
+  await page.ev(`(document.querySelector('#q-list button.q-row:not(.played):not(#next-card)').click(), true)`); await sleep(300)
   l = await stageLog()
-  check('stage: a click on an Up Next song asks to play that place in the queue (index and id, checked again in Apple\'s page)', l.length === 1 && l[0][0] === 'play-item' && l[0][1].index === 13 && l[0][1].id === 'pd14', l)
-  await page.ev(`(document.getElementById('tab-all').click(), true)`); await sleep(300)
-  const tabbed = await page.ev(`[document.getElementById('q-title').textContent, document.getElementById('tab-all').getAttribute('aria-pressed'), document.querySelectorAll('#q-list .q-row').length, !!document.querySelector('#q-list .q-row.cur'), document.getElementById('next-card').hidden]`)
-  check('stage: the Playlist tab shows the whole album with the song playing marked (the next card steps aside)', tabbed[0] === 'Playlist' && tabbed[1] === 'true' && tabbed[2] === 25 && tabbed[3] && tabbed[4], tabbed)
-  await page.ev(`(document.getElementById('tab-next').click(), true)`); await sleep(300)
+  check('stage: a click on an upcoming song asks to play that place in the queue (index and id, checked again in Apple\'s page)', l.length === 1 && l[0][0] === 'play-item' && l[0][1].index === 14 && l[0][1].id === 'pd15', l)
+  await page.ev(`(document.querySelector('#q-list button.q-row.played').click(), true)`); await sleep(300)
+  l = await stageLog()
+  check('stage: a click on a played song plays it again (its place in the queue)', l.length === 1 && l[0][0] === 'play-item' && l[0][1].index === 0 && l[0][1].id === 'pd1', l)
+  await studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0)
+  await syllableStep(mp, page, send, W, H, song, np)
+  await send('lyrics-time', T0, false); await sleep(400)
   // every visible control was exercised (a control not in this list would be untested: it fails here)
   const ctrls = await page.ev(`[...document.querySelectorAll('#card button, #card [role=slider], #card [role=button]')].filter((e) => { const r = e.getBoundingClientRect(); return r.width && r.height && !e.closest('[hidden]') && getComputedStyle(e).display !== 'none' }).map((e) => e.id || e.className)`)
   // t-montage and mt-credit: the Montage step below exercises them; t-liner: above
-  const known = new Set(['b-shuffle', 'b-prev', 'b-play', 'b-next', 'b-repeat', 'seek-bar', 'vol-bar', 'tab-next', 'tab-all', 'q-row', 'form', 'close', 'line', 't-montage', 'mt-credit', 't-liner'])
+  // studioStep (below) exercises the song's actions, the cover and its back, the links, the chips, the card and the rows' menus
+  const known = new Set(['b-shuffle', 'b-prev', 'b-play', 'b-next', 'b-repeat', 'seek-bar', 'vol-bar', 'q-row', 'form', 'close', 'line', 't-montage', 'mt-credit', 't-liner',
+    'a-fav', 'a-lib', 'a-pl', 'a-link', 'a-album', 'a-artist', 'a-more', 'cover-btn', 'np-title', 'np-artist', 'np-album', 'chip-track', 'chip-live', 'next-card', 'ib', 'cb-close', 'cb-more', 'q-pop-x'])
   const untested = ctrls.filter((c) => !known.has(String(c).split(' ')[0]))
   check('stage: every visible control is one this check exercised (no dead or untested controls)', !untested.length, untested)
   // read-only when Apple's player has no way to jump: no buttons, and it says so
@@ -1358,7 +1661,7 @@ async function stage() {
   check('stage: offline rule set (roles, names, ids, nothing focusable hidden)', !rules.length, rules)
   await page.ev(`(document.querySelector('#q-list button.q-row').focus({ focusVisible: true }), true)`); await sleep(150)
   const rows = await walkKeys(page, 'down', 2)
-  check('stage: ↓ in the queue moves song by song, with the focus ring', rows.length === 2 && rows.every((s) => s.ring) && /Home on the Range/.test(rows[0].label || '') && /Camptown Races/.test(rows[1].label || ''), rows.map((s) => s.label))
+  check('stage: ↓ in the queue moves song by song, with the focus ring', rows.length === 2 && rows.every((s) => s.ring) && /Oh! Susanna/.test(rows[0].label || '') && /Wildwood Flower/.test(rows[1].label || ''), rows.map((s) => s.label))
 
   // --- idle: paused, nothing repaints ---
   await page.ev('(document.activeElement && document.activeElement.blur(), true)')
