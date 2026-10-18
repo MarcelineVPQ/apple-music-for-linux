@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.51-dev.1" date="2026-10-18" type="development">
+      <description>
+        <p>Long words keep a clear gap to their neighbours when they pop, and a high or low voice stays readable on the sheet-notes staff.</p>
+      </description>
+    </release>
     <release version="0.15.50-dev.1" date="2026-10-18" type="development">
       <description>
         <p>Hyphenated lyrics look as written, and the sheet-notes band says when no one is singing.</p>
