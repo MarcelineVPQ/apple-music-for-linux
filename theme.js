@@ -128,6 +128,15 @@
     let accentFieldText = accentText
     // loop: NOT-WORTH — at most 25 steps
     for (let i = 0; i < 25 && !fieldOk(accentFieldText); i++) accentFieldText = mix(accentFieldText, text, 0.08)
+    // words over a stack of layers on the card (plain or Glass, and over Apple's page), over anything:
+    // 4.5:1 with the accent text's margin
+    const onStack = (c, extra) => Math.min(worstContrast(c, overLayers().concat(extra)), worstContrast(c, matLayers().concat(extra), matBackdrops))
+    const field = [text, fieldA]
+    // the quiet words on a field inside a section (--s-field twice: About → Coming soon's cards and
+    // count badges): --s-soft pushed toward the text colour until 4.5:1 with both fields (was 4.47:1 light Glass)
+    let softFieldText = soft
+    // loop: NOT-WORTH — at most 25 steps
+    for (let i = 0; i < 25 && onStack(softFieldText, [field, field]) < TARGET + 0.15; i++) softFieldText = mix(softFieldText, text, 0.08)
     // dim words (lyric lines not being sung): the text, faded only as far as 3:1 allows
     let dimA = 0.35
     const dimOk = (a) => Math.min(worstContrast(mix(surface, text, a), overLayers()), worstContrast(mix(surface, text, a), matLayers(), matBackdrops)) >= 3
@@ -154,8 +163,22 @@
     const onBtn = onWhite.n <= onBlack.n + 2 ? WHITE : BLACK
     const fill = onBtn === WHITE ? onWhite.f : onBlack.f
     // notices: a warm (task/info) or red (error) wash over the material, words in the text colour
-    const warnWash = [b.warn, dark ? 0.16 : 0.22]
-    const errWash = [b.error, dark ? 0.18 : 0.12]
+    // A notice sits in a section (--s-field) and holds buttons (--s-field again): each wash is lightened
+    // until the words on its buttons reach 4.5:1 (+ margin) over that whole stack, plain or Glass (dark
+    // Glass with some artworks was 4.23:1)
+    const fitWash = (c, a0) => {
+      let a = a0
+      // loop: NOT-WORTH — at most ~8 steps of 0.02
+      while (a > 0.04 && onStack(text, [field, [c, a], field]) < TARGET + 0.15) a -= 0.02
+      return [c, a]
+    }
+    const warnWash = fitWash(b.warn, dark ? 0.16 : 0.22)
+    const errWash = fitWash(b.error, dark ? 0.18 : 0.12)
+    // a notice's detail line: --s-soft pushed toward the text colour until 4.5:1 over the section's
+    // field and either wash (dark Glass with some artworks was 3.62:1)
+    let noticeSoftText = soft
+    // loop: NOT-WORTH — at most 25 steps
+    for (let i = 0; i < 25 && Math.min(onStack(noticeSoftText, [field, warnWash]), onStack(noticeSoftText, [field, errWash])) < TARGET + 0.15; i++) noticeSoftText = mix(noticeSoftText, text, 0.08)
     const errText = b.error
     const vars = {
       '--s-accent': css(accent),
@@ -169,6 +192,8 @@
       '--s-accent-2-text': css(accent2Text),
       '--s-accent-mix-text': css(mixText),
       '--s-accent-field-text': css(accentFieldText),
+      '--s-soft-field-text': css(softFieldText),
+      '--s-notice-soft-text': css(noticeSoftText),
       '--s-dim': css(dim),
       '--s-upcoming': css(upcoming),
       '--s-active': css(accent, activeA),
@@ -208,6 +233,9 @@
         hover: worstContrast(text, matPlusRow([text, hoverA]), matBackdrops),
         notice: worstContrast(text, matPlusRow(warnWash), matBackdrops),
         noticeError: worstContrast(text, matPlusRow(errWash), matBackdrops),
+        softField: onStack(softFieldText, [field, field]),
+        noticeSoft: Math.min(onStack(noticeSoftText, [field, warnWash]), onStack(noticeSoftText, [field, errWash])),
+        noticeButton: Math.min(onStack(text, [field, warnWash, field]), onStack(text, [field, errWash, field])),
         errorText: worstContrast(errText, matLayers(), matBackdrops),
         ring: Math.min(worstContrast(ring, overLayers()), worstContrast(ring, matLayers(), matBackdrops)),
         accentText: Math.min(worstContrast(accentText, overLayers()), worstContrast(accentText, matLayers(), matBackdrops)),

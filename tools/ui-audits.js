@@ -154,11 +154,41 @@ const OVERFLOW = (rootSel, allow) => `(() => {
 // --- the visualizer's stage: contrast over the pixels actually behind each text ---
 // The stage has no surface colour to compute from (blurred album art, the scene's canvas, a vignette and a
 // scrim), so the words are made transparent for a moment, the page is captured, and each text is judged
-// over the darkest and lightest pixel under its box (text shadows not counted: stricter).
+// over the darkest and lightest pixel under its box (text shadows not counted: stricter). The texts'
+// boxes, colours and opacities are read in the same moment as the capture (a lyric line that changes
+// between the two would be judged over the wrong pixels), and the words are hidden by their fill
+// (-webkit-text-fill-color), so their own colour still reads.
 async function stageContrast(page, rootSel) {
-  await page.ev(`(() => { const s = document.createElement('style'); s.id = '__auditHide'; s.textContent = '#lyrics *, #meta *, #hint, #mode-label { color: transparent !important; text-shadow: none !important; -webkit-text-stroke: 0 !important }'; document.head.appendChild(s); return true })()`)
-  await new Promise((r) => setTimeout(r, 200))
-  const shot = await page.c.send('Page.captureScreenshot', { format: 'png' })
+  // a settled moment: no CSS animation or transition running on the texts (a new line fading in, a word's
+  // fade or pop), so each text is judged as it stays on screen, not mid-fade; the countdown dots' Web
+  // Animations are not texts. Tried again if one starts between the read and the capture.
+  const SETTLED = `(() => !document.getAnimations().some((a) => a.playState === 'running' && (a instanceof CSSAnimation || a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('#lyrics, #meta, #hint, #audio-note, #mode-label')))()`
+  let shot = null
+  for (let attempt = 0; attempt < 8 && !shot; attempt++) {
+    for (let i = 0; i < 40 && !(await page.ev(SETTLED)); i++) await new Promise((r) => setTimeout(r, 50))
+    await page.ev(`(() => { const s = document.createElement('style'); s.id = '__auditHide'; s.textContent = '#lyrics *, #meta *, #hint, #mode-label, #audio-note { -webkit-text-fill-color: transparent !important; text-shadow: none !important; -webkit-text-stroke: 0 !important }'; document.head.appendChild(s); return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))) })()`)
+    const ok = await page.ev(`(() => {
+      if (!${SETTLED}) return false
+      const root = document.querySelector(${JSON.stringify(rootSel)}) || document.body
+      const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' }
+      const rows = []
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const el = n.parentElement
+        if (!n.textContent.trim() || !el || !vis(el)) continue
+        let op = 1; for (let e = el; e; e = e.parentElement) op *= +getComputedStyle(e).opacity
+        if (op < 0.1) continue
+        const r = el.getBoundingClientRect()
+        rows.push({ text: n.textContent.trim().slice(0, 30), rect: [r.left, r.top, r.right, r.bottom], color: getComputedStyle(el).color, op, dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv') })
+      }
+      window.__auditRows = rows
+      return true
+    })()`)
+    const s = ok ? await page.c.send('Page.captureScreenshot', { format: 'png' }) : null
+    if (s && (await page.ev(SETTLED))) shot = s
+    if (!shot) { await page.ev(`(document.getElementById('__auditHide').remove(), true)`); await new Promise((r) => setTimeout(r, 100)) }
+  }
+  if (!shot) throw new Error('stageContrast: the stage never settled for a capture')
   await page.ev(`(document.getElementById('__auditHide').remove(), true)`)
   await new Promise((r) => setTimeout(r, 200))
   return page.ev(`(async () => {
@@ -168,26 +198,19 @@ async function stageContrast(page, rootSel) {
     const k = img.width / innerWidth
     const L = (p) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }; return 0.2126 * f(p[0]) + 0.7152 * f(p[1]) + 0.0722 * f(p[2]) }
     const ratio = (a, b) => { const x = L(a), y = L(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) }
-    const root = document.querySelector(${JSON.stringify(rootSel)}) || document.body
-    const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' }
     const rows = []
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    for (let n = w.nextNode(); n; n = w.nextNode()) {
-      const el = n.parentElement
-      if (!n.textContent.trim() || !el || !vis(el)) continue
-      let op = 1; for (let e = el; e; e = e.parentElement) op *= +getComputedStyle(e).opacity
-      if (op < 0.1) continue
-      const r = el.getBoundingClientRect()
-      const x0 = Math.max(0, Math.floor(r.left * k)), y0 = Math.max(0, Math.floor(r.top * k)), x1 = Math.min(c.width, Math.ceil(r.right * k)), y1 = Math.min(c.height, Math.ceil(r.bottom * k))
+    for (const t of window.__auditRows) {
+      const x0 = Math.max(0, Math.floor(t.rect[0] * k)), y0 = Math.max(0, Math.floor(t.rect[1] * k)), x1 = Math.min(c.width, Math.ceil(t.rect[2] * k)), y1 = Math.min(c.height, Math.ceil(t.rect[3] * k))
       if (x1 <= x0 || y1 <= y0) continue
       const d = g.getImageData(x0, y0, x1 - x0, y1 - y0).data
       let lo = [9, null], hi = [-1, null]
       for (let i = 0; i < d.length; i += 8) { const p = [d[i], d[i + 1], d[i + 2]]; const l = L(p); if (l < lo[0]) lo = [l, p]; if (l > hi[0]) hi = [l, p] }
-      const m = /rgba?\\(([^)]+)\\)/.exec(getComputedStyle(el).color); const cp = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number)
-      const a = (cp.length > 3 ? cp[3] : 1) * op
+      const m = /rgba?\\(([^)]+)\\)/.exec(t.color); const cp = m[1].split(/[ ,\\/]+/).filter(Boolean).map(Number)
+      const a = (cp.length > 3 ? cp[3] : 1) * t.op
       const over = (b) => ratio(cp.slice(0, 3).map((v, i) => v * a + b[i] * (1 - a)), b)
-      rows.push({ text: n.textContent.trim().slice(0, 30), ratio: +Math.min(over(lo[1]), over(hi[1])).toFixed(2), dim: !!el.closest('.line:not(.active)') || !!el.closest('.bgv') })
+      rows.push({ text: t.text, ratio: +Math.min(over(lo[1]), over(hi[1])).toFixed(2), dim: t.dim })
     }
+    delete window.__auditRows
     return rows
   })()`)
 }

@@ -17,6 +17,8 @@
   --s-accent-2-text: rgba(248,142,157,1);
   --s-accent-mix-text: rgba(248,142,157,1);
   --s-accent-field-text: rgba(247,177,188,1);
+  --s-soft-field-text: rgba(218,213,215,1);
+  --s-notice-soft-text: rgba(224,220,222,1);
   --s-dim: rgba(150,132,137,1);
   --s-upcoming: rgba(182,171,175,1);
   --s-active: rgba(250,45,72,0.34);
@@ -62,6 +64,12 @@
   --s-stage-shade-soft: rgba(0,0,0,0.6);
   --s-stage-scrim: rgba(0,0,0,0.5);
   --s-stage-vignette: rgba(0,0,0,0.78);
+  /* the stage's words over its bright scenes: a near-opaque plate sized to each text (soft edges), so
+     every word reads at its worst pixel; the quiet words (not sung yet, the next line, the hint) and the
+     backing vocals in white at these strengths (>= 4.5:1 / 3:1 on the plate) */
+  --s-stage-plate: rgba(0,0,0,0.97);
+  --s-stage-text-quiet: rgba(255,255,255,0.5);
+  --s-stage-text-backing: rgba(255,255,255,0.7);
   /* the visualizer's canvas scenes (viz-paint.js reads them once): the trails' fades, the toasters'
      night sky, and the HSL colours the scenes sweep and shift in hue (bars: band 0 -> the -end colour;
      aurora and nebula: around these hues, moved by the music) */
@@ -93,6 +101,8 @@
     --s-accent-2-text: rgba(163,39,56,1);
     --s-accent-mix-text: rgba(163,39,56,1);
     --s-accent-field-text: rgba(142,37,52,1);
+    --s-soft-field-text: rgba(73,69,71,1);
+    --s-notice-soft-text: rgba(69,66,68,1);
     --s-dim: rgba(123,114,118,1);
     --s-upcoming: rgba(93,87,89,1);
     --s-active: rgba(250,45,72,0.22);

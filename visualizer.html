@@ -33,6 +33,17 @@
     text-shadow: 0 2px 20px var(--s-stage-shade); pointer-events: none;
   }
   #art { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; box-shadow: 0 10px 40px var(--s-stage-shade-soft); flex-shrink: 0; }
+  /* every stage text sits on a plate sized to it (--s-stage-plate, soft edges): the scenes' bright glows,
+     bars and toasters pass behind the words without washing them out (>= 4.5:1 at the worst pixel behind,
+     tools/ui-check.js every). Static: painted once per text change, nothing animates */
+  #meta > div { position: relative; }
+  /* the one-line notes hold their own words (no child to size a plate around): the plate is their own
+     background, square so it fills their whole box, softened by its shadow */
+  #hint, #audio-note, #mode-label { background: var(--s-stage-plate); box-shadow: 0 0 12px 4px var(--s-stage-plate); }
+  #meta > div::before, #lyrics .w::before {
+    content: ''; position: absolute; z-index: -1; inset: -6px -10px; border-radius: 12px;
+    background: var(--s-stage-plate); box-shadow: 0 0 14px 2px var(--s-stage-plate);
+  }
   #title { font-size: 24px; font-weight: 700; }
   #artist { font-size: 16px; opacity: 0.72; margin-top: 3px; }
   :root { --active: var(--s-stage-text); }
@@ -59,10 +70,24 @@
     display: block;
     font-size: clamp(18px, 1.9vw, 76px);
     font-weight: 600;
-    opacity: 0.5;
+    color: var(--s-stage-text-quiet);   /* a colour, not opacity: the words' plates stay whole */
     margin-top: 0.6em;
     animation: lv-next 0.35s ease-out;
   }
+  /* each word's plate, behind every word of its line (z-index -1: under the text, sized to the word with
+     room for the pop and a rising syllable); the faded words fade by colour, not opacity, which would
+     fade their plates too (lyrics-view.css: unsung words 0.4, backing vocals 0.7) */
+  /* the words' plates overlap a little into one band per row (no seams between words), rounded at the
+     row's ends; no soft edge here: a popped word paints above its neighbours, and a shadow would smudge them */
+  #lyrics .w::before { inset: -0.3em -0.27em; border-radius: 0.08em; box-shadow: none; }
+  #lyrics .w:first-of-type::before { border-top-left-radius: 0.35em; border-bottom-left-radius: 0.35em; }
+  #lyrics .w:last-of-type::before { border-top-right-radius: 0.35em; border-bottom-right-radius: 0.35em; }
+  #lyrics .bgv { opacity: 1; color: var(--s-stage-text-backing); }
+  #lyrics .line.next .bgv { color: inherit; }
+  #lyrics .line.active .w { opacity: 1; color: var(--s-stage-text-quiet); }
+  #lyrics .line.active .w.sung { color: var(--s-stage-text); }
+  #lyrics .line.active .bgv .w.sung { color: var(--s-stage-text-backing); }
+  #lyrics .line.active .w.now { color: var(--sing); }
   #lyrics .line.active .w.now {
     text-shadow: 0 0 0.5em var(--sing), 0 0 0.15em var(--sing), 0 0.05em 0.45em var(--s-stage-shade-soft);
   }
@@ -76,16 +101,16 @@
   @keyframes lv-next { from { opacity: 0; } }
   /* reduced motion: a new line fades in without rising (lyrics-view.css stops the pops) */
   @media (prefers-reduced-motion: reduce) { #lyrics .line.active { animation-name: lv-next; } }
-  #hint { position: fixed; bottom: 20px; right: 24px; font-size: 12px; opacity: 0.3; }
+  #hint { position: fixed; bottom: 16px; right: 16px; padding: 4px 8px; font-size: 12px; color: var(--s-stage-text-quiet); }
   /* the sound capture's state, when it isn't fine (visualizer.js fallback parec): plain words, top right */
   #audio-note {
-    position: fixed; top: 40px; right: 40px; max-width: 460px; text-align: right;
+    position: fixed; top: 34px; right: 30px; max-width: 480px; padding: 6px 10px; text-align: right;
     font-size: 15px; font-weight: 600; line-height: 1.4; text-shadow: 0 2px 16px var(--s-stage-shade);
     pointer-events: none;
   }
   #audio-note:empty { display: none; }
   #mode-label {
-    position: fixed; bottom: 20px; left: 24px; font-size: 13px; font-weight: 600;
+    position: fixed; bottom: 16px; left: 16px; padding: 4px 8px; font-size: 13px; font-weight: 600;
     letter-spacing: 0.14em; text-transform: uppercase; opacity: 0;
     transition: opacity 0.4s ease; text-shadow: 0 2px 12px var(--s-stage-shade);
   }
