@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Expressive words** (Settings → Playback & lyrics; on by default on Development builds, needs Precise word timing). Held notes show how they were sung, on top of the word light and the syllable pop, which stay exactly as they are: while a vowel is held its letter repeats through the hold ("hoooome"), the letters waver with the singer's vibrato and a belted word gains ink; the room for it is kept in the line from the start (a faint line marks a hold), so nothing ever moves. A long held vowel also floats as large, faint letters behind the lyrics, growing with the hold and fading when the voice lets go. Only what Sonata measured with confidence is shown; with reduced motion nothing drifts or waves. Off, it's today's karaoke.
+
 ### Fixed
 
 - **A long word's pop no longer runs into the next word.** In the Studio at a large size, a long word being sung grew into the space beside it, so "amends, that's right" read as "amends,that's" and "predictable" crowded "it's". The pop looks and moves exactly as before; a word that would come too close to its neighbour now grows toward the side with room (the start or end of a line grows outward), and only when both sides are tight does it grow a little less, so a clear gap always stays between words. Short words pop exactly as they did. Hyphenated words ("Yeah-oh") stay joined, backing vocals follow the same rule, and with reduced motion nothing pops, as before.

@@ -15,6 +15,7 @@ const notesLogLib = require('./notes-log')
 const sheetModel = require('./sheet-notes-model')
 const lyricsTiming = require('./lyrics-timing')
 const sheetStoreLib = require('./sheet-notes-store')
+const expressive = require('./lyrics-expressive')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const versionDisplay = require('./version-display');   // every version, channel and product name people read
@@ -641,7 +642,8 @@ function showAlignRepair() {
 function getAlignHelper() {
   alignInstalled()
   // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, log: (m) => console.log('align:', m) })
+  // want: a notes job also asks for the measured expression while Expressive words is on (when the helper serves it)
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, want: () => (expressiveOn() ? ['expr'] : []), log: (m) => console.log('align:', m) })
   return alignHelper
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
@@ -672,7 +674,9 @@ function getAlignSession() {
         // the first play's pitch line: only while the Studio shows its band (nothing for a band nobody sees)
         pitchWanted: () => sheetNotesOn() && getNotesSwitch().wanted() && stageShowing(),
         pitch: sheetPitch,
-        missing: (title, artist, hash) => sheetNotesOn() && getNotesSwitch().wanted() && getSheetStore().missing(title, artist, hash)
+        // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song, an engine that serves it)
+        missing: (title, artist, hash) => getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
+          (expressiveOn() && alignHelper && alignHelper.serves('expr') && expressiveMissing(getSheetStore().get(title, artist), hash)))
       }
     })
   }
@@ -689,8 +693,11 @@ function getAlignSession() {
 let notesSwitch = null
 let notesStatusText = ''
 function sungNotesOn() { return !!settings.sungNotesLog && settings.updateChannel === 'dev' && preciseTimingOn() }
-// the notes step runs for the developer log or for the Studio's sheet notes (one switch object: one download)
-function notesActive() { return sungNotesOn() || sheetNotesOn() }
+// the notes step runs for the developer log, the Studio's sheet notes or Expressive words (one switch object: one download)
+function notesActive() { return sungNotesOn() || sheetNotesOn() || expressiveOn() }
+// the pitch model is downloaded only for a switch the user turned on: Expressive words on by default (a
+// Development build) uses it when it is there, and never downloads it by itself
+function notesChosen() { return sungNotesOn() || sheetNotesOn() || (settings.expressiveWords === true && preciseTimingOn()) }
 function setNotesStatus(text) { notesStatusText = text; pushPanel(); sendSheet() }
 function getNotesSwitch() {
   if (!notesSwitch) notesSwitch = notesLogLib.createNotesSwitch({ on: notesActive, helper: getAlignHelper(), status: setNotesStatus, log: (m) => console.log('align:', m) })
@@ -736,6 +743,27 @@ let sheetStore = null
 let sheet = null          // the song on screen: { key, title, artist, hash, entry, pitch: [], aligned, wordSynced, timed, error, end }
 let sheetSent = ''
 function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
+
+// "Expressive words" (Settings → Playback & lyrics; on by default on Development channel builds;
+// lyrics-expressive.js): how each word was sung, drawn on top of the karaoke from what the helper measured
+// in the song's notes step (protocol 2 feature "expr"). Kept with the song's notes (the sheet-notes store),
+// sent with the lyrics ('lyrics-data' expr). Off, or an engine without it: no expr is sent, the view is the
+// plain karaoke. Needs Precise word timing (the notes step runs on its stem).
+function expressiveSetting() { return settings.expressiveWords == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveWords }
+function expressiveOn() { return expressiveSetting() && preciseTimingOn() }
+// the song's measured expression for the view, or undefined (the field is left out: today's payload)
+function expressiveFor(title, artist, lines) {
+  if (!expressiveOn() || !title) return undefined
+  const e = getSheetStore().get(title, artist)
+  if (!sheetModel.entryValid(e, alignSessionLib.lyricsHash(lines || []))) return undefined
+  return expressive.forView(e.expr, true) || undefined
+}
+// a song whose notes entry was made without asking for its expression (Expressive words was off, or an older engine)
+function expressiveMissing(entry, hash) {
+  if (!entry || entry.lyricsHash !== hash) return true
+  if (entry.failed) return false   // the sheet-notes retry rule decides
+  return !('expr' in entry)
+}
 function getSheetStore() {
   if (!sheetStore) sheetStore = sheetStoreLib.createSheetNotesStore({ dir: path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME) })
   return sheetStore
@@ -778,17 +806,21 @@ function sendSheet() {
   lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
 }
 function sheetNotesDone(s, result, lineOffset) {
-  if (!sheetNotesOn() || !result || !result.notes) return
+  if ((!sheetNotesOn() && !expressiveOn()) || !result || !result.notes) return
   const entry = sheetModel.compact(result.notes, { lineOffset, lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
+  // Expressive words: the measured expression rides with the notes (null: asked, none came: not asked again)
+  if (expressiveOn()) entry.expr = expressive.compact(result.notes.expr, lineOffset)
   // error: SHOWN — a failed write: the band says the notes couldn't be kept (and the log)
   try { getSheetStore().set(s.title, s.artist, entry) } catch (e) {
     console.log('align: sheet notes not saved: ' + e.message)
     if (sheet && sheet.key === s.key) { sheet.error = 'Could not keep the notes: ' + e.message; sendSheet() }
   }
   if (sheet && sheet.key === s.key) { sheet.entry = entry; sheet.aligned = true; sheet.error = ''; sendSheet() }
+  // the song on screen: its lyrics again, now with their expression (the next tick)
+  if (entry.expr && lyricsKey === s.key) lyricsKey = null
 }
 function sheetNotesFailed(s, e) {
-  if (!sheetNotesOn()) return
+  if (!sheetNotesOn() && !expressiveOn()) return
   const code = (e && e.code) || ''
   // a game running isn't the song's fault: not counted, tried again on a later play
   // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
@@ -959,7 +991,11 @@ async function lyricsTick() {
     // the lines are shown untimed (versionNote)
     const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry, instrumental: got.instrumental || null }
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
-    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
+    const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
+    // Expressive words: the song's measured expression, only when on and kept for these lyrics (else no field)
+    const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base)
+    if (expr) data.expr = expr
+    sendLyrics('lyrics-data', data)
     setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
@@ -2683,7 +2719,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2703,6 +2739,8 @@ function setSetting(key, value) {
   }
   if (!PANEL_SETTABLE.includes(key) || !settingsStore.validSetting(key, value)) return
   if (settings[key] === value) return
+  // Expressive words: the panel's switch shows this build's default until it is chosen (null stays null)
+  if (key === 'expressiveWords' && (value === null || value === expressiveSetting()) && settings[key] == null) return
   settings[key] = value
   if (key === 'autoInstallUpdates') { settings.updatesAsked = true; notices.clear('ask-auto') }
   saveSettings()
@@ -2741,10 +2779,11 @@ function setSetting(key, value) {
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
-  if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
-    // the only download: when the notes step becomes active (the developer log on the Development
-    // channel, or Sheet notes in the Studio; Precise word timing on)
-    if (notesActive()) getNotesSwitch().turnedOn()
+  if (key === 'expressiveWords') lyricsKey = null   // the song again, with or without its expression
+  if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel' || key === 'expressiveWords') {
+    // the only download: when a notes switch the user chose becomes active (the developer log on the
+    // Development channel, Sheet notes in the Studio, Expressive words turned on; Precise word timing on)
+    if (notesChosen()) getNotesSwitch().turnedOn()
     else if (key === 'sungNotesLog' || key === 'sheetNotes') notesStatusText = ''
     if (key === 'sheetNotes' || key === 'lyricsPreciseTiming') { lyricsKey = null; sendSheet() }   // the song again, with or without its notes
   }
@@ -3341,6 +3380,7 @@ function panelSnapshot() {
   for (const k of PANEL_SETTABLE) v[k] = settings[k] // loop: HOT-PATH-OK — 20 keys per panel snapshot
   Object.assign(v, {
     theme: themePref,
+    expressiveWords: expressiveSetting(),   // this build's default until chosen
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),

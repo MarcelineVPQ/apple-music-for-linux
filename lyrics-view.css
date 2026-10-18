@@ -149,6 +149,40 @@
   opacity: 0.25;
 }
 
+/* Expressive words (lyrics-view.js / lyrics-expressive.js; only with the setting on and the engine's
+   measured expression for the song, else none of these classes exist). On top of the pop, never instead:
+   the word, its pop and its sustain are the rules above, untouched. Everything that moves is a Web
+   Animation of transform or opacity on a few small boxes (test/render-path.test.js), only while a vowel
+   is held or a ghost lives; nothing here runs at rest. */
+/* the room for a stretched spelling: an invisible bold spacer after the word, on the word's own row */
+.xsw { white-space: nowrap; }
+.xsp { display: inline-block; position: relative; visibility: hidden; font-weight: 800; -webkit-text-stroke: 0.024em currentColor; font-kerning: none; font-variant-ligatures: none; }
+/* a stretched word's bold copy starts at the word's left edge (its box is the bold width, so it sits where
+   it always did) and runs on into the room; the letters are boxes of their own, unkerned like the room */
+.w.xs > .b { text-align: left; right: auto; }
+.w.xs > .b, .w.xs .sr { font-kerning: none; font-variant-ligatures: none; }
+.w .xv, .w .xe, .w .xw, .w .xc { display: inline-block; }
+.w .xe { transform-origin: 0% 50%; opacity: 0; }
+.w.xr .xe { opacity: 1; }
+.w .xc { position: relative; }
+.w .xx { position: absolute; left: 100%; bottom: 0.12em; height: 0.06em; border-radius: 0.03em; background: currentColor; opacity: 0.35; transform-origin: 0% 50%; }
+/* before and after its hold, a held word's room on the sung line shows the engraved extender (a faint line
+   where the voice holds), so the room reads as the hold it is; while the word is sung the letters fill it */
+.line.active .xsp::after { content: ''; visibility: visible; position: absolute; left: 0.1em; right: 0.15em; bottom: 0.3em; height: 0.06em; border-radius: 0.03em; background: currentColor; opacity: 0.3; }
+.line.active .xsw:has(> .w.now) > .xsp::after { content: none; }
+.w.xr .xx { display: none; }
+/* loudness: a belted word gains ink (a wider stroke: the letters' advances never change), a soft one
+   reads a shade lighter; only on the word being sung (its bold copy) */
+.line.active .w.now.xi > .b { -webkit-text-stroke-width: calc(0.024em + var(--xi, 0) * 0.045em); }
+.line.active .w.now.xq { opacity: 0.86; }
+/* ghost vocalise: behind the lines (the list is its own stacking context, .xp), in a layer sticky at the
+   list's top, so the ghosts stay put while the list scrolls (each placed in px of the list's visible
+   height when it appears); decorative (aria-hidden) */
+.xp { isolation: isolate; }
+.xg { position: sticky; top: 0; height: 0; z-index: -1; pointer-events: none; }
+.xg .xgw { position: absolute; white-space: nowrap; line-height: 1; font-weight: 400; color: var(--s-ghost); opacity: 0; }
+.xg .xgl { display: inline-block; }
+
 /* prefers-reduced-motion: the sung word still lights (its colour, bold copy and glow) but doesn't
    pop, its syllables don't bounce and a held note doesn't lift; the countdown dots only fill
    (lyrics-view.js dotKeyframes still) and nothing slides or scrolls smoothly (lyrics-view.js still()).

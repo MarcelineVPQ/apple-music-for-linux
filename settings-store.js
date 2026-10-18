@@ -53,6 +53,9 @@ const SCHEMA = {
   sungNotesLog: [false, bool, 'Sung notes (developer log)'],
   sheetNotes: [false, bool, 'Sheet notes in the Studio'],
   sheetPlace: ['band', oneOf('band', 'over'), 'Sheet notes placement'],
+  // Settings → Playback & lyrics → Expressive words: null = this build's default (on on Development channel
+  // builds, off on Stable: lyrics-expressive.js defaultOn), true/false once the user chose
+  expressiveWords: [null, (v) => v === null || typeof v === 'boolean', 'Expressive words'],
   updateChannel: ['stable', oneOf('stable', 'dev'), 'Update channel'],
   checkForUpdates: [true, bool, 'Check for updates automatically'],
   autoInstallUpdates: [false, bool, 'Install updates automatically'],

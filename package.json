@@ -58,6 +58,7 @@
       "montage-ui.js",
       "lyrics-view.css",
       "lyrics-syllables.js",
+      "lyrics-expressive.js",
       "!node_modules/hyphen/*/index.js",
       "!node_modules/hyphen/{CHANGELOG,README.md,bower.json,export-contract.js}",
       "!node_modules/hyphen/patterns/!(en-us|en-gb|de-1996|fr|es|it|pt|nl|sv|da|nb|fi|pl|cs|sk|hu|tr|ca|hr|sl).js",
