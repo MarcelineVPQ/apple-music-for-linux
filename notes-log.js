@@ -75,7 +75,7 @@ function buildDoc(part, song, meta = {}) {
     song: {
       title: song.title || '', artist: song.artist || '', album: song.album || '',
       duration: Number(song.duration) || 0, appleId: song.appleId ? String(song.appleId) : null,
-      isrc: normIsrc(song.isrc) || null   // the recording (0.15.42): favourites and the timing service find the notes by it
+      isrc: normIsrc(song.isrc) || null   // the recording (0.15.42): later tools find this song's notes by it
     },
     models: { f0: part.f0_model || 'rmvpe', notes: part.model || '', aligner: meta.aligner || '', params: part.params || {}, vthr: part.vthr },
     language: part.language || null,
