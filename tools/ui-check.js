@@ -26,6 +26,9 @@
 //           notices, a toast, the lyrics window, the mini player, all four visualizer scenes; on top of the
 //           contrast/names/hit-target/label checks: dead controls, theme tokens, overflow and clipping, from
 //           tools/ui-audits.js)
+//           curious (About → For the Curious with a song playing: every row has a value, it refreshes while
+//           open, Copy for a bug report by the keyboard (no song name in the copy), 8 theme combinations,
+//           and folded or minimised nothing samples: 0 frames)
 // Prints one JSON report and exits 1 if any check failed.
 'use strict'
 const fs = require('fs')
@@ -1636,9 +1639,110 @@ async function every() {
   apple.c.close(); mp.c.close()
 }
 
+// About → For the Curious (curious-sampler.js): opened with a song playing (tools/stand-in.js) and its lyrics
+// looked up, every row has a value, the numbers refresh while open, "Copy for a bug report" copies plain text
+// without the song's name (by the keyboard: Tab to it, Enter), contrast and the theme in all 8 combinations
+// (light/dark x album colour on/off x Glass on/off) with screenshots, and closed or minimised nothing samples:
+// no frame subscription, no getAppMetrics call, 0 frames of the panel.
+async function curious() {
+  const mp = await mainProc()
+  let apple = await target('music.apple.com')
+  const standIn = async (o) => { try { return await apple.ev(STAND_IN.installScript(o)) } catch (e) { apple = await target('music.apple.com'); return apple.ev(STAND_IN.installScript(o)) } }
+  check('curious: stand-in player installed and playing', (await standIn({ playing: true, seek: 20 })).playing)
+  // the lyrics looked up once (the lyrics window), so Now playing has a cached song and the feed's facts
+  await openFloating(mp, 'lyrics', 'Lyrics', true); await sleep(2500)
+  await openFloating(mp, 'lyrics', 'Lyrics', false)
+  // count the sampler's work from outside: frame subscriptions on every web contents and getAppMetrics calls
+  await mp.ev(`(() => { const { webContents, app } = ${E}; globalThis.__cur = { subs: 0, metrics: 0 }
+    for (const wc of webContents.getAllWebContents()) { if (wc.__curWrapped) continue; const f = wc.beginFrameSubscription.bind(wc); wc.beginFrameSubscription = (...a) => { globalThis.__cur.subs++; return f(...a) }; wc.__curWrapped = true }
+    if (!app.__curWrapped) { const g = app.getAppMetrics.bind(app); app.getAppMetrics = () => { globalThis.__cur.metrics++; return g() }; app.__curWrapped = true }
+    return true })()`)
+  const work = () => mp.ev('globalThis.__cur')
+  const frames = async (t, ms) => {
+    let n = 0
+    t.c.on((m) => { if (m.method === 'Page.screencastFrame') { n++; t.c.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {}) } })
+    await t.c.send('Page.startScreencast', { format: 'jpeg', quality: 10, everyNthFrame: 1 })
+    await sleep(800); n = 0; await sleep(ms)
+    await t.c.send('Page.stopScreencast')
+    return n
+  }
+  await setPanel(mp, true, 'about')
+  const acc = async () => (await mp.ev(settingsFile)).panelOpen
+  // folded: About shown, For the Curious closed -> nothing samples, the panel paints nothing
+  if (((await acc()) || {}).about === 'curious') await mp.ev(viewCommand('panel', 'acc', 'about', 'toggle', 'curious'))
+  await mp.ev(viewCommand('panel', 'acc', 'about', 'collapseAll'))
+  await sleep(1500)
+  let panel = await target('panel.html')
+  const w0 = await work(); const f0 = await frames(panel, 6000); const w1 = await work()
+  check('curious: folded, nothing samples (no frame subscription, no getAppMetrics) and the panel paints 0 frames in 6 s', w1.subs === w0.subs && w1.metrics === w0.metrics && f0 === 0, { w0, w1, frames: f0 })
+  // open: one refresh at once, then every 5 s
+  await mp.ev(viewCommand('panel', 'acc', 'about', 'toggle', 'curious'))
+  const st = await waitFor(async () => { const c = await panel.ev('(globalThis.__sonataPanel.state().v || {}).curious'); return c && c.n >= 1 ? c : null }, 8000)
+  check('curious: open, the first numbers come at once', !!st, st && st.n)
+  await sleep(400)
+  const rows = await panel.ev(`[...document.querySelectorAll('[data-section="curious"] [data-readout]')].map((r) => ({ id: r.dataset.readout, label: r.querySelector('.row-label').textContent, value: r.querySelector('.row-desc').textContent }))`)
+  const empty = rows.filter((r) => !r.label || !r.value)
+  check('curious: every row has a label and a value (' + rows.length + ' rows)', rows.length >= 25 && !empty.length, empty)
+  for (const id of ['songs', 'apple', 'precise', 'words', 'favourites', 'cache-lyrics', 'oldest', 'song', 'source', 'score', 'offset', 'gpu', 'play', 'proc-0', 'memory', 'helper', 'audio', 'v-sonata', 'v-electron']) check('curious: row ' + id + ' shown', rows.some((r) => r.id === id), rows.map((r) => r.id))
+  const v = (id) => (rows.find((r) => r.id === id) || {}).value || ''
+  check('curious: Now playing names the stand-in song and its source (Apple\'s own word timing)', /\S/.test(v('song')) && v('source') === 'Apple\'s own word timing', { song: v('song'), source: v('source') })
+  check('curious: Your library counts the cached song', /^[1-9]\d* songs?$/.test(v('songs')), v('songs'))
+  check('curious: the unknowns say "Not yet known" and why', /^Not yet known: /.test(v('favourites')) && /^Not yet known: /.test(v('offset')), { favourites: v('favourites'), offset: v('offset') })
+  results.push({ name: 'curious: the rows (INFO)', ok: true, detail: rows.map((r) => r.label + ': ' + r.value) })
+  const n1 = st ? st.n : 0
+  const ws = await work()
+  await sleep(11500)
+  const st2 = await panel.ev('(globalThis.__sonataPanel.state().v || {}).curious')
+  const we = await work()
+  check('curious: refreshes while open (every 5 s: 2 more in 11.5 s)', st2 && st2.n - n1 >= 2 && st2.n - n1 <= 3 && we.subs > ws.subs, { from: n1, to: st2 && st2.n, subs: we.subs - ws.subs })
+  results.push({ name: 'curious: the panel\'s frames while open, 10 s (INFO: one repaint per refresh)', ok: true, detail: await frames(panel, 10000) })
+  // Copy for a bug report, by the keyboard: from the section's header, Tab to the button, Enter
+  await mp.ev(`(${E}.clipboard.writeText('-'), true)`)
+  await panel.ev(`(document.getElementById('h-about-curious').focus({ focusVisible: true }), true)`)
+  let reached = null
+  for (let i = 0; i < 6 && !reached; i++) { x('key', 'Tab'); await sleep(200); const f = await panel.ev(FOCUS_NOW); if (f && /Copy for a bug report/.test(await panel.ev('document.activeElement.textContent'))) reached = f }
+  check('curious: Tab reaches "Copy for a bug report", with the focus ring', !!reached && reached.ring, reached)
+  x('key', 'Return'); await sleep(900)
+  const clip = await mp.ev(`${E}.clipboard.readText()`)
+  const said = await panel.ev(`document.querySelector('[data-section="curious"] [role="status"]').textContent`)
+  check('curious: Enter copies the plain-text summary; the status line says so', /^Sonata — For the Curious/.test(clip) && /## Under the hood/.test(clip) && /^Copied: /.test(said), { said, head: clip.slice(0, 120) })
+  check('curious: the copy holds no song name and no lyric line', v('song') && !clip.includes(v('song').split(' — ')[0]) && !/shining|golden|carry me home/i.test(clip), clip.slice(0, 400))
+  // contrast, theme tokens, dead controls, clipping: light/dark x album colour x Glass, the section alone open
+  const L0 = await mp.ev(LAYOUT)
+  const set = (k, val) => mp.ev(viewCommand('panel', 'set', k, val))
+  for (const dark of [false, true]) {
+    await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+    for (const album of [false, true]) {
+      for (const glass of [false, true]) {
+        await set('adaptiveColor', album); await set('glass', glass); await sleep(1300)
+        panel.c.close(); panel = await target('panel.html'); await sleep(300)
+        await audit('curious-' + (dark ? 'dark' : 'light') + '-' + (album ? 'album' : 'plain') + (glass ? '-glass' : ''), panel, '.panel', 'panel', { shot: { width: L0.content.width, height: L0.content.height } })
+      }
+    }
+  }
+  await set('glass', false); await set('adaptiveColor', true)
+  await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`); await sleep(600)
+  // minimised: sampling stops; restored: it goes on
+  await mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).minimize(), true)`); await sleep(1500)
+  const m0 = await work(); await sleep(7000); const m1 = await work()
+  check('curious: minimised, sampling stops (no frame subscription, no getAppMetrics in 7 s)', m1.subs === m0.subs && m1.metrics === m0.metrics, { m0, m1 })
+  await mp.ev(`(() => { const w = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2); w.restore(); w.show(); return true })()`); await sleep(2500)
+  const r1 = await work()
+  check('curious: restored, it samples again', r1.subs > m1.subs, { m1, r1 })
+  // folded again: nothing samples, 0 frames
+  await mp.ev(viewCommand('panel', 'acc', 'about', 'toggle', 'curious')); await sleep(1500)
+  panel.c.close(); panel = await target('panel.html')
+  const c0 = await work(); const fc = await frames(panel, 6000); const c1 = await work()
+  const gone = await panel.ev('(globalThis.__sonataPanel.state().v || {}).curious')
+  check('curious: folded again, nothing samples and the panel paints 0 frames in 6 s', c1.subs === c0.subs && c1.metrics === c0.metrics && fc === 0 && gone === null, { c0, c1, frames: fc, gone })
+  await setPanel(mp, false)
+  await standIn({ playing: false })
+  panel.c.close(); apple.c.close(); mp.c.close()
+}
+
 ;(async () => {
   fs.mkdirSync(OUT, { recursive: true })
-  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage, liner, every }
+  const phases = { matrix, keys, loops, perf, mini, lyrics, a11y, stage, liner, every, curious }
   if (!phases[phase]) throw new Error('phase: ' + Object.keys(phases).join(' | '))
   await phases[phase]()
   const failed = results.filter((r) => !r.ok)
