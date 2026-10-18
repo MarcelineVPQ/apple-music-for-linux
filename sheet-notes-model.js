@@ -429,19 +429,100 @@ function layout(doc, g) {
   return { clef, fifths, key: keySignature(fifths, clef), notes, bars: (d.bars || []).slice(), lowest: lo, highest: hi }
 }
 
+// How the drawn pitch line follows a voice. The helper's line (MIDI x 10 per 50 ms, 0 = no voice) drops
+// out on every consonant, breath-less onset and voicing-confidence dip: on real stems ~60 % of its gaps
+// are 50-200 ms inside sung phrases (the median voiced run is 200-400 ms), so drawn as-is the line is a
+// row of dashes. Measured on JamendoLyrics "Cortez - Feel (Stripped)" and eleven cached songs: 2-4x fewer runs,
+// the median run 0.3-0.5 s -> 0.6-2.8 s; what is left are pauses of 300 ms and more (RMVPE voicing ~0 there).
+const LINE = {
+  bridgeS: 0.25,    // s: a dropout up to this long between two voiced stretches is bridged (singing goes on; the
+                    // helper's half-a-hop rule trims each side, so 5 empty hops are ~150-250 ms without a voice)
+  bridgeJump: 70,   // MIDI x 10: ... unless the voice lands more than this (7 semitones) away: a new phrase
+  speckS: 0.06,     // s: a voiced stretch shorter than this, alone after bridging, is dropped (a speck)
+  octaveS: 0.25,    // s: the window each side whose median judges an octave error
+  octaveLo: 95,     // MIDI x 10: a value 9.5 to 14.5 semitones off that median is folded back an octave
+  octaveHi: 145,
+  spike: 20         // MIDI x 10: a single value more than 2 semitones off both neighbours is a spike
+}
+
 /**
- * The pitch line as polyline runs in (song time, staff pos), split where nobody sings, only inside
- * [from, to) stretches when given (the gate's 'line' regions). -> [[[t, pos], ...], ...]
+ * The pitch line made continuous where the voice is: octave errors folded back to the local median,
+ * single-value spikes taken out (vibrato keeps its swing), dropouts up to
+ * LINE.bridgeS bridged in log frequency (MIDI is log frequency: a straight line between the two sides),
+ * and specks shorter than LINE.speckS dropped. -> { t0, hop, v } (v: MIDI x 10, 0 = no voice; not rounded)
+ */
+function cleanPitch(pitch) {
+  if (!pitch || !Array.isArray(pitch.v)) return pitch
+  const hop = pitch.hop > 0 ? pitch.hop : PITCH_HOP
+  const src = pitch.v.map((x) => (x > 0 ? x : 0))
+  const n = src.length
+  const w = Math.max(1, Math.round(LINE.octaveS / hop))
+  // octave errors: a value about an octave off the voiced values around it
+  const v = src.slice()
+  // loop: NOT-WORTH — the song's pitch values (a few thousand) × a 11-value window, once per song or new piece
+  for (let i = 0; i < n; i++) {
+    if (!(src[i] > 0)) continue
+    const near = []
+    // loop: NOT-WORTH — the window around one value (≤ 11)
+    for (let k = Math.max(0, i - w); k <= Math.min(n - 1, i + w); k++) if (src[k] > 0) near.push(src[k])
+    if (near.length < 3) continue
+    near.sort((a, b) => a - b)
+    const off = src[i] - near[near.length >> 1]
+    if (Math.abs(off) >= LINE.octaveLo && Math.abs(off) <= LINE.octaveHi) v[i] = src[i] - Math.sign(off) * 120
+  }
+  // single-value spikes: one value further than LINE.spike above (or below) both its neighbours goes to
+  // their middle (not a running median: at 20 values/s that halves a 5-6 Hz vibrato's swing)
+  const m = v.slice()
+  // loop: NOT-WORTH — the song's pitch values, once per song or new piece
+  for (let i = 1; i < n - 1; i++) {
+    if (!(v[i - 1] > 0 && v[i] > 0 && v[i + 1] > 0)) continue
+    const a = v[i] - v[i - 1]
+    const b = v[i] - v[i + 1]
+    if (Math.sign(a) === Math.sign(b) && Math.min(Math.abs(a), Math.abs(b)) > LINE.spike) m[i] = (v[i - 1] + v[i + 1]) / 2
+  }
+  // short dropouts: bridged in a straight line (log frequency) when both sides are near each other
+  const gapMax = Math.round(LINE.bridgeS / hop + 1e-9)
+  let last = -1
+  // loop: NOT-WORTH — the song's pitch values, once per song or new piece
+  for (let i = 0; i < n; i++) {
+    if (!(m[i] > 0)) continue
+    const gap = i - last - 1
+    if (last >= 0 && gap > 0 && gap <= gapMax && Math.abs(m[i] - m[last]) <= LINE.bridgeJump) {
+      // loop: NOT-WORTH — the few values of one dropout (≤ gapMax)
+      for (let k = 1; k <= gap; k++) m[last + k] = m[last] + (m[i] - m[last]) * k / (gap + 1)
+    }
+    last = i
+  }
+  // specks: voiced stretches shorter than LINE.speckS
+  const speck = LINE.speckS / hop - 1e-9
+  let from = -1
+  // loop: NOT-WORTH — the song's pitch values, once per song or new piece
+  for (let i = 0; i <= n; i++) {
+    const on = i < n && m[i] > 0
+    if (on && from < 0) from = i
+    if (!on && from >= 0) {
+      if (i - from < speck) m.fill(0, from, i)
+      from = -1
+    }
+  }
+  return { t0: pitch.t0, hop, v: m }
+}
+
+/**
+ * The pitch line as polyline runs in (song time, staff pos), continuous through sung phrases (cleanPitch)
+ * and split where the singing stops, only inside [from, to) stretches when given (the gate's 'line'
+ * regions). -> [[[t, pos], ...], ...]
  */
 function pitchRuns(pitch, clef, fifths, spans) {
   if (!pitch || !pitch.v) return []
+  const line = cleanPitch(pitch)
   const runs = []
   let cur = null
   const inside = (t) => !spans || spans.some((s) => t >= s.t0 && t < s.t1)
   // loop: NOT-WORTH — the song's pitch values (~20/s, a few thousand), once per song or new piece
-  for (let i = 0; i < pitch.v.length; i++) {
-    const t = round(pitch.t0 + i * pitch.hop)
-    const v = pitch.v[i]
+  for (let i = 0; i < line.v.length; i++) {
+    const t = round(line.t0 + i * line.hop)
+    const v = line.v[i]
     if (!(v > 0) || !inside(t)) { cur = null; continue }
     if (!cur) { cur = []; runs.push(cur) }
     cur.push([t, round(contPos(v / 10, clef, fifths), 100)])
@@ -484,7 +565,7 @@ function noteAt(lay, t) {
 }
 
 module.exports = {
-  FORMAT, GATE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
+  FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, pitchRuns, labelAt, nextChange, noteAt
+  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, labelAt, nextChange, noteAt
 }

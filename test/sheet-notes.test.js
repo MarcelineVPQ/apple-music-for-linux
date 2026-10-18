@@ -233,7 +233,7 @@ test('mode: the first play draws the pitch line as sections come back; later pla
   assert.notEqual(M.mode(Object.assign({}, base, { aligned: false, doc: M.expand(fx.entry) })).band, 'notes')
 })
 
-test('the first play\'s pitch pieces: merged in time, a later piece wins where it heard a voice, runs split where nobody sings', () => {
+test('the first play\'s pitch pieces: merged in time, a later piece wins where it heard a voice, runs split where the singing stops', () => {
   const fx = fixture('rxbyn-bad-side')
   const line = M.mergePitch(fx.pieces)
   assert.equal(line.hop, 0.05)
@@ -242,11 +242,57 @@ test('the first play\'s pitch pieces: merged in time, a later piece wins where i
   const b = { t0: 10.1, hop: 0.05, v: [620, 620, 620] }
   assert.deepEqual(M.mergePitch([a, b]).v, [600, 600, 620, 620, 620])
   assert.equal(M.mergePitch([]), null)
-  const runs = M.pitchRuns({ t0: 0, hop: 0.05, v: [640, 640, 645, 0, 0, 660, 660] }, 'treble', 0)
-  assert.equal(runs.length, 2)
+  const runs = M.pitchRuns({ t0: 0, hop: 0.05, v: [640, 640, 645, 0, 0, 0, 0, 0, 0, 660, 660] }, 'treble', 0)
+  assert.equal(runs.length, 2)                           // 300 ms without a voice: the singing stopped
   assert.deepEqual(runs[0].map((p) => p[1]), [0, 0, 0.5])
   // limited to the gate's pitch-line stretches
-  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [640, 640, 650, 0, 0, 660, 660] }, 'treble', 0, [{ t0: 0.2, t1: 1 }]).length, 1)
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [640, 640, 650, 0, 0, 0, 0, 0, 0, 660, 660] }, 'treble', 0, [{ t0: 0.2, t1: 1 }]).length, 1)
+})
+
+// a sung phrase as the helper sends it: MIDI x 10 per 50 ms, 0 where its voicing gate dropped a hop
+const seg = (n, v) => new Array(n).fill(v)
+const voicedRuns = (v) => { const r = []; let c = 0; for (const x of v.concat(0)) { if (x > 0) c++; else { if (c > 1) r.push(c); c = 0 } } return r }
+
+test('the first-play pitch line is continuous through a sung phrase (Marcy 2026-10-18: dashes, not a line)', () => {
+  // dropouts of 50-250 ms inside the phrase are bridged, in a straight line in MIDI (log frequency)
+  const phrase = [].concat(seg(6, 600), [0], seg(4, 610), [0, 0, 0], seg(5, 640), [0, 0], seg(6, 620))
+  assert.equal(voicedRuns(phrase).length, 4)             // before: four dashes
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: phrase }, 'treble', 0).length, 1)
+  const bridged = M.cleanPitch({ t0: 0, hop: 0.05, v: phrase }).v
+  assert.deepEqual(bridged.slice(10, 15), [610, 617.5, 625, 632.5, 640])
+  // 250 ms is still bridged; a real pause (300 ms and more) stays a gap; a jump of more than 7 semitones over
+  // a dropout starts a new phrase
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [].concat(seg(6, 600), seg(5, 0), seg(6, 600)) }, 'treble', 0).length, 1)
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [].concat(seg(6, 600), seg(6, 0), seg(6, 600)) }, 'treble', 0).length, 2)
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [].concat(seg(6, 600), [0, 0], seg(6, 690)) }, 'treble', 0).length, 2)
+  // a lone 50 ms speck is dropped; 100 ms of voice is kept
+  assert.equal(M.pitchRuns({ t0: 0, hop: 0.05, v: [].concat(seg(6, 600), seg(7, 0), [620], seg(7, 0), [630, 630]) }, 'treble', 0).length, 2)
+  assert.deepEqual(M.cleanPitch({ t0: 0, hop: 0.05, v: [0, 0, 600, 0, 0] }).v, [0, 0, 0, 0, 0])
+  // octave errors: a stretch an octave off its neighbours is folded back (no spike to the next octave)
+  const oct = M.cleanPitch({ t0: 0, hop: 0.05, v: [].concat(seg(6, 600), [720, 721], seg(6, 602)) }).v
+  assert.ok(oct.every((x) => x > 590 && x < 612), oct.join(' '))
+  // a real leap of an octave that is held stays where it is
+  const leap = M.cleanPitch({ t0: 0, hop: 0.05, v: [].concat(seg(10, 600), seg(10, 720)) }).v
+  assert.deepEqual([leap[2], leap[17]], [600, 720])
+  // one-hop spikes go, vibrato keeps its swing (5.5 Hz, ±50 cents, at the helper's 50 ms hop)
+  const vib = Array.from({ length: 40 }, (_, i) => Math.round(600 + 5 * Math.sin(2 * Math.PI * 5.5 * i * 0.05)))
+  const sw = (v) => Math.max(...v.slice(4, 36)) - Math.min(...v.slice(4, 36))
+  assert.ok(sw(M.cleanPitch({ t0: 0, hop: 0.05, v: vib }).v) >= 0.8 * sw(vib))
+  const spike = M.cleanPitch({ t0: 0, hop: 0.05, v: [600, 600, 600, 650, 600, 600, 600] }).v
+  assert.equal(spike[3], 600)
+})
+
+test('the first-play pitch line on recorded helper output: a few long runs, gaps only where the singing stops', () => {
+  // before (every missing hop split the line) -> after; JamendoLyrics songs through the real helper
+  const want = { 'cortez-feel-stripped': [33, 13], 'rxbyn-bad-side': [39, 12], 'wilson-way-te-recuerdo': [95, 27] }
+  for (const [name, [before, after]] of Object.entries(want)) {
+    const line = M.mergePitch(fixture(name).pieces)
+    assert.equal(voicedRuns(line.v).length, before, name)
+    const runs = M.pitchRuns(line, 'treble8', 0, null)
+    assert.equal(runs.length, after, name)
+    // what is left between runs is a pause (or a leap of more than 7 semitones): never under 250 ms
+    for (let i = 1; i < runs.length; i++) assert.ok(runs[i][0][0] - runs[i - 1][runs[i - 1].length - 1][0] >= 0.25 - 1e-9, name + ' run ' + i)
+  }
 })
 
 test('the playhead: the note sung at a time, and the next change to wake up for', () => {
