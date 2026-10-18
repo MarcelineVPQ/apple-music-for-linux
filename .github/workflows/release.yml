@@ -66,8 +66,9 @@ jobs:
           ' "$tag" "$v" "$dev" "$tag${sub:+ — $sub}" "$GITHUB_SHA"
           cat out/release.json
 
-      # One commit on an orphan branch incoming/<tag>: release.json, notes.md and the source archive.
-      # The releases repository's publish workflow runs on it and deletes the branch when done.
+      # One commit on top of the releases repository's main, pushed as branch incoming/<tag>: release.json,
+      # notes.md and the source archive. A push runs the workflows of the pushed commit, so it must carry
+      # main's .github/workflows: its publish workflow runs on it and deletes the branch when done.
       - name: Hand the release to the releases repository
         env:
           RELEASES_DEPLOY_KEY: ${{ secrets.RELEASES_DEPLOY_KEY }}
@@ -79,10 +80,12 @@ jobs:
           # github.com's published SSH host key (docs.github.com, "GitHub's SSH key fingerprints")
           echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/releases_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
-          cd out
-          git init -q -b "incoming/$GITHUB_REF_NAME"
+          git init -q handover; cd handover
+          git fetch -q --depth 1 "git@github.com:$RELEASES_REPO.git" main
+          git checkout -q -b "incoming/$GITHUB_REF_NAME" FETCH_HEAD
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp ../out/release.json ../out/notes.md "../out/sonata-${GITHUB_REF_NAME#v}-source.tar.gz" .
           git add release.json notes.md "sonata-${GITHUB_REF_NAME#v}-source.tar.gz"
           git commit -q -m "incoming: $GITHUB_REF_NAME from $GITHUB_SHA"
           git push --force "git@github.com:$RELEASES_REPO.git" "HEAD:refs/heads/incoming/$GITHUB_REF_NAME"
