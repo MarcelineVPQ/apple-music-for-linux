@@ -297,6 +297,11 @@ docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
   time, the jobs still queued are skipped and the kept sections forgotten; the next play tries again.
   One job at a time, the VRAM checks (separation: the alignment's working set + Demucs + the margin;
   the notes: as below), the gaming guard and the one-helper rule are the same as for aligned songs.
+  Measured 2026-10-18 (RTX 5080, the real helper driven by align-session.js, Cortez – Feel (Stripped),
+  4:01, its JamendoLyrics word annotations standing in for Apple's times): 6 sections separated and
+  their pitch lines, then the notes from the stitched sections, 7.7 s wall in all (model loads
+  included); the notes step RMVPE load 0.23 s, f0 0.31 s, note model 0.44 s; 363 notes on 368
+  syllables, E major, spread 4 cents (all notes); the helper's peak about 1.9 GB of graphics memory.
 - **Nothing to draw:** one line says why (no helper, Precise timing off, no line timing, paused for a game).
 
 **The staff** (`layout()`): each note at its spelled pitch (the note model's line-of-fifths name), as
