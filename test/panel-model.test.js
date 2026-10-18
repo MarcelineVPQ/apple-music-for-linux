@@ -256,7 +256,9 @@ test('about: Coming soon groups follow the DS5 board (Building now, Planned, Ide
 })
 
 test('about: For the Curious → How it works: six topics, a visible line ≤ 60 characters, a few sentences behind the ⓘ, no engine method', () => {
-  const H = P.CURIOUS_HOW
+  // the snapshot's facts the text reads (main.js: updaterLib.CHECK_EVERY_HOURS, sheetStoreLib.MAX_FILES)
+  const facts = { updateEveryHours: 2, sheetNotesMax: 500 }
+  const H = P.CURIOUS_HOW.map((h) => ({ ...h, info: P.curiousInfo(h, facts) }))
   assert.deepEqual(H.map((h) => h.id), ['updates', 'lyrics', 'precise', 'sheet', 'data', 'credits'])
   for (const h of H) {
     assert.ok(h.title && h.title.length <= 30, h.id + ': a short title')
@@ -272,4 +274,9 @@ test('about: For the Curious → How it works: six topics, a visible line ≤ 60
   assert.match(text('lyrics'), /LRCLIB/)
   assert.match(text('precise'), /never saves it or sends it anywhere/)
   assert.match(text('data'), /no telemetry/)
+  // numbers come from the snapshot, not typed in the text
+  assert.match(text('updates'), /every 2 hours/)
+  assert.match(text('sheet'), /at most 500 songs/)
+  assert.match(P.curiousInfo(P.CURIOUS_HOW.find((h) => h.id === 'updates'), { updateEveryHours: 1 }), /every hour,/)
+  assert.match(P.curiousInfo(P.CURIOUS_HOW.find((h) => h.id === 'sheet'), { sheetNotesMax: 1000 }), /at most 1,000 songs/)
 })

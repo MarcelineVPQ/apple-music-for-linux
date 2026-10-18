@@ -175,10 +175,12 @@
   // long-text rule) and a few plain sentences behind its ⓘ. Every sentence is true of this build (the
   // code each one rests on is named beside it). Public text says what people see, never how the
   // helper does it: no method, no model names (test/panel-model.test.js keeps both rules).
+  // An `info` that states a number is a function of the panel's snapshot (main.js: updateEveryHours,
+  // sheetNotesMax), so the words read the constant that sets it (tools/hardcodes.js); curiousInfo() reads either form.
   const CURIOUS_HOW = [
     // update-feed.js (Ed25519 over the feed's bytes, TRUSTED_KEYS; size + SHA-512), updater.js, docs/RELEASING.md
     { id: 'updates', title: 'Updates you can trust', short: 'Built by GitHub from the published source, then signed',
-      info: 'Each release is built on GitHub\'s own build machines from the source code published with it: every release on the public sonata-releases page on GitHub carries that source archive. The update feed Sonata reads is signed with Sonata\'s key. Before installing anything, Sonata checks that signature, then the download\'s size and checksum against the signed feed; if one is wrong, nothing is installed. Only the AppImage updates itself: it checks shortly after it starts and every 2 hours, or, with automatic checks off, only when you press Check now (Settings → Updates).' },
+      info: (v) => 'Each release is built on GitHub\'s own build machines from the source code published with it: every release on the public sonata-releases page on GitHub carries that source archive. The update feed Sonata reads is signed with Sonata\'s key. Before installing anything, Sonata checks that signature, then the download\'s size and checksum against the signed feed; if one is wrong, nothing is installed. Only the AppImage updates itself: it checks shortly after it starts and every ' + (v.updateEveryHours === 1 ? 'hour' : v.updateEveryHours + ' hours') + ', or, with automatic checks off, only when you press Check now (Settings → Updates).' },
     // lyrics-sources.js (Apple TTML through the page's MusicKit, then LRCLIB), lyrics-view.js, lyrics-timing.js, lyrics-store.js
     { id: 'lyrics', title: 'Lyrics and word timing', short: 'Apple\'s own time-synced lyrics, else LRCLIB',
       info: 'While a lyrics view is open, Sonata asks Apple Music for the song\'s lyrics through your own Apple Music session. They come timed line by line, and for some songs word by word. When Apple has none, Sonata looks the song up on LRCLIB (lrclib.net, a free open lyrics database), sending only its title, artist, album and length (Settings → LRCLIB lyrics). Word timing means every word has its own start and end, so the karaoke highlight lights the word being sung. A song timed only by line gets its words spread across each line, marked "estimated", until precise timing or listening does better; Timing source above says which one the playing song uses.' },
@@ -187,7 +189,7 @@
       info: 'For songs whose lyrics are timed only by line. With the helper installed and Precise word timing on, Sonata listens to the song as it plays on this PC while a lyrics view is open. The helper separates the voice from the band and lines each word up with the moment it is sung, a few lines at a time, so the words sharpen during the first play, and the result is kept for later plays. It runs on your graphics card (the processor works too, slowly). The audio stays in memory and is dropped afterwards: Sonata never saves it or sends it anywhere, and keeps only the word times. The helper is a separate download with its own licence (Settings → Precise timing).' },
     // sheet-notes-model.js / sheet-notes-ui.js / sheet-notes-store.js (≤ 500 songs, notes only), Settings → Experimental
     { id: 'sheet', title: 'Sheet notes', short: 'The sung melody on a staff, in time with the words',
-      info: 'An experimental part of the Studio (Settings → Experimental) that needs the helper and Precise word timing. The helper hears the melody of the voice and Sonata writes it on a staff above the lyrics, each note with its syllable. The first time a song plays you see a pitch line that follows the voice; from the next play on, notes on a staff. Where the singing doesn\'t sit on notes (rap, speech, shouting) it keeps the pitch line. It works on this PC like the word timing and keeps only the notes, at most 500 songs, never the audio.' },
+      info: (v) => 'An experimental part of the Studio (Settings → Experimental) that needs the helper and Precise word timing. The helper hears the melody of the voice and Sonata writes it on a staff above the lyrics, each note with its syllable. The first time a song plays you see a pitch line that follows the voice; from the next play on, notes on a staff. Where the singing doesn\'t sit on notes (rap, speech, shouting) it keeps the pitch line. It works on this PC like the word timing and keeps only the notes, at most ' + Number(v.sheetNotesMax).toLocaleString('en-US') + ' songs, never the audio.' },
     // settings-store.js, lyrics-store.js, liner-notes-*.js, montage-*.js, update-feed.js, lastfm.js, discord.js;
     // no telemetry or crash reporter anywhere; castlabs Electron fetches Google's Widevine module (README "What about DRM?")
     { id: 'data', title: 'Your data', short: 'No account, no telemetry; your caches stay on this PC',
@@ -197,10 +199,12 @@
       info: 'The Studio\'s Montage shows photos of the artist and the venue from Wikimedia Commons, found through Wikidata by the Apple Music IDs of the artist and album, never by a name search. Only freely licensed photos with a named author are used, and the credit line names each one\'s author and licence. The liner notes bring together Apple\'s own album notes, MusicBrainz and Wikidata facts (free to use, CC0), the album\'s Wikipedia article (CC BY-SA, shown with its title, link and licence, shortened but never reworded) and booklet scans from the Cover Art Archive, which belong to their owners; the Studio\'s song credits come from MusicBrainz too. For a live album, setlist.fm adds the setlist when you have saved your own key.' }
   ]
 
+  const curiousInfo = (h, v) => (typeof h.info === 'function' ? h.info(v || {}) : h.info)
+
   // the panel's commands (main checks the sender, then this list and each argument)
   const COMMANDS = ['mounted', 'set', 'action', 'notice-action', 'notice-dismiss', 'acc', 'hide', 'focus-next', 'focus-prev', 'open-link', 'show-page', 'toast-done', 'toast-action', 'toast-size', 'shortcut-key', 'shortcut-capture']
 
-  const api = { PANEL, PAGES, PAGE_IDS, COMMANDS, CURIOUS_HOW, windowLayout, sectionIds, accState, isOpen, isPinned, accReduce, menuItems, headerKey, sectionStatus, focusNext }
+  const api = { PANEL, PAGES, PAGE_IDS, COMMANDS, CURIOUS_HOW, curiousInfo, windowLayout, sectionIds, accState, isOpen, isPinned, accReduce, menuItems, headerKey, sectionStatus, focusNext }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataPanelModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

@@ -322,17 +322,19 @@
   // sheet-notes-ui.js): the visible line stays short; the ⓘ shows the rest on hover and keyboard focus, a
   // click toggles it (touch), Esc closes it. Screen readers get it as the ⓘ's description (the text is in
   // the page, hidden). Idle cost: none (no timers; six listeners on the button, dropped with the body).
+  // infoText: a string, or a function of the snapshot (text that states a constant's number)
   function infoRow(labelText, shortText, infoText) {
+    const textOf = (v) => (typeof infoText === 'function' ? infoText(v || {}) : infoText)
     const btn = el('button', 'info-btn', 'i')
     btn.type = 'button'
     const { r, desc } = row(labelText, shortText, btn)
     r.classList.add('has-tip')
     setAttr(btn, 'aria-label', 'More about ' + labelText)
-    const full = el('span', 'info-text', infoText)
+    const full = el('span', 'info-text', typeof infoText === 'function' ? '' : infoText)
     full.id = nextId('i')
     full.hidden = true
     setAttr(btn, 'aria-describedby', desc.id + ' ' + full.id)
-    const tip = el('p', 'tip', infoText)
+    const tip = el('p', 'tip', typeof infoText === 'function' ? '' : infoText)
     setAttr(tip, 'aria-hidden', 'true')
     tip.hidden = true
     r.append(full, tip)
@@ -356,7 +358,7 @@
     btn.addEventListener('click', (e) => { if (e.isTrusted) show(tip.hidden) })
     btn.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tip.hidden) { e.preventDefault(); e.stopPropagation(); show(false) } })
     show(false)
-    return { el: r, update() {} }
+    return { el: r, update(s) { if (typeof infoText !== 'function') return; const t = textOf(s.v); setText(full, t); setText(tip, t) } }
   }
 
   function textBlock(cls, fn) {
@@ -626,7 +628,7 @@
           },
           // the plain explanations (panel-model.js CURIOUS_HOW): one line each, the rest behind its ⓘ
           // loop: NOT-WORTH — 6 topics, once per body build
-          group('How it works', M.CURIOUS_HOW.map((h) => infoRow(h.title, h.short, h.info)))
+          group('How it works', M.CURIOUS_HOW.map((h) => infoRow(h.title, h.short, (v) => M.curiousInfo(h, v))))
         ]
       },
       // the DS5 Credits: "Built on" as prose, then one What | Credit table (each other group a header row,
