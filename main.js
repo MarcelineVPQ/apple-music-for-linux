@@ -16,6 +16,7 @@ const sheetModel = require('./sheet-notes-model')
 const sheetStoreLib = require('./sheet-notes-store')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
+const versionDisplay = require('./version-display');   // every version, channel and product name people read
 const railModel = require('./rail-model');
 const panelModel = require('./panel-model');
 const settingsStore = require('./settings-store');
@@ -42,7 +43,9 @@ for (const v of ['PATH', 'LD_LIBRARY_PATH']) {   // loop: NOT-WORTH — two vari
   if (process.env[v]) process.env[v] = relaunch.cleanPathList(process.env[v], process.env.APPDIR || '')
 }
 
-const appName = 'Sonata'
+const appName = versionDisplay.NAME
+// the floating windows' titles (the desktop's task bar; the KWin keep-above rules match them too)
+const TITLES = { mini: appName + ' — Mini Player', lyrics: appName + ' — Lyrics', cover: appName + ' — Album cover', liner: appName + ' — Liner Notes', visualizer: appName + ' — Visualizer' }
 // The app's name is Sonata (the desktop's media controls show it: MPRIS Identity, from the app name),
 // but its settings, login and caches stay where every install has them, the folder named after the
 // package (~/.config/apple-music-for-linux). userData is read before the rename and pinned; the
@@ -88,6 +91,10 @@ let discord = null
 let discordConfig = { applicationId: '', enabled: false }
 let discordConfigPath = null
 let discordReconnectTicks = 0
+// the now-playing loop's period, and Discord's reconnect every DISCORD_RETRY_TICKS of its ticks (30 s): the
+// scrobble count, the reconnect and the rail's "retries every 30 s" all read these
+const NOW_PLAYING_MS = 5000
+const DISCORD_RETRY_TICKS = 6
 let lastPresenceKey = ''
 let miniTrackKey = ''
 let vizWindow = null
@@ -389,7 +396,7 @@ function createMiniWindow() {
     hasShadow: false,
     resizable: false,
     alwaysOnTop: settings.miniAlwaysOnTop,
-    title: appName + ' — Mini Player',
+    title: TITLES.mini,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -524,7 +531,7 @@ const getLyrics = lyricsSources.createLyricsResolver({
   store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
   fetchLrclib: (state) => lyricsSources.fetchLrclib(state, {
     fetch: (url, opts) => net.fetch(url, opts),
-    userAgent: 'Sonata/' + app.getVersion() + ' (https://github.com/MarcelineVPQ/apple-music-for-linux)'
+    userAgent: versionDisplay.userAgent(app.getVersion())
   }),
   lrclibEnabled: () => !!settings.lrclibFallback,
   log: (msg) => console.error(msg)
@@ -950,7 +957,7 @@ function createLyricsWindow() {
     transparent: true,
     hasShadow: false,
     alwaysOnTop: true,
-    title: appName + ' — Lyrics',
+    title: TITLES.lyrics,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -1380,7 +1387,7 @@ async function resolveMontageSong(gen, song, testIds) {
   if (!live()) return
   if (!ids || !ids.artistId) { montageSend({ on: true, status: offline ? 'offline' : 'none', photos: [] }); return }
   // 2. the photos for this artist and album: the cache while fresh, else Wikidata + Commons
-  if (!montageFetch) montageFetch = montageSources.createFetcher({ fetch: (url, o) => net.fetch(url, o), ua: montageSources.userAgent(app.getVersion()) })
+  if (!montageFetch) montageFetch = montageSources.createFetcher({ fetch: (url, o) => net.fetch(url, o), ua: versionDisplay.userAgent(app.getVersion()) })
   const setKey = 'set|' + ids.artistId + '|' + (ids.albumId || '')
   // the same artist and album: the photos showing just go on; another one: "Looking…" until its photos come
   if (montageMsg.set !== setKey) montageSend({ on: true, status: 'looking', photos: [] })
@@ -1511,7 +1518,7 @@ async function openCover(from) {
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
-    title: appName + ' — Album cover',
+    title: TITLES.cover,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   coverWindow.loadFile('cover.html')
@@ -1615,7 +1622,7 @@ const linerAlbumScript = (albumId, byName) => `(async () => {
 function getLinerNotes() {
   if (linerNotes) return linerNotes
   linerNotes = linerModel.createLinerNotes({
-    getJson: linerSources.createGetJson({ fetch: (url, opts) => net.fetch(url, opts), ua: linerSources.userAgent(app.getVersion()) }),
+    getJson: linerSources.createGetJson({ fetch: (url, opts) => net.fetch(url, opts), ua: versionDisplay.userAgent(app.getVersion()) }),
     store: { get: (k) => (linerStore ? linerStore.get(k) : null), set: (k, v) => { if (linerStore) linerStore.set(k, v) } },
     lang: linerSources.wikiLang(app.getLocale()),
     setlistKey: () => settings.setlistfmKey || '',
@@ -1674,7 +1681,7 @@ function linerDiscs(booklet) {
 // -> the fit, null (no disc for sure: remembered), or undefined (the scan didn't load: asked again next time)
 async function findScanDisc(url) {
   try {
-    const res = await net.fetch(url, { headers: { 'User-Agent': linerSources.userAgent(app.getVersion()) } })
+    const res = await net.fetch(url, { headers: { 'User-Agent': versionDisplay.userAgent(app.getVersion()) } })
     if (!res.ok) throw new Error('HTTP ' + res.status)
     let img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()))
     if (img.isEmpty()) return null
@@ -1778,7 +1785,7 @@ function createLinerWindow(from) {
     transparent: true,
     hasShadow: false,
     show: false,
-    title: appName + ' — Liner Notes',
+    title: TITLES.liner,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   }), 'linerBounds'))
   const win = linerWindow
@@ -1830,7 +1837,7 @@ function createVizWindow() {
     frame: false,
     roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the stage fills the screen edge to edge
     backgroundColor: '#000000',
-    title: appName + ' — Visualizer',
+    title: TITLES.visualizer,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   vizWindow.loadFile('visualizer.html')
@@ -2146,8 +2153,8 @@ function applyMiniBlur() {
   // lifetime: OK — one short xprop run per mini open or Glass change
   execFile('xprop', args, (err) => { if (err) console.error('mini blur: xprop failed:', err.message) })
 }
-function applyMiniKeepAbove(on) { applyKeepAbove(appName + ' — Mini Player', 'sonata-keep-above-mini', on) }
-function applyLyricsKeepAbove(on) { applyKeepAbove(appName + ' — Lyrics', 'sonata-keep-above-lyrics', on) }
+function applyMiniKeepAbove(on) { applyKeepAbove(TITLES.mini, 'sonata-keep-above-mini', on) }
+function applyLyricsKeepAbove(on) { applyKeepAbove(TITLES.lyrics, 'sonata-keep-above-lyrics', on) }
 
 // Wayland won't let an app read or set its own window position, so we can't
 // remember it ourselves. KWin (KDE) can, via a "remember position" window rule
@@ -2378,7 +2385,7 @@ function startNowPlayingLoop() {
       else if (key !== notifyKey && state.isPlaying) { notifyKey = key; notifyTrack(state) }
       else if (key !== notifyKey) notifyKey = key
     }
-  }, 5000)
+  }, NOW_PLAYING_MS)
 }
 
 function feedScrobbler(state) {
@@ -2394,7 +2401,7 @@ function feedScrobbler(state) {
     lastfm.updateNowPlaying(scrobbleState.track)
       .catch((e) => console.error('last.fm now playing failed:', e.message)) // error: LOGGED-OK — "now playing" is cosmetic; the scrobble is sent separately
   }
-  if (state.isPlaying) scrobbleState.playedSeconds += 5
+  if (state.isPlaying) scrobbleState.playedSeconds += NOW_PLAYING_MS / 1000
 
   // last.fm rules: track longer than 30s, played for half its length or 4 minutes
   const needed = Math.min(scrobbleState.track.duration / 2, 240)
@@ -2415,7 +2422,7 @@ function feedScrobbler(state) {
 async function feedDiscord(state) {
   // reconnect roughly every 30s while Discord is unreachable
   if (!discord || !discord.ready) {
-    if (discordReconnectTicks++ % 6 !== 0) return
+    if (discordReconnectTicks++ % DISCORD_RETRY_TICKS !== 0) return
     discord = new DiscordPresence(discordConfig.applicationId)
     try {
       await discord.connect()
@@ -2863,9 +2870,10 @@ function railSnapshot() {
     keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
+    discordRetryS: NOW_PLAYING_MS * DISCORD_RETRY_TICKS / 1000,
     precise: railPrecise(),
     channel: settings.updateChannel,
-    version: updateFeed.shownVersion(app.getVersion()),
+    version: app.getVersion(),
     theme: themeState()
   }
 }
@@ -2984,6 +2992,8 @@ function aboutData() {
   }
   return aboutCache
 }
+// a folder as Settings names it: ~/… under the home folder
+const tildePath = (p) => (p.startsWith(os.homedir() + path.sep) ? '~' + p.slice(os.homedir().length) : p)
 function panelSnapshot() {
   const u = updater ? updater.state() : { phase: 'idle' }
   const v = {}
@@ -3000,6 +3010,12 @@ function panelSnapshot() {
     notesStatus: notesStatusText,
     notesModel: !!(notesSwitch && notesSwitch.model),
     notesModelSize: notesLogLib.sizeText(notesLogLib.RMVPE.bytes),
+    notesMax: notesLogLib.MAX_FILES,
+    notesDir: tildePath(notesLogLib.logDir(process.env, alignHelperLib.inAppSandbox)),
+    sheetNotesDir: tildePath(path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME)),
+    sheetNotesMax: sheetStoreLib.MAX_FILES,
+    notesMaxSize: notesLogLib.maxSizeText(),
+    updateEveryHours: updaterLib.CHECK_EVERY_HOURS,
     lastfmConnected: !!(lastfm && lastfm.connected),
     lastfmUser: lastfm && lastfm.connected ? (lastfm.username || '') : '',
     discordEnabled: !!discordConfig.enabled,
@@ -3159,11 +3175,11 @@ function curiousDeps() {
     execFile,
     platform: process.platform,
     versions: () => [
-      ['Sonata', app.getVersion() + (appImagePath ? '' : ' (from source)')],
+      [versionDisplay.NAME, versionDisplay.short(app.getVersion()) + (appImagePath ? '' : ' (from source)')],
       ['Electron', process.versions.electron + ' (castlabs, with Widevine)'],
       ['Chromium', process.versions.chrome],
       ['Node', process.versions.node],
-      ['sonata-align', alignEngineVersion() ? 'engine ' + alignEngineVersion() + (alignInstalled() ? ' (installed separately)' : ' (wanted by this Sonata; not installed)') : 'Not yet known'],
+      ['sonata-align', alignEngineVersion() ? 'engine ' + versionDisplay.short(alignEngineVersion()) + (alignInstalled() ? ' (installed separately)' : ' (wanted by this Sonata; not installed)') : 'Not yet known'],
       ['System', process.platform + ' ' + require('os').release() + (process.platform === 'linux' ? ', ' + (process.env.XDG_SESSION_TYPE || 'session type not set') : '')]
     ],
     push: pushPanel,
@@ -3716,9 +3732,9 @@ function onUpdateState() {
       !(mainAlive() && mainWindow.isVisible()) && Notification.isSupported()) {
     updateNotified = st.phase + st.version
     // lifetime: OK — one notification per offered version, collected after display
+    const words = updaterLib.updateNotification(st)
     const note = new Notification({
-      title: st.phase === 'ready' ? 'Sonata ' + st.version + ' is installed' : 'Sonata ' + st.version + ' is available',
-      body: st.phase === 'ready' ? 'It starts the next time you open Sonata.' : 'Open Settings → Updates to install it.',
+      title: words.title, body: words.body,
       icon: path.join(__dirname, 'sonata.png'), silent: true
     })
     // lifetime: OK — one click listener on this notification, collected with it
@@ -3734,7 +3750,7 @@ async function checkForUpdates(interactive) {
     return
   }
   const st = await updater.check({ interactive })
-  if (interactive && st.phase === 'up-to-date') toast('Sonata ' + app.getVersion() + ' is up to date (' + (settings.updateChannel === 'dev' ? 'Development' : 'Stable') + ').')
+  if (interactive && st.phase === 'up-to-date') toast(updaterLib.upToDateText(app.getVersion(), settings.updateChannel))
 }
 // Back to stable (confirmed in the panel): the Stable channel, then its newest release even if older
 async function backToStable() {
@@ -3755,7 +3771,7 @@ function showWhatsNew() {
   if (!v) { if (settings.lastRunVersion !== app.getVersion()) { settings.lastRunVersion = app.getVersion(); saveSettings() } return }
   notices.show({
     id: 'whatsnew', place: 'top', page: 'about', task: true, kind: 'info',
-    text: 'Updated to Sonata ' + v + '.',
+    text: updaterLib.updatedText(v),
     actions: [{ id: 'whatsnew-see', label: 'See what\'s new', primary: true }]
   })
 }
@@ -3860,7 +3876,7 @@ function startUpdateChecks() {
   if (!appImagePath || !settings.checkForUpdates) return
   // lifetime: OK — both cleared at the top here (checks off or restarted); they end with the app
   updateFirstTimer = setTimeout(() => checkForUpdates(false), 20 * 1000)
-  updateTimer = setInterval(() => checkForUpdates(false), 2 * 60 * 60 * 1000)
+  updateTimer = setInterval(() => checkForUpdates(false), updaterLib.CHECK_EVERY_MS)
 }
 
 // ~/.config/autostart entry for launch-on-login (Electron's setLoginItemSettings

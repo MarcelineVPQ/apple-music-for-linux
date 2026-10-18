@@ -8,6 +8,8 @@
 //   Credits       CREDITS below: the "Built on" group as prose, every other group and the hyphenation
 //                 patterns as one What | Credit table
 
+const V = require('./version-display')   // the product name, repo and every version shown (one place)
+
 // "## [0.15.31] — The rail never covers Apple's page" -> sections
 function changelogSections(md) {
   const out = []
@@ -59,7 +61,7 @@ function comingSoon(md) {
 
 const LRCLIB = 'https://lrclib.net'
 // the notices file in the source of this version (its tag; About passes the running version)
-const NOTICES = 'https://github.com/MarcelineVPQ/apple-music-for-linux/blob/v{version}/licenses/hyphenation-NOTICES.txt'
+const NOTICES = V.REPO_URL + '/blob/v{version}/licenses/hyphenation-NOTICES.txt'
 // hyphenation patterns Sonata ships (package.json build.files; lyrics-syllables.js), with the licence
 // each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16,
 // versions confirmed 2026-10-17 against tex-hyphen master. Each file's original notice ships in
@@ -91,7 +93,7 @@ const PATTERNS = [
 // [title, rows: [what, by / licence, url?]]
 const CREDITS = [
   ['Built on', [
-    ['Sonata', 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', 'https://github.com/MarcelineVPQ/apple-music-for-linux'],
+    [V.NAME, 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', V.REPO_URL],
     ['Apple Music for Linux', 'The app Sonata started from, by Marcus Tomlinson (GPL-3.0).', 'https://github.com/cross-platform/apple-music-for-linux'],
     ['Electron for Content Security', 'castlabs\' Electron (MIT), with Chromium (BSD and others). Lets Apple Music\'s DRM play.', 'https://github.com/castlabs/electron-releases'],
     ['Widevine', 'Google\'s DRM module, downloaded by Electron at runtime under Google\'s terms; not part of Sonata.', '']
@@ -105,11 +107,11 @@ const CREDITS = [
   ['Precise word timing (sonata-align, installed separately)', [
     ['Demucs v4 (htdemucs)', 'Separates the vocals. Meta, MIT.', 'https://github.com/facebookresearch/demucs'],
     ['wav2vec2 (English)', 'Lines the words up. torchaudio\'s wav2vec2 large-lv60k 960h, MIT.', 'https://pytorch.org/audio'],
-    ['XLSR-53 fine-tunes (German, French, Spanish)', 'By Jonatas Grosman, Apache-2.0 (Common Voice data, CC0).', 'https://huggingface.co/jonatasgrosman'],
+    ['XLSR-53 fine-tunes (16 languages, German, French, Spanish, Japanese and more)', 'By Jonatas Grosman, Apache-2.0 (Common Voice data, CC0), on Meta\'s XLSR-53 (MIT).', 'https://huggingface.co/jonatasgrosman'],
     ['MMS forced aligner', 'Other languages, only when you opt in: Meta, CC-BY-NC 4.0 (non-commercial).', ''],
-    ['Whisper large-v3-turbo / faster-whisper', 'Transcription, in the helper only. OpenAI, MIT; SYSTRAN, MIT.', 'https://github.com/SYSTRAN/faster-whisper'],
-    ['PyTorch', 'BSD-3-Clause.', 'https://pytorch.org'],
-    ['RMVPE pitch model', 'The sung pitch for the sheet notes and the notes log. Wei et al.; RVC\'s code and weights, MIT.', 'https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI']
+    ['PyTorch and torchaudio', 'BSD-3-Clause and BSD-2-Clause.', 'https://pytorch.org'],
+    ['Python libraries', 'demucs (MIT), Transformers and huggingface_hub (Apache-2.0), soundfile (BSD-3-Clause; libsndfile, LGPL-2.1, linked dynamically), NumPy (BSD-3-Clause), Numba (BSD-2-Clause), Triton (MIT), NVIDIA CUDA and cuDNN runtime (NVIDIA\'s licence), lameenc (LGPL-3.0, installed with demucs, never loaded).', ''],
+    ['RMVPE pitch model', 'The sung pitch for the sheet notes and the notes log. Wei et al.; RVC\'s code and weights, MIT; the RMVPE network code, Apache-2.0.', 'https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI']
   ]],
   ['Art', [
     ['Flying toasters', 'Sonata\'s own 3D model, lit with the "White Home Studio" HDRI from Poly Haven (CC0). A wink to Berkeley Systems\' After Dark.', 'https://polyhaven.com'],
@@ -121,7 +123,7 @@ const CREDITS = [
 const NOT_AFFILIATED = 'Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" and "Apple" are trademarks of Apple Inc. You need your own Apple Music subscription.'
 
 // About's hero card (the 42PS card, the same in every 42PS app: DS5 AboutPage.tsx StudioCard)
-const REPO = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
+const REPO = V.REPO_URL
 const ISSUES_URL = REPO + '/issues'
 const RELEASES_URL = 'https://github.com/' + require('./update-feed').REPO + '/releases'
 const LINKS = [
@@ -133,15 +135,14 @@ const LINKS = [
 
 // -> the hero card's words for this run: version, update channel ('stable' | 'dev'), from source or not
 function hero(version, channel, appImage, year) {
-  const channelLabel = channel === 'dev' ? 'Development' : 'Stable'
   return {
     eyebrow: 'A 42 Pixel Studios production',
-    name: 'Sonata',
+    name: V.NAME,
     by: 'Marcy Kuhn',
     version: String(version || ''),
     channel: channel === 'dev' ? 'dev' : 'stable',
-    // "Developed by Marcy Kuhn · v0.15.38 · Stable" (from source: no updates, so no channel to follow)
-    line: 'v' + String(version || '') + ' · ' + channelLabel + (appImage ? '' : ' · from source'),
+    // "v0.15.38 · Stable", "v0.15.45 Dev · Development" (from source: no updates, so no channel to follow)
+    line: V.tagged(version) + ' · ' + V.channelName(channel) + (appImage ? '' : ' · from source'),
     copyright: '© ' + (year || new Date().getFullYear()) + ' 42 Pixel Studios — a Marcy Kuhn production.',
     links: LINKS
   }

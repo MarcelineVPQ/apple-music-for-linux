@@ -38,6 +38,7 @@ jobs:
       - run: npm test
 
       - run: node tools/verdicts.js --check
+      - run: node tools/hardcodes.js --check
 
       # package.json, package-lock.json, the metainfo and CHANGELOG.md agree, and the tag is "v" +
       # package.json's version (X.Y.Z or X.Y.Z-dev.N only); all set by tools/set-version.js

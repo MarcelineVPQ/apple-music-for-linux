@@ -65,9 +65,8 @@ function versionKey(v) {
   return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? Infinity : +m[4]] : null
 }
 const isDevVersion = (v) => /-dev\.\d+$/.test(String(v || ''))
-// What people see: 0.15.43-dev.1 -> "0.15.43 Dev" (Marcy 2026-10-18: the dev number confuses; the
-// -dev.N stays in the real version, tags and feeds, where the updater needs it)
-const shownVersion = (v) => String(v || '').replace(/-dev\.\d+$/, ' Dev')
+// What people see (0.15.43-dev.1 -> "0.15.43 Dev") is version-display.js; the -dev.N stays in the real
+// version, tags and feeds, where the updater needs it
 
 // true when a is strictly newer than b; false when either can't be read
 function isNewerVersion(a, b) {
@@ -91,7 +90,7 @@ function parseLegacyFeed(text) {
   if (!FILE_RE.test(file)) throw new Error('update feed (latest-linux.yml) names an unexpected file: ' + file)
   if (!/^[A-Za-z0-9+/]{86}==$/.test(sha512)) throw new Error('update feed (latest-linux.yml) has no SHA-512')
   return {
-    version, file, url: `${DOWNLOAD_PREFIX}v${version}/${file}`,
+    version, file, url: `${DOWNLOAD_PREFIX}v${version}/${file}`,   // hardcode: OK — the release's download URL (its tag), never shown
     hash: { algo: 'sha512', encoding: 'base64', value: sha512 }, size: null, notes: '', signed: false
   }
 }
@@ -108,8 +107,9 @@ function parseSignedFeed(text, channel, prefix = DOWNLOAD_PREFIX) {
   if (f.channel !== channel) throw bad(`is for the ${f.channel} channel, not ${channel}`)
   if (!versionKey(f.version)) throw bad('has no valid version')
   if (channel === 'stable' && isDevVersion(f.version)) throw bad('offers a development build on Stable')
+  // hardcode: OK — the feed's file and URL are checked against the raw version (its tag), never shown
   if (f.file !== `sonata-${f.version}-x86_64.AppImage`) throw bad('names an unexpected file')
-  if (f.url !== `${prefix}v${f.version}/${f.file}`) throw bad('points outside this repository\'s releases')
+  if (f.url !== `${prefix}v${f.version}/${f.file}`) throw bad('points outside this repository\'s releases')   // hardcode: OK — checked against the raw tag
   if (!/^[0-9a-f]{128}$/.test(f.sha512)) throw bad('has no SHA-512')
   if (!Number.isSafeInteger(f.size) || f.size <= 0) throw bad('has no size')
   return {
@@ -168,6 +168,6 @@ async function verifyDownload(filePath, update) {
 module.exports = {
   REPO, FEED_BRANCH, LEGACY_REPO, LEGACY_FEED_BRANCH, FEED_URLS, LEGACY_FEED_URL, DOWNLOAD_PREFIX, feedUrls, downloadPrefix,
   PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
-  signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion, shownVersion,
+  signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion,
   parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload, testFeed
 }

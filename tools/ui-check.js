@@ -2440,6 +2440,8 @@ async function audit(tag, page, root, kind, { minHit = 32, shot } = {}) {
   const ov = await page.ev(AUDIT.OVERFLOW(root, OVERFLOW_ALLOW[kind] || []))
   check(tag + ' no sideways scroll, nothing outside the window (' + ov.vw + 'x' + ov.vh + ')', !ov.hScroll && !ov.outside.length, { hScroll: ov.hScroll, outside: ov.outside.slice(0, 8) })
   check(tag + ' no text cut by a box that hides overflow', !ov.clipped.length, ov.clipped.slice(0, 8))
+  const dev = await page.ev(AUDIT.VERSION_TEXT(root))
+  check(tag + ' versions as people see them: no raw dev version ("-dev.N") in any text, tooltip or name (version-display.js)', !dev.length, dev.slice(0, 8))
 }
 
 const floatingWin = (part) => `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('${part}'))`
@@ -2519,6 +2521,9 @@ async function every() {
     viz.c.close()
     await openFloating(mp, 'visualizer', 'Visualizer', false)
   }
+  // the main process's own words: window titles (the version-display.js rule, as the page audits above)
+  const titles = await mp.ev(`${E}.BaseWindow.getAllWindows().map((w) => w.getTitle())`)
+  check('every main process: no raw dev version in any window title', !titles.some((t) => AUDIT.RAW_DEV.test(t)), titles)
   await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
   await standIn({ playing: false })
   apple.c.close(); mp.c.close()

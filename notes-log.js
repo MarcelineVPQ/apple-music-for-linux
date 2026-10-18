@@ -19,6 +19,9 @@ const { normIsrc } = require('./recording-id')
 
 const FORMAT = 1
 const MAX_FILES = 1000
+// a log file's typical size (measured on the first logs: ~110 KB), for Settings' "about N MB" at MAX_FILES
+const TYPICAL_FILE_BYTES = 110 * 1000
+const maxSizeText = () => 'about ' + Math.round(MAX_FILES * TYPICAL_FILE_BYTES / 1e6) + ' MB'
 const DIR_NAME = 'notes-log'
 // RVC's rmvpe.pt (huggingface.co/lj1995/VoiceConversionWebUI, MIT): the same entry as align/sung_notes.py RMVPE
 const RMVPE = {
@@ -229,4 +232,4 @@ function createNotesSwitch(deps) {
   }
 }
 
-module.exports = { FORMAT, MAX_FILES, DIR_NAME, RMVPE, sizeText, logDir, syllableSpec, fileName, buildDoc, validateDoc, listLogs, prune, writeLog, createNotesSwitch }
+module.exports = { FORMAT, MAX_FILES, TYPICAL_FILE_BYTES, maxSizeText, DIR_NAME, RMVPE, sizeText, logDir, syllableSpec, fileName, buildDoc, validateDoc, listLogs, prune, writeLog, createNotesSwitch }

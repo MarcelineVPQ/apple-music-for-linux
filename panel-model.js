@@ -8,6 +8,7 @@
   'use strict'
   const R = root.SonataRailModel || (typeof require === 'function' ? require('./rail-model') : null)
   const K = root.SonataShortcutsModel || (typeof require === 'function' ? require('./shortcuts-model') : null)
+  const V = root.SonataVersionDisplay || (typeof require === 'function' ? require('./version-display') : null)
 
   // 360 px wide; docked beside Apple's page while that leaves Apple at least 760 px, else a drawer.
   // Why 760: Apple's web player switches layout at about 740 px wide, and every crossing leaves ~40
@@ -143,7 +144,7 @@
         case 'windows': return [st.miniAlwaysOnTop ? 'Mini player on top' : null, st.lyricsAlwaysOnTop ? 'lyrics on top' : null].filter(Boolean).join(' · ') || 'Nothing kept on top'
         case 'shortcuts': return K.statusLine(st.shortcuts)
         case 'integrations': return ['Last.fm ' + (st.lastfmConnected ? 'connected' : 'off'), 'Discord ' + (st.discordEnabled ? 'on' : 'off')].join(' · ')
-        case 'updates': return [st.updateChannel === 'dev' ? 'Development' : 'Stable', !st.checkForUpdates ? 'no automatic checks' : st.autoInstallUpdates ? 'installs automatically' : 'asks before installing'].join(' · ')
+        case 'updates': return [V.channelName(st.updateChannel), !st.checkForUpdates ? 'no automatic checks' : st.autoInstallUpdates ? 'installs automatically' : 'asks before installing'].join(' · ')
         case 'startup': return [st.closeToTray ? 'Close to tray' : null, st.launchAtLogin ? 'Launch at login' : null, st.startMinimized ? 'Start minimized' : null].filter(Boolean).join(' · ') || 'All off'
         case 'experimental': return experimentalStatus(st)
       }

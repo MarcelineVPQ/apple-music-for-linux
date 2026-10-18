@@ -21,8 +21,7 @@
 // repo, one request at a time per host with a gap (MusicBrainz: 1 per 1.1 s), a short backoff on 503/429.
 'use strict'
 
-const REPO_URL = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
-const userAgent = (version) => 'Sonata/' + (version || '0') + ' (' + REPO_URL + ')'
+// the User-Agent (naming Sonata and the repo) comes from version-display.js userAgent, passed in by main
 
 // the gap between two requests to one host (ms)
 const GAPS = { 'musicbrainz.org': 1100, 'coverartarchive.org': 300, 'www.wikidata.org': 150, 'api.setlist.fm': 600 }
@@ -434,7 +433,7 @@ function reduceSetlist(j) {
 }
 
 module.exports = {
-  REPO_URL, userAgent, GAPS, gapFor, WIKI_LICENSE, failure, failureText, createGetJson, wikiLang,
+  GAPS, gapFor, WIKI_LICENSE, failure, failureText, createGetJson, wikiLang,
   wikidataByStatement, wikidataEntity, reduceEntity, matchWikidata,
   matchMusicBrainz, musicBrainzRelease, releaseGroupReleases, reduceRelease, roleOf,
   coverArt, reduceCoverArt, hasScans, pickScanRelease, editionWords,

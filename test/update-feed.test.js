@@ -160,13 +160,3 @@ test('feed text is stable JSON the app accepts', () => {
   assert.deepEqual(Object.keys(f), ['channel', 'version', 'file', 'url', 'sha512', 'size', 'date', 'notes_url', 'notes'])
   assert.equal(U.parseSignedFeed(text, 'stable').hash.value, sha512hex)
 })
-
-test('shownVersion: people see "0.15.43 Dev", never the dev number; stable stays as it is', () => {
-  assert.equal(U.shownVersion('0.15.43-dev.1'), '0.15.43 Dev')
-  assert.equal(U.shownVersion('0.15.43-dev.12'), '0.15.43 Dev')
-  assert.equal(U.shownVersion('0.15.18'), '0.15.18')
-  assert.equal(U.shownVersion(''), '')
-  const { statusLine } = require('../updater')
-  assert.equal(statusLine({ phase: 'up-to-date' }, '0.15.43-dev.1', 'dev'), 'Up to date: 0.15.43 Dev (Development)')
-  assert.equal(statusLine({ phase: 'available', version: '0.15.44-dev.1' }, '0.15.43-dev.1', 'dev'), 'Version 0.15.44 Dev is ready to install')
-})

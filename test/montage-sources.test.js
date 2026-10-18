@@ -162,7 +162,7 @@ function fakeNet(script) {
   return {
     calls,
     deps: {
-      ua: S.userAgent('9.9.9'),
+      ua: require('../version-display').userAgent('9.9.9'),
       now: () => t,
       sleep: async (ms) => { t += ms },
       fetch: async (url, o) => { calls.push({ url, at: t, ua: o.headers['User-Agent'], accept: o.headers.Accept }); const s = script.shift(); if (s instanceof Error) throw s; return res(...s) }

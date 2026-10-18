@@ -161,7 +161,7 @@ function createScrobbleQueue(deps) {
     const oldest = now() / 1000 - (SCROBBLE_MAX_AGE_S - AGE_MARGIN_S)
     const fresh = queue.filter((e) => e.timestamp >= oldest)
     if (fresh.length === queue.length) return false
-    log('last.fm: ' + (queue.length - fresh.length) + ' scrobble(s) older than 14 days dropped (Last.fm no longer takes them)')
+    log('last.fm: ' + (queue.length - fresh.length) + ' scrobble(s) older than ' + SCROBBLE_MAX_AGE_S / 86400 + ' days dropped (Last.fm no longer takes them)')
     keep(fresh)
     return true
   }

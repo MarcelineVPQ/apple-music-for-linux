@@ -37,7 +37,8 @@ test('the RMVPE entry (the engine downloads it; Sonata only shows its size) and 
   assert.match(N.RMVPE.sha256, /^[0-9a-f]{64}$/)
   assert.equal(N.sizeText(N.RMVPE.bytes), '173 MiB')
   const ui = read('panel-ui.js')
-  assert.match(ui, /downloads the RMVPE pitch model \(' \+ \(v\.notesModelSize/)
+  assert.match(ui, /downloads the RMVPE pitch model \(' \+ v\.notesModelSize \+/)
+  assert.doesNotMatch(ui, /MiB'\)/, 'no typed fallback size beside the one from notes-log.js')
 })
 
 test('log folder: ~/.local/share/apple-music-for-linux/notes-log; a sandboxed XDG_DATA_HOME is ignored', () => {
@@ -193,7 +194,8 @@ test('Settings: the switch shows only on the Development channel; wording and th
   const row = ui.slice(at, ui.indexOf('textBlock', at))
   assert.match(row, /'Sung notes \(developer log\)'/)
   assert.match(row, /hidden: \(v\) => !v\.alignInstalled \|\| v\.updateChannel !== 'dev'/)
-  assert.match(row, /saves only the notes \(no audio\) to ~\/\.local\/share\/apple-music-for-linux\/notes-log\/, at most 1,000 songs \(about 110 MB\), oldest removed/)
+  assert.match(row, /saves only the notes \(no audio\) to ' \+ v\.notesDir \+ '\/, at most ' \+ Number\(v\.notesMax\)\.toLocaleString\('en-US'\) \+ ' songs \(' \+ v\.notesMaxSize \+ '\), oldest removed/)
+  assert.equal(N.MAX_FILES.toLocaleString('en-US') + ' songs (' + N.maxSizeText() + ')', '1,000 songs (about 110 MB)', 'the words come from the constant')
   assert.doesNotMatch(row, /#[0-9a-f]{3,6}\b|rgb\(|style/i)
 })
 

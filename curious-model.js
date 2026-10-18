@@ -14,6 +14,7 @@
 'use strict'
 const T = require('./lyrics-timing')
 const A = require('./align-session')
+const V = require('./version-display')   // the engine version as people see it
 
 const UNKNOWN = 'Not yet known'
 const unknown = (why) => UNKNOWN + (why ? ': ' + why : '')
@@ -183,7 +184,7 @@ function nowRows(np) {
   if (!lines) source = unknown('no lyrics looked up for this song yet (open the lyrics)')
   else if (wordTimed) source = n.lyrics.source === 'apple' ? 'Apple\'s own word timing' : 'Word timing from LRCLIB'
   else if (lines[0].t == null) source = 'Plain lyrics, no timing'
-  else if (aligned) source = 'Precise: ' + (aligned.engine ? 'sonata-align ' + aligned.engine : 'sonata-align (version not kept before ' + SINCE + ')') + (aligned.model ? ', ' + aligned.model + ' model' : '') + (aligned.partial ? ', partial' : ', whole song')
+  else if (aligned) source = 'Precise: ' + (aligned.engine ? 'sonata-align ' + V.short(aligned.engine) : 'sonata-align (version not kept before ' + SINCE + ')') + (aligned.model ? ', ' + aligned.model + ' model' : '') + (aligned.partial ? ', partial' : ', whole song')
   else if (learned) source = 'Refined by listening'
   else source = st.estimate ? 'Estimated' : 'Line timing only'
   rows.push({ id: 'source', label: 'Timing source', value: source })

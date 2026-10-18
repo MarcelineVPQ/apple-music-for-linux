@@ -328,7 +328,7 @@ test('requests: Sonata\'s User-Agent, one at a time per host with its gap, a bus
     if (url.includes('missing')) return { status: 404, ok: false, json: async () => ({}) }
     return { status: 200, ok: true, json: async () => ({ url }) }
   }
-  const g = S.createGetJson({ fetch, ua: S.userAgent('0.15.40'), now: () => t, sleep: async (ms) => { t += ms } })
+  const g = S.createGetJson({ fetch, ua: require('../version-display').userAgent('0.15.40'), now: () => t, sleep: async (ms) => { t += ms } })
   await Promise.all([g('https://musicbrainz.org/ws/2/a'), g('https://musicbrainz.org/ws/2/b'), g('https://en.wikipedia.org/x')])
   const mb = log.filter((l) => l.url.includes('musicbrainz'))
   assert.ok(mb[1].at - mb[0].at >= 1100, 'MusicBrainz: at most one request per 1.1 s')

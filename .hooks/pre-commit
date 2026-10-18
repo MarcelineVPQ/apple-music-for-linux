@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Pre-commit gate (the AVIEW pattern: block banned patterns at commit time, not only in CI).
+# Turn it on once per clone:   git config core.hooksPath .hooks
+#
+# Runs the two mechanical code gates (each well under a second):
+#   tools/hardcodes.js --check   no user-facing version, channel name, repo URL, User-Agent or
+#                                constant-backed number typed outside its one source
+#                                (version-display.js and the modules' constants)
+#   tools/verdicts.js --check    every loop / lifetime / error candidate carries a verdict
+# The full set (set-version --verify, the doc gates) stays in `npm run gates` and CI.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+node tools/hardcodes.js --check
+node tools/verdicts.js --check >/dev/null

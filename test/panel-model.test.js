@@ -111,6 +111,7 @@ test('settings sections: every setting of the old Settings window has a section;
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {
   const ctx = vm.createContext({})
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'version-display.js'), 'utf8'), ctx)
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'rail-model.js'), 'utf8'), ctx)
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'panel-model.js'), 'utf8'), ctx)
   const G = vm.runInContext('globalThis.SonataPanelModel', ctx)
@@ -228,7 +229,7 @@ test('about: the hero card (the 42PS card, as in the DS5 About): version, channe
   assert.equal(h.by, 'Marcy Kuhn')
   assert.equal(h.version, '0.15.38-dev.1')
   assert.equal(h.channel, 'dev')
-  assert.equal(h.line, 'v0.15.38-dev.1 · Development')
+  assert.equal(h.line, 'v0.15.38 Dev · Development', 'the hero shows the version as people see it, never the dev number')
   assert.equal(A.hero('0.15.38', 'stable', true, 2026).line, 'v0.15.38 · Stable')
   assert.equal(A.hero('0.15.38', 'stable', false, 2026).line, 'v0.15.38 · Stable · from source')
   assert.equal(h.copyright, '© 2026 42 Pixel Studios — a Marcy Kuhn production.')

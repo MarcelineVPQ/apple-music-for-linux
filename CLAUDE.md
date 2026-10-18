@@ -22,7 +22,7 @@ whether it strengthens the +1 or is just "best"; no reorganisation buries the ly
 ```bash
 npm ci && npm start        # from source (start.sh: --no-sandbox when chrome-sandbox isn't setuid)
 npm test                   # node --test test/*.test.js (pure logic, no Electron, no display)
-npm run gates              # tools/verdicts.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
+npm run gates              # tools/verdicts.js --check + tools/hardcodes.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
 node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy]   # the documentation gates (see below)
@@ -83,6 +83,12 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   `test/theme.test.js` (no literal colours outside `theme.css`/`theme.js`, every token ≥ 4.5:1 over any
   backdrop, `theme.css` = `theme.js` defaults). Exceptions: physical things drawn as they look (the
   vinyl, the visualizer's night stage) and the 42PS brand colours in Credits.
+- **One source for every shown version and name** (Marcy 2026-10-18): people read versions only through
+  `version-display.js` (`short` "0.15.45 Dev", `full` "Sonata 0.15.45 Dev", `tagged`, `channelName`, `NAME`,
+  `REPO_URL`, `userAgent`); package.json's version stays the source of truth. A number in text ("every 2
+  hours", "at most 1,000 songs") interpolates the constant that sets it. Gate: `node tools/hardcodes.js --check`
+  (in `npm run gates`, release.yml and `.hooks/pre-commit`: `git config core.hooksPath .hooks` once per
+  clone); the UI checker's `every` fails on a "-dev.N" on screen. Findings and the tail: `docs/CODE_QUALITY_AUDIT.md`.
 - **Text meets 4.5:1 in every theme, album colour and Glass** (dim lyric lines 3:1). Gate: the UI checker
   (`tools/ui-check.js`: contrast with opacity counted, names, hit targets, clipping).
 - **Sip, don't drink**: nothing visual runs while hidden; near-zero idle frames; new visuals state their
