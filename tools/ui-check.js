@@ -1648,6 +1648,12 @@ async function curious() {
   const mp = await mainProc()
   let apple = await target('music.apple.com')
   const standIn = async (o) => { try { return await apple.ev(STAND_IN.installScript(o)) } catch (e) { apple = await target('music.apple.com'); return apple.ev(STAND_IN.installScript(o)) } }
+  // track notifications off (the copy's private D-Bus has no notification server, and libnotify then blocks the
+  // main process ~25 s per track change), as in every
+  await setPanel(mp, true, 'settings')
+  await mp.ev(viewCommand('panel', 'set', 'notifications', false)); await sleep(500)
+  // the main window at the display's corner, so the screenshots show it
+  await mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).setBounds({ x: 0, y: 0, width: 1240, height: 800 }), true)`); await sleep(1200)
   check('curious: stand-in player installed and playing', (await standIn({ playing: true, seek: 20 })).playing)
   // the lyrics looked up once (the lyrics window), so Now playing has a cached song and the feed's facts
   await openFloating(mp, 'lyrics', 'Lyrics', true); await sleep(2500)
@@ -1691,10 +1697,11 @@ async function curious() {
   results.push({ name: 'curious: the rows (INFO)', ok: true, detail: rows.map((r) => r.label + ': ' + r.value) })
   const n1 = st ? st.n : 0
   const ws = await work()
-  await sleep(11500)
+  await sleep(14000)
   const st2 = await panel.ev('(globalThis.__sonataPanel.state().v || {}).curious')
   const we = await work()
-  check('curious: refreshes while open (every 5 s: 2 more in 11.5 s)', st2 && st2.n - n1 >= 2 && st2.n - n1 <= 3 && we.subs > ws.subs, { from: n1, to: st2 && st2.n, subs: we.subs - ws.subs })
+  // 5 s after the last refresh ended (a refresh: 1 s of frames, pactl and the page read in parallel)
+  check('curious: refreshes while open (5 s after the last one: 2 or 3 more in 14 s)', st2 && st2.n - n1 >= 2 && st2.n - n1 <= 3 && we.subs > ws.subs, { from: n1, to: st2 && st2.n, subs: we.subs - ws.subs })
   results.push({ name: 'curious: the panel\'s frames while open, 10 s (INFO: one repaint per refresh)', ok: true, detail: await frames(panel, 10000) })
   // Copy for a bug report, by the keyboard: from the section's header, Tab to the button, Enter
   await mp.ev(`(${E}.clipboard.writeText('-'), true)`)
@@ -1717,18 +1724,28 @@ async function curious() {
         await set('adaptiveColor', album); await set('glass', glass); await sleep(1300)
         panel.c.close(); panel = await target('panel.html'); await sleep(300)
         await audit('curious-' + (dark ? 'dark' : 'light') + '-' + (album ? 'album' : 'plain') + (glass ? '-glass' : ''), panel, '.panel', 'panel', { shot: { width: L0.content.width, height: L0.content.height } })
+        // the section's top too (the audit's shot shows where the keyboard left the scroll: the copy button)
+        await panel.ev(`(document.getElementById('h-about-curious').scrollIntoView({ block: 'start' }), true)`); await sleep(300)
+        xshot(path.join(OUT, 'curious-' + (dark ? 'dark' : 'light') + '-' + (album ? 'album' : 'plain') + (glass ? '-glass' : '') + '-top.png'), L0.content.width, L0.content.height)
       }
     }
   }
   await set('glass', false); await set('adaptiveColor', true)
   await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`); await sleep(600)
-  // minimised: sampling stops; restored: it goes on
-  await mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).minimize(), true)`); await sleep(1500)
-  const m0 = await work(); await sleep(7000); const m1 = await work()
-  check('curious: minimised, sampling stops (no frame subscription, no getAppMetrics in 7 s)', m1.subs === m0.subs && m1.metrics === m0.metrics, { m0, m1 })
-  await mp.ev(`(() => { const w = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2); w.restore(); w.show(); return true })()`); await sleep(2500)
-  const r1 = await work()
-  check('curious: restored, it samples again', r1.subs > m1.subs, { m1, r1 })
+  // hidden (Close to tray) and minimised: sampling stops; shown again: it goes on at once
+  const MAINW = `${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2)`
+  for (const how of ['hide', 'minimize']) {
+    await mp.ev(`(${MAINW}.${how}(), true)`)
+    const down = await waitFor(async () => mp.ev(how === 'hide' ? `!${MAINW}.isVisible()` : `${MAINW}.isMinimized()`), 5000)
+    if (!down) { results.push({ name: 'curious: ' + how + ' (INFO: this X server has no window manager, the window never became ' + how + 'd; not judged)', ok: true }); await mp.ev(`(${MAINW}.restore(), ${MAINW}.show(), true)`); await sleep(1500); continue }
+    // a refresh already past its checks when the window went down finishes (at most 1 s of frames + a 3 s child)
+    await sleep(4500)
+    const m0 = await work(); await sleep(7000); const m1 = await work()
+    check('curious: ' + (how === 'hide' ? 'hidden' : 'minimised') + ', sampling stops (no frame subscription, no getAppMetrics in 7 s)', m1.subs === m0.subs && m1.metrics === m0.metrics, { m0, m1 })
+    await mp.ev(`(${MAINW}.restore(), ${MAINW}.show(), true)`); await sleep(2500)
+    const r1 = await work()
+    check('curious: shown again after ' + how + ', it samples again at once', r1.subs > m1.subs, { m1, r1 })
+  }
   // folded again: nothing samples, 0 frames
   await mp.ev(viewCommand('panel', 'acc', 'about', 'toggle', 'curious')); await sleep(1500)
   panel.c.close(); panel = await target('panel.html')

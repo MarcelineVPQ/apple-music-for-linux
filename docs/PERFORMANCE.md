@@ -33,6 +33,7 @@ Discord update. None of these objects is stored.
 | visualizer.html lyrics (0.15.22) | lyrics-view.js word/dot loop (the lyrics window's) | per word change | visible, playing, word timing | as the lyrics window | DOM class writes per word change |
 | visualizer.html `showLabel` | label fade | 1.4 s one-shot | after a mode switch | fires; cleared before re-arm | ~0 |
 | main.js `startUpdateChecks` | update check | 20 s once, then 2 h (+1 per channel switch) | AppImage builds | app exit | 2 small GETs/2 h (signed feed + `.sig`; 1 on the placeholder-key `latest-linux.yml` path); `updateCheckBusy` prevents overlap. A new version is hashed by a streamed read (`update-feed.js` `verifyDownload`), once per version |
+| curious-sampler.js (0.15.42) | About → For the Curious refresh: one 5 s one-shot after each refresh | 5 s (the library: every 12th) | About shows with For the Curious open **and** the main window shown (not minimised) | the section folded, the panel hidden or on Settings, the window hidden or minimised (`show` / `hide` / `minimize` / `restore` and every panel push ask again) | 0 at rest. Per refresh: a 1 s frame count of each shown view, `getAppMetrics`, 1 `executeJavaScript`, 1 `pactl` (Linux), `nvidia-smi` only while the helper runs; the library ~11-16 ms per minute. Measured in "For the Curious" below |
 | main.js `persistBounds`, `rememberBounds` | bounds save debounce | 500 ms one-shot | after a move/resize | fires | ~0; checks `isDestroyed()` |
 | main.js mini/lyrics keep-above | KWin keep-above | 300 ms one-shot | once per window open | fires | one qdbus call, KDE Wayland only |
 | lyrics.html `frame` (0.15.10) | requestAnimationFrame: karaoke word highlight (lyrics-view.js, also the visualizer's overlay) | one frame per word/line change, woken by a timer | lyrics window visible **and** playing **and** the song has word timing (or a countdown is showing) | hidden (`visibilitychange`), paused (`isPlaying` false, or the time stops moving), new track, line-only lyrics outside a countdown | DOM class writes only when a word/line changes, no layout. Since lean lyrics (0.15.38) the countdown dots are 4 Web Animations (compositor) made once per interlude, so a countdown no longer wakes the loop every frame. Measured below |
@@ -295,6 +296,33 @@ points over the same song without the Montage, the shipped 10 Hz one 4.3. With a
 Marcy's running copy). Photos are fetched at Commons' standard widths covering the column at the largest zoom
 (montage-model.js `needWidth`), decoded once per photo; each photo's darkest and lightest pixel is measured
 once in main (montage-model.js `extremes`, one pass over the decoded thumbnail) and cached.
+
+## About → For the Curious (0.15.42)
+
+The section reads its numbers only while it is open and the main window shown (curious-sampler.js; main.js
+`curiousOpen`): on open at once, then one refresh 5 s after the last one ended. A refresh counts each shown
+view's new frames for 1 s (`webContents.beginFrameSubscription`, dirty frames only, ended after the window),
+reads `app.getAppMetrics()` (CPU from `cpu.cumulativeCPUUsage` deltas, so the gaming guard's own calls
+can't skew it), runs the lyrics feed's now-playing script in Apple's page, peeks the song's three cache
+entries (the cache's order is untouched) and its sung-notes file (parsed once per file), runs `pactl -f json
+list sink-inputs` on Linux and `nvidia-smi --query-compute-apps` only while the helper runs. The library
+(every lyrics-cache entry, the cache files' sizes, the notes log's ≤ 1,000 files) is read on open and then
+on every 12th refresh: 11-16 ms in node for 1,867 entries (1,400 songs of 50 lines, 467 aligned).
+
+Measured on an isolated copy (Xvfb, software GL, the stand-in song playing; `node tools/ui-check.js curious`,
+2026-10-17):
+
+| State | Sampler work | Panel frames |
+|---|---|---|
+| About shown, For the Curious folded | 0 frame subscriptions, 0 `getAppMetrics` calls | 0 in 6 s |
+| open and shown | a refresh 5 s after the last one ended (2 in 14 s; one refresh takes ~1-2 s: the 1 s frame window and, without a sound server, `pactl` failing) | 2 in 10 s: one repaint per refresh |
+| open, main window hidden (Close to tray) | 0 in 7 s; shown again, a refresh at once | — |
+| folded again | 0 subscriptions, 0 calls; `v.curious` null in the panel's state | 0 in 6 s |
+
+Minimised is the same code path (`minimize` / `restore` events, `isMinimized()`) but couldn't be judged on
+Xvfb, which has no window manager to minimise the window. The first refresh after opening counts the
+panel's own opening repaints (7 frames/s once); CPU per process reads "measuring…" until the second.
+Its CPU while open was not measured separately here.
 
 ## Not measurable headless
 
