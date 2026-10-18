@@ -73,6 +73,7 @@ async function rig(version, channel, feeds) {
   const installed = []
   let ch = channel
   let t = 0
+  const hooks = { onEmit: null }   // what main.js's onUpdateState does when it hears a state
   const up = U.createUpdater({
     version,
     channel: () => ch,
@@ -83,11 +84,11 @@ async function rig(version, channel, feeds) {
     installedPath: () => running,
     blocker: () => null,
     onInstalled: (p) => installed.push(p),
-    emit: (s) => states.push(s.phase),
+    emit: (s) => { states.push(s.phase); if (hooks.onEmit) hooks.onEmit(s) },
     now: () => (t += 1000),
     log: () => {}
   })
-  return { up, dir, running, states, installed, setChannel: (c) => { ch = c }, close: () => srv.close() }
+  return { up, dir, running, states, installed, hooks, setChannel: (c) => { ch = c }, close: () => srv.close() }
 }
 const BYTES = Buffer.from('a new AppImage, '.repeat(5000))
 
@@ -159,6 +160,21 @@ test('local feed: a newer stable release installs beside the running AppImage (s
     assert.deepEqual([...new Set(r.states)], ['checking', 'available', 'downloading', 'installing', 'ready'])
     // installed: a new check doesn't offer it again
     assert.equal((await r.up.check()).phase, 'ready')
+  } finally { r.close() }
+})
+
+test('Install updates automatically: an install started on hearing "available" (as main.js does) runs to the end', async () => {
+  const r = await rig('0.15.32', 'stable', [(b) => feedFiles(b, 'stable', '0.15.33', BYTES)])
+  try {
+    let started = null
+    // main.js onUpdateState: phase 'available' + autoInstallUpdates -> installUpdate() -> updater.install(), synchronously
+    r.hooks.onEmit = (st) => { if (st.phase === 'available' && !started) started = r.up.install() }
+    await r.up.check()
+    assert.ok(started, 'install() was called on "available"')
+    const done = await started
+    assert.equal(done.phase, 'ready', 'the install was not refused because the check still counted as busy: ' + JSON.stringify(done))
+    assert.ok(fs.existsSync(path.join(r.dir, 'sonata-0.15.33-x86_64.AppImage')))
+    assert.deepEqual([...new Set(r.states)], ['checking', 'available', 'downloading', 'installing', 'ready'])
   } finally { r.close() }
 })
 

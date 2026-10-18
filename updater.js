@@ -113,16 +113,21 @@ function createUpdater(deps) {
     if (blocker) return set({ phase: 'manual', detail: blocker })
     busy = true
     set({ phase: 'checking' })
+    let next
     try {
       const f = await d.fetchUpdate(returningToStable ? 'stable' : d.channel())
       feed = f
-      if (!offers(f.version, d.version, returningToStable)) return set({ phase: 'up-to-date', version: d.version, at: d.now() })
-      return set({ phase: 'available', version: f.version, size: f.size || 0, notes: f.notes || '', notesUrl: f.notesUrl || '', older: returningToStable && !isNewerVersion(f.version, d.version) })
+      next = !offers(f.version, d.version, returningToStable)
+        ? { phase: 'up-to-date', version: d.version, at: d.now() }
+        : { phase: 'available', version: f.version, size: f.size || 0, notes: f.notes || '', notesUrl: f.notesUrl || '', older: returningToStable && !isNewerVersion(f.version, d.version) }
     } catch (e) {
       // error: SHOWN — the Updates status line always; a notice when the user asked (Check now, Back to stable)
       d.log('update check failed: ' + e.message)
-      return set({ phase: 'failed', during: 'check', detail: e.message, shown: !!o.interactive })
+      next = { phase: 'failed', during: 'check', detail: e.message, shown: !!o.interactive }
     } finally { busy = false }
+    // the outcome is told only once the check is over, so whoever hears "available" can install() right
+    // away (main's Install updates automatically did, and install() refused while the check was still busy)
+    return set(next)
   }
 
   async function install() {
