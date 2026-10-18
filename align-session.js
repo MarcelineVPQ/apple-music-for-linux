@@ -9,7 +9,9 @@
 // fully heard song is aligned once more as a whole (that result is what stays cached), then the
 // buffer is dropped; no audio is ever
 // written to disk or sent anywhere. Only the word times are kept, in the lyrics store under
-// `aligned|title|artist` (`partial` until every section was aligned).
+// `aligned|isrc:<ISRC>` (`aligned|title|artist` when the ISRC is unknown; recording-id.js), `partial`
+// until every section was aligned. An entry's `duration` is the audio that was aligned (≤ the song);
+// `songDuration`, `isrc` and `appleId` name the recording (0.15.42).
 //
 // Priority of word timing: Apple/LRC word timing (never touched) > aligned > refined (Level 1) >
 // estimated. Aligned lines lose `estimated`, so Level 1 never refines them.
@@ -18,6 +20,7 @@
 // node --test (test/align-session.test.js).
 const T = require('./lyrics-timing')
 const { chunkStart, MONITOR_LATENCY } = require('./listen-session')
+const R = require('./recording-id')
 
 const RATE = 22050             // the Level 1 capture format; the bench shows no loss vs 44.1 kHz
 const CHANNELS = 2
@@ -40,6 +43,19 @@ const FRAME = 0.02             // the aligner's frame hop: section slices start 
                                // the kept sections into the whole-song pass without moving a frame (0.15.38)
 
 function alignedKey(title, artist) { return 'aligned|' + title + '|' + artist }
+
+/**
+ * This recording's stored entry (recording-id.js lookup: by ISRC, else title|artist, with the length
+ * check). An entry from before 0.15.42 of a "(Live)"-style title is used only when its word times start
+ * where these lyrics' lines do and it aligned no more audio than this song has.
+ * info: { isrc?, duration?, appleId? } -> { entry, key, song }
+ */
+function findAligned(store, title, artist, raw, info) {
+  const song = R.songOf(Object.assign({}, info, { title, artist }))
+  const check = (e) => !(e.duration > song.duration + R.DURATION_TOLERANCE_S && song.duration > 0) && R.timingMatches(e.lines, raw)
+  const got = R.lookup(store, 'aligned|', song, { check })
+  return { entry: got.entry, key: got.key, song }
+}
 
 // a line's words: white space and hyphen runs ("Hey-", "hey-", "ay"), the same split as the estimate
 // (lyrics-timing.js) and the helper (align/sonata_align.py split_words)
@@ -563,7 +579,7 @@ function createAlignSession(deps) {
           const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
           if (s.fills) s.entry.fills = s.fills
-          deps.store.set(alignedKey(s.title, s.artist), s.entry)
+          R.put(deps.store, s.storeKey, s.entry, s.rec)
           log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
           if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           if (notes) submitNotes(s, req.lines, sec ? sec.from : 0)
@@ -576,7 +592,7 @@ function createAlignSession(deps) {
           if (notes) { s.notesQueued = false; deps.notes.failed(s, new Error('the alignment failed, so no notes')) }
           log('alignment failed for "' + s.title + '": ' + (e && e.message))
           if (e && e.code === 'no-model') {
-            deps.store.set(alignedKey(s.title, s.artist), { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null })
+            R.put(deps.store, s.storeKey, { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null }, s.rec)
           }
           return null
         })
@@ -652,9 +668,9 @@ function createAlignSession(deps) {
   }
 
   return {
-    /** The cached entry for these lyrics, if any (to apply before rendering). */
-    entryFor(title, artist, raw) {
-      return validEntry(deps.store.get(alignedKey(title, artist)), lyricsHash(raw), raw)
+    /** The cached entry for these lyrics of this recording (info: { isrc, duration }), if any (to apply before rendering). */
+    entryFor(title, artist, raw, info) {
+      return validEntry(findAligned(deps.store, title, artist, raw, info).entry, lyricsHash(raw), raw)
     },
     /**
      * New lyrics on screen. Sections of the previous song still due are aligned if heard (track
@@ -665,7 +681,8 @@ function createAlignSession(deps) {
       finish(true)
       if (!enabled || !canAlign(raw)) return
       const hash = lyricsHash(raw)
-      const have = validEntry(deps.store.get(alignedKey(title, artist)), hash, raw)
+      const found = findAligned(deps.store, title, artist, raw, info)
+      const have = validEntry(found.entry, hash, raw)
       const secs = sections(raw)
       // a complete entry with missed lines (0.15.39): their sections once more, on at most MAX_FILLS plays
       const refill = refillSections(have, secs)
@@ -677,7 +694,7 @@ function createAlignSession(deps) {
       // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
       const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
-      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {} }
+      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
@@ -707,7 +724,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
+  alignedKey, findAligned, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

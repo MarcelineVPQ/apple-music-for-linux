@@ -15,6 +15,7 @@
 const fsMod = require('fs')
 const path = require('path')
 const { splitWord, hyphenatorFor } = require('./lyrics-syllables')
+const { normIsrc } = require('./recording-id')
 
 const FORMAT = 1
 const MAX_FILES = 1000
@@ -62,7 +63,7 @@ function fileName(date, artist, title) {
 /**
  * The log file: the song's identity, Sonata's version, the models, the tuning and the notes (the
  * helper's part, align/sung_notes.py run + notes.notes_from), plus the confidence.
- * song: { title, artist, album, duration, appleId }; meta: { version, aligner, stats, created, lineOffset }
+ * song: { title, artist, album, duration, appleId, isrc }; meta: { version, aligner, stats, created, lineOffset }
  */
 function buildDoc(part, song, meta = {}) {
   const off = meta.lineOffset || 0
@@ -73,7 +74,8 @@ function buildDoc(part, song, meta = {}) {
     sonata: meta.version || '',
     song: {
       title: song.title || '', artist: song.artist || '', album: song.album || '',
-      duration: Number(song.duration) || 0, appleId: song.appleId ? String(song.appleId) : null
+      duration: Number(song.duration) || 0, appleId: song.appleId ? String(song.appleId) : null,
+      isrc: normIsrc(song.isrc) || null   // the recording (0.15.42): favourites and the timing service find the notes by it
     },
     models: { f0: part.f0_model || 'rmvpe', notes: part.model || '', aligner: meta.aligner || '', params: part.params || {}, vthr: part.vthr },
     language: part.language || null,
@@ -102,7 +104,8 @@ function validateDoc(doc) {
   if (doc.format !== FORMAT) bad.push('format')
   if (typeof doc.sonata !== 'string' || !doc.sonata) bad.push('sonata version')
   const s = doc.song || {}
-  if (typeof s.title !== 'string' || typeof s.artist !== 'string' || typeof s.album !== 'string' || !isNum(s.duration) || !(s.appleId === null || typeof s.appleId === 'string')) bad.push('song')
+  if (typeof s.title !== 'string' || typeof s.artist !== 'string' || typeof s.album !== 'string' || !isNum(s.duration) || !(s.appleId === null || typeof s.appleId === 'string') ||
+    !(s.isrc === undefined || s.isrc === null || (typeof s.isrc === 'string' && normIsrc(s.isrc) === s.isrc))) bad.push('song')
   const m = doc.models || {}
   if (typeof m.f0 !== 'string' || typeof m.notes !== 'string' || typeof m.aligner !== 'string') bad.push('models')
   const t = doc.tuning || {}

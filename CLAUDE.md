@@ -57,7 +57,9 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
 - **Align helper** (Level 2, opt-in, `docs/LEVEL2-ALIGN.md`): `align-session.js` records a line-only song
   while a lyric view is open and hands it to `align-helper.js`, a JSON-lines client for `align/server.py`
   run with the user's own venv (`align/install.sh` → `~/.local/share/sonata-align`, or
-  `SONATA_ALIGN_HOME`). One helper process at most, quits after 2 min idle; only word times are cached.
+  `SONATA_ALIGN_HOME`). One helper process at most, quits after 10 min idle while a lyric view is open (2 min
+  when none is); only word times are cached. Lyrics and timing entries are keyed by the recording's ISRC
+  (`recording-id.js`; `title|artist` without one) and refused when its length differs by > 1.5 s.
 - **Theme**: `theme.js` computes every `--s-*` token (light/dark, album accent, Glass backdrop, contrast
   raised until text reaches 4.5:1), `theme-apply.js` writes them in each page, `theme.css` holds the
   first-paint defaults (the only CSS with literal colours).

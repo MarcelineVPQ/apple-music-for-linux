@@ -314,8 +314,9 @@ async function fetchLrclib(state, deps) {
 
 /**
  * Lyrics for a song: Apple first, then LRCLIB when enabled. Results are
- * cached per title|artist (max 50) so several windows share one lookup;
+ * cached per recording (recording-id.js trackKey, max 50) so several windows share one lookup;
  * empty results are not cached, so the next play retries.
+ * state: { title, artist, album, duration, isrc?, appleId? } (the disk store is keyed by ISRC when known)
  * deps: { fetchApple(state) -> ttml string ('' = Apple has none; throws when the lookup failed),
  *         fetchLrclib(state) -> lines, lrclibEnabled() -> bool, log(msg),
  *         store? ({ get(key), set(key, value) }, on disk), sleep?(ms) (tests) }
@@ -339,22 +340,29 @@ function withExtras(result, lang, writers) {
   return result
 }
 
+const R = require('./recording-id')
+
 function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
   // are shared, so lyrics + visualizer windows trigger one fetch per track. Only used while lyrics or
   // the visualizer is open. loop: none.
   const cache = new Map()
   return async function getLyrics(state) {
-    const key = state.title + '|' + state.artist
+    // one recording: studio and live with the same title are two lookups (recording-id.js)
+    const song = R.songOf(state)
+    const key = R.trackKey(song)
     if (cache.has(key)) return cache.get(key)
     const job = (async () => {
-      // the on-disk store first (songs played before); LRCLIB results only while LRCLIB is enabled
-      const stored = deps.store ? deps.store.get(key) : null
+      // the on-disk store first (songs played before); LRCLIB results only while LRCLIB is enabled.
+      // An entry of another recording (other ISRC, other length, an unchecked old one of a "(Live)" title)
+      // is not used: Apple is asked again for this one.
+      const found = deps.store ? R.lookup(deps.store, '', song) : { entry: null, key: R.recordingKey(song) }
+      const stored = found.entry
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
       if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers)
       const remember = (result) => {
-        if (deps.store && result.lines.length) deps.store.set(key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source })
+        if (deps.store && result.lines.length) R.put(deps.store, found.key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source }, song)
         return result
       }
       let appleFailed = ''
