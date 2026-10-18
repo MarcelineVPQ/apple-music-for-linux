@@ -10,10 +10,11 @@
 const crypto = require('crypto')
 const fs = require('fs')
 
-// Where releases and feeds live (0.15.19 / 0.15.44-dev.2 on): a public release-only repository with
+// Where releases and feeds live (0.15.45-dev.1 on): a public release-only repository with
 // the signed AppImages, latest.json / latest-dev.json (+ .sig) on main and each release's GPL source
 // archive. Builds up to 0.15.18 / 0.15.44-dev.1 read LEGACY_REPO (the source repository, feeds on
-// master); its feeds stay frozen on the bridge builds, which read REPO (docs/RELEASING.md, "Releases repository").
+// master); its Development feed stays frozen on the last bridge build, which reads REPO, and its Stable feed on
+// 0.15.18 (no Stable bridge; docs/RELEASING.md, "Releases repository").
 const REPO = 'MarcelineVPQ/sonata-releases'
 const FEED_BRANCH = 'main'
 const LEGACY_REPO = 'MarcelineVPQ/apple-music-for-linux'

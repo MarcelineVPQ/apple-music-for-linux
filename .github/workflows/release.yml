@@ -6,10 +6,12 @@ name: Release
 # repository's publish workflow builds the AppImage from exactly that archive, publishes the release
 # (AppImage, source archive, SHA256SUMS) and signs its feeds. No token for the other repository exists.
 #
-# Bridge (BRIDGE: true): installed builds up to 0.15.18 / 0.15.44-dev.1 read only this repository.
-# Until the bridge ends, the same release (the same AppImage bytes, downloaded back from the releases
-# repository and checked against its SHA256SUMS) is also published here, and feed.yml refreshes this
-# repository's feeds. See docs/RELEASING.md, "Releases repository".
+# Bridge (BRIDGE: true, Development tags only): installed Development builds up to 0.15.44-dev.1 read
+# only this repository. Until the bridge ends, the same Development release (the same AppImage bytes,
+# downloaded back from the releases repository and checked against its SHA256SUMS) is also published
+# here, and feed.yml refreshes this repository's feeds. There is no Stable bridge (Marcy 2026-10-18):
+# Stable installs up to 0.15.18 are cut off by design, so a Stable tag is never copied here.
+# See docs/RELEASING.md, "Releases repository".
 
 on:
   push:
@@ -91,9 +93,10 @@ jobs:
           git push --force "git@github.com:$RELEASES_REPO.git" "HEAD:refs/heads/incoming/$GITHUB_REF_NAME"
           rm -f ~/.ssh/releases_key
 
-      # Bridge: wait for the releases repository to publish, then publish the very same files here.
+      # Bridge (Development tags only): wait for the releases repository to publish, then publish the
+      # very same files here.
       - name: Wait for the release in the releases repository
-        if: env.BRIDGE == 'true'
+        if: env.BRIDGE == 'true' && contains(github.ref_name, '-dev.')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,33 +109,27 @@ jobs:
           echo "::error::$RELEASES_REPO did not publish $GITHUB_REF_NAME within 60 minutes (see its publish workflow)"; exit 1
 
       - name: Bridge release here (same bytes)
-        if: env.BRIDGE == 'true'
+        if: env.BRIDGE == 'true' && contains(github.ref_name, '-dev.')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"; v="${tag#v}"
-          dev=false; case "$v" in *-dev.*) dev=true ;; esac
           mkdir -p bridge; cd bridge
           gh release download "$tag" -R "$RELEASES_REPO" -p "sonata-$v-x86_64.AppImage" -p "sonata-$v-source.tar.gz" -p SHA256SUMS
           files=("sonata-$v-x86_64.AppImage" "sonata-$v-source.tar.gz")
-          # Installs up to 0.15.12 only read releases/latest/download/latest-linux.yml here.
-          # Keep publishing it with every Stable release (docs/RELEASING.md, "Transition").
-          if [ "$dev" = false ]; then
-            gh release download "$tag" -R "$RELEASES_REPO" -p latest-linux.yml
-            files+=(latest-linux.yml)
-          fi
           sha256sum -c SHA256SUMS --ignore-missing --strict
           [ "$(grep -c " sonata-$v-x86_64.AppImage\$" SHA256SUMS)" = 1 ] || { echo "SHA256SUMS lists no AppImage"; exit 1; }
           files+=(SHA256SUMS)
           title="$(node -p 'require("../out/release.json").title')"
-          gh release create "$tag" --draft --verify-tag $([ "$dev" = true ] && echo --prerelease) --title "$title" --notes-file ../out/notes.md
+          gh release create "$tag" --draft --verify-tag --prerelease --title "$title" --notes-file ../out/notes.md
           gh release upload "$tag" "${files[@]}"
-          if [ "$dev" = true ]; then gh release edit "$tag" --draft=false; else gh release edit "$tag" --draft=false --latest; fi
+          gh release edit "$tag" --draft=false
 
   feed:
     name: Refresh this repository's latest.json / latest-dev.json (bridge)
     needs: build
+    if: contains(github.ref_name, '-dev.')
     # A called workflow gets only what its caller job grants: feed.yml commits the feeds and
     # attests them.
     permissions:

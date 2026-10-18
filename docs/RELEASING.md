@@ -82,9 +82,8 @@ Run workflow).
    release: `sonata-X.Y.Z-x86_64.AppImage`, `sonata-X.Y.Z-source.tar.gz`, **`latest-linux.yml`** and `SHA256SUMS`,
    as *Latest*. Its `feed.yml` then downloads and hashes the AppImage, writes `latest.json` and `latest-dev.json`,
    signs them, commits them to `main` and attests them.
-5. Bridge (while `BRIDGE: 'true'` in release.yml): release.yml waits for that release, downloads its files, checks
-   them against `SHA256SUMS` and publishes the same files as the same release here; this repository's `feed.yml`
-   refreshes the legacy feeds on `master`.
+5. No bridge for Stable: a Stable release is published only in the releases repository (see
+   [Releases repository](#releases-repository)).
 
 ## Checks before tagging
 
@@ -107,7 +106,9 @@ Same steps on the `dev` branch (work lands there; commit and push `dev`, not `ma
 `X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and tag `vX.Y.Z-dev.N`;
 the CHANGELOG section is `## [X.Y.Z-dev.N]` (falls back to `[Unreleased]`). The release is published as a
 **prerelease** (never *Latest*, so `releases/latest` and old installs never see it), without
-`latest-linux.yml`, and only `latest-dev.json` changes (in both repositories while the bridge runs).
+`latest-linux.yml`, and only `latest-dev.json` changes (in both repositories while the bridge runs: release.yml then
+waits for the release there, downloads its files, checks them against `SHA256SUMS` and publishes the same files as
+the same prerelease here; this repository's `feed.yml` refreshes the legacy feeds on `master`).
 
 ## Build attestations
 
@@ -124,7 +125,7 @@ says which workflow run made the file. Only releases tagged after these steps we
 | `latest-linux.yml` | the releases repository's `publish.yml` | Stable releases only (development releases don't upload it) |
 | `latest.json`, `latest-dev.json` and their `.sig` | `feed.yml` (each repository for its own feeds) | whenever the feed run commits a change (a release, or a run that finds one); an unchanged daily run attests nothing |
 
-Since the move to the releases repository (v0.15.19 / v0.15.44-dev.2), the files are attested there:
+Since the move to the releases repository (v0.15.45-dev.1), the files are attested there:
 use `-R MarcelineVPQ/sonata-releases` below. The bridge copies here carry the same bytes, so the same command
 verifies them. Earlier releases: `-R MarcelineVPQ/apple-music-for-linux`. The releases repository is public, so
 its attestations keep working when the source repository is private.
@@ -178,20 +179,20 @@ gh secret set RELEASES_DEPLOY_KEY -R <source repository> < k && shred -u k && rm
 
 (delete the old key under sonata-releases → Settings → Deploy keys).
 
-**The bridge.** Installed builds up to 0.15.18 (Stable) and 0.15.44-dev.1 (Development) read only this
-repository's feeds on `master` and accept only downloads from this repository's releases
-(`parseSignedFeed` compares the `url` with the prefix compiled into them). So the first builds that read the
-releases repository, **0.15.19** (Stable, v0.15.18 + only this change) and **0.15.44-dev.2** (Development), are
-published to both repositories with the same bytes, and this repository's `feed.yml` keeps signing its feeds
-(`tools/build-feed.js --repo MarcelineVPQ/apple-music-for-linux`). An installed build takes the bridge build
-from its old feed, verifies it with the same key, and from then on reads the releases repository.
+**The bridge (Development only).** Installed builds up to 0.15.18 (Stable) and 0.15.44-dev.1 (Development) read
+only this repository's feeds on `master` and accept only downloads from this repository's releases
+(`parseSignedFeed` compares the `url` with the prefix compiled into them). So the first Development builds
+that read the releases repository, from **0.15.45-dev.1** on, are published to both repositories with the same
+bytes, and this repository's `feed.yml` keeps signing its feeds (`--repo MarcelineVPQ/apple-music-for-linux`;
+`master`'s `tools/build-feed.js` already lists this repository by default). An installed Development build takes
+the bridge build from its old feed, verifies it with the same key, and from then on reads the releases repository.
 `test/release-bridge.test.js` checks this against the installed builds' own `update-feed.js`
 (`test/fixtures/installed-update-feed/`, frozen copies).
 
-Publish order: 0.15.19 first (on `master`, so this repository's `feed.yml`, which runs `master`'s tools,
-has `--repo`), then 0.15.44-dev.2 on `dev`.
+**There is no Stable bridge** (Marcy, 2026-10-18): Stable installs up to 0.15.18 are cut off by design. release.yml
+copies only `-dev.` tags here, so this repository's Stable feed stays on 0.15.18 for good.
 
-**Ending the bridge**, once Marcy's copies run bridge builds on both channels: set `BRIDGE: 'false'` in
+**Ending the bridge**, once Marcy's copies run a bridge build: set `BRIDGE: 'false'` in
 release.yml and drop its `feed` job and the bridge steps. No release is added here any more, so the legacy
 feeds stay on the bridge builds for good and a late updater still lands on a build that reads the releases
 repository. Keep this repository's releases and feeds online for those installs.

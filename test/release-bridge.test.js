@@ -17,8 +17,10 @@ const INSTALLED = {
   '0.15.18': require('./fixtures/installed-update-feed/v0.15.18.js'),
   '0.15.44-dev.1': require('./fixtures/installed-update-feed/v0.15.44-dev.1.js')
 }
-// the first builds that read the releases repository
-const BRIDGE = { stable: '0.15.19', dev: '0.15.44-dev.2' }
+// the first build that reads the releases repository: a Development build only. There is no Stable
+// bridge (Marcy 2026-10-18): Stable 0.15.18 installs are cut off by design and stay on 0.15.18.
+const BRIDGE_DEV = '0.15.45-dev.1'
+const NEXT_STABLE = '0.15.45'   // a later Stable release, published only in the releases repository
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519')
 const PUB = publicKey.export({ format: 'der', type: 'spki' }).toString('base64')
@@ -31,11 +33,12 @@ const release = (repo, tag, prerelease) => ({
   html_url: `https://github.com/${repo}/releases/tag/${tag}`, body: 'notes for ' + tag,
   assets: [{ name: `sonata-${tag.slice(1)}-x86_64.AppImage`, size: appImage.length }]
 })
-// what a repository's release list looks like once both bridge builds are out
-const releases = (repo) => [
-  release(repo, 'v' + BRIDGE.dev, true), release(repo, 'v' + BRIDGE.stable, false),
-  release(repo, 'v0.15.44-dev.1', true), release(repo, 'v0.15.18', false)
-]
+// the legacy repository once the Development bridge build is out (no Stable release is added there);
+// the releases repository later, with a Stable release of its own
+const releases = (repo) => repo === U.LEGACY_REPO
+  ? [release(repo, 'v' + BRIDGE_DEV, true), release(repo, 'v0.15.44-dev.1', true), release(repo, 'v0.15.18', false)]
+  : [release(repo, 'v' + NEXT_STABLE, false), release(repo, 'v' + BRIDGE_DEV, true)]
+const NEWEST = { stable: NEXT_STABLE, dev: NEXT_STABLE }
 const feedOf = (repo, channel) => feedText(channel, selectRelease(releases(repo), channel), measured, repo)
 
 // sign like CI does: tools/sign-feed.js with the key in SONATA_FEED_KEY
@@ -76,19 +79,22 @@ test('same signing scheme: same trusted keys and file name rule as the installed
   }
 })
 
-test('bridge: installed builds take the bridge build from the legacy feed, signature and download check out', async () => {
-  const cases = [['0.15.18', 'stable'], ['0.15.44-dev.1', 'dev'], ['0.15.44-dev.1', 'stable']]
-  for (const [installed, channel] of cases) {
+test('bridge: installed Development builds take the bridge build from the legacy feed, signature and download check out', async () => {
+  const old = INSTALLED['0.15.44-dev.1']
+  const u = await old.fetchUpdate({ channel: 'dev', keys: [PUB], fetchText: served(old.FEED_URLS, 'dev', feedOf(U.LEGACY_REPO, 'dev')) })
+  assert.equal(u.version, BRIDGE_DEV)
+  assert.equal(u.signed, true)
+  assert.ok(u.url.startsWith(`https://github.com/${U.LEGACY_REPO}/releases/download/v${BRIDGE_DEV}/`), u.url)
+  assert.ok(old.isNewerVersion(u.version, '0.15.44-dev.1'))
+  await verifiedBy(old, u)
+})
+
+test('no Stable bridge: the legacy Stable feed stays on 0.15.18, so Stable installs are offered nothing newer', async () => {
+  for (const installed of ['0.15.18', '0.15.44-dev.1']) {
     const old = INSTALLED[installed]
-    const text = feedOf(U.LEGACY_REPO, channel)
-    const u = await old.fetchUpdate({ channel, keys: [PUB], fetchText: served(old.FEED_URLS, channel, text) })
-    assert.equal(u.version, BRIDGE[channel], `${installed} on ${channel}`)
-    assert.equal(u.signed, true)
-    assert.ok(u.url.startsWith(`https://github.com/${U.LEGACY_REPO}/releases/download/v${BRIDGE[channel]}/`), u.url)
-    // Stable 0.15.18 moves up to 0.15.19; Development 0.15.44-dev.1 to the dev bridge
-    if (channel === 'stable' && installed === '0.15.18') assert.ok(old.isNewerVersion(u.version, installed))
-    if (channel === 'dev') assert.ok(old.isNewerVersion(u.version, installed))
-    await verifiedBy(old, u)
+    const u = await old.fetchUpdate({ channel: 'stable', keys: [PUB], fetchText: served(old.FEED_URLS, 'stable', feedOf(U.LEGACY_REPO, 'stable')) })
+    assert.equal(u.version, '0.15.18', installed)
+    assert.equal(old.isNewerVersion(u.version, installed), false, installed)
   }
 })
 
@@ -102,7 +108,7 @@ test('bridge: installed builds refuse the releases repository\'s own feed, so th
 test('after the bridge: this build takes the releases repository\'s feed and refuses a legacy-repository download', async () => {
   for (const channel of ['stable', 'dev']) {
     const u = await U.fetchUpdate({ channel, keys: [PUB], fetchText: served(U.FEED_URLS, channel, feedOf(U.REPO, channel)) })
-    assert.equal(u.version, BRIDGE[channel])
+    assert.equal(u.version, NEWEST[channel])
     assert.equal(u.url, `${U.DOWNLOAD_PREFIX}v${u.version}/sonata-${u.version}-x86_64.AppImage`)
     await verifiedBy(U, u)
     await assert.rejects(U.fetchUpdate({ channel, keys: [PUB], fetchText: served(U.FEED_URLS, channel, feedOf(U.LEGACY_REPO, channel)) }), /outside this repository/)
@@ -117,4 +123,8 @@ test('the release workflows publish to the releases repository and keep the lega
   // the legacy feeds are built for the legacy repository's releases (the URLs installed builds accept)
   assert.match(feed, new RegExp(`build-feed\\.js --repo ${U.LEGACY_REPO} --channel stable`))
   assert.match(feed, new RegExp(`build-feed\\.js --repo ${U.LEGACY_REPO} --channel dev`))
+  // the bridge copies only Development releases: a Stable tag never reaches the legacy repository
+  const bridgeSteps = release.split('\n').filter((l) => /^\s+if: env\.BRIDGE == 'true'/.test(l))
+  assert.equal(bridgeSteps.length, 2, 'two bridge steps')
+  for (const l of bridgeSteps) assert.ok(l.includes("contains(github.ref_name, '-dev.')"), l)
 })

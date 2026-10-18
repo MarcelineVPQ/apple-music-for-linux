@@ -248,7 +248,7 @@ system at work belong here. Not recorded yet; don't add them before then.
   gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/sonata-releases
   ```
 
-  Releases up to v0.15.44-dev.1 and the bridge builds v0.15.19 and v0.15.44-dev.2 are also in this repository (`-R MarcelineVPQ/apple-music-for-linux`); up to v0.15.38-dev.1 they have none. Sonata itself doesn't need this: it checks the feed signature and the file's hash on every update.
+  Releases up to v0.15.44-dev.1 and the Development bridge builds from v0.15.45-dev.1 on are also in this repository (`-R MarcelineVPQ/apple-music-for-linux`); up to v0.15.38-dev.1 they have none. Sonata itself doesn't need this: it checks the feed signature and the file's hash on every update.
 
 **How updates work.**
 

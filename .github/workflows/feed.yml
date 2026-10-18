@@ -3,9 +3,10 @@ name: Update feed
 # The LEGACY feeds (bridge): rebuilds latest.json (Stable) and latest-dev.json (Development: dev
 # prereleases and stable releases) from the releases published on THIS repository, signs them with
 # the SONATA_FEED_KEY secret and commits them to master: after every release, daily, and on demand.
-# Installed builds up to 0.15.18 / 0.15.44-dev.1 read these; from the bridge builds on, Sonata reads
-# the releases repository's feeds, which its own feed workflow signs (docs/RELEASING.md, "Releases
-# repository"). Once the bridge ends no release is added here, so these feeds stay on the bridge builds.
+# Installed builds up to 0.15.18 / 0.15.44-dev.1 read these; from the Development bridge builds
+# (0.15.45-dev.1 on) Sonata reads the releases repository's feeds, which its own feed workflow signs
+# (docs/RELEASING.md, "Releases repository"). Only Development releases are bridged (no Stable bridge:
+# latest.json stays on 0.15.18); once the bridge ends latest-dev.json stays on the last bridge build.
 # The AppImage is downloaded and hashed by tools/build-feed.js, so a feed never points at a file that
 # doesn't exist or doesn't match. Never edit the feeds by hand (docs/RELEASING.md).
 
