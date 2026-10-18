@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.48-dev.1] — Live albums: lyrics timed for another version, "(repeat all)" lyrics, honest lyric-source messages, and a Listening and learning dot
+
 ### Changed
 
 - **The first play's sheet-notes band shows "Listening and learning".** On a song's first play each part's pitch line comes only once Sonata has heard that part, so the staff between the line heard so far and the playhead stays empty for a while. Now a small green dot blinks softly beside "Listening and learning" in the band's top row and on the staff at the playhead while the part being sung is still being heard; when its line arrives the dot stops and the line draws in. It replaces 0.15.47's message, so there is one signal; the ⓘ explains it. The dot holds still while the song is paused and stays steady with reduced motion.
