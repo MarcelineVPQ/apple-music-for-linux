@@ -530,6 +530,8 @@ const BG_PLACES = `(() => [...document.querySelectorAll('.line')].map((l, i) => 
   const first = row.querySelector('.w')
   return { i, text: [...row.querySelectorAll('.w > .r')].map((r) => r.textContent).join(' '), width: main.clientWidth, first: xOf(first) - base, firstRight: xOf(first) - base + first.offsetWidth, last: (() => { const w = row.querySelectorAll('.w'); const e = w[w.length - 1]; return xOf(e) - base + e.offsetWidth })(),
     rows: new Set([...row.querySelectorAll('.w')].map((w) => w.offsetTop)).size, align: getComputedStyle(row).textAlign,
+    // the ↳ hanging before the first word (.bgv::before, with its 0.12em gap): a left row starts at least this far in
+    arrow: (() => { const cs = getComputedStyle(row, '::before'); const a = parseFloat(cs.width); return cs.content !== 'none' && Number.isFinite(a) ? a + 0.12 * parseFloat(cs.fontSize) : 0 })(),
     words: ws.map((w) => ({ text: w.dataset.text, left: xOf(w) - base, right: xOf(w) - base + w.offsetWidth, top: w.offsetTop })) }
 }).filter(Boolean))()`
 // want: { lineIndex: { word: index | null, after?: true } } (null: no anchor, the row keeps the line's alignment)
@@ -540,15 +542,16 @@ function judgeBacking(tag, places, want) {
     let ok; let expect
     if (w.word === null) {
       // the line's own alignment: at the start (left), or ending at the line's end (right), or centred
-      expect = p.align === 'right' ? 'ends at ' + p.width : p.align === 'center' ? 'centred' : 'starts at 0'
-      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : p.first <= 3
+      expect = p.align === 'right' ? 'ends at ' + p.width : p.align === 'center' ? 'centred' : 'starts at the ↳\'s width (' + Math.round(p.arrow) + ' px, the ↳ inside the text column)'
+      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : Math.abs(p.first - p.arrow) <= 3
     } else if (p.words[w.word].top !== p.words[p.words.length - 1].top) {
       // its word isn't on the line's last row (the line wraps): the row keeps the line's alignment
       expect = 'keeps the line\'s alignment ("' + p.words[w.word].text + '" is on an earlier row of the wrapped line)'
-      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : p.first <= 3
+      ok = p.align === 'right' ? Math.abs(p.width - p.last) <= 3 : p.align === 'center' ? Math.abs((p.first + p.last) / 2 - p.width / 2) <= 6 : Math.abs(p.first - p.arrow) <= 3
     } else {
       const a = p.words[w.word]
-      const x = w.after ? a.right : a.left
+      // a left row never starts before the ↳'s width (lyrics-view.js backingOffset)
+      const x = Math.max(p.align === 'left' || p.align === 'start' ? p.arrow : 0, w.after ? a.right : a.left)
       // starts under its word, or moved back just enough to fit (it then ends at the line's end)
       expect = (w.after ? 'after "' : 'under "') + a.text + '" (' + Math.round(x) + ' px) or fitted to the end'
       ok = p.rows === 1 && (Math.abs(p.first - x) <= 2 || (p.first < x && Math.abs(p.last - p.width) <= 3))
