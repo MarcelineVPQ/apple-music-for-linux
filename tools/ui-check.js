@@ -2493,6 +2493,11 @@ async function every() {
     const lb = await mp.ev(`(() => { const w = ${floatingWin('Lyrics')}; w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return w.getBounds() })()`); await sleep(800)
     const ly = await target('lyrics.html')
     check('every-' + t + '-lyrics the stand-in song\'s lyrics are shown', (await ly.ev('document.querySelectorAll(".line").length')) > 5)
+    // read at a settled moment: right after a line change its dim/hover layers fade out (opacity 0.3 s) under
+    // the sung layer, and a half-faded layer of the active line would be judged as the sung line's words
+    const lyFading = `document.getAnimations().some((a) => a.playState === 'running' && a.effect && a.effect.target && a.effect.target.matches && a.effect.target.matches('.ly-dim, .ly-hov'))`
+    // loop: at most 40 polls of 50 ms · test only
+    for (let i = 0; i < 40 && (await ly.ev(lyFading)); i++) await sleep(50)
     await audit('every-' + t + '-lyrics', ly, '#card', 'lyrics', { minHit: 24, shot: lb })
     ly.c.close()
     await openFloating(mp, 'lyrics', 'Lyrics', false)
