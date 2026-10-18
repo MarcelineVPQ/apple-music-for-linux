@@ -40,7 +40,7 @@ test('lyrics: #grip\'s patches drag, their holes don\'t, and #grip takes no poin
 
 test('lyrics: the body still drags and #lines, #art, #close are no-drag', () => {
   assert.match(rule('body'), /-webkit-app-region:\s*drag/)
-  for (const sel of ['#lines', '#art', '#close', '#form', '#q-list', '.bar', '.ib', '.tile', '.seg button']) assert.match(rule(sel), /-webkit-app-region:\s*no-drag/, sel)
+  for (const sel of ['#lines', '#art', '#close', '#form', '#q-list', '.bar', '.ib', '.tile', '.lnk', 'button.chip', '#flip .face', '#q-pop']) assert.match(rule(sel), /-webkit-app-region:\s*no-drag/, sel)
 })
 
 test('lyrics: the list never scrolls sideways', () => {

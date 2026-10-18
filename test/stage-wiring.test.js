@@ -94,3 +94,70 @@ test('the stage\'s files ship (package.json build.files)', () => {
   const files = require('../package.json').build.files
   for (const f of ['stage-model.js', 'stage-ui.js', 'lyrics.html', 'lyrics-view.js']) assert.ok(files.includes(f), f)
 })
+
+test('the song\'s actions: read once per song while the Studio shows (and after an action), never on a timer', () => {
+  const st = fn(main, 'async function stageTick(')
+  assert.match(st, /if \(key !== stageSongKey\) \{ stageSongKey = key; stageSongRead\(state, key\) \}/)
+  // the only callers: the song changing (stageTick) and an action that changed the song's state (stageDone)
+  assert.equal((main.match(/stageSongRead\(/g) || []).length, 3, 'definition + stageTick + stageDone')
+  const done = fn(main, 'function stageDone(')
+  assert.match(done, /if \(ok && \/favorite\|library\|playlist\/\.test\(action\)\)/)
+  const block = main.slice(main.indexOf('// --- the Studio\'s song actions'), main.indexOf('// --- the Studio\'s Montage'))
+  for (const t of ['setInterval(', 'setTimeout(']) assert.ok(!block.includes(t), 'no ' + t)
+  // the source-neutral interface: the Studio asks songSource, never MusicKit itself
+  assert.ok(!/MusicKit/.test(block), 'no MusicKit in the Studio\'s action code')
+  assert.match(main, /const songSource = songActions\.createAppleSource\(/)
+})
+
+test('one action builder: the mini player\'s ⋯ and the Studio\'s ⋯ and row menus come from songMenuItems', () => {
+  assert.match(main, /songMenuItems\(info, miniWindow, \['favorite', 'library', '-', 'link', 'cover', 'liner'\]/)
+  assert.match(main, /songMenuItems\(stageInfo\(\), lyricsWindow, \['cover', 'liner', '-', 'share'\], stageDone\)/)
+  assert.match(main, /songMenuItems\(info, lyricsWindow, \['play-now', 'play-next', '-', 'album', 'credits'\], stageDone\)/)
+  // the favourite / library scripts live once, in song-actions.js
+  assert.ok(!/me\/ratings\/songs\/\$\{info\.id\}/.test(main), 'no copy of the favourite script in main.js')
+  assert.ok(!/const showAlbumScript/.test(main), 'the album link walk is song-actions.js openPageScript')
+  assert.match(main, /songActions\.openPageScript\('album'\)/)
+})
+
+test('the cover turns over: transform only (rotateY 0.4 s ease-out with perspective), a cross-fade with Reduce motion', () => {
+  assert.match(html, /#flip \{[^}]*perspective: 900px/)
+  assert.match(html, /#flip-in \{[^}]*transition: transform 0\.4s cubic-bezier/)
+  assert.match(html, /#flip\.turned #flip-in \{ transform: rotateY\(180deg\); \}/)
+  assert.match(html, /backface-visibility: hidden/)
+  const rm = html.slice(html.indexOf('@media (prefers-reduced-motion: reduce) {\n    #flip-in'))
+  assert.match(rm, /#flip\.turned #flip-in \{ transform: none; \}/)
+  assert.match(rm, /transition: opacity 0\.2s ease/)
+  // a button with aria-expanded; the hidden face is inert; credits announced; a new song turns it back
+  assert.match(html, /<button id="cover-btn" class="face front" aria-expanded="false" aria-controls="cover-back"/)
+  assert.match(ui, /el\.coverBtn\.inert = v\n\s*el\.back\.inert = !v/)
+  assert.match(ui, /say\(creditsText\(\)\)/)
+  assert.match(ui, /if \(songKey\(\) !== before\) \{ flip\(false\); drawCredits\(\) \}/)
+})
+
+test('the Studio\'s keys: only in the Studio, never over a control that uses the key, Esc turns the cover back first', () => {
+  const k = ui.slice(ui.indexOf("// --- the Studio's keys"), ui.indexOf('// --- drawing ---'))
+  assert.match(k, /if \(!form\.stage \|\| e\.ctrlKey \|\| e\.altKey \|\| e\.metaKey \|\| e\.defaultPrevented\) return/)
+  assert.match(k, /const slider0 = t\.closest\('\[role=slider\]'\)/)
+  assert.match(k, /const inList = t\.closest\('#q-list, #lines, #q-pop'\)/)
+  assert.match(k, /e\.key === ' ' && !onButton && !slider0 && !inList/)
+  assert.match(k, /else if \(turned\) \{ e\.preventDefault\(\); e\.stopImmediatePropagation\(\); flip\(false\) \}/)
+  assert.match(k, /\}, true\)/, 'a capture listener: it runs before the page\'s Esc closes the window')
+  // Ctrl+Shift+S, the global shortcuts (modifiers) and the rail's keys (another view) can't collide: no modifier keys here
+  for (const key of ['f', 'c', 'n']) assert.ok(require('../shortcuts-model').problem(key.toUpperCase()), key + ' alone is never a global shortcut')
+})
+
+test('one list: no tabs; the next card sits in the list after the song playing, its length in the rows\' column', () => {
+  assert.ok(!/tab-next|tab-all|class="seg"/.test(html), 'no Up Next / Playlist tabs')
+  assert.ok(!/setTab|which ===/.test(ui), 'no tab code')
+  assert.match(html, /<button id="next-card" class="q-row q-next"[^>]*>[\s\S]*?<span class="d" id="next-d"><\/span>/)
+  assert.match(ui, /if \(i === v\.cardAt\) \{ const cli = doc\.createElement\('li'\); cli\.appendChild\(el\.nextCard\); lis\.push\(cli\) \}/)
+  assert.match(ui, /text\(el\.nextS, \[nx\.artist, nx\.album\]\.filter\(Boolean\)\.join\(' · '\)\)/)
+  assert.match(ui, /el\.nextCard\.onclick = \(\) => send\('next'\)/)
+  // no auto-scroll while the user scrolls
+  assert.match(ui, /if \(sk !== scrolledFor && now\(\) - userScrolled > SCROLL_QUIET\)/)
+})
+
+test('the Studio\'s new files ship', () => {
+  const files = require('../package.json').build.files
+  for (const f of ['song-actions.js', 'mini-model.js', 'liner-notes-model.js']) assert.ok(files.includes(f), f)
+})

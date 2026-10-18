@@ -855,6 +855,9 @@ function createLyricsView(opts) {
     align,
     alignState: setAlignState,
     time: () => T.clockTime(clock, performance.now()),
+    // the song's timed lines ({ t, text }), for the Studio's ↑/↓ and the seek bar's hover (on demand, not per frame)
+    // loop: NOT-WORTH — the song's lines (≤ ~150), once per key press or hover move
+    timedLines: () => lines.filter((l) => l && l.t !== null && Number.isFinite(l.t) && !l.gap && l.text).map((l) => ({ t: l.t, text: String(l.text) })),
     get playing() { return !!clock && clock.playing }
   }
 }
