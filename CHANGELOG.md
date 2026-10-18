@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A long word's pop no longer runs into the next word.** In the Studio at a large size, a long word being sung grew into the space beside it, so "amends, that's right" read as "amends,that's" and "predictable" crowded "it's". The pop looks and moves exactly as before; a word that would come too close to its neighbour now grows toward the side with room (the start or end of a line grows outward), and only when both sides are tight does it grow a little less, so a clear gap always stays between words. Short words pop exactly as they did. Hyphenated words ("Yeah-oh") stay joined, backing vocals follow the same rule, and with reduced motion nothing pops, as before.
+
 ## [0.15.50-dev.1] — Hyphenated lyrics look as written, and the sheet-notes band says when no one is singing
 
 ### Fixed

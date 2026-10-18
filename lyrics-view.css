@@ -22,7 +22,7 @@
 .w {
   display: inline-flex;
   position: relative;
-  margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space */
+  margin-inline: 0.08em;  /* a uniform extra gap, so the pop (scale 1.1) never covers a space; a long word's pop keeps a clear gap (lyrics-view.js popRoom) */
   flex-direction: column;
   align-items: center;
   transform-origin: 50% 65%;
@@ -65,7 +65,7 @@
 .line.active .w.now {
   opacity: 1;
   color: var(--sing);
-  transform: scale(1.1);
+  transform: scale(min(1.1, var(--pop-max, 1.1)));
   text-shadow: 0 0 0.67em var(--sing), 0 0 0.19em var(--sing);
 }
 /* background vocals: smaller, dimmer and in italics, under their line, with their own highlight.
@@ -85,7 +85,7 @@
 .bgv::before { content: '\21B3' / ''; position: absolute; font-style: normal; transform: translateX(calc(-100% - 0.12em)); }
 .line.bgm .bgv { width: max-content; padding: 0; white-space: nowrap; }
 .bgv .w::after, .bgv .w > .b { font-weight: 700; }
-.line.active .bgv .w.now { transform: scale(1.08); }
+.line.active .bgv .w.now { transform: scale(min(1.08, var(--pop-max, 1.08))); }
 
 /* syllables (Apple words timed in several spans): the whole word lights up as above, but only the
    syllable being sung pops (GPU transform, so the line never reflows). They live in the bold copy.
@@ -104,14 +104,19 @@
 /* a word that is no longer sung hides its bold copy at once, so its syllables settle without an animation */
 .w:not(.now) .s, .w:not(.now) .sg { transition: none; }
 .line.active .w.hs.now, .line.active .bgv .w.hs.now { transform: none; }
+/* the pop's room (Marcy 2026-10-18): every pop scale in this file (word, backing word, syllable, held
+   note) is min(its own, --pop-max). lyrics-view.js popRoom sets --pop-max only on a word (or syllable)
+   whose growth would bring it closer than 0.28em to its neighbours on both sides, measured once per
+   layout; everywhere else it is unset and the pop is exactly as before. Its transform-origin moves
+   first (inline, as the row-edge origins do). */
 /* a held note (0.15.34): after the pop, the word (or its held last syllable) settles into a gentle
    sustained lift for as long as the voice holds; it stays lit and glowing, one ease, no repeat */
-.line.active .w.now.hold:not(.hs) { transform: scale(1.05); transition: transform 0.6s ease-out, opacity 0.25s ease; }
-.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(1.05); filter: drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out; }
+.line.active .w.now.hold:not(.hs) { transform: scale(min(1.05, var(--pop-max, 1.05))); transition: transform 0.6s ease-out, opacity 0.25s ease; }
+.line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(min(1.05, var(--pop-max, 1.05))); filter: drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out; }
 .line.active .w.now.hold .s.now > .sg { filter: brightness(1.25); transition: filter 0.6s ease-out; }
-.line.active .w.now .s.now { transform: translateY(-0.24em) scale(1.12); filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
+.line.active .w.now .s.now { transform: translateY(-0.24em) scale(min(1.12, var(--pop-max, 1.12))); filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
 .line.active .w.now .s.now > .sg { filter: brightness(1.5); }
-.line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(1.08); filter: none; }
+.line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(min(1.08, var(--pop-max, 1.08))); filter: none; }
 .line.active .bgv .w.now .s.now > .sg { filter: brightness(1.35); }
 
 /* interlude countdown: three dots in place of the next line. The row opens and closes at once (the

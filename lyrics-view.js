@@ -305,6 +305,47 @@ function backingOffset(box) {
   return { start: r(x), end: 0 }
 }
 
+// The pop's room (Marcy 2026-10-18: a long popped word ate the space after it, "amends,that's", "predic|table"
+// crowding "it's"). The pop itself is unchanged (lyrics-view.css: scale, lift, timing, overshoot, the held
+// note's 1.05); only where a word's growth would bring its ink closer than POP_GAP to a neighbour's does it
+// change: first its transform-origin moves (the growth goes to the side with room: a row's outer edge is
+// free), and only when both sides are short of room is its scale capped (--pop-max, lyrics-view.css). Short
+// words and words with room keep exactly today's numbers. Measured once per layout (popRoom in the view).
+const POP_GAP = 0.28       // em of the row's text: the clear gap a popped word always leaves (a space between words at rest is ~0.43em)
+const POP = { word: 1.1, bgWord: 1.08, syl: 1.12, bgSyl: 1.08 }   // = lyrics-view.css's pop scales (test/pop-room.test.js)
+// the syllable pop's overshoot (lyrics-view.css cubic-bezier(.3,1.6,.5,1)): it peaks at 1.111 of its growth
+const SYL_OVERSHOOT = 1.111
+
+/**
+ * Where one popping element may grow: null when its pop fits as it is (today's origin and scale), else
+ * { ox, max }: its new transform-origin x (0..1 of its box) and the scale it may reach (≤ its own; the
+ * CSS takes min(scale, max)). p: { inkL, inkR (px: its ink at rest), boxL, boxW (px: the box its origin is
+ * relative to), ox (0..1: today's origin), scale (its pop's peak scale, overshoot included), k (that peak's
+ * growth over the CSS value's: SYL_OVERSHOOT or 1), prev, next (px: the neighbours' ink edges at rest; null:
+ * nothing there, a row's edge or a hyphen joint, which touches as written), gap (px) }.
+ */
+function popFit(p) {
+  const P = p.prev == null ? -Infinity : p.prev + p.gap
+  const N = p.next == null ? Infinity : p.next - p.gap
+  const s = p.scale
+  const o0 = p.boxL + p.ox * p.boxW
+  const left = (o, k) => o + k * (p.inkL - o)
+  const right = (o, k) => o + k * (p.inkR - o)
+  const EPS = 0.01
+  if (left(o0, s) >= P - EPS && right(o0, s) <= N + EPS) return null
+  const w = p.inkR - p.inkL
+  // the largest scale whose ink fits between P and N (no less than 1: the word at rest is where it is)
+  const sc = Math.max(1, Math.min(s, w > 0 ? (N - P) / w : s))
+  if (sc <= 1 + 1e-6) return { ox: p.ox, max: 1 }
+  // the origins that keep both edges inside at sc: o <= hi (left edge), o >= lo (right edge); the nearest to today's
+  const hi = (sc * p.inkL - P) / (sc - 1)
+  const lo = (sc * p.inkR - N) / (sc - 1)
+  const o = Math.min(hi, Math.max(lo, o0))
+  const ox = Math.round((o - p.boxL) / p.boxW * 1000) / 1000
+  const max = sc >= s ? null : Math.floor((1 + (sc - 1) / (p.k || 1)) * 1000) / 1000
+  return { ox, max }
+}
+
 const BREATHE = 2.6       // rad/s: the countdown row's gentle breathe, 1 + 0.06 sin(2.6 t), t = song time
 const DOT_STEP = Math.PI / BREATHE / 4   // s between breathe keyframes (8 per breath; linear in between)
 
@@ -757,7 +798,7 @@ function createLyricsView(opts) {
   // lifetime: OK — one resize listener per view; views live as long as their window (the row edges change)
   doc.defaultView.addEventListener('resize', () => {
     // loop: NOT-WORTH — the song's lines, once per resize
-    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; e.bgKey = null }
+    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; delete e.words.fit; delete e.bg.fit; e.bgKey = null }
     // the backing rows again, once per frame of a resize (rows wrap differently)
     // lifetime: OK — at most one pending frame (bgFrame), cleared when it runs
     if (!bgFrame) bgFrame = requestAnimationFrame(() => { bgFrame = 0; placeBacking() })
@@ -770,6 +811,77 @@ function createLyricsView(opts) {
     if (origin === '0% 65%') return j === 0 ? origin : ''
     if (origin === '100% 65%') return j === span.syl.length - 1 ? origin : ''
     return ''
+  }
+
+  // The pop's room (popFit): each word's (or, with syllables, each syllable's) origin and scale cap, from
+  // the row's layout, measured once when the line first lights and kept until the layout changes (a resize,
+  // recenter, new lyrics: the same lifetime as the edge origins); never per frame. -> [{ word, syl: [] }]: the
+  // origins paintWords sets (today's edge origins where the pop fits). The caps are written here, once, as
+  // --pop-max on the element that scales: the word, or its syllables (never both: the property inherits).
+  function popRoom(spans, side) {
+    if (spans.fit) return spans.fit
+    const row = spans[0].parentElement
+    // not laid out (a hidden window): today's origins, measured when it is
+    // loop: NOT-WORTH — one line's words, per word change only while its window has no layout
+    if (!row.offsetWidth) return spans.map((sp, i) => { const edge = stage ? '' : edgeOrigin(spans, i, side); return { word: edge, syl: sp.syl ? sp.syl.map((_, j) => stage ? '' : sylOrigin(sp, j, edge)) : null } })
+    const bgRow = row.classList.contains('bgv')
+    const gap = POP_GAP * (parseFloat(doc.defaultView.getComputedStyle(row).fontSize) || 0)
+    const tops = spans.map((sp) => sp.offsetTop)
+    // an element's [left, right] in px from the row's left edge, in layout px: from its rect (sub-pixel; whole-pixel
+    // offsets put the gaps 1-2 px off) unless something scales it now (a pop, a held note), then from its offsets
+    const base = row.getBoundingClientRect()
+    const ra = row.offsetWidth ? base.width / row.offsetWidth : 1
+    const rowX = xOf(row)
+    const at = (el) => {
+      const r = el.getBoundingClientRect()
+      const w = el.offsetWidth
+      if (w && Math.abs(r.width / ra / w - 1) < 0.01) return [(r.left - base.left) / ra, (r.right - base.left) / ra]
+      const l = xOf(el) - rowX
+      return [l, l + w]
+    }
+    // the sung bold copy's ink: the word's box, except a joined piece's (.gj/.gn: its copy is centred over a
+    // narrower box), read from its text's rect in the copy's own scale
+    const bold = (sp) => {
+      if (!sp.classList.contains('gj') && !sp.classList.contains('gn')) return at(sp)
+      const b = sp.children[1]
+      const [bl, br] = at(b)
+      const range = doc.createRange()
+      range.selectNodeContents(b)
+      const t = range.getBoundingClientRect()
+      const box = b.getBoundingClientRect()
+      const f = box.width ? (br - bl) / box.width : 1
+      return [bl + (t.left - box.left) * f, bl + (t.right - box.left) * f]
+    }
+    const oxOf = (origin) => origin.startsWith('0%') ? 0 : origin.startsWith('100%') ? 1 : 0.5
+    const pct = (ox, y) => +(ox * 100).toFixed(1) + '% ' + y
+    const cap = (el, f) => { if (f && f.max) el.style.setProperty('--pop-max', String(f.max)); else el.style.removeProperty('--pop-max') }
+    // loop: NOT-WORTH — one line's words (~5-12) and their syllables, once per line per layout
+    spans.fit = spans.map((sp, i) => {
+      const edge = stage ? '' : edgeOrigin(spans, i, side)
+      // the neighbours' regular text (what they show); none at a row's edge or a hyphen joint (it touches as written)
+      const prev = i > 0 && tops[i - 1] === tops[i] && !sp.classList.contains('gj') ? at(spans[i - 1].children[0])[1] : null
+      const next = i + 1 < spans.length && tops[i + 1] === tops[i] && !sp.classList.contains('gn') ? at(spans[i + 1].children[0])[0] : null
+      if (!sp.syl) {
+        const [inkL, inkR] = bold(sp)
+        const [boxL, boxR] = at(sp)
+        const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale: bgRow ? POP.bgWord : POP.word, k: 1, prev, next, gap })
+        cap(sp, f)
+        return { word: f ? pct(f.ox, '65%') : edge, syl: null }
+      }
+      // syllables: the first and last meet the neighbours; the ones inside a word grow into their own word, as today
+      const last = sp.syl.length - 1
+      return {
+        word: edge,
+        syl: sp.syl.map((el, j) => {
+          const own = stage ? '' : sylOrigin(sp, j, edge)
+          const [l, r] = at(el)
+          const f = popFit({ inkL: l, inkR: r, boxL: l, boxW: r - l, ox: oxOf(own), scale: 1 + ((bgRow ? POP.bgSyl : POP.syl) - 1) * SYL_OVERSHOOT, k: SYL_OVERSHOOT, prev: j === 0 ? prev : null, next: j === last ? next : null, gap })
+          cap(el, f)
+          return f ? pct(f.ox, own ? '65%' : '80%') : own
+        })
+      }
+    })
+    return spans.fit
   }
 
   // word and syllable classes for one line's words; only touches the DOM when the position changed
@@ -785,14 +897,14 @@ function createLyricsView(opts) {
     }
     if (pos.now >= 0) {
       const span = spans[pos.now]
-      const origin = stage ? '' : edgeOrigin(spans, pos.now, side)
+      const fit = popRoom(spans, side)[pos.now]   // once per line per layout (cached)
       if (span.syl) {
         if (pos.syl >= 0) {
           span.syl[pos.syl].classList.add('now')
-          if (!stage) span.syl[pos.syl].style.transformOrigin = sylOrigin(span, pos.syl, origin)
+          span.syl[pos.syl].style.transformOrigin = fit.syl[pos.syl]
         }
       }
-      else if (!stage) span.style.transformOrigin = origin
+      else span.style.transformOrigin = fit.word
     }
     // loop: HOT-PATH-OK — one line's words (~5-12) per word/syllable change (returns above when nothing moved)
     for (let i = 0; i < spans.length; i++) {
@@ -1041,7 +1153,7 @@ function createLyricsView(opts) {
     scrollTarget = null
     if (roomEl && opts.onRoom) opts.onRoom(roomEl)
     // loop: NOT-WORTH — the song's lines, once per layout change
-    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; e.bgKey = null }
+    for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; delete e.words.fit; delete e.bg.fit; e.bgKey = null }
     placeBacking()
     if (clock && lines.length) render(T.clockTime(clock, performance.now()))
   }
@@ -1061,4 +1173,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, statusText, versionNote, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, POP, POP_GAP, SYL_OVERSHOOT, popFit, statusText, versionNote, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }

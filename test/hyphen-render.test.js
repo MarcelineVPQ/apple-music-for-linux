@@ -156,6 +156,6 @@ test('lyrics-view.css: the joint has no word gap or bold-width slack; the pop ru
   // the joint rules touch no transform, transition or animation: the pop is the same for joined pieces
   const joint = css.split('\n').filter((l) => /\.g[jn]\b/.test(l)).join('\n')
   assert.doesNotMatch(joint, /transform|transition|animation|scale/)
-  assert.match(css, /\.line\.active \.w\.now \{[^}]*transform: scale\(1\.1\);/)
-  assert.match(css, /\.line\.active \.w\.now \.s\.now \{ transform: translateY\(-0\.24em\) scale\(1\.12\);/)
+  assert.match(css, /\.line\.active \.w\.now \{[^}]*transform: scale\(min\(1\.1, var\(--pop-max, 1\.1\)\)\);/)
+  assert.match(css, /\.line\.active \.w\.now \.s\.now \{ transform: translateY\(-0\.24em\) scale\(min\(1\.12, var\(--pop-max, 1\.12\)\)\);/)
 })
