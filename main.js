@@ -13,6 +13,7 @@ const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
 const notesLogLib = require('./notes-log')
 const sheetModel = require('./sheet-notes-model')
+const lyricsTiming = require('./lyrics-timing')
 const sheetStoreLib = require('./sheet-notes-store')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
@@ -740,13 +741,15 @@ function getSheetStore() {
   return sheetStore
 }
 // the song on screen changed (lyricsTick): its cached notes, if these lyrics have them
-function setSheetSong(key, title, artist, lines, prep, instrumental) {
+// shown: the lines as the lyrics view gets them (their words: aligned or estimated): where someone sings,
+// so the band can say "no singing here" in a break (sheet-notes-model.js lyricSpans)
+function setSheetSong(key, title, artist, lines, prep, instrumental, shown) {
   const hash = alignSessionLib.lyricsHash(lines || [])
   const timed = !!(lines && lines.length && lines[0].t != null)
   // end: where the lyrics end on the align session's own reckoning (lyricSpan): past it the first play's band
   // has nothing left to hear, so "Listening and learning" stops (sheet-notes-model.js listening())
   const span = timed ? alignSessionLib.lyricSpan(lines) : null
-  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, instrumental: instrumental || '', error: '', end: span ? Math.round(span.end * 10) / 10 : 0 }
+  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, instrumental: instrumental || '', error: '', end: span ? Math.round(span.end * 10) / 10 : 0, sung: timed ? sheetModel.lyricSpans(shown || lines, lyricsTiming.lineEnd) : [] }
   // (lyrics with their own word timing too: their notes are worked out on those times, align-session.js)
   if (settings.sheetNotes && title && timed) {
     const e = getSheetStore().get(title, artist)
@@ -770,7 +773,7 @@ function sendSheet() {
   sheetSent = json
   // the notes ride along only when they changed (another song, new notes), the pitch pieces when one came
   const extra = {}
-  if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) extra.entry = sheet.entry
+  if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) { extra.entry = sheet.entry; extra.sung = sheet.sung }
   if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
   lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
 }
@@ -957,7 +960,7 @@ async function lyricsTick() {
     const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry, instrumental: got.instrumental || null }
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
     sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
-    setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '')
+    setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''

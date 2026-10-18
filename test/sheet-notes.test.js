@@ -663,3 +663,74 @@ test('listening: the band shows it in the label row and on the staff at the play
     }
   }
 })
+
+// --- the label matches the staff (Marcy 0.15.49, Mad Season "Wake Up (Live At the Moore)", second play, 4:50
+// in a vocal break: "Notes · A minor · pitch line here: notes unsure" over an empty staff) ---
+
+test('labelAt: an empty window says "no singing here"; the pitch-line clause only with a run in view', () => {
+  const m = { band: 'notes', label: 'Notes · A minor', text: '', info: '' }
+  const lineRegion = { t0: 261, t1: 331, show: 'line', line: null }
+  const T = require('../lyrics-timing')
+  // a break: the playhead's stretch is a 'line' one (stray voicing in the gap), but nothing is drawn or sung in view
+  const notes = [{ t: 250, end: 251 }]
+  const runs = [[[300.5, 3], [300.9, 4]]]
+  const sung = M.lyricSpans([{ t: 244.12, end: 249.35, text: 'Yeah-oh, oh-oh-oh-oh' }, { t: 254.15, end: 261, text: 'Yeah-oh, oh-oh-oh-oh' }, { t: 331.78, end: 336.17, text: 'Wake up, young man' }], T.lineEnd)
+  assert.deepEqual(sung, [[244.12, 249.35], [254.15, 261], [331.78, 336.17]])
+  const sp = M.staffSpans(notes, runs, [], sung)
+  const view = { width: 600, gutter: 60, pps: 110, headAt: 0.3, paged: false }
+  const at = (t) => M.labelAt(m, lineRegion, M.seenIn(sp, M.viewWindow(t, view)))
+  assert.equal(at(290), 'Notes · A minor · no singing here')
+  assert.ok(at(290).length <= M.TEXT_MAX)
+  assert.equal(M.QUIET.text, 'no singing here')
+  assert.ok(M.QUIET.info.length > 0)
+  // a pitch-line run in view: the clause is back
+  assert.equal(at(300), 'Notes · A minor · pitch line here: notes unsure')
+  // the lyrics' last line still in view (its end within the window behind the playhead): not quiet
+  assert.equal(at(261.5), 'Notes · A minor · notes unsure here')
+  // past the lyrics' end: quiet
+  assert.equal(at(400), 'Notes · A minor · no singing here')
+  // a sung stretch with notes: the plain label
+  assert.equal(M.labelAt(m, { show: 'notes' }, M.seenIn(sp, M.viewWindow(250.5, view))), 'Notes · A minor')
+  // a stretch whose notes are unsure and with no line drawn, while sung: says so (not "no singing")
+  assert.equal(M.labelAt(m, { show: 'none' }, M.seenIn(sp, M.viewWindow(246, view))), 'Notes · A minor · notes unsure here')
+  // the first play's band (line), a message ("Instrumental") and Listening and learning are untouched
+  const line = M.mode({ on: true, installed: true, precise: true, timed: true, pitch: [] })
+  assert.equal(M.labelAt(line, lineRegion, { sung: false, notes: false, line: false }), 'First play · pitch line')
+  const inst = M.mode({ on: true, instrumental: 'title' })
+  assert.equal(inst.text, 'Instrumental')
+  assert.equal(M.labelAt(inst, null, { sung: false, notes: false, line: false }), '')
+  assert.equal(M.listening(line, [], 290, 400), M.LISTENING)
+})
+
+test('viewWindow / seenIn / nextSeen: the window the staff shows and when what is in it changes', () => {
+  const v = { width: 600, gutter: 60, pps: 110, headAt: 0.3, paged: false }
+  const w = M.viewWindow(100, v)
+  // the playhead sits 0.3 across the box: (180 - 60) / 110 s behind it, the rest of the staff ahead
+  assert.ok(Math.abs(w.a - (100 - 120 / 110)) < 1e-9 && Math.abs(w.b - w.a - 540 / 110) < 1e-9)
+  const paged = M.viewWindow(12, Object.assign({}, v, { paged: true }))
+  assert.ok(paged.a <= 12 && paged.b > 12 && Math.abs(paged.b - paged.a - 540 / 110) < 1e-9)
+  const sp = M.staffSpans([], [], [{ t: 110, end: 111 }], [])
+  assert.deepEqual(M.seenIn(sp, w), { sung: false, notes: false, line: false })
+  // the syllable at 110 enters the window when its end edge reaches 110
+  const next = M.nextSeen(sp, 100, w, false)
+  assert.ok(Math.abs(next - (110 - (w.b - 100))) < 1e-9)
+  assert.equal(M.seenIn(sp, M.viewWindow(next + 0.01, v)).sung, true)
+  // ... and leaves it once its end has passed the window's start
+  const gone = M.nextSeen(sp, 111, M.viewWindow(111, v), false)
+  assert.ok(Math.abs(gone - (111 + 120 / 110)) < 1e-9)
+  assert.equal(M.seenIn(sp, M.viewWindow(gone + 0.01, v)).sung, false)
+  assert.equal(M.nextSeen(sp, 12, paged, true), paged.b)
+  // merged spans: overlapping syllables and notes make one
+  assert.deepEqual(M.staffSpans([{ t: 1, end: 2 }], [], [{ t: 1.5, end: 3 }, { t: 5, end: 6 }]).sung, [[1, 3], [5, 6]])
+})
+
+test('wiring: main sends the lyric lines\' sung spans; the band labels from what is in view', () => {
+  const main = read('main.js')
+  assert.match(main, /sung: timed \? sheetModel\.lyricSpans\(shown \|\| lines, lyricsTiming\.lineEnd\)/)
+  assert.match(main, /extra\.sung = sheet\.sung/)
+  const ui = read('sheet-notes-ui.js')
+  assert.match(ui, /M\.labelAt\(m, M\.regionAt\(gated && gated\.regions, t\), seen\)/)
+  assert.match(ui, /M\.staffSpans\(drawn\.notes, drawn\.runs, doc2\.syllables, sung\)/)
+  assert.match(ui, /M\.nextSeen\(/)
+  assert.match(ui, /M\.QUIET\.info/)
+})
