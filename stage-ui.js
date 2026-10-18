@@ -75,6 +75,7 @@ function createStage(opts) {
   let bandNode = null     // the sheet-notes band's content (sheet-notes-ui.js), set once by the page
   let sheetOn = false     // Settings' "Sheet notes in the Studio" (Experimental), as main last said
   let sheetMsg = false    // the band holds only a one-line message (nothing to draw for this song)
+  let sheetOver = false   // "Over the sung line": the staff rides in the lyrics, the band row stays empty
   let linerNone = ''      // the album (albumKey) the Liner notes tile found no booklet for: it says so until the album changes
   const albumKey = () => (np ? (np.album || '') + '|' + (np.artist || '') : '|')
 
@@ -202,7 +203,7 @@ function createStage(opts) {
     el.tNotes.querySelector('small').textContent = sheetOn ? 'Experimental' : 'Off'
     el.tNotes.title = sheetOn ? 'Sheet notes are on (Experimental): click to fold the band away' : 'The sung melody as notes above the lyrics, in sync (Experimental): click to turn on'
     const was = el.band.hidden
-    el.band.hidden = !(has && sheetOn)
+    el.band.hidden = !(has && sheetOn) || sheetOver
     el.band.classList.toggle('msg', sheetMsg)
     el.layers.hidden = el.tNotes.hidden && el.tMontage.hidden && el.tLiner.hidden
     return was !== el.band.hidden
@@ -214,11 +215,13 @@ function createStage(opts) {
     showBand()
     if (opts.onLayout) opts.onLayout()
   }
-  // main's word on the switch (on) and whether the band holds only a message (msg)
-  function setSheet(on, msg) {
-    const changed = sheetOn !== !!on || sheetMsg !== !!msg
+  // main's word on the switch (on), whether the band holds only a message (msg), and whether the staff
+  // rides over the sung line instead (over: the page moved it into the lyrics)
+  function setSheet(on, msg, over) {
+    const changed = sheetOn !== !!on || sheetMsg !== !!msg || sheetOver !== !!over
     sheetOn = !!on
     sheetMsg = !!msg
+    sheetOver = !!over
     showBand()
     if (changed && opts.onLayout) opts.onLayout()
   }

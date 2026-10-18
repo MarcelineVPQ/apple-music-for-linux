@@ -734,8 +734,8 @@ function sendSheet() {
   const st = on && sheet ? {
     on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, aligned: sheet.aligned,
     paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length,
-    entryAt: sheet.entry ? sheet.entry.created || '1' : ''
-  } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming }
+    entryAt: sheet.entry ? sheet.entry.created || '1' : '', place: settings.sheetPlace
+  } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
   const json = JSON.stringify(st)
   if (json === sheetSent) return
   const was = sheetSent ? JSON.parse(sheetSent) : {}
@@ -1107,6 +1107,7 @@ ipcMain.on('stage-command', (event, command, value) => {
     run(stagePlayScript(c.value.index, c.value.id), 'play').then((ok) => { if (!ok) { stageQueueSig = ''; stageQueueKey = '' } })
   }
   else if (c.command === 'sheet-notes') setSetting('sheetNotes', c.value)   // the Studio's Sheet notes tile: the same switch as Settings
+  else if (c.command === 'sheet-place') setSetting('sheetPlace', c.value)   // the band's placement buttons: the same setting as Settings
   else if (c.command === 'liner-notes' && linerNotesReady()) {
     // the booklet of the album the stage shows; the tile says so when no album matched
     const s = lastStage()
@@ -2208,7 +2209,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts']
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
   if (key === 'setlistfmKey') {
@@ -2269,6 +2270,7 @@ function setSetting(key, value) {
     else if (key === 'sungNotesLog' || key === 'sheetNotes') notesStatusText = ''
     if (key === 'sheetNotes' || key === 'lyricsPreciseTiming') { lyricsKey = null; sendSheet() }   // the song again, with or without its notes
   }
+  else if (key === 'sheetPlace') sendSheet()   // the band or over the sung line: the page moves the staff
   else if (key === 'alignGamingPause') {
     if (!value && gameGuard) gameGuard.reset()    // off: resume now
     sendAlignNote()

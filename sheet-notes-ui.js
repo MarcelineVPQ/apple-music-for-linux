@@ -18,6 +18,7 @@ const SVG = 'http://www.w3.org/2000/svg'
 const H = 6                    // half a staff space, px (a staff space is 12 px)
 const BASE = 92                // y of the staff's bottom line in the band's staff box, px
 const SYL_Y = 120              // the syllables' baseline (lyrics.html .sn-syls .s: top 108 px, 12 px type)
+const PLACES = [['band', 'Band on top', 'The staff in a band above the lyrics'], ['over', 'Over the sung line', 'The staff rides just above the line being sung']]
 const SYL_EM = 6.6             // px per letter of a syllable (12 px semibold), to keep syllables apart
 const STAFF_H = 132            // the staff box's height (the 18 px label row is above it; the band is 150 px)
 const PPS = { notes: 110, line: 36 }        // px per second: the staff; the first play's wider view of what was heard
@@ -66,13 +67,28 @@ const ACC_NAME = { [M.SHARP]: 'sharp', [M.FLAT]: 'flat', '♮': 'natural', '𝄪
 function createSheetBand(opts) {
   const doc = opts.doc
   const root = el(doc, 'div', 'sn')
-  root.setAttribute('aria-hidden', 'true')          // the band's words are in #band's aria-label
   const top = el(doc, 'div', 'sn-top', root)
   const exp = el(doc, 'span', 'sn-exp', top)
   exp.textContent = 'Experimental'
   const label = el(doc, 'span', 'sn-label', top)
   const msg = el(doc, 'span', 'sn-msg', top)
+  // where the staff sits (Settings → Precise timing → Sheet notes placement, remembered): two buttons,
+  // shown while there is something to draw
+  const placeSeg = el(doc, 'span', 'sn-place', top)
+  placeSeg.setAttribute('role', 'group')
+  placeSeg.setAttribute('aria-label', 'Staff placement')
+  const placeBtns = PLACES.map(([value, text, tip]) => {
+    const b = el(doc, 'button', '', placeSeg)
+    b.type = 'button'
+    b.textContent = text
+    b.title = tip
+    b.dataset.place = value
+    // lifetime: OK — two click handlers, set once with the band, released with the window
+    b.onclick = () => { if (st.place !== value && opts.onPlace) opts.onPlace(value) }
+    return b
+  })
   const box = el(doc, 'div', 'sn-staff', root)
+  box.setAttribute('aria-hidden', 'true')           // the drawing; what it shows is in the band's aria-label
   const fixed = sv(doc, 'svg', { class: 'sn-fixed', height: STAFF_H }, box)
   const view = el(doc, 'div', 'sn-view', box)
   const strip = el(doc, 'div', 'sn-strip', view)
@@ -269,6 +285,12 @@ function createSheetBand(opts) {
     lay = doc2 ? M.layout(doc2, gated) : null
     m = M.mode(Object.assign({}, s, { doc: doc2, gate: gated, pitch: pieces }))
     root.dataset.mode = m.band
+    const drawn = m.band === 'notes' || m.band === 'line'
+    const place = s.place === 'over' ? 'over' : 'band'
+    root.classList.toggle('over', drawn && place === 'over')
+    placeSeg.hidden = !drawn
+    // loop: NOT-WORTH — two buttons, per state push
+    for (const b of placeBtns) b.setAttribute('aria-pressed', String(b.dataset.place === place))
     label.textContent = m.label
     msg.textContent = m.text
     msg.hidden = !m.text
@@ -298,10 +320,12 @@ function createSheetBand(opts) {
     // the layout changed (window resize, the band shown): the playhead and the strip from the clock again
     relayout() { stopAnim(); page = -1; setTime() },
     get mode() { return m.band },
+    // the room the sung line opens for the staff: only "Over the sung line" with something to draw
+    get room() { return M.placement(st, m.band, true).room },
     get on() { return !!st.on },
     // for the UI checker: what is drawn and running
-    debug() { return { mode: m.band, label: label.textContent, msg: msg.textContent, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
+    debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
   }
 }
 
-module.exports = { createSheetBand, PPS, HEAD_AT, BASE, H }
+module.exports = { createSheetBand, PPS, HEAD_AT, BASE, H, PLACES }

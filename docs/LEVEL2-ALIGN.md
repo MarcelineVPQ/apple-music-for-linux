@@ -289,6 +289,16 @@ under a melisma; notes without a syllable drawn dim), bar lines when beats exist
 model in the helper), a playhead at 30 %. The clefs and accidentals are Noto Music outlines
 (sheet-notes-glyphs.js, SIL OFL 1.1, licenses/NotoMusic-OFL.txt), so they look the same on every system.
 
+**Placement** (Settings → Sheet notes placement, remembered; the band's two buttons switch it;
+`placement()`): **Band on top** (the band under the Studio's header) or **Over the sung line**: the sung
+line (or the countdown standing for it) opens 136 px of room above itself (lyrics-view.js `opts.room`:
+class `.room`, a transparent top border, so no other line's text moves into it; the lines in view slide
+to their new places by FLIP on the compositor), and the staff (label row with the buttons, the staff
+without its syllable row: the words are right below) sits in that room, inside the lyrics list so it
+scrolls with the lines, moving to the next line by one 300 ms transform animation (none with reduced
+motion). The sung line, room and all, is centred on the engine's anchor (a third of the way down). A
+message (nothing to draw) always stays in the band.
+
 **Honest confidence** (`gate()`): a note's `cents` is how far it sits from the nearest semitone in the
 song's own tuning. Sung melody clusters near the grid; rap and speech spread evenly (median ≈ 25).
 Each lyric line (and the notes between lines) is judged on its notes, pooled with those within 4 s

@@ -1000,7 +1000,7 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   await send('lyrics-sheet', Object.assign({}, base, { aligned: false, pieces: fx.pieces.length, entryAt: '', entry: null, pitch: fx.pieces }))
   await send('lyrics-time', T, false); await sleep(700)
   const first = await band()
-  check('sheet notes, first play: the pitch line in the band above the words, labelled', !first.hidden && first.d.mode === 'line' && first.d.paths > 0 && /First play · pitch line/.test(first.label) && first.h === 150 && first.linesTop > off0.linesTop + 100, first)
+  check('sheet notes, first play: the pitch line in the band above the words, labelled', !first.hidden && first.d.mode === 'line' && first.d.paths > 0 && /First play · pitch line/.test(first.label) && first.h === 158 && first.linesTop > off0.linesTop + 100, first)
   for (const dark of [false, true]) {
     await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
     await send('lyrics-time', T, false); await sleep(400)
@@ -1104,6 +1104,9 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   const moved = (s) => { const m = /matrix\([^)]*?(-?[\d.]+), 0\) \(5 s before: matrix\([^)]*?(-?[\d.]+), 0\)\)/.exec(s); return m ? +m[2] - +m[1] : 0 }
   check('sheet notes, playing: the strip moves by its compositor animation (about 110 px/s), with no layout of its own per frame', on.band.anim === 'running' && Math.abs(moved(on.transform) - 550) < 60 && on.layouts - offRun.layouts <= 12, { on, off: offRun, moved: moved(on.transform) })
 
+  // --- placement "Over the sung line": the staff rides in the room the sung line opens above itself ---
+  await sheetOverStep(mp, page, send, W, H, stageLog, fx, base)
+
   // nothing to draw for this song: one line says why (never an empty box)
   await send('lyrics-sheet', Object.assign({}, base, { wordSynced: true, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
   await sleep(500)
@@ -1117,6 +1120,100 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   const off = await band()
   check('sheet notes: the tile turns it off again: the band folds away, the lyrics move up', l.length === 1 && l[0][1] === false && (await mp.ev(settingsFile)).sheetNotes === false && off.hidden && off.tile === 'false' && off.linesTop === off0.linesTop, { l, off, off0 })
   await send('lyrics-time', T0, false); await sleep(300)
+}
+
+// "Over the sung line" (0.15.42): the band's buttons switch the placement (the setting follows); in the
+// Studio the sung line opens room above itself and the staff sits in it: inside the room, over no other
+// line's text, moving to the next line on a line change (one transform animation; none with reduced
+// motion); contrast of its words (4.5:1), buttons (24 px) and graphics (3:1) in all 8 themes with
+// screenshots; 0 frames paused; back to Band on top: the room goes.
+async function sheetOverStep(mp, page, send, W, H, stageLog, fx, base) {
+  const TL = 41.6      // Clementine's line 9 ("Light she was and like a fairy"), inside the fixture's notes
+  const TL2 = 44.7     // line 10
+  const geo = () => page.ev(`(() => {
+    const o = document.getElementById('sn-over'); const ob = o && !o.hidden ? o.getBoundingClientRect() : null
+    const lines = [...document.querySelectorAll('#lines .line')]
+    const txt = (l) => { const r = l.getBoundingClientRect(); const room = l.classList.contains('room') ? parseFloat(getComputedStyle(l).borderTopWidth) : 0; return { top: r.top + room, bottom: r.bottom, i: lines.indexOf(l) } }
+    const act = document.querySelector('#lines .line.active')
+    const rooms = lines.filter((l) => l.classList.contains('room')).map((l) => lines.indexOf(l))
+    const box = (r) => r && [Math.round(r.top), Math.round(r.bottom)]
+    const overlaps = ob ? lines.map(txt).filter((t) => t.bottom > ob.top + 1 && t.top < ob.bottom - 1).map((t) => t.i) : []
+    const at = act ? txt(act) : null
+    return { shown: !!ob, over: box(ob), active: act ? lines.indexOf(act) : -1, activeText: at && [Math.round(at.top), Math.round(at.bottom)], rooms, overlaps,
+      inRoom: !!(ob && act && ob.top >= act.getBoundingClientRect().top - 1 && ob.bottom <= at.top + 1), band: document.getElementById('band').hidden,
+      pressed: [...document.querySelectorAll('.sn-place button')].filter((b) => b.offsetParent).map((b) => b.dataset.place + ':' + b.getAttribute('aria-pressed')),
+      anims: o ? o.getAnimations().length : 0, d: sheetBand.debug() } })()`)
+  // the band back on with the notes (the cost check above ended with it off)
+  await send('lyrics-sheet', Object.assign({}, base, { aligned: true, pieces: 0, entryAt: 'fixture', entry: fx.entry, pitch: [], place: 'band' }))
+  await send('lyrics-time', TL, false); await sleep(600)
+  await stageLog()
+  const btn = (place) => page.ev(`(() => { const b = [...document.querySelectorAll('.sn-place button')].find((b) => b.dataset.place === ${JSON.stringify(place)} && b.offsetParent); if (!b) return false; b.click(); return true })()`)
+  const clicked = await btn('over'); await sleep(400)
+  const lo = await stageLog()
+  check('sheet notes: the band\'s "Over the sung line" button asks for that placement (Settings follows)', clicked && lo.some((c) => c[0] === 'sheet-place' && c[1] === 'over') && (await mp.ev(settingsFile)).sheetPlace === 'over', { clicked, lo })
+  const over = Object.assign({}, base, { aligned: true, pieces: 0, entryAt: 'fixture', entry: fx.entry, pitch: [], place: 'over' })
+  await send('lyrics-sheet', over); await send('lyrics-time', TL, false); await sleep(1200)
+  const g1 = await geo()
+  check('sheet notes, over the sung line: the staff sits in the room the sung line opens, over no other line\'s text; the band row is gone', g1.shown && g1.band && g1.d.place === 'over' && g1.rooms.length === 1 && g1.rooms[0] === g1.active && g1.inRoom && !g1.overlaps.length && g1.pressed.includes('over:true'), g1)
+  for (const dark of [false, true]) {
+    await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+    await send('lyrics-time', TL, false); await sleep(400)
+    xshot(path.join(OUT, 'sheet-notes-over-' + (dark ? 'dark' : 'light') + '.png'), W, H)
+  }
+  // a line change: the room and the staff move to the next line, cleanly
+  await send('lyrics-time', TL2, false); await sleep(900)
+  const g2 = await geo()
+  check('sheet notes, over the sung line: on a line change the room and the staff move to the new line (one room, no overlap)', g2.active === g1.active + 1 && g2.rooms.length === 1 && g2.rooms[0] === g2.active && g2.inRoom && !g2.overlaps.length, { g1, g2 })
+  // every theme: the label, the buttons, the staff over the lyrics
+  for (const adaptive of [true, false]) {
+    for (const glass of [true, false]) {
+      await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', adaptive)); await mp.ev(viewCommand('panel', 'set', 'glass', glass)); await sleep(700)
+      for (const dark of [false, true]) {
+        await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+        await send('lyrics-time', TL2, false); await sleep(400)
+        const tag = 'sheet-notes-over-' + (dark ? 'dark' : 'light') + (adaptive ? '-album' : '-plain') + (glass ? '-glass' : '')
+        xshot(path.join(OUT, tag + '.png'), W, H)
+        const a = await page.ev(PAGE_AUDIT('#card'))
+        const ob = await page.ev(`(() => { const r = document.getElementById('sn-over').getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom] })()`)
+        const inside = (r) => r[0] >= ob[0] - 1 && r[1] >= ob[1] - 1 && r[2] <= ob[2] + 1 && r[3] <= ob[3] + 1
+        const mine = a.texts.filter((t) => inside(t.rect))
+        const ctrls = a.controls.filter((c) => inside(c.rect))
+        judge(tag + ' staff over the line', Object.assign({}, a, { texts: mine, controls: ctrls }), { minHit: 24 })
+        const gr = await page.ev(`(() => { const b = document.getElementById('sn-over'); const c = (sel, p) => { const e = b.querySelector(sel); return e ? getComputedStyle(e)[p] : null }
+          return { staff: c('.sl', 'stroke'), clef: c('.gl.clef', 'fill'), head: c('.n:not(.now):not(.past) .head', 'fill'), past: c('.n.past .head', 'fill'), now: c('.n.now .head', 'fill'), playhead: getComputedStyle(b.querySelector('.sn-head')).backgroundColor } })()`)
+        const lab = mine.find((t) => /^sn-label/.test(String(t.cls || '')))
+        const layers = (lab ? lab.layers : []).map(parse).filter(Boolean)
+        const low = Object.entries(gr).filter(([, c]) => c).map(([k, c]) => [k, +worstOver(parse(c), layers, a.backdrop || [[255, 255, 255], [0, 0, 0]]).toFixed(2)]).filter(([, r]) => r < 3)
+        check(tag + ' staff over the line: graphics >= 3:1', !!lab && ctrls.length === 2 && !low.length, low.length ? low : { gr, ctrls: ctrls.length })
+      }
+    }
+  }
+  await mp.ev(viewCommand('panel', 'set', 'adaptiveColor', true)); await mp.ev(viewCommand('panel', 'set', 'glass', true)); await sleep(600)
+  // paused: nothing moves
+  let n = 0
+  let counting = true
+  page.c.on((m) => { if (counting && m.method === 'Page.screencastFrame') { n++; page.c.send('Page.screencastFrameAck', { sessionId: m.params.sessionId }).catch(() => {}) } })
+  x('move', 1500, 900); await sleep(600)
+  await page.c.send('Page.startScreencast', { format: 'jpeg', quality: 10, everyNthFrame: 1 })
+  await sleep(1000); n = 0; await sleep(4000)
+  await page.c.send('Page.stopScreencast')
+  counting = false
+  check('sheet notes, over the sung line, paused: 0 frames for 4 s', n === 0, { frames: n })
+  // reduced motion: the staff jumps to the next line (no animation), the lines don't slide
+  await emulateReduce(page, true); await send('lyrics-time', TL, false); await sleep(500)
+  await send('lyrics-time', TL2, false); await sleep(120)
+  const rm = await page.ev(`[document.getElementById('sn-over').getAnimations().length, [...document.querySelectorAll('#lines .line')].reduce((a, l) => a + l.getAnimations().filter((x) => x.playState === 'running').length, 0)]`)
+  const g3 = await geo()
+  check('sheet notes, over the sung line, reduced motion: no slide and no travel on a line change, and still in the room', rm[0] === 0 && rm[1] === 0 && g3.inRoom && !g3.overlaps.length, { rm, g3 })
+  await emulateReduce(page, false)
+  // back to Band on top: the room goes, the band is back
+  await stageLog()
+  const back = await btn('band'); await sleep(400)
+  const lb = await stageLog()
+  check('sheet notes: the "Band on top" button asks for it back', back && lb.some((c) => c[0] === 'sheet-place' && c[1] === 'band') && (await mp.ev(settingsFile)).sheetPlace === 'band', { back, lb })
+  await send('lyrics-sheet', Object.assign({}, over, { place: 'band' })); await send('lyrics-time', TL2, false); await sleep(900)
+  const g4 = await geo()
+  check('sheet notes, band on top again: no room in the lyrics, the staff in its band', !g4.shown && !g4.band && !g4.rooms.length && g4.d.place === 'band', g4)
 }
 const lyrWinOf = () => `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics'))`
 

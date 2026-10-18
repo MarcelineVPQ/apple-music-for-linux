@@ -261,8 +261,13 @@ function slideFrom(before, after, centre) {
 
 /**
  * createLyricsView({ container, layout: 'scroll' | 'stage', onSeek(t)?, onFrame(time)?,
- *   emptyText(data)? -> string|null, notes: bool, credits: bool, anchor?: number | () => number })
+ *   emptyText(data)? -> string|null, notes: bool, credits: bool, anchor?: number | () => number,
+ *   room?: () => px, onRoom?(el | null) })
  *   -> { setData, recenter, setTime, refine, align, time, playing }
+ * room (scroll layout; the Studio's sheet notes "Over the sung line", sheet-notes-ui.js): the sung line
+ * (or the countdown that stands for it) opens that many px of room above itself (.room, a transparent
+ * top border: no line's text moves into it); the lines around slide to their new places on the
+ * compositor (FLIP, as the countdown does), and onRoom(el) tells the page where the room is now.
  */
 function createLyricsView(opts) {
   const container = opts.container
@@ -294,6 +299,8 @@ function createLyricsView(opts) {
   let shownInterlude = -1
   let shownNext = -1        // stage: line currently .next
   let scrollTarget = null
+  let roomEl = null         // the element holding the room above itself (opts.room), or null
+  let roomPx = 0
   let clock = null
   let raf = 0
   let wake = 0
@@ -376,6 +383,8 @@ function createLyricsView(opts) {
     shownInterlude = -1
     shownNext = -1
     scrollTarget = null
+    if (roomEl && opts.onRoom) opts.onRoom(null)
+    roomEl = null
     roving = null
     stopFrames()
     if (data.lang) container.lang = data.lang
@@ -690,6 +699,10 @@ function createLyricsView(opts) {
     if (gi >= 0) syncDots(interludes[gi], time)
     if (!stage) {
       const target = gi >= 0 ? interludes[gi].el : (latest >= 0 ? lineEls[latest].el : null)
+      // the sheet notes' room above the sung line: moved before the scroll, so the scroll centres the line with its room
+      const px = opts.room ? Math.max(0, Math.round(opts.room() || 0)) : 0
+      const want = px > 0 ? target : null
+      if (want !== roomEl || (want && px !== roomPx)) { slides = (slides || []).concat(moveRoom(want, px)); scrollTarget = null }
       // the keyboard is choosing a line: the list stays where the keyboard is (a mouse click's
       // focus isn't :focus-visible, so pointer users keep the follow-along scroll); asked only when
       // the target changes (per line, not per word)
@@ -706,6 +719,20 @@ function createLyricsView(opts) {
   }
 
   const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }
+
+  // the room moves to `el` (or goes): one class and one custom property, measured before and after so the
+  // lines in view slide (FLIP, slideFrom) instead of jumping; -> the slides (render plays them)
+  function moveRoom(el, px) {
+    const around = still() ? [] : slideTargets(null)
+    const before = around.map((a) => rect(a.measure))
+    if (roomEl && roomEl !== el) roomEl.classList.remove('room')
+    if (el) { el.style.setProperty('--room', px + 'px'); el.classList.add('room') }
+    roomEl = el
+    roomPx = px
+    const out = slideFrom(before, around.map((a) => rect(a.measure)), null).map((s) => ({ el: around[s.i].move, dy: s.dy }))
+    if (opts.onRoom) opts.onRoom(el)
+    return out
+  }
 
   // what a dots row opening or closing moves: the stage's shown lines (their content, so the stage's
   // own lv-in animation keeps the line's transform), or the lyrics window's lines in view; and the
@@ -841,6 +868,7 @@ function createLyricsView(opts) {
   // again, as the page's font sizes changed (rows wrap differently)
   function recenter() {
     scrollTarget = null
+    if (roomEl && opts.onRoom) opts.onRoom(roomEl)
     // loop: NOT-WORTH — the song's lines, once per layout change
     for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; e.bgKey = null }
     placeBacking()

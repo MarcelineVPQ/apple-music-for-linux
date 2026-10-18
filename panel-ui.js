@@ -357,6 +357,8 @@
           { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
             desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (~/.config/apple-music-for-linux/sheet-notes/, at most 500 songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
               (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+        selectRow('sheetPlace', 'Sheet notes placement', 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.',
+          [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !v.alignInstalled || !v.sheetNotes }),
         textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : '')),
         // a developer tool for judging the sung notes on live tracks: Development channel only
         switchRow('sungNotesLog', 'Sung notes (developer log)', '',

@@ -267,7 +267,7 @@
   body.stage #credits { font-size: 13px; text-align: left; }
   body.stage #source { font-size: 12px; text-align: left; }
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
-  #band { margin: 6px 18px 8px 22px; height: 150px; position: relative; }
+  #band { margin: 6px 18px 8px 22px; height: 158px; position: relative; }
   /* the sheet-notes band (sheet-notes-ui.js, Experimental): the staff and the pitch line, theme tokens
      only. Nothing here transitions or animates: the strip moves by one Web Animation of its transform
      (compositor), the sung note changes class at its start and end. A one-line message when the song has
@@ -275,12 +275,26 @@
   #band.msg { height: auto; }
   .sn { position: absolute; inset: 0; }
   #band.msg .sn { position: static; }
-  .sn-top { display: flex; align-items: center; gap: 8px; height: 18px; font-size: 11px; font-weight: 600; color: var(--s-soft); white-space: nowrap; min-width: 0; }
+  .sn-top { display: flex; align-items: center; gap: 8px; height: 26px; font-size: 11px; font-weight: 600; color: var(--s-soft); white-space: nowrap; min-width: 0; }
   #band.msg .sn-top { height: auto; min-height: 18px; flex-wrap: wrap; white-space: normal; row-gap: 4px; }
   .sn-exp { padding: 1px 6px; border-radius: 4px; background: var(--s-notice); border: 1px solid var(--s-notice-bd); color: var(--s-text); font-size: 10px; letter-spacing: 0.02em; }
   .sn-label { color: var(--s-text); }
   .sn-msg { color: var(--s-soft); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .sn-staff { position: absolute; left: 0; right: 0; top: 18px; bottom: 0; overflow: hidden; }
+  .sn-staff { position: absolute; left: 0; right: 0; top: 26px; bottom: 0; overflow: hidden; }
+  /* the placement buttons (Band on top / Over the sung line), at the label row's end */
+  .sn-place { display: flex; margin-left: auto; padding: 1px; border-radius: 7px; border: 1px solid var(--s-edge); -webkit-app-region: no-drag; }
+  .sn-place button { min-height: 24px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--s-soft); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .sn-place button:hover { color: var(--s-text); background: var(--s-hover); }
+  .sn-place button[aria-pressed="true"] { color: var(--s-text); font-weight: 700; box-shadow: inset 0 0 0 1px var(--s-ring); }
+  .sn-place button:focus { outline: none; }
+  .sn-place button:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; }
+  /* "Over the sung line": the staff rides in the room the sung line opens above itself (lyrics-view.js
+     opts.room; #sn-over moves with the list's scroll and, on a line change, by one transform animation).
+     No syllable row: the sung words are right below. */
+  body.stage #lines { position: relative; }
+  #sn-over { position: absolute; left: 40px; right: 56px; top: 0; height: 136px; z-index: 2; -webkit-app-region: no-drag; }
+  #sn-over .sn-staff { bottom: auto; height: 110px; }
+  .sn.over .sn-syls { display: none; }
   .sn-fixed { position: absolute; left: 0; top: 0; width: 100%; }
   .sn-view { position: absolute; top: 0; right: 0; bottom: 0; overflow: hidden; }
   .sn-strip { position: absolute; left: 0; top: 0; height: 100%; will-change: transform; }
@@ -570,7 +584,7 @@
       </button>
     </div>
     <!-- the sheet-notes band (the +1, Experimental) above the words: only with its switch on (the Sheet notes tile) -->
-    <div id="band" role="img" aria-label="Sheet notes" hidden></div>
+    <div id="band" role="group" aria-label="Sheet notes" hidden></div>
     <div id="lines" role="group" aria-label="Lyrics" aria-description="Up and Down move between lines, Enter plays from a line"><div id="empty">Play a song to see its lyrics</div></div>
     <!-- the stage form: what plays next on the right -->
     <section id="queue" aria-labelledby="q-title" hidden>
@@ -811,6 +825,9 @@
     notes: true,
     credits: true,
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
+    // the sheet notes "Over the sung line": the room above the sung line, and where it is now
+    room: () => (sheetBand && stage.shown ? sheetBand.room : 0),
+    onRoom: (el) => placeOver(el),
     onFrame: (time) => updateRing(time),
     emptyText: (data) => !data.title ? 'Play a song to see its lyrics'
       : data.status === 'busy' ? 'Lyrics service busy, trying again…'
@@ -869,7 +886,7 @@
       placeGrip()
       cancelAnimationFrame(relayout)
       // lifetime: OK — one pending frame at most (cancelled by the next layout change), per layout change
-      relayout = requestAnimationFrame(() => { relayout = 0; placeGrip(); view.recenter(); if (sheetBand) sheetBand.relayout() })
+      relayout = requestAnimationFrame(() => { relayout = 0; placeGrip(); if (sheetBand) placeBand(); view.recenter(); if (sheetBand) sheetBand.relayout() })
     }
   })
   // --- Sheet notes in the Studio (Experimental; sheet-notes-ui.js draws, sheet-notes-model.js decides) ---
@@ -881,16 +898,51 @@
     playing: () => view.playing,
     duration: () => duration,
     reducedMotion: () => matchMedia('(prefers-reduced-motion: reduce)').matches,
+    onPlace: (p) => ipcRenderer.send('stage-command', 'sheet-place', p),
     onLayout: () => {}
   })
   stage.setBand(sheetBand.el)
   const bandEl = document.getElementById('band')
+  // where the band's staff lives: in its band above the lyrics, or "Over the sung line" in #sn-over, inside
+  // the lyrics list (so it scrolls with the lines); the lyrics engine opens the room and calls placeOver
+  const overEl = document.createElement('div')
+  overEl.id = 'sn-over'
+  overEl.setAttribute('role', 'group')
+  overEl.hidden = true
+  let overY = null
+  function placeBand() {
+    const over = !!(sheetBand.room && stage.shown)
+    const home = over ? overEl : bandEl
+    if (sheetBand.el.parentElement !== home) home.appendChild(sheetBand.el)
+    stage.setSheet(!!sheetBand.on, sheetBand.mode === 'message', over)
+    if (!over) { overEl.hidden = true; overY = null }
+  }
+  // the room moved to `el` (the sung line, or the countdown standing for it) or went (null): #sn-over sits in
+  // it; on a line change it travels there by one transform animation (none with reduced motion)
+  function placeOver(el) {
+    if (!el || !sheetBand.room) { overEl.hidden = true; overY = null; return }
+    if (overEl.parentElement !== linesEl) linesEl.appendChild(overEl)   // a new song's lines replaced the list
+    if (sheetBand.el.parentElement !== overEl) overEl.appendChild(sheetBand.el)
+    const y = el.offsetTop
+    const was = overY
+    overY = y
+    overEl.hidden = false
+    overEl.style.transform = 'translateY(' + y + 'px)'
+    if (was !== null && was !== y && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // lifetime: OK — a 300 ms one-shot per line change, finished on its own (transform only: compositor)
+      overEl.animate([{ transform: 'translateY(' + was + 'px)' }, { transform: 'translateY(' + y + 'px)' }], { duration: 300, easing: 'ease' })
+    }
+    sheetBand.relayout()
+  }
   // lifetime: OK — one listener, added once at load, released with the window
   ipcRenderer.on('lyrics-sheet', (event, st) => {
     sheetBand.setState(st)
-    stage.setSheet(!!(st && st.on), sheetBand.mode === 'message')
+    placeBand()
+    view.recenter()   // the room above the sung line opens, moves or goes with the placement
     const d = sheetBand.debug()
-    bandEl.setAttribute('aria-label', 'Sheet notes, experimental' + (d.label && d.label !== 'Experimental' ? ': ' + d.label : '') + (d.msg ? '. ' + d.msg : ''))
+    const said = 'Sheet notes, experimental' + (d.label && d.label !== 'Experimental' ? ': ' + d.label : '') + (d.msg ? '. ' + d.msg : '')
+    bandEl.setAttribute('aria-label', said)
+    overEl.setAttribute('aria-label', said)
     sheetBand.relayout()
   })
   // lifetime: OK — one click handler on the stage button, released with the window

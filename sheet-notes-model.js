@@ -345,6 +345,23 @@ function mode(st) {
   return { band: 'line', label: 'First play · pitch line', text: s.error || 'The pitch line follows each part of the song once Sonata has heard it' }
 }
 
+// "Over the sung line": the room (px) the sung line opens above itself for the staff: the label row with
+// the placement buttons (26 px) and the staff without its syllable row (110 px; the words are right below)
+const OVER_ROOM = 136
+
+/**
+ * Where the staff sits. st: { on, place ('band' | 'over', the setting) }, band: mode().band, stage: the
+ * Studio shows. -> { where: 'none' | 'band' | 'over', room (px the sung line opens above itself) }
+ * A message (nothing to draw) always sits in the band: there is no staff to ride over the line.
+ */
+function placement(st, band, stage) {
+  const s = st || {}
+  if (!s.on || !stage || band === 'off') return { where: 'none', room: 0 }
+  const drawn = band === 'notes' || band === 'line'
+  if (drawn && s.place === 'over') return { where: 'over', room: OVER_ROOM }
+  return { where: 'band', room: 0 }
+}
+
 /** First-play pitch pieces merged into one line (where two overlap, the later one wins where it heard a voice). */
 function mergePitch(pieces) {
   const ps = (pieces || []).filter((p) => p && Array.isArray(p.v) && p.hop > 0)
@@ -452,7 +469,7 @@ function noteAt(lay, t) {
 }
 
 module.exports = {
-  FORMAT, GATE, CLEFS, PITCH_HOP, SHARP, FLAT,
+  FORMAT, GATE, CLEFS, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
   compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, pitchRuns, labelAt, nextChange, noteAt
 }

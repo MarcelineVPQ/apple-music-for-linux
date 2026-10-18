@@ -402,7 +402,7 @@ test('wiring: the setting, the tile, main\'s state to the lyrics window, the bui
   assert.deepEqual(stage.stageCommand('sheet-notes', true), { command: 'sheet-notes', value: true })
   assert.equal(stage.stageCommand('sheet-notes', 'on'), null)
   const main = read('main.js')
-  assert.match(main, /'sungNotesLog', 'sheetNotes', 'updateChannel'/)
+  assert.match(main, /'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel'/)
   assert.match(main, /else if \(c\.command === 'sheet-notes'\) setSetting\('sheetNotes', c\.value\)/)
   assert.match(main, /lyricsWindow\.webContents\.send\('lyrics-sheet'/)
   assert.match(main, /pitchWanted: \(\) => sheetNotesOn\(\) && getNotesSwitch\(\)\.wanted\(\) && stageShowing\(\)/)
@@ -437,4 +437,63 @@ test('render path: the band moves by one transform animation, waits by a timeout
   const css = read('lyrics.html').split('\n').filter((l) => /^\s*(#band|\.sn)/.test(l)).join('\n')
   assert.ok(css.length > 500)
   assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(css), 'no literal colours in the band')
+})
+
+// --- placement: Band on top / Over the sung line (0.15.42) ---
+
+test('placement: band on top by default; over the sung line only with something to draw, in the Studio', () => {
+  assert.equal(require('../settings-store').defaults().sheetPlace, 'band')
+  assert.ok(require('../settings-store').validSetting('sheetPlace', 'over') && !require('../settings-store').validSetting('sheetPlace', 'under'))
+  const on = { on: true, place: 'over' }
+  assert.deepEqual(M.placement(on, 'notes', true), { where: 'over', room: M.OVER_ROOM })
+  assert.deepEqual(M.placement(on, 'line', true), { where: 'over', room: M.OVER_ROOM })   // the first play's line rides over it too
+  assert.deepEqual(M.placement(on, 'message', true), { where: 'band', room: 0 })        // a message has no staff: it stays in the band
+  assert.deepEqual(M.placement(on, 'notes', false), { where: 'none', room: 0 })         // the compact lyrics window: no sheet notes
+  assert.deepEqual(M.placement({ on: false, place: 'over' }, 'off', true), { where: 'none', room: 0 })
+  assert.deepEqual(M.placement({ on: true, place: 'band' }, 'notes', true), { where: 'band', room: 0 })
+  assert.deepEqual(M.placement({ on: true }, 'notes', true), { where: 'band', room: 0 })
+  // the room holds the label row (with the placement buttons) and the staff without its syllable row
+  assert.equal(M.OVER_ROOM, 136)
+  const css = read('lyrics.html')
+  assert.match(css, /#sn-over \{ position: absolute; left: 40px; right: 56px; top: 0; height: 136px;/)
+  assert.match(css, /#sn-over \.sn-staff \{ bottom: auto; height: 110px; \}/)
+  assert.match(css, /\.sn\.over \.sn-syls \{ display: none; \}/)
+})
+
+test('placement: the setting, the band\'s two buttons and main', () => {
+  const stage = require('../stage-model')
+  assert.deepEqual(stage.stageCommand('sheet-place', 'over'), { command: 'sheet-place', value: 'over' })
+  assert.equal(stage.stageCommand('sheet-place', 'top'), null)
+  const main = read('main.js')
+  assert.match(main, /else if \(c\.command === 'sheet-place'\) setSetting\('sheetPlace', c\.value\)/)
+  assert.match(main, /place: settings\.sheetPlace \}/)
+  const panel = read('panel-ui.js')
+  assert.match(panel, /selectRow\('sheetPlace', 'Sheet notes placement'/)
+  const ui = read('sheet-notes-ui.js')
+  assert.match(ui, /\['band', 'Band on top'/)
+  assert.match(ui, /\['over', 'Over the sung line'/)
+  assert.match(ui, /b\.onclick = \(\) => \{ if \(st\.place !== value && opts\.onPlace\) opts\.onPlace\(value\) \}/)
+  assert.match(read('lyrics.html'), /onPlace: \(p\) => ipcRenderer\.send\('stage-command', 'sheet-place', p\)/)
+})
+
+test('over the sung line: the room opens by a border (no line text moves into it), lines slide (FLIP), the staff follows by transform', () => {
+  const lv = read('lyrics-view.js')
+  // the room moves before the scroll is taken, so the line is centred with its room
+  const i = lv.indexOf('const want = px > 0 ? target : null')
+  assert.ok(i > 0 && i < lv.indexOf("if (target) scrollToLine(target, 'center')"))
+  // one class and a custom property; FLIP from the measured before/after; reduced motion: no slides
+  assert.match(lv, /el\.style\.setProperty\('--room', px \+ 'px'\); el\.classList\.add\('room'\)/)
+  assert.match(lv, /const around = still\(\) \? \[\] : slideTargets\(null\)/)
+  assert.match(lv, /slideFrom\(before, around\.map\(\(a\) => rect\(a\.measure\)\), null\)/)
+  // a new song's lines: the room goes with them
+  assert.match(lv, /if \(roomEl && opts\.onRoom\) opts\.onRoom\(null\)\n {4}roomEl = null/)
+  const css = read('lyrics-view.css')
+  assert.match(css, /\.line\.room, \.dots\.room \{ border-top: var\(--room, 0px\) solid transparent; \}/)
+  assert.ok(!/\.room[^{]*\{[^}]*transition/.test(css), 'the room never transitions (layout): the lines slide by FLIP')
+  // the staff overlay: inside the list (scrolls with it), moved by transform, animated only off reduced motion
+  const html = read('lyrics.html')
+  assert.match(html, /if \(overEl\.parentElement !== linesEl\) linesEl\.appendChild\(overEl\)/)
+  assert.match(html, /overEl\.style\.transform = 'translateY\(' \+ y \+ 'px\)'/)
+  assert.match(html, /if \(was !== null && was !== y && !matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\)/)
+  assert.match(html, /room: \(\) => \(sheetBand && stage\.shown \? sheetBand\.room : 0\)/)
 })
