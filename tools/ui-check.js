@@ -812,9 +812,10 @@ const TABBABLES = (rootSel) => `[...(document.querySelector(${JSON.stringify(roo
   .filter((el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return !el.disabled && el.tabIndex >= 0 && r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && !el.closest('[hidden], [aria-hidden="true"], [inert]') })
   .map((el) => el.id || el.dataset.rail || el.dataset.key || (el.className && String(el.className).split(' ')[0]) || el.tagName)`
 const emulateReduce = (page, on) => page.c.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }] })
-const focusWin = (mp, title) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes(${JSON.stringify(title)})); if (!w) return false; w.focus(); w.webContents.focus(); return true })()`)
+// a window by its title, any case (the booklet's page retitles it "Liner notes — <album>")
+const focusWin = (mp, title) => mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().toLowerCase().includes(${JSON.stringify(title.toLowerCase())})); if (!w) return false; w.focus(); w.webContents.focus(); return true })()`)
 const focusView = (mp, part) => mp.ev(`(${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes(${JSON.stringify(part)})).webContents.focus(), true)`)
-const winOpen = (mp, title) => mp.ev(`${E}.BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.getTitle().includes(${JSON.stringify(title)}))`)
+const winOpen = (mp, title) => mp.ev(`${E}.BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && w.getTitle().toLowerCase().includes(${JSON.stringify(title.toLowerCase())}))`)
 
 // press `key` up to n times, collecting each stop until focus leaves the page, stays put or comes back
 // to a stop already seen (that last press is undone with `back`, so the keyboard ends on the last stop)
@@ -1459,6 +1460,41 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   const msg = await band()
   // since 0.15.43-dev.1 the band never folds (Marcy: no hiding it arbitrarily): full height, an empty staff, the reason on top
   check('sheet notes: lyrics without line timing: the band stays whole (empty staff) and says why', !msg.hidden && !msg.msg && msg.h >= 150 && /line timing/.test(msg.label), msg)
+  // the top row: Experimental once (no label repeating the chip), the short message whole (no "…"), the reason
+  // behind the ⓘ (the DS5 app's long-text rule); at the narrowest Studio the row wraps instead of cutting off.
+  // A message with a reason behind its ⓘ: Precise word timing off (the Apple-timed songs' message is gone)
+  await send('lyrics-sheet', Object.assign({}, base, { precise: false, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
+  await sleep(500)
+  const row = () => page.ev(`(() => { const t = document.querySelector('#band .sn-top'); const vis = (e) => e && !e.hidden && e.getClientRects().length > 0
+    const m = t.querySelector('.sn-msg'); const i = t.querySelector('.sn-info'); const ir = i.getBoundingClientRect(); const tr = t.getBoundingClientRect(); const st = document.querySelector('#band .sn-staff').getBoundingClientRect()
+    return { words: [...t.querySelectorAll('.sn-exp, .sn-label, .sn-msg')].filter(vis).map((e) => e.textContent), msgCut: m.scrollWidth > m.clientWidth + 1 || getComputedStyle(m).textOverflow === 'ellipsis',
+      inside: [...t.children].filter(vis).every((e) => { const r = e.getBoundingClientRect(); return r.right <= tr.right + 0.5 && r.left >= tr.left - 0.5 }), rowH: Math.round(tr.height), staffBelow: st.top >= tr.bottom - 0.5,
+      info: vis(i), infoAt: [Math.round(ir.left + ir.width / 2), Math.round(ir.top + ir.height / 2)], described: (document.getElementById(i.getAttribute('aria-describedby')) || {}).textContent || '', tip: vis(t.querySelector('.sn-tip')) } })()`)
+  const lyrK = await mp.ev(`${E}.screen.getPrimaryDisplay().scaleFactor`)
+  const fits = []
+  // loop: two window widths · test only
+  for (const w of [W, 980]) {
+    await mp.ev(`(${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')).setBounds({ x: 0, y: 0, width: ${w}, height: ${H} }), true)`); await sleep(700)
+    const r0 = await row()
+    // the real mouse over the ⓘ shows the reason; away, it goes
+    x('move', Math.round(r0.infoAt[0] * lyrK), Math.round(r0.infoAt[1] * lyrK)); await sleep(300)
+    const r1 = await row()
+    xshot(path.join(OUT, 'sheet-notes-message-' + w + '.png'), w, H)
+    x('move', Math.round((w - 40) * lyrK), Math.round((H - 40) * lyrK)); await sleep(200)
+    const r2 = await row()
+    fits.push({ w, r0, tipOn: r1.tip, tipOff: r2.tip })
+  }
+  await mp.ev(`(${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')).setBounds({ x: 0, y: 0, width: ${W}, height: ${H} }), true)`); await sleep(600)
+  check('sheet notes: the message row says Experimental once and is never cut off (wraps when narrow), the staff under it, at ' + W + ' and 980 px',
+    fits.every((f) => f.r0.words.filter((t) => /experimental/i.test(t)).length === 1 && f.r0.words.includes('Needs Precise word timing on (Settings → Precise timing)') && !f.r0.msgCut && f.r0.inside && f.r0.staffBelow), fits.map((f) => [f.w, f.r0]))
+  check('sheet notes: the reason is behind the ⓘ (the DS5 rule): the real mouse over it shows it, away it goes; screen readers get it as its description',
+    fits.every((f) => f.r0.info && f.tipOn && !f.tipOff && /turn Precise word timing on/.test(f.r0.described)), fits.map((f) => [f.w, f.r0.info, f.tipOn, f.tipOff, f.r0.described]))
+  // the keyboard: Tab to the ⓘ shows it, Esc closes it
+  await focusWin(mp, 'Lyrics'); await page.ev(`(document.querySelector('#band .sn-info').focus({ focusVisible: true }), true)`); await sleep(200)
+  const kOn = (await row()).tip
+  x('key', 'esc'); await sleep(200)
+  const kOff = (await row()).tip
+  check('sheet notes: the ⓘ shows its text on keyboard focus and Esc closes it', kOn && !kOff, { kOn, kOff })
   // the tile off: the band folds away and the lyrics take the room
   await stageLog()
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)
@@ -1572,7 +1608,8 @@ const lyrWinOf = () => `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitl
 // failure paths are the logged-out page's real answers.
 async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) {
   const MX = `require.cache[require('path').join(${E}.app.getAppPath(), 'main.js')].exports.studioTest`
-  const note = () => page.ev(`[document.getElementById('act-note').textContent, document.getElementById('act-note').className]`)
+  // the note's text and kind ('error' or ''; 'long' only says it shows as a card, checked on its own)
+  const note = () => page.ev(`[document.getElementById('act-note').textContent, document.getElementById('act-note').className.replace(/\\s*\\blong\\b/, '').trim()]`)
   const clear = () => page.ev(`(document.getElementById('act-note').textContent = '', document.getElementById('say').textContent = '', true)`)
   const click = (id) => page.ev(`(document.getElementById(${JSON.stringify(id)}).click(), true)`)
   const waitNote = async (re) => { for (let i = 0; i < 30; i++) { const n = await note(); if (re.test(n[0])) return n; await sleep(150) } return note() }
@@ -1592,6 +1629,9 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   for (const [id, cmd] of [['a-album', 'song-album'], ['a-artist', 'song-artist']]) {
     await clear(); await click(id); const n = await waitNote(/couldn't be opened/); const l = await stageLog()
     check('studio: ' + id + ' sends "' + cmd + '" (Apple\'s page comes to the front) and says it couldn\'t be opened when no link is on screen', l.length === 1 && l[0][0] === cmd && /couldn't be opened/.test(n[0]), { l, n })
+    const cut = await page.ev(`(() => { const e = document.getElementById('act-note'); const r = e.getBoundingClientRect(); const c = document.getElementById('np').getBoundingClientRect(); const t = document.getElementById('layers').getBoundingClientRect()
+      return { cut: e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1 || getComputedStyle(e).textOverflow === 'ellipsis', inside: r.left >= c.left && r.right <= c.right && r.bottom <= c.bottom, long: e.classList.contains('long'), h: Math.round(r.height), tilesTop: Math.round(t.top) } })()`)
+    check('studio: the long note (' + n[0].length + ' characters) shows whole inside the column (a small card over what is below), never cut off', !cut.cut && cut.inside && cut.long && cut.h > 20, cut)
   }
   await focusWin(mp, 'Lyrics'); await sleep(300)
   check('studio: an error note reaches screen readers (the status line)', /couldn't be opened/.test(await page.ev(`document.getElementById('say').textContent`)))
@@ -1611,7 +1651,7 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   const src = () => mp.ev('globalThis.__src.splice(0)')
   await send('stage-song', { key, ok: true, id: '1700000013', title: np.title, artist: np.artist, url, favorite: true, inLibrary: false, albumId: '1700000000', artistId: '42' }); await sleep(300)
   let a = await page.ev(`[document.getElementById('a-fav').getAttribute('aria-pressed'), document.getElementById('a-fav').dataset.icon, document.getElementById('a-fav').title, document.getElementById('a-lib').getAttribute('aria-disabled')]`)
-  check('studio: Favorite shows the real state (a favourite: pressed, the filled star, "Undo Favorite")', a[0] === 'true' && a[1] === 'starOn' && /^Undo Favorite/.test(a[2]) && a[3] === 'false', a)
+  check('studio: Favorite shows the real state (a favourite: pressed, the filled star, "Remove from Favorites")', a[0] === 'true' && a[1] === 'starOn' && /^Remove from Favorites/.test(a[2]) && a[3] === 'false', a)
   await clear(); await click('a-fav'); let n = await waitNote(/Removed/); let l = await stageLog(); let sv = await src()
   check('studio: Favorite on a favourite asks to undo it (the state wanted) and says "Removed from Favorites"', l[0] && l[0][0] === 'song-favorite' && l[0][1] === false && sv.some((c) => c[0] === 'favorite' && c[1] === '1700000013' && c[2] === false) && n[0] === 'Removed from Favorites' && n[1] === '', { l, sv, n })
   await clear(); await click('a-lib'); n = await waitNote(/Added to Library/); sv = await src(); await stageLog()
@@ -1621,6 +1661,36 @@ async function studioStep(mp, page, send, stageLog, lyrWin, W, H, song, np, T0) 
   a = await page.ev(`[document.getElementById('a-lib').getAttribute('aria-disabled'), document.getElementById('a-lib').title, document.getElementById('a-lib').getAttribute('aria-label'), document.getElementById('a-fav').getAttribute('aria-pressed'), document.getElementById('a-fav').dataset.icon]`)
   await clear(); await click('a-lib'); n = await note(); l = await stageLog()
   check('studio: in the library, Add to Library is disabled with the reason ("Already in your library"), and a click says so without asking Apple', a[0] === 'true' && a[1] === 'Already in your library' && a[2] === 'In your library' && a[3] === 'false' && a[4] === 'starOff' && n[0] === 'Already in your library' && !l.length, { a, n, l })
+  // the real mouse (XTest, at the screen's scale) on the star, end to end through main: the source keeps the
+  // rating like Apple does, main reads it back after the click and the Studio draws what came back: a filled
+  // star in the accent (Marcy 2026-10-18: it stayed an outline), "Remove from Favorites"; clicked again: the outline
+  await mp.ev(`(() => { const t = ${MX}; const s = t.source; globalThis.__fav = false
+    s.favorite = async (id, on) => { globalThis.__src.push(['favorite', id, on]); globalThis.__fav = !!on }
+    s.state = async () => ({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, favorite: globalThis.__fav, inLibrary: true, albumId: '', artistId: '42' })
+    t.setSong({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, rating: 0, inLibrary: true })
+    return true })()`)
+  // end to end, main's own now-playing reaches the Studio here (the test's is held back elsewhere): the key main
+  // sends the song's state under must be the one the Studio keeps (they differed: the star never filled)
+  await mp.ev(`(() => { const wc = ${lyrWin}.webContents; wc.__passNp = true; ${MX}.setNowPlaying({}); return true })()`); await sleep(1500)
+  const favK = await mp.ev(`${E}.screen.getPrimaryDisplay().scaleFactor`)
+  const favWb = await mp.ev(`${lyrWin}.getContentBounds()`)
+  const star = async () => page.ev(`(() => { const b = document.getElementById('a-fav'); const p = b.querySelector('path'); const r = b.getBoundingClientRect(); return { pressed: b.getAttribute('aria-pressed'), label: b.getAttribute('aria-label'), icon: b.dataset.icon, fill: getComputedStyle(p).fill, color: getComputedStyle(b).color, accent: getComputedStyle(document.body).getPropertyValue('--s-accent-text').trim(), at: [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)] } })()`)
+  const realClick = async () => { const s0 = await star(); x('click', Math.round((favWb.x + s0.at[0]) * favK), Math.round((favWb.y + s0.at[1]) * favK)); for (let i = 0; i < 20; i++) { await sleep(150); const s1 = await star(); if (s1.pressed !== s0.pressed) return s1 } return star() }
+  await focusWin(mp, 'Lyrics'); await sleep(200)
+  const f0 = await star()
+  const f1 = await realClick(); sv = await src(); await stageLog()
+  check('studio: the real mouse on ☆ favourites the song and the star fills in from the state read back (accent, "Remove from Favorites")', f0.pressed === 'false' && f0.icon === 'starOff' && f1.pressed === 'true' && f1.icon === 'starOn' && f1.label === 'Remove from Favorites' && f1.fill !== 'none' && f1.fill === f1.color && sv.some((c) => c[0] === 'favorite' && c[2] === true), { f0, f1, sv, k: favK })
+  xshot(path.join(OUT, 'studio-favorite-on.png'), W, H)
+  const f2 = await realClick(); sv = await src(); await stageLog()
+  check('studio: clicked again, it is taken out of Favorites and the outline comes back ("Favorite")', f2.pressed === 'false' && f2.icon === 'starOff' && f2.label === 'Favorite' && sv.some((c) => c[0] === 'favorite' && c[2] === false), { f2, sv })
+  // the ✓ shows the library state read back, not the last click: a song not in the library gets the +
+  await mp.ev(`(() => { const s = ${MX}.source; s.state = async () => ({ ok: true, id: '1700000014', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, favorite: false, inLibrary: false }); return true })()`)
+  await realClick().catch(() => null); await sleep(600); await src(); await stageLog()
+  const libNow = await page.ev(`[document.getElementById('a-lib').dataset.icon, document.getElementById('a-lib').getAttribute('aria-label')]`)
+  check('studio: Add to Library shows the library state read back (not in the library: +, "Add to Library")', libNow[0] === 'plus' && libNow[1] === 'Add to Library', libNow)
+  await mp.ev(`(${lyrWin}.webContents.__passNp = false, true)`); await send('stage-np', np); await sleep(300)
+  await mp.ev(`(() => { const t = ${MX}; t.source.favorite = async (id, on) => { globalThis.__src.push(['favorite', id, on]) }; t.setSong({ ok: true, id: '1700000013', title: ${JSON.stringify(np.title)}, artist: ${JSON.stringify(np.artist)}, url: ${JSON.stringify(url)}, rating: 0, inLibrary: true }); return true })()`)
+  await send('stage-song', { key, ok: true, id: '1700000013', title: np.title, url, favorite: false, inLibrary: true }); await sleep(300); await clear()
   // Add to a Playlist: the user's playlists in a menu at the button; a pick adds it and names the playlist
   await clear(); await click('a-pl'); await sleep(500); let m = await menus(); await stageLog()
   const plAt = await page.ev(`(() => { const r = document.getElementById('a-pl').getBoundingClientRect(); return [Math.round(r.left), Math.round(r.bottom + 2)] })()`)
@@ -1868,7 +1938,7 @@ async function stage() {
   const page = await target('lyrics.html')
   const lyrWin = `${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics'))`
   await mp.ev(`(() => { const wc = ${lyrWin}.webContents
-    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if ((/^(lyrics-(time|data|sheet)|stage-(np|queue))$/.test(ch) || (ch === 'stage-montage' && !wc.__passMontage)) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
+    if (!wc.__origSend) { wc.__origSend = wc.send; wc.send = function (ch, ...a) { if ((/^(lyrics-(time|data|sheet)|stage-queue)$/.test(ch) || (ch === 'stage-np' && !wc.__passNp) || (ch === 'stage-montage' && !wc.__passMontage)) && a[a.length - 1] !== '__test') return; return wc.__origSend.call(wc, ch, ...a.filter((x) => x !== '__test')) } }
     return true })()`)
   const send = (ch, ...a) => mp.ev(`(${lyrWin}.webContents.send(${JSON.stringify(ch)}, ...${JSON.stringify(a)}, '__test'), true)`)
   const W = 1240; const H = 780
@@ -2087,7 +2157,9 @@ async function liner() {
   }
   let page = await open()
   const st = () => page.ev('window.__liner()')
-  const goTo = async (i) => { for (let k = 0; k < 40 && (await st()).cur !== i; k++) { await page.ev(`(document.getElementById(${(await st()).cur < i ? '"next"' : '"prev"'}).click(), true)`); await sleep(820) } }
+  // a turn by the page's corner button (the keyboard's way; the real mouse on the pages is checked below)
+  const turn = (dir) => page.ev(`(document.querySelector('#spread > .page > .curl[data-dir="${dir}"]:not([hidden])').click(), true)`)
+  const goTo = async (i) => { for (let k = 0; k < 40 && (await st()).cur !== i; k++) { await turn((await st()).cur < i ? 'next' : 'prev'); await sleep(820) } }
   const n = (await st()).spreads
   // album colour and Glass through the Settings panel, as a user switches them
   if (!(await mp.ev(`${settingsFile}.panelShown`))) { await mp.ev(viewCommand('rail', 'settings')); await sleep(2000) }
@@ -2102,7 +2174,7 @@ async function liner() {
         await goTo(0)
         // loop: every spread · test only
         for (let i = 0; i < n; i++) {
-          if (i) { await page.ev('(document.getElementById("next").click(), true)'); await sleep(900) }
+          if (i) { await turn('next'); await sleep(900) }
           const a = await page.ev(PAGE_AUDIT('#card'))
           judge(tag + ' spread ' + i, a, { minHit: 24 })
           if (colour && glass) xshot(path.join(OUT, tag + '-' + String(i).padStart(2, '0') + '.png'), 1120, 780)
@@ -2115,11 +2187,57 @@ async function liner() {
   await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
 
   // --- no dead controls: every kind of control, clicked, does something visible ---
-  await goTo(0)
-  await page.ev('(document.getElementById("next").click(), true)'); await sleep(900)
-  check('liner: → (next) turns to the next spread', (await st()).cur === 1)
-  await page.ev('(document.getElementById("prev").click(), true)'); await sleep(900)
-  check('liner: ← (previous) turns back', (await st()).cur === 0)
+  // --- turning by the book itself (Marcy 2026-10-18: "we should just be clicking on the book to turn the
+  // pages"): the real mouse (XTest, at the screen's scale, like the stage's pointerReach) on the right-hand page
+  // turns forward, on the left-hand page back; a turnable page shows it (its corner lifted on hover, the
+  // pointer); the cover's and the back cover's outer sides don't; a link, a chip or a text selection never turns
+  const wb = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => /liner notes/i.test(w.getTitle())); return w.getContentBounds() })()`)
+  const k = await mp.ev(`${E}.screen.getPrimaryDisplay().scaleFactor`)
+  const X = (px, py) => [Math.round((wb.x + px) * k), Math.round((wb.y + py) * k)]
+  // a plain spot on a page (no link, button or chip under it), in CSS pixels; side 0 = left, 1 = right
+  const spot = (side) => page.ev(`(() => { const p = document.querySelectorAll('#spread > .page')[${side}]; const r = p.getBoundingClientRect()
+    for (const fy of [0.5, 0.35, 0.65, 0.2, 0.8]) for (const fx of [0.5, 0.3, 0.7]) { const x = r.left + r.width * fx, y = r.top + r.height * fy; const e = document.elementFromPoint(x, y); if (e && p.contains(e) && !e.closest('a, button, .src')) return [Math.round(x), Math.round(y)] }
+    return null })()`)
+  const sideState = () => page.ev(`[...document.querySelectorAll('#spread > .page')].map((p) => { const c = p.querySelector(':scope > .curl'); return { turn: p.classList.contains('turn'), cursor: getComputedStyle(p).cursor, curl: !!c && !c.hidden, lifted: !!c && !c.hidden && new DOMMatrix(getComputedStyle(c, '::before').transform).a > 0.95, hover: p.matches(':hover') } })`)
+  const realClick = async (side) => { const at = await spot(side); x('click', ...X(at[0], at[1])); await sleep(950); return at }
+  await goTo(0); await focusWin(mp, 'Liner Notes'); await sleep(300)
+  let at = await spot(1); x('move', ...X(at[0], at[1])); await sleep(400)
+  const cover = await sideState()
+  xshot(path.join(OUT, 'liner-turn-hover-right.png'), 1120, 780)
+  check('liner: on the cover, the right-hand page shows it turns (its corner lifted on hover, the pointer); the left (the cover) shows nothing', cover[1].turn && cover[1].hover && cover[1].lifted && cover[1].cursor === 'pointer' && !cover[0].turn && !cover[0].curl && cover[0].cursor !== 'pointer', cover)
+  await realClick(0)
+  check('liner: a real click on the cover (the left page, first spread) does not turn', (await st()).cur === 0)
+  await realClick(1)
+  check('liner: a real click on the right-hand page turns forward', (await st()).cur === 1)
+  at = await spot(0); x('move', ...X(at[0], at[1])); await sleep(400)
+  const mid = await sideState()
+  xshot(path.join(OUT, 'liner-turn-hover-left.png'), 1120, 780)
+  check('liner: inside the booklet both pages turn; the left one, hovered, lifts its corner and shows the pointer', mid[0].turn && mid[1].turn && mid[0].lifted && mid[0].cursor === 'pointer' && !mid[1].lifted, mid)
+  await realClick(0)
+  check('liner: a real click on the left-hand page turns back', (await st()).cur === 0)
+  // the last spread: the right-hand page (the back cover) doesn't turn and shows nothing
+  await goTo(n - 1); await sleep(200)
+  at = await spot(1); x('move', ...X(at[0], at[1])); await sleep(400)
+  const last = await sideState()
+  await realClick(1)
+  check('liner: at the back cover, the right-hand page shows nothing and a real click does not turn past the end', (await st()).cur === n - 1 && !last[1].turn && !last[1].curl && last[1].cursor !== 'pointer' && last[0].turn, last)
+  // a text selection (a real drag over a text page) never turns
+  await goTo(1); await sleep(200)
+  const textAt = await page.ev(`(() => { for (const p of document.querySelectorAll('#spread > .page')) { const t = p.querySelector('.pg p, .pg .facts dd, .pg .tr span, .pg h2'); if (t) { const r = t.getBoundingClientRect(); return [Math.round(r.left + 4), Math.round(r.top + r.height / 2), Math.round(Math.min(r.right - 4, r.left + 160)), Math.round(r.top + r.height / 2)] } } return null })()`)
+  if (textAt) {
+    x('drag', ...X(textAt[0], textAt[1]), ...X(textAt[2], textAt[3])); await sleep(950)
+    const selected = await page.ev('String(document.getSelection()).trim().length')
+    check('liner: selecting text with the real mouse (a drag) never turns the page', (await st()).cur === 1 && selected > 0, { cur: (await st()).cur, selected })
+    await page.ev('(document.getSelection().removeAllRanges(), true)')
+  } else check('liner: a text page to select on spread 1', false, 'no text block found')
+  // the corners are the keyboard's (and screen readers') Next page / Previous page: Enter turns, the focus stays on a corner
+  await page.ev(`(document.querySelector('#spread > .page.r > .curl:not([hidden])').focus({ focusVisible: true }), true)`); await sleep(100)
+  x('key', 'enter'); await sleep(950)
+  const kb = await page.ev(`({ cur: window.__liner().cur, focus: document.activeElement && document.activeElement.classList.contains('curl') ? document.activeElement.getAttribute('aria-label') : (document.activeElement || {}).tagName })`)
+  check('liner: the right page\'s corner is a "Next page" button: Enter turns, and the focus stays on the new spread\'s corner', kb.cur === 2 && kb.focus === 'Next page', kb)
+  const names = await page.ev(`[...document.querySelectorAll('#spread > .page > .curl:not([hidden])')].map((c) => c.getAttribute('aria-label'))`)
+  check('liner: screen readers get "Previous page" and "Next page" on the open spread', names.join('|') === 'Previous page|Next page', names)
+  check('liner: no ‹ › buttons under the book any more (the section buttons stay)', await page.ev(`!document.getElementById('prev') && !document.getElementById('next') && document.querySelectorAll('#sections button').length > 2`))
   const secs = (await st()).sections
   const dead = []
   // loop: every section button · test only
@@ -2136,19 +2254,23 @@ async function liner() {
   let links = 0
   // loop: every spread's links · test only
   for (let i = 0; i < n; i++) {
-    if (i) { await page.ev('(document.getElementById("next").click(), true)'); await sleep(900) }
+    if (i) { await turn('next'); await sleep(900) }
     const hrefs = await page.ev('[...document.querySelectorAll("#spread a[href]")].map((a) => a.href)')
     for (let k = 0; k < hrefs.length; k++) {
       await mp.ev('(global.__opened = [], true)')
-      // a real click through X (the page only acts on trusted clicks); the window sits at 0,0
-      const r = await page.ev(`(() => { const a = [...document.querySelectorAll('#spread a[href]')][${k}]; const r = a.getBoundingClientRect(); return [Math.round(r.left + Math.min(12, r.width / 2)), Math.round(r.top + r.height / 2)] })()`)
-      x('click', r[0], r[1]); await sleep(300)
+      // a real click through X (the page only acts on trusted clicks), on the link's first line box (a link that
+      // wraps has a gap in the middle of its bounding box: a click there is a click on the page, which turns)
+      const r = await page.ev(`(() => { const a = [...document.querySelectorAll('#spread a[href]')][${k}]; const r = a.getClientRects()[0]; return [Math.round(r.left + Math.min(12, r.width / 2)), Math.round(r.top + r.height / 2)] })()`)
+      const before = (await st()).cur
+      x('click', ...X(r[0], r[1])); await sleep(300)
       const got = await mp.ev('global.__opened')
       links++
       if (got[0] !== hrefs[k]) linkFails.push(hrefs[k] + ' -> ' + JSON.stringify(got))
+      await sleep(700)
+      if ((await st()).cur !== before) { linkFails.push(hrefs[k] + ': the click turned the page'); await goTo(before) }
     }
   }
-  check('liner: every link (' + links + ') opens its page in the browser (through main, https only)', links > 3 && !linkFails.length, linkFails.slice(0, 6))
+  check('liner: every link (' + links + ') opens its page in the browser (through main, https only), and a link click never turns the page', links > 3 && !linkFails.length, linkFails.slice(0, 6))
 
   // --- the keyboard ---
   await goTo(1)

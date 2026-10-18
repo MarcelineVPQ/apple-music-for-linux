@@ -162,3 +162,24 @@ test('the Studio\'s new files ship', () => {
   const files = require('../package.json').build.files
   for (const f of ['song-actions.js', 'mini-model.js', 'liner-notes-model.js']) assert.ok(files.includes(f), f)
 })
+
+// the action row's state reaches the Studio: it is sent under the Studio's own song key (title|artist of the
+// now-playing), not the lyrics feed's track key (title|artist|ISRC), which the Studio dropped (the ☆ stayed
+// an outline after a Favorite, 2026-10-18); after an action the state is read back without resetting the key
+// (a reset made the next tick read again and that read won over the action's)
+test('the song\'s state: sent under the Studio\'s key; an action reads it back; the buttons draw what came back', () => {
+  const S = require('../stage-model')
+  assert.equal(S.songKey({ title: 'A', artist: 'B' }), 'A|B')
+  assert.equal(S.songKey(null), '')
+  const read = fn(main, 'async function stageSongRead(')
+  assert.match(read, /const k = stageModel\.songKey\(lastStage\(\)\)/)
+  assert.ok(!/stageSongKey = /.test(read), 'the read never changes the per-song key')
+  const done = fn(main, 'function stageDone(')
+  assert.ok(!/stageSongKey = ''/.test(done))
+  assert.match(ui, /const songKey = \(\) => M\.songKey\(np\)/)
+  assert.match(ui, /const fav = M\.favoriteButton\(s\)/)
+  assert.match(ui, /el\.fav\.setAttribute\('aria-label', fav\.label\)/)
+  assert.match(ui, /const lib = M\.libraryButton\(s\)/)
+  // the filled star in the accent the other "on" controls use (a theme token)
+  assert.match(html, /\.ib\.act\[aria-pressed="true"\] \{ color: var\(--s-accent-text\); \}/)
+})

@@ -200,3 +200,52 @@ test('the liner notes\' MusicBrainz-only refresh (the Studio\'s credits): MusicB
   await notes.load(raw, null, () => {}, '', 'mb')
   assert.equal(asked.length, n)
 })
+
+// Marcy 2026-10-18: "the star needs to get filled in when I choose it as a favorite". The state is read back
+// from Apple after the action (never assumed from the click), fresh (no HTTP cache), and the Studio's button
+// shows exactly what came back
+test('favourite round trip: Favorite, then the state read back says so; Undo, and it says not', async () => {
+  let rating = 0
+  const p = page({ answers: {} })
+  // a stand-in Apple that keeps the rating between calls
+  p.mk.api.music = async (path, params, opts) => {
+    const f = (opts && opts.fetchOptions) || {}
+    p.log.push({ path, method: f.method || 'GET', cache: f.cache })
+    if (/ratings\/songs\/1440892370$/.test(path)) { rating = f.method === 'DELETE' ? 0 : JSON.parse(f.body).attributes.value; return {} }
+    if (/ratings\/songs$/.test(path)) return { data: { data: rating ? [{ attributes: { value: rating } }] : [] } }
+    return { data: { data: [] } }
+  }
+  const src = A.createAppleSource({ run: p.run })
+  const S = require('../stage-model')
+  assert.equal(S.favoriteButton(await src.state()).pressed, false)
+  await src.favorite('1440892370', true)
+  const on = await src.state()
+  assert.equal(on.favorite, true)
+  assert.deepEqual(S.favoriteButton(on), { pressed: true, icon: 'starOn', label: 'Remove from Favorites', title: 'Remove from Favorites (F): take this song out of your Favorites' })
+  await src.favorite('1440892370', false)
+  const off = await src.state()
+  assert.equal(off.favorite, false)
+  assert.deepEqual(S.favoriteButton(off), { pressed: false, icon: 'starOff', label: 'Favorite', title: 'Favorite (F): add this song to your Favorites' })
+  // every rating read is fresh: right after a Favorite the answer must be Apple's new one
+  const reads = p.log.filter((c) => c.method === 'GET' && /ratings/.test(c.path))
+  assert.equal(reads.length, 3)
+  assert.ok(reads.every((c) => c.cache === 'no-store'), JSON.stringify(reads))
+})
+
+test('a song known only by its library id is rated as a library song', async () => {
+  const p = page({ item: { id: 'i.xyz', attributes: { name: 'A', playParams: { id: 'i.xyz', isLibrary: true } } } })
+  await p.run(A.stateScript)
+  assert.equal(p.log[0].path, '/v1/me/ratings/library-songs')
+  const src = A.createAppleSource({ run: p.run })
+  await src.favorite('i.xyz', true)
+  assert.equal(p.log[1].path, '/v1/me/ratings/library-songs/i.xyz')
+})
+
+test('the Studio\'s buttons from the state: the star and the ✓ only when Apple says so', () => {
+  const S = require('../stage-model')
+  for (const st of [null, { ok: false }, { ok: true, favorite: false }, { ok: false, favorite: true }]) assert.equal(S.favoriteButton(st).pressed, false, JSON.stringify(st))
+  assert.equal(S.favoriteButton({ ok: true, favorite: true }).pressed, true)
+  assert.deepEqual(S.libraryButton({ ok: true, inLibrary: true }), { done: true, icon: 'check', label: 'In your library', title: 'Already in your library' })
+  for (const v of [false, null, undefined]) assert.equal(S.libraryButton({ ok: true, inLibrary: v }).icon, 'plus')
+  assert.equal(S.libraryButton({ ok: false, inLibrary: true }).done, false)
+})

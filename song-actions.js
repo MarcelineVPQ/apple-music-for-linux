@@ -35,7 +35,9 @@ const stateScript = `(async () => {
     const ar = rel.artists && rel.artists.data && rel.artists.data[0];
     if (ar && /^\\d+$/.test(String(ar.id))) out.artistId = String(ar.id);
     try {
-      const r = await mk.api.music('/v1/me/ratings/songs', { ids: id });
+      // read fresh (no HTTP cache: right after a Favorite the answer must be Apple's new one); a song known
+      // only by its library id (i.…) is rated as a library song
+      const r = await mk.api.music('/v1/me/ratings/' + (/^\\d+$/.test(id) ? 'songs' : 'library-songs'), { ids: id }, { fetchOptions: { cache: 'no-store' } });
       const entry = r && r.data && r.data.data && r.data.data[0];
       out.rating = entry && entry.attributes ? entry.attributes.value : 0;
     } catch (e) { /* error: NOT-WORTH — not rated (or no answer): shown as not a favourite */ }
@@ -61,7 +63,7 @@ const stateScript = `(async () => {
 /** Favorite (value 1) or undo it (null), for the song with this id. */
 const favoriteScript = (id, value) => `(async () => {
     const mk = MusicKit.getInstance();
-    await mk.api.music('/v1/me/ratings/songs/${id}', {}, { fetchOptions: {
+    await mk.api.music('/v1/me/ratings/${/^\d+$/.test(id) ? 'songs' : 'library-songs'}/${id}', {}, { fetchOptions: {
       method: '${value === null ? 'DELETE' : 'PUT'}',
       ${value === null ? '' : `body: JSON.stringify({ type: 'rating', attributes: { value: ${Number(value)} } }),`}
       headers: { 'Content-Type': 'application/json' }

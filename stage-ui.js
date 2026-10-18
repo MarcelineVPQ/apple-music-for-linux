@@ -113,7 +113,7 @@ function createStage(opts) {
   const SCROLL_QUIET = 4000
   const live0 = (album) => M.liveChip(album) || 'Live'
   const albumKey = () => (np ? (np.album || '') + '|' + (np.artist || '') : '|')
-  const songKey = () => (np ? (np.title || '') + '|' + (np.artist || '') : '')
+  const songKey = () => M.songKey(np)
 
   setIcon(el.shuffle, 'shuffle'); setIcon(el.prev, 'prev'); setIcon(el.play, 'play'); setIcon(el.next, 'next'); setIcon(el.repeat, 'repeat')
   setIcon($('i-vol'), 'vol')
@@ -145,7 +145,7 @@ function createStage(opts) {
   // --- the song's actions: each one says what it did (main answers with 'stage-said') ---
   const anchorOf = (b) => { const r = b.getBoundingClientRect(); return { x: Math.max(0, Math.round(r.left)), y: Math.max(0, Math.round(r.bottom + 2)) } }
   // lifetime: OK — one click handler per action, set once at load, released with the window
-  el.fav.onclick = () => send('song-favorite', !(song && song.favorite))
+  el.fav.onclick = () => send('song-favorite', !M.favoriteButton(song && song.ok ? song : null).pressed)
   el.lib.onclick = () => {
     if (el.lib.getAttribute('aria-disabled') === 'true') { said({ kind: 'ok', text: 'Already in your library' }); return }
     send('song-library')
@@ -160,15 +160,18 @@ function createStage(opts) {
 
   function drawSong() {
     const s = song && song.ok ? song : null
-    const fav = !!(s && s.favorite)
-    el.fav.setAttribute('aria-pressed', String(fav))
-    setIcon(el.fav, fav ? 'starOn' : 'starOff')
-    el.fav.title = fav ? 'Undo Favorite (F): take this song out of your Favorites' : 'Favorite (F): add this song to your Favorites'
-    const inLib = !!(s && s.inLibrary === true)
-    el.lib.setAttribute('aria-disabled', String(inLib))
-    setIcon(el.lib, inLib ? 'check' : 'plus')
-    el.lib.setAttribute('aria-label', inLib ? 'In your library' : 'Add to Library')
-    el.lib.title = inLib ? 'Already in your library' : 'Add to Library'
+    // both buttons show the state read back from Apple's page (main reads it on every song change and
+    // after an action): a filled star in the accent while the song is a favourite, a ✓ while it is in the library
+    const fav = M.favoriteButton(s)
+    el.fav.setAttribute('aria-pressed', String(fav.pressed))
+    setIcon(el.fav, fav.icon)
+    el.fav.setAttribute('aria-label', fav.label)
+    el.fav.title = fav.title
+    const lib = M.libraryButton(s)
+    el.lib.setAttribute('aria-disabled', String(lib.done))
+    setIcon(el.lib, lib.icon)
+    el.lib.setAttribute('aria-label', lib.label)
+    el.lib.title = lib.title
     el.link.title = s && s.url ? 'Copy the song\'s Apple Music link' : 'Copy Link (no link known for this song yet)'
   }
 
@@ -178,6 +181,9 @@ function createStage(opts) {
     if (!n || typeof n.text !== 'string') return
     el.note.textContent = n.text
     el.note.classList.toggle('error', n.kind === 'error')
+    // longer than its one line: shown whole in a small card over what is below (one layout read per note)
+    el.note.classList.remove('long')
+    el.note.classList.toggle('long', el.note.scrollHeight > el.note.parentElement.clientHeight + 2)
     say(n.text)
     if (noteAnim) noteAnim.cancel()
     // lifetime: OK — one 4 s opacity animation per note (cancelled by the next one); nothing runs after it

@@ -257,7 +257,34 @@ function stageCommand(command, value) {
   return null
 }
 
+/**
+ * The Studio's song key: what stage-ui.js keeps the song's state under (title|artist of the now-playing it
+ * was sent). main sends the action row's state ('stage-song') under this key; the lyrics feed's own key
+ * (recording-id.js trackKey: title|artist|ISRC) is a different string, and the Studio dropped every state
+ * sent under it (Marcy 2026-10-18: the ☆ stayed an outline after she favourited the song).
+ */
+function songKey(np) { return np ? (np.title || '') + '|' + (np.artist || '') : '' }
+
+/**
+ * The Favorite button for the song's state as read back from Apple's page (never assumed from the click):
+ * -> { pressed, icon, label, title }
+ */
+function favoriteButton(st) {
+  const on = !!(st && st.ok && st.favorite === true)
+  return on
+    ? { pressed: true, icon: 'starOn', label: 'Remove from Favorites', title: 'Remove from Favorites (F): take this song out of your Favorites' }
+    : { pressed: false, icon: 'starOff', label: 'Favorite', title: 'Favorite (F): add this song to your Favorites' }
+}
+/** The library button likewise: a ✓ only when Apple's page says the song is in the library. */
+function libraryButton(st) {
+  const inLib = !!(st && st.ok && st.inLibrary === true)
+  return inLib
+    ? { done: true, icon: 'check', label: 'In your library', title: 'Already in your library' }
+    : { done: false, icon: 'plus', label: 'Add to Library', title: 'Add to Library' }
+}
+
 module.exports = {
+  songKey, favoriteButton, libraryButton,
   STAGE_MIN, STAGE_DEFAULT, COMPACT_MIN, COMPACT_DEFAULT, PLAYLIST_BEFORE, PLAYLIST_AFTER, QUEUE_MAX,
   clock, cleanQueue, trackOf, nextItem, countdown, timeLeft, queueList, playingFrom, liveChip, yearOf, lineStep, lineAt,
   windowBounds, minSize, stageCommand

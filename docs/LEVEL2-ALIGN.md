@@ -304,6 +304,15 @@ docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
   syllables, E major, spread 4 cents (all notes); the helper's peak about 1.9 GB of graphics memory.
 - **Nothing to draw:** one line says why (no helper, Precise timing off, no line timing, paused for a game).
 
+**The label row** (above the staff): the **Experimental** chip, the label (Notes · key, First play ·
+pitch line; a message has none, so nothing repeats the chip), the message and the placement buttons. It
+follows the DS5 app's rule for long text (Marcy 2026-10-18): the visible text says only what you must
+know, at most 60 characters (`TEXT_MAX`), and the row wraps onto a second line when the column is
+narrow, never cutting words off; a longer explanation sits behind an **ⓘ** beside it (`info`: shown on
+hover or keyboard focus, a click toggles it, Esc closes it; screen readers get it as the ⓘ's
+description and in the band's name). A long error from main keeps its part before the first ": " on
+screen and the whole sentence behind the ⓘ (`fit()`).
+
 **The staff** (`layout()`): each note at its spelled pitch (the note model's line-of-fifths name), as
 long as it was held (no rhythm quantising), the key signature (K-S on the notes: the helper has no
 key model, so relative keys can be confused, see below), accidentals where a note differs from the
