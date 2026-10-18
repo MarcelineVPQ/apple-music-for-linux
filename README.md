@@ -226,9 +226,10 @@ system at work belong here. Not recorded yet; don't add them before then.
 **Tests.**
 
 - `npm test`: unit tests for the logic (lyrics sources, word timing, syllables, the cache, the theme's contrast, the rail and panel layout, settings repair, the signed-feed checks and the update flow). They run in plain Node: no Electron, no display, no sound.
-- `npm run gates`, two checks:
+- `npm run gates`, three checks:
   - **The verdict gate** (`tools/verdicts.js --check`): every loop, timer, listener, child process and error handler in the shipped code carries a written verdict saying why it's fine or what it costs (`docs/PERFORMANCE.md`). Code without one fails.
   - **The version check** (`tools/set-version.js --verify`): every file that carries the version agrees.
+  - **The documentation gates** (`tools/doc-gates.js --check`): About → Coming soon matches the BACKLOG, user-facing changes have a CHANGELOG entry, nothing shipped is still marked as an idea, the docs and the in-app help name only files, settings and shortcuts that exist, and the version is the same everywhere.
 - **The UI checker** (`tools/ui-check.js`, `tools/rail-check.js`): starts an isolated copy of Sonata on its own hidden display with a throwaway home folder, and checks the real windows at real sizes. Light and dark, the rail pinned or not, the panel docked or as a drawer: text contrast, names, hit targets, clipping, keyboard paths (Tab, F6, Esc), counts that stay flat over many open/close cycles, and idle repaints. It runs against Apple's logged-out page, so it can't see Apple's signed-in screens, and it needs a display, so it's run by hand before releases, not on GitHub.
 
 **CI.** Every push and pull request runs `npm test` and `npm run gates` on GitHub ([ci.yml](.github/workflows/ci.yml)). A release tag runs them again, and the release stops if the tag doesn't match the version ([release.yml](.github/workflows/release.yml)).
