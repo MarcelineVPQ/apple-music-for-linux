@@ -46,8 +46,19 @@
     buttons.push(b)
     return b
   }
-  // loop: NOT-WORTH — 5 items, once at load
-  for (const it of M.ITEMS) nav.appendChild(makeButton(it.id, it.id))
+  // loop: NOT-WORTH — 7 items, once at load
+  M.ITEMS.forEach((it, i) => {
+    const b = makeButton(it.id, it.id)
+    // a sub-item (Lyrics, Liner Notes under the Studio): indented, a smaller icon on the group's guide
+    // line (the last one ends it); screen readers hear the group it belongs to
+    if (it.parent) {
+      b.classList.add('sub')
+      if (!(M.ITEMS[i + 1] && M.ITEMS[i + 1].parent === it.parent)) b.classList.add('last')
+      const parent = M.ITEMS.find((p) => p.id === it.parent)
+      b.setAttribute('aria-description', 'In ' + parent.label)
+    } else if (M.ITEMS[i + 1] && M.ITEMS[i + 1].parent === it.id) b.classList.add('group')
+    nav.appendChild(b)
+  })
   const dev = el('div', 'dev')
   dev.hidden = true
   nav.appendChild(dev)
@@ -139,7 +150,7 @@
     if (!state) return
     theme.set(state.theme)
     const items = M.railItems(state)
-    // loop: NOT-WORTH — 5 items per state change
+    // loop: NOT-WORTH — 7 items per state change
     items.forEach((it, i) => renderButton(buttons[i], it))
     const pin = M.pinItem(state)
     renderButton(pinBtn, pin)
@@ -170,7 +181,7 @@
       setAttr(dev, 'role', 'note')
       setAttr(dev, 'aria-label', badge.tip)
     }
-    // loop: NOT-WORTH — 7 buttons per render
+    // loop: NOT-WORTH — 9 buttons per render
     buttons.forEach((b, i) => { b.tabIndex = i === focusIndex ? 0 : -1 })
   }
 
@@ -212,7 +223,7 @@
     e.preventDefault()
     if (k.action === 'escape') { update('escape'); return }
     focusIndex = k.index
-    // loop: NOT-WORTH — 7 buttons per key press
+    // loop: NOT-WORTH — 9 buttons per key press
     buttons.forEach((b, i) => { b.tabIndex = i === focusIndex ? 0 : -1 })
     buttons[focusIndex].focus({ focusVisible: true })
     update('key')
