@@ -63,11 +63,11 @@ test('progress: install.sh markers, pip and uv lines become steps, bytes and pac
   // steps never go backwards (install.sh says "check" twice: in .staging and in place)
   assert.equal(HM.reduce(j, { ev: 'step', step: 'venv' }).step, 'models')
   // uv: a line per big package, no byte counts; the venv size still moves the bar
-  let w = feedAll(HM.newJob('install', {}), ['@@sonata {"ev":"step","step":"venv","variant":"cpu"}', 'Using Python 3.14.4 environment at: /x/.staging/venv', 'Downloading torch (180.2MiB)', '@@sonata {"ev":"size","bytes":550000000}'])
+  let w = feedAll(HM.newJob('install', {}), ['@@sonata {"ev":"step","step":"venv","variant":"cpu"}', 'Using Python 3.14.4 environment at: /x/.staging/venv', 'Downloading torch (180.2MiB)', '@@sonata {"ev":"size","bytes":650000000}'])
   v = HM.progressView(w)
   assert.equal(v.label, 'Installing PyTorch')
-  assert.equal(v.fraction, 0.25)                      // half of it: 550 MB of the CPU build's ~1.1 GB on disk
-  assert.match(v.detail, /^Downloading torch \(189 MB\) · 550 MB of about 1\.1 GB installed$/)
+  assert.equal(v.fraction, 0.25)                      // half of it: 650 MB of the CPU build's ~1.3 GB on disk
+  assert.match(v.detail, /^Downloading torch \(189 MB\) · 650 MB of about 1\.3 GB installed$/)
 })
 
 test('failures: plain words with what to do, from the code and the last lines', () => {
@@ -81,6 +81,7 @@ test('failures: plain words with what to do, from the code and the last lines', 
   assert.match(f('check'), /previous install stays in use/)
   assert.match(f('licence'), /accept it to go on/)
   assert.match(f('protocol'), /Update Sonata first/)
+  assert.match(f('backend'), /NVIDIA or the processor only; the AMD and Intel builds come with the next helper/)
   assert.match(f('whatever', { message: 'boom' }), /stopped: boom/)
 })
 
@@ -115,7 +116,7 @@ test('state row: short (≤ 60 characters, the rest behind the ⓘ) for every st
     assert.deepEqual(HM.buttons(h), want[k][1], k)
   }
   assert.match(HM.stateRow(rows.update).info, /on Python 3\.14 \(the installed one is on 3\.13\)/)
-  assert.match(HM.stateRow(rows.missing).info, /licence, shown before anything is installed.*about 10 GB/)
+  assert.match(HM.stateRow(rows.missing).info, /licence, shown before anything is installed.*about 9 GB/)
   // while the licence or the confirmation shows, the row has no buttons (they are in the page below it)
   assert.deepEqual(HM.buttons({ state: 'missing', phase: 'licence' }), [])
   assert.equal(HM.stateRow({ state: 'missing', phase: 'licence', job: HM.newJob('install') }).text, 'Waiting for you to accept the licence')
@@ -243,8 +244,8 @@ test('installer: a feed engine goes in as a --pin file (removed afterwards); rep
     assert.match(a[1], /--pin \S+ --from \S+ --licence-sha f{64} --prune$/)
     assert.equal(fs.existsSync(pinFile), false)
     r.inst.dismiss()
-    await r.inst.start('repair', { hasModels: true })
-    assert.match(r.args()[3], /^--progress --rebuild --licence-sha/)
+    await r.inst.start('repair', { hasModels: true, backend: 'rocm' })
+    assert.match(r.args()[3], /^--progress --backend rocm --rebuild --licence-sha/)
   } finally { r.done() }
 })
 
@@ -307,4 +308,49 @@ test('installer: the script beside the asar (AppImage) and a clean environment',
   const env = HI.installerEnv({ PATH: '/usr/bin', LD_LIBRARY_PATH: '/tmp/.mount_x/usr/lib', PYTHONPATH: '/x', APPDIR: '/tmp/.mount_x', HOME: '/h' }, '/h/sa')
   assert.deepEqual(Object.keys(env).sort(), ['HOME', 'LC_ALL', 'PATH', 'PYTHONUNBUFFERED', 'SONATA_ALIGN_HOME'])
   assert.equal(env.SONATA_ALIGN_HOME, '/h/sa')
+})
+
+test('builds: the installed line names the card and the build, within 60 characters; Rebuild when Build for asks for another', () => {
+  const ok = (o) => Object.assign({ state: 'ok', version: '0.2.1', py: '3.14' }, o)
+  assert.equal(HM.stateRow(ok({ gpu: 'NVIDIA GeForce RTX 5080', backend: 'cuda' })).text, 'Installed: helper 0.2.1, Python 3.14, NVIDIA RTX 5080')
+  // the example Marcy gave is 66 characters: Python moves behind the ⓘ
+  const amd = HM.stateRow(ok({ gpu: 'AMD Radeon RX 7800 XT', backend: 'rocm' }))
+  assert.equal(amd.text, 'Installed: helper 0.2.1, AMD Radeon RX 7800 XT (ROCm)')
+  assert.match(amd.info, /^Installed: helper 0\.2\.1, Python 3\.14, AMD Radeon RX 7800 XT \(ROCm\)\./)
+  assert.match(amd.info, /ROCm build is new: it hasn't been tested on a real AMD card yet/)
+  const arc = HM.stateRow(ok({ version: '0.2.2-dev.12', gpu: 'Intel(R) Arc(TM) A770 Graphics', backend: 'xpu' })).text
+  assert.ok(arc.length <= 60, arc)
+  assert.match(arc, /^Installed: helper 0\.2\.2-dev\.12, Intel Arc .*… \(XPU\)$/)
+  assert.equal(HM.stateRow(ok({ gpu: 'CPU only', backend: 'cpu' })).text, 'Installed: helper 0.2.1, Python 3.14, processor only')
+  // before the first ping: the card found (when it is the build's vendor)
+  assert.equal(HM.stateRow(ok({ backend: 'rocm', detectedGpu: 'AMD Radeon RX 9070 XT' })).text, 'Installed: helper 0.2.1, AMD Radeon RX 9070 XT (ROCm)')
+  // a GPU build that found no card it can use: said, with what to do
+  const fell = HM.stateRow(ok({ backend: 'rocm', gpu: 'CPU only', runDevice: 'cpu', runMessage: 'is built for AMD (ROCm) but finds no graphics card it can use, so it runs on the processor (slow)' }))
+  assert.equal(fell.text, 'Installed, but not using a graphics card')
+  assert.equal(fell.level, 'warn')
+  assert.match(fell.info, /^The helper is built for AMD \(ROCm\) .*Build for, then Rebuild/)
+  // Rebuild for another build: models kept, only when the build differs
+  assert.deepEqual(HM.buttons(ok({ backend: 'cuda', wantBackend: 'cuda' })), ['remove'])
+  const want = ok({ backend: 'cpu', wantBackend: 'rocm' })
+  assert.deepEqual(HM.buttons(want), ['rebuild', 'remove'])
+  assert.equal(HM.buttonLabel('rebuild', want), 'Rebuild for AMD')
+  // progress sizes follow the build
+  let j = HM.reduce(HM.newJob('install'), { ev: 'step', step: 'venv', variant: 'rocm' })
+  j = HM.reduce(j, { ev: 'size', bytes: 7.5e9 })
+  assert.equal(HM.progressView(j).detail, '7.5 GB of about 15 GB installed')
+  assert.equal(HM.reduce(HM.newJob('install'), { ev: 'step', step: 'venv', variant: 'gpu' }).variant, 'cuda')   // install.sh up to 0.15.45
+  assert.equal(HM.parseLine('torch 2.11.0+xpu xpu').ev, 'packages-done')
+})
+
+test('builds: the Build for row says what was found and what Auto builds for, ≤ 60 characters', () => {
+  const r = HM.buildForRow({ detected: { name: 'NVIDIA GeForce RTX 5080', backend: 'cuda', cards: ['AMD Radeon Graphics (integrated)', 'NVIDIA GeForce RTX 5080'] }, choice: 'auto', wantBackend: 'cuda' })
+  assert.equal(r.text, 'Found: NVIDIA RTX 5080 → CUDA')
+  assert.match(r.info, /^Found: AMD Radeon Graphics \(integrated\), NVIDIA GeForce RTX 5080\. Auto builds for NVIDIA \(CUDA\)\./)
+  assert.match(r.info, /are new and not yet tested on real cards/)
+  assert.equal(HM.buildForRow({ detected: { name: '', backend: 'cpu', why: 'AMD Radeon Graphics is an integrated GPU the helper can\'t use', cards: [] }, choice: 'auto', wantBackend: 'cpu' }).text, 'No graphics card the helper can use')
+  assert.equal(HM.buildForRow({ detected: { name: 'NVIDIA GeForce RTX 5080', backend: 'cuda' }, choice: 'rocm', wantBackend: 'rocm' }).text, 'Builds for AMD (ROCm, new)')
+  const long = HM.buildForRow({ detected: { name: 'AMD Radeon RX 7700 XT / 7800 XT / 7900 GRE something very long', backend: 'rocm' }, choice: 'auto', wantBackend: 'rocm' }).text
+  assert.ok(long.length <= 60, long)
+  assert.deepEqual(HM.BUILD_FOR.map((b) => b[0]), ['auto', 'cuda', 'rocm', 'xpu', 'cpu'])
+  assert.ok(HM.BUILD_FOR.filter((b) => /new/.test(b[1])).map((b) => b[0]).join() === 'rocm,xpu')
 })

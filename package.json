@@ -99,6 +99,7 @@
     "helper-install-model.js",
     "helper-installer.js",
     "engine-feed.js",
+    "gpu-detect.js",
       "gfx-model.js",
       "gfx-runtime.js",
       "glow-dither.js",

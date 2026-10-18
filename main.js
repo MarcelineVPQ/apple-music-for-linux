@@ -2607,7 +2607,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2705,7 +2705,7 @@ async function askAlignStatus() {
   try {
     const pong = await getAlignHelper().ping()
     console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
-    alignStatusText = pong.device === 'cuda' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
+    alignStatusText = pong.device === 'cuda' || pong.device === 'xpu' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
     learnPong(pong)
   } catch (e) { // error: SHOWN — "Helper not working: …" in Settings → Precise timing
     console.log('align: helper not answering: ' + e.message)
@@ -2725,6 +2725,7 @@ async function askAlignStatus() {
 const helperInstallerLib = require('./helper-installer')
 const helperModel = require('./helper-install-model')
 const engineFeedLib = require('./engine-feed')
+const gpuDetect = require('./gpu-detect')
 const engineTestFeed = engineFeedLib.testEngineFeed(process.env)
 if (engineTestFeed) console.log('helper: TEST ENGINE FEED ' + engineTestFeed.prefix + ' (loopback only)')
 let helperInstaller = null
@@ -2734,13 +2735,18 @@ let engineFeedChannel = ''
 let alignGpu = ''               // the last pong's card ('' until asked; 'CPU only' without CUDA)
 let helperConfirm = false       // Remove… pressed: the confirmation shows in Settings
 let helperModelsBytes = 0       // the models folder's size, read when the confirmation opens
-let helperFiles = { models: false, leftovers: false }
+let helperFiles = { models: false, leftovers: false, backend: '' }
+let alignRunDevice = ''         // the last pong's device ('cuda' | 'xpu' | 'cpu') and why a GPU build runs on the CPU
+let alignRunMessage = ''
+let gpuCards = null             // gpu-detect.js detect(): the graphics found (sysfs at once, lspci's names when it answers)
 let helperAutoTried = ''        // the version an automatic update last tried (one try per version)
 let helperPushTimer = null
 let helperFeedFirst = null
 let helperFeedTimer = null
 function learnPong(pong) {
-  alignGpu = pong.device === 'cuda' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
+  alignGpu = pong.device === 'cuda' || pong.device === 'xpu' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
+  alignRunDevice = String(pong.device || '')
+  alignRunMessage = typeof pong.message === 'string' ? pong.message.slice(0, 400) : ''
   if (notesSwitch) notesSwitch.learn(pong)
 }
 // what is in the helper's folder besides a working install (one readdir; at start and after each change)
@@ -2748,8 +2754,30 @@ function helperScan(home) {
   const has = (dir) => { try { return fs.readdirSync(dir).some((f) => !f.startsWith('.')) } catch (e) { return false } }   // error: NOT-WORTH — no folder: nothing there
   let names = []
   try { names = fs.readdirSync(home) } catch (e) { names = [] }   // error: NOT-WORTH — no folder: nothing to remove
-  return { models: has(path.join(home, 'models')), leftovers: names.some((f) => /^(engine-|venv|active-engine$)/.test(f)) || has(path.join(home, 'python')) }
+  // the build the venv has (the engine's venv stamp: variant=cu128 | rocm7.2 | xpu | cpu)
+  let stamp = ''
+  try { stamp = fs.readFileSync(path.join(home, 'venv', '.sonata-engine-venv'), 'utf8') } catch (e) { stamp = '' }   // error: NOT-WORTH — no venv: no build
+  const variant = (/^variant=(.*)$/m.exec(stamp) || [])[1]
+  return { models: has(path.join(home, 'models')), leftovers: names.some((f) => /^(engine-|venv|active-engine$)/.test(f)) || has(path.join(home, 'python')), backend: gpuDetect.backendOfVariant(variant) }
 }
+// the graphics cards: sysfs now (a few small reads), lspci's names when it answers (once per run)
+// lifetime: OK — one lspci child, once; it ends by itself (5 s timeout)
+function gpuScan() {
+  if (gpuCards) return gpuCards
+  gpuCards = gpuDetect.detect(gpuDetect.scanSysfs(), '')
+  // error: LOGGED-OK — no lspci (or it fails, or execFile throws: a dead mount on PATH): the sysfs ids stay as the names
+  try {
+    execFile('lspci', ['-mm', '-nn'], { timeout: 5000 }, (err, out) => {
+      if (err) { console.log('helper: lspci: ' + err.message); return }
+      gpuCards = gpuDetect.detect(gpuDetect.scanSysfs(), out)
+      pushPanel()
+    })
+  } catch (e) { console.log('helper: lspci: ' + e.message) }
+  return gpuCards
+}
+// the build Install makes (Build for, Auto = the card found), and the one an Update or Repair keeps
+function wantBackend() { return gpuDetect.resolve(settings.alignBackend, gpuDetect.recommend(gpuScan())) }
+function keepBackend() { return settings.alignBackend !== 'auto' ? settings.alignBackend : (helperFiles.backend || wantBackend()) }
 // error: NOT-WORTH — a file that vanishes while counting counts 0
 async function dirBytes(dir) {
   let n = 0
@@ -2833,12 +2861,13 @@ function helperAfter(kind, job) {
   pushRail()
   pushPanel()
 }
-// Install / Update / Repair: the newest compatible engine from the feed, else the pinned one (the minimum)
-function helperStart(kind) {
+// Install / Update / Repair: the newest compatible engine from the feed, else the pinned one (the minimum).
+// The build: Install and Rebuild make the one Build for asks for; Update and Repair keep the installed one.
+function helperStart(kind, backend) {
   const inst = getHelperInstaller()
   if (inst.busy) return
   helperConfirm = false
-  const o = { hasModels: helperFiles.models }
+  const o = { hasModels: helperFiles.models, backend: backend || (kind === 'install' ? wantBackend() : keepBackend()) }
   const off = engineOffer.offer
   const pin = alignHelperLib.enginePin(__dirname) || {}
   const active = installedEngineVersion()
@@ -2895,6 +2924,7 @@ function helperAction(name) {
   if (name === 'helper-install') helperStart('install')
   else if (name === 'helper-update') helperStart('update')
   else if (name === 'helper-repair') helperStart('repair')
+  else if (name === 'helper-rebuild') helperStart('repair', wantBackend())
   else if (name === 'helper-accept') inst.accept()
   else if (name === 'helper-decline') inst.decline()
   else if (name === 'helper-cancel') inst.cancel()
@@ -2932,7 +2962,16 @@ function helperSnapshot() {
     fail: job && job.phase === 'failed' ? helperModel.failText(job) : '',
     licence: inst.phase === 'licence' && inst.licence ? { version: inst.licence.version, licenceVersion: inst.licence.licenceVersion || '', text: inst.licence.text, again: !!settings.alignLicence } : null,
     confirmRemove: helperConfirm, modelsText: helperModelsBytes ? helperModel.bytesText(helperModelsBytes) : '',
-    models: helperFiles.models, leftovers: helperFiles.leftovers, autoUpdate: !!settings.alignAutoUpdate
+    models: helperFiles.models, leftovers: helperFiles.leftovers, autoUpdate: !!settings.alignAutoUpdate,
+    // the build: installed, asked for (Build for), and what this computer has (gpu-detect.js)
+    backend: helperFiles.backend, choice: settings.alignBackend, wantBackend: wantBackend(),
+    detected: (() => {
+      const cards = gpuScan()
+      const rec = gpuDetect.recommend(cards)
+      return { name: rec.gpu ? rec.gpu.name : '', backend: rec.backend, why: rec.why, cards: cards.map((g) => g.name + (g.kind === 'integrated' ? ' (integrated)' : '')) }
+    })(),
+    detectedGpu: (() => { const rec = gpuDetect.recommend(gpuScan()); return rec.gpu && gpuDetect.BACKEND_OF[rec.gpu.vendor] === helperFiles.backend ? rec.gpu.name : '' })(),
+    runDevice: alignRunDevice, runMessage: alignRunMessage
   }
 }
 
@@ -3557,7 +3596,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
 const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'curious-copy',
-  'helper-install', 'helper-update', 'helper-repair', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
+  'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return

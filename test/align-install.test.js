@@ -36,7 +36,7 @@ mkdir -p "$H/venv/bin" && printf '#!/bin/sh\\n' > "$H/venv/bin/python" && chmod 
 touch "$H/python/py" && ln -s "$H/python/py" "$H/venv/bin/python3"
 printf 'home = %s/python/bin\\n' "$H" > "$H/venv/pyvenv.cfg"
 printf '%s\\n' "$VERSION_MARK" > "$H/venv/marker"
-case "$ARGS" in *--cpu*) v=cpu ;; *) v=cu128 ;; esac
+case "$ARGS" in *--cpu*|*'--backend cpu'*) v=cpu ;; *'--backend rocm'*) v=rocm7.2 ;; *'--backend xpu'*) v=xpu ;; *) v=cu128 ;; esac
 printf 'variant=%s\\n' "$v" > "$H/venv/.sonata-engine-venv"
 `
 // --check: a pong while the venv (in SONATA_ALIGN_HOME) is there; FAKE_CHECK_FAIL=all|live fails it everywhere or only in place
@@ -55,7 +55,7 @@ function artifact(dir, privateKey, v, opts = {}) {
   const root = path.join(stage, 'sonata-engine-' + v)
   fs.mkdirSync(root)
   const put = (f, text, mode = 0o644) => { fs.writeFileSync(path.join(root, f), text); fs.chmodSync(path.join(root, f), mode) }
-  put('ENGINE.json', JSON.stringify({ name: 'sonata-engine', version: v, protocol: opts.protocol || 2, python: '3.14' }, null, 2))
+  put('ENGINE.json', JSON.stringify(Object.assign({ name: 'sonata-engine', version: v, protocol: opts.protocol || 2, python: '3.14' }, opts.backends ? { backends: opts.backends } : {}), null, 2))
   put('EULA.md', opts.licence || 'TEST HELPER TERMS TEXT\n')
   put('setup-venv.sh', SETUP, 0o755)
   put('sonata-align', CHECK, 0o755)
@@ -171,7 +171,7 @@ test('install --progress: the steps, the download bytes and the end, as JSON lin
     const bytes = ev.filter((e) => e.ev === 'bytes')
     assert.ok(bytes.length >= 1)
     assert.deepEqual(bytes[bytes.length - 1], { ev: 'bytes', step: 'download', got: w.pin.size, total: w.pin.size })
-    assert.equal(ev.find((e) => e.step === 'venv').variant, 'gpu')   // the default build
+    assert.equal(ev.find((e) => e.step === 'venv').variant, 'cuda')   // the default build
     assert.deepEqual(ev[ev.length - 1], { ev: 'done', version: V })
     // the pip lines of setup-venv.sh come through for the progress parser
     assert.match(r.stdout, /^Progress 100 of 200$/m)
@@ -415,4 +415,41 @@ test('install --pin: development engines (X.Y.Z-dev.N) sort before their release
     assert.equal(run('9.10.0-dev.11').status, 1)                   // the release is newer than its development builds
     assert.equal(read(path.join(w.sa, 'active-engine')).trim(), '9.10.0')
   } finally { w.done() }
+})
+
+test('install --backend: the engine builds what its ENGINE.json lists; an older engine only NVIDIA or the processor', () => {
+  const w = world()   // a stand-in engine without "backends" (like 0.2.1)
+  try {
+    const r = w.run(['--from', w.rel, '--accept-licence', '--backend', 'rocm', '--progress'])
+    assert.equal(r.status, 1)
+    const last = events(r.stdout).pop()
+    assert.equal(last.code, 'backend')
+    assert.match(last.message, /NVIDIA or the processor only; the rocm build needs a newer helper/)
+    assert.deepEqual(engines(w.sa), [])                            // the engine it unpacked went again
+    assert.equal(w.run(['--from', w.rel, '--accept-licence', '--backend', 'cuda']).status, 0)
+    assert.deepEqual(w.setupArgs(), ['--gpu'])
+    assert.equal(w.run(['--rebuild', '--backend', 'cpu']).status, 0)
+    assert.deepEqual(w.setupArgs(), ['--gpu', '--cpu'])
+    assert.equal(w.run(['--backend', 'metal']).status, 2)
+  } finally { w.done() }
+  const w2 = world({ backends: ['cuda', 'rocm', 'xpu', 'cpu'] })
+  try {
+    // a disk with room for the ROCm build (24 GB), whatever /tmp has
+    const bin = path.join(w2.root, 'bin')
+    fs.mkdirSync(bin)
+    fs.writeFileSync(path.join(bin, 'df'), '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted"\necho "/dev/x 1 1 99999999999 1% /"\n', { mode: 0o755 })
+    const run0 = w2.run
+    w2.run = (args, env = {}) => run0(args, Object.assign({ PATH: bin + ':' + process.env.PATH }, env))
+    const r = w2.run(['--from', w2.rel, '--accept-licence', '--backend', 'rocm', '--progress'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(events(r.stdout).find((e) => e.step === 'venv').variant, 'rocm')
+    assert.deepEqual(w2.setupArgs(), ['--backend rocm'])
+    // a Repair (no backend named) keeps the venv's: ROCm
+    assert.equal(w2.run(['--rebuild']).status, 0)
+    assert.deepEqual(w2.setupArgs(), ['--backend rocm', '--backend rocm'])
+    assert.equal(w2.run(['--rebuild', '--backend', 'xpu']).status, 0)
+    assert.equal(w2.setupArgs().pop(), '--backend xpu')
+    // the dry run reports what the engine's recipe says for that backend
+    assert.equal(w2.run(['--dry-run', '--backend', 'xpu']).status, 0)
+  } finally { w2.done() }
 })

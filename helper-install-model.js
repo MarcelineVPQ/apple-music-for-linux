@@ -21,9 +21,16 @@
   // each step's share of the one bar, by how long it takes (the Python packages are nearly all of it)
   const WEIGHT = { download: 3, verify: 1, venv: 1, torch: 60, packages: 20, check: 5, models: 10 }
   // the venv on disk when done (docs/LEVEL2-ALIGN.md "Install footprint"): the size bar's end
-  const EXPECTED_VENV = { gpu: 7.3e9, cpu: 1.1e9 }   // measured 2026-10-18 (Python 3.14, torch 2.11 cu128)
+  // per build (the engine's setup-venv.sh --backend), measured 2026-10-18 with Python 3.14 and torch 2.11
+  const EXPECTED_VENV = { cuda: 7.3e9, rocm: 15e9, xpu: 8.1e9, cpu: 1.3e9 }
   // what pip downloads for it (the wheels: torch cu128 and NVIDIA's CUDA libraries, measured 2026-10-18)
-  const EXPECTED_DOWNLOAD = { gpu: 3.9e9, cpu: 0.4e9 }
+  const EXPECTED_DOWNLOAD = { cuda: 3.9e9, rocm: 6.5e9, xpu: 2.7e9, cpu: 0.3e9 }
+  const BACKENDS = ['cuda', 'rocm', 'xpu', 'cpu']
+  const SHORT = { cuda: 'CUDA', rocm: 'ROCm', xpu: 'XPU', cpu: 'processor' }
+  // Settings → Precise timing → Build for (the ROCm and XPU builds are new: untested on real cards here)
+  const BUILD_FOR = [['auto', 'Auto (recommended)'], ['cuda', 'NVIDIA (CUDA)'], ['rocm', 'AMD (ROCm, new)'], ['xpu', 'Intel Arc (XPU, new)'], ['cpu', 'Processor only (slow)']]
+  const BUILD_NAME = { cuda: 'NVIDIA (CUDA)', rocm: 'AMD (ROCm, new)', xpu: 'Intel Arc (XPU, new)', cpu: 'the processor only' }
+  const variantOf = (v) => (BACKENDS.includes(v) ? v : v === 'gpu' ? 'cuda' : 'cuda')   // install.sh up to 0.15.45 said gpu
   const TAIL = 12   // the last output lines kept for a failure
 
   const MB = 1e6
@@ -56,7 +63,7 @@
     if ((m = /^Downloading ([A-Za-z0-9_.-]+) \(([\d.]+)\s?([KMG]i?B)\)$/.exec(line))) return { ev: 'pkg', name: m[1].toLowerCase(), bytes: sizeOf(m[2], m[3]) }
     if ((m = /^ Downloaded ([A-Za-z0-9_.-]+)$/.exec(line))) return { ev: 'pkg-done', name: m[1].toLowerCase() }
     if (/^ \+ torch==|^Successfully installed .*\btorch-\d/.test(line)) return { ev: 'torch-done' }
-    if (/^torch \d\S* (cuda|cpu)$/.test(line)) return { ev: 'packages-done' }
+    if (/^torch \d\S* (cuda|xpu|cpu)$/.test(line)) return { ev: 'packages-done' }
     if (/^Collecting torch==|^Using Python \d|^Looking in indexes: .*pytorch/.test(line)) return { ev: 'torch-start' }
     return null
   }
@@ -69,7 +76,7 @@
     const o = opts || {}
     return {
       phase: 'running', kind: kind || 'install', version: o.version || '', step: 'download', skipped: o.hasModels ? ['models'] : [],
-      got: 0, total: 0, size: 0, variant: 'gpu', pkg: null, pkgGot: 0, pkgTotal: 0, pkgsDone: 0, dlDone: 0, modelP: null, modelDetail: '',
+      got: 0, total: 0, size: 0, variant: 'cuda', pkg: null, pkgGot: 0, pkgTotal: 0, pkgsDone: 0, dlDone: 0, modelP: null, modelDetail: '',
       code: '', message: '', tail: []
     }
   }
@@ -82,7 +89,7 @@
     switch (ev.ev) {
       case 'step':
         go(ev.step)
-        if (ev.step === 'venv' && ev.variant) j.variant = ev.variant === 'cpu' ? 'cpu' : 'gpu'
+        if (ev.step === 'venv' && ev.variant) j.variant = variantOf(ev.variant)
         break
       case 'skip':
         if (ev.step === 'venv') j.skipped = j.skipped.concat(VENV_STEPS.filter((s) => !j.skipped.includes(s)))
@@ -119,14 +126,14 @@
     const cur = steps[i] || STEPS[0]
     let fraction = null
     let detail = ''
-    const venvEnd = EXPECTED_VENV[job.variant] || EXPECTED_VENV.gpu
+    const venvEnd = EXPECTED_VENV[job.variant] || EXPECTED_VENV.cuda
     if (cur.id === 'download') {
       fraction = job.total ? Math.min(1, job.got / job.total) : null
       detail = job.total ? bytesText(job.got) + ' of ' + bytesText(job.total) : ''
     } else if (VENV_STEPS.includes(cur.id)) {
       // real bytes whatever the tool prints: half for the downloads (pip's byte counts, uv's finished
       // packages), half for the venv on disk against its expected size
-      const dlEnd = EXPECTED_DOWNLOAD[job.variant] || EXPECTED_DOWNLOAD.gpu
+      const dlEnd = EXPECTED_DOWNLOAD[job.variant] || EXPECTED_DOWNLOAD.cuda
       const dl = (job.dlDone || 0) + (job.pkg ? job.pkgGot || 0 : 0)
       fraction = job.size || dl ? Math.min(0.99, 0.5 * Math.min(1, dl / dlEnd) + 0.5 * Math.min(1, job.size / venvEnd)) : null
       const pkg = job.pkg && job.pkg.name ? (job.pkgTotal && job.pkgGot ? job.pkg.name + ': ' + bytesText(job.pkgGot) + ' of ' + bytesText(job.pkgTotal) : 'Downloading ' + job.pkg.name + (job.pkg.bytes ? ' (' + bytesText(job.pkg.bytes) + ')' : '')) : ''
@@ -175,6 +182,7 @@
         return 'Installing the helper\'s Python packages failed. Check the internet connection and free space, then try again. Your previous install is unchanged.'
       case 'check': return 'The new helper didn\'t start, so the previous install stays in use. Try again; if it keeps failing, Remove the helper and install it again.'
       case 'models': return 'The helper is installed, but its models couldn\'t be downloaded. They download on first use; check the internet connection.'
+      case 'backend': return 'This helper version can be built for NVIDIA or the processor only; the AMD and Intel builds come with the next helper. Pick NVIDIA or Processor only under Build for, or wait for that update. Nothing was changed.'
       case 'sandbox': case 'home': return job.message || 'The helper\'s folder can\'t be used.'
       case 'spawn': return 'Sonata couldn\'t start its installer (align/install.sh). ' + (job.message || '')
       default: return 'The install stopped' + (job.message ? ': ' + job.message : '') + '. Try again.'
@@ -182,7 +190,33 @@
   }
 
   // "NVIDIA GeForce RTX 5080" -> "NVIDIA RTX 5080" (the row stays short)
-  const gpuName = (g) => String(g || '').replace(/\bGeForce\s+/i, '').replace(/\s+/g, ' ').trim()
+  const gpuName = (g) => String(g || '').replace(/\bGeForce\s+/i, '').replace(/\((R|TM)\)/g, '').replace(/\s+/g, ' ').trim()
+  const LIMIT = 60
+  // "Installed: " + parts, kept to the limit: the Python part goes first (it is behind the ⓘ), then the card's
+  // name is shortened
+  function fitParts(head, parts, gpu) {
+    let all = parts.concat(gpu ? [gpu] : [])
+    let t = head + all.join(', ')
+    if (t.length > LIMIT) { all = all.filter((p) => !/^Python /.test(p)); t = head + all.join(', ') }
+    if (t.length > LIMIT && gpu) {
+      const room = LIMIT - (head + all.slice(0, -1).concat(['']).join(', ')).length
+      const tail = / \([^)]+\)$/.exec(gpu)
+      const name = tail ? gpu.slice(0, -tail[0].length) : gpu
+      const keep = Math.max(4, room - (tail ? tail[0].length : 0) - 1)
+      all[all.length - 1] = name.slice(0, keep).trimEnd() + '…' + (tail ? tail[0] : '')
+      t = head + all.join(', ')
+    }
+    return t
+  }
+  // the card part of the installed line: "NVIDIA RTX 5080" (CUDA, the tested build), "AMD Radeon RX 7800 XT (ROCm)",
+  // "Intel Arc A770 (XPU)", "processor only"
+  function cardPart(s) {
+    const b = s.backend || ''
+    if (b === 'cpu' || (!b && s.gpu === 'CPU only')) return 'processor only'
+    const name = gpuName(s.gpu && s.gpu !== 'CPU only' ? s.gpu : s.detectedGpu || '')
+    if (!name) return b && b !== 'cuda' ? '(' + SHORT[b] + ')' : ''
+    return b === 'rocm' || b === 'xpu' ? name + ' (' + SHORT[b] + ')' : name
+  }
 
   /**
    * The state row: { text (≤ 60 characters, the DS5 long-text rule), info (the longer words behind the ⓘ),
@@ -202,15 +236,21 @@
       case 'ok': {
         const parts = ['helper ' + (s.version || '?')]
         if (s.py) parts.push('Python ' + s.py)
-        if (s.gpu) parts.push(gpuName(s.gpu))
-        if (s.available) return { text: 'Update available: ' + s.available, info: 'Installed: ' + parts.join(', ') + '. The update keeps the downloaded models' + (s.availableNotes ? '. ' + s.availableNotes : '') + '. Installed in ' + where + '.', level: 'warn' }
-        return { text: 'Installed: ' + parts.join(', '), info: 'The helper is installed in ' + where + ' (about ' + (s.diskText || '9 GB') + ' with its Python packages and models). Remove deletes it; the models can stay for a later install.' + (s.incompatible ? ' A newer helper (' + s.incompatible + ') is out but ' + s.incompatibleWhy + '.' : ''), level: 'ok' }
+        const card = cardPart(s)
+        const full = 'Installed: ' + parts.concat(card ? [card] : []).join(', ')
+        const newer = s.backend === 'rocm' || s.backend === 'xpu' ? ' The ' + SHORT[s.backend] + ' build is new: it hasn\'t been tested on a real ' + (s.backend === 'rocm' ? 'AMD' : 'Intel') + ' card yet.' : ''
+        if (s.available) return { text: 'Update available: ' + s.available, info: full + '. The update keeps the downloaded models and the build' + (s.availableNotes ? '. ' + s.availableNotes : '') + '. Installed in ' + where + '.', level: 'warn' }
+        // a GPU build that found no card it can use (pong.message): it runs, slowly, on the processor
+        if (s.runDevice === 'cpu' && s.backend && s.backend !== 'cpu' && s.runMessage) {
+          return { text: 'Installed, but not using a graphics card', info: 'The helper ' + s.runMessage + '. Pick the build for this computer\'s card under Build for, then Rebuild.' + newer, level: 'warn' }
+        }
+        return { text: fitParts('Installed: ', parts, card), info: full + '. The helper is installed in ' + where + ' (about ' + (s.diskText || bytesText((EXPECTED_VENV[s.backend] || EXPECTED_VENV.cuda) + 1.4e9)) + ' with its Python packages and models). Remove deletes it; the models can stay for a later install.' + newer + (s.incompatible ? ' A newer helper (' + s.incompatible + ') is out but ' + s.incompatibleWhy + '.' : ''), level: 'ok' }
       }
       case 'update': return { text: 'Needs an update', info: 'This Sonata needs helper ' + (s.want || s.min || '') + ' or newer' + (s.py && s.wantPy && s.py !== s.wantPy ? ' on Python ' + s.wantPy + ' (the installed one is on ' + s.py + ')' : '') + '. Update keeps the downloaded models and rebuilds the Python packages only when they changed.', level: 'warn' }
       case 'broken': return { text: 'Needs a repair: its Python is gone', info: 'The helper\'s Python (' + (s.target || 'its interpreter') + ') was removed. Repair rebuilds the Python packages and keeps the downloaded models.', level: 'warn' }
       case 'sandboxed': return { text: 'Needs a repair: its Python is inside another app', info: 'The helper works, but its Python lives inside another app (' + (s.target || '') + '), so that app\'s next update breaks it. Repair rebuilds it on a Python of its own and keeps the models.', level: 'warn' }
       case 'stray': return { text: 'Installed in the wrong place', info: 'The helper was installed inside another app\'s folder (' + (s.target || '') + '), where Sonata doesn\'t look. Install puts it in ' + where + '.', level: 'warn' }
-      default: return { text: 'Not installed', info: 'Precise word timing needs a helper: a separate download (the Sonata engine ' + (s.min || '') + ', with its own licence, shown before anything is installed). It takes about 10 GB with its Python packages (PyTorch) and models, goes into ' + where + ', and every download is checked (size, checksum and signature). Remove deletes it again.' + (s.models ? ' The models downloaded before are still in ' + where + '/models: Install uses them, Delete the models removes them.' : ''), level: 'off' }
+      default: return { text: 'Not installed', info: 'Precise word timing needs a helper: a separate download (the Sonata engine ' + (s.min || '') + ', with its own licence, shown before anything is installed). It takes about 9 GB with its Python packages (PyTorch for NVIDIA; other builds under Build for) and models, goes into ' + where + ', and every download is checked (size, checksum and signature). Remove deletes it again.' + (s.models ? ' The models downloaded before are still in ' + where + '/models: Install uses them, Delete the models removes them.' : ''), level: 'off' }
     }
   }
 
@@ -226,13 +266,34 @@
     if (s.state === 'missing' || s.state === 'stray') out.push('install')
     else if (s.state === 'update' || (s.state === 'ok' && s.available)) out.push('update')
     else if (s.state === 'broken' || s.state === 'sandboxed') out.push('repair')
+    // Build for asks for another build than the installed one: Rebuild for it (models kept)
+    else if (s.state === 'ok' && s.backend && s.wantBackend && s.backend !== s.wantBackend) out.push('rebuild')
     // Remove… also when only the kept models are left (it says "Delete the models…" then)
     if (s.state !== 'missing' || s.leftovers || s.models) out.push('remove')
     return out
   }
-  const BUTTON_LABEL = { install: 'Install', update: 'Update', repair: 'Repair', remove: 'Remove…', cancel: 'Cancel' }
+  const BUTTON_LABEL = { install: 'Install', update: 'Update', repair: 'Repair', rebuild: 'Rebuild', remove: 'Remove…', cancel: 'Cancel' }
+  const buttonLabel = (id, s) => (id === 'rebuild' && s && s.wantBackend ? 'Rebuild for ' + ({ cuda: 'NVIDIA', rocm: 'AMD', xpu: 'Intel Arc', cpu: 'the processor' }[s.wantBackend]) : BUTTON_LABEL[id])
 
-  const api = { STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
+  /**
+   * The Build for row: { text (≤ 60), info } — the card found and what Auto builds for. s: helperSnapshot
+   * (detected: { name, backend, why, cards: [names] }, choice, wantBackend).
+   */
+  function buildForRow(s) {
+    const d = (s && s.detected) || {}
+    const want = (s && s.wantBackend) || d.backend || 'cpu'
+    const found = d.name ? 'Found: ' + gpuName(d.name) : d.why ? 'No graphics card the helper can use' : 'No graphics card found'
+    let text = (s && s.choice && s.choice !== 'auto') ? 'Builds for ' + BUILD_NAME[want] : found + (d.name ? ' → ' + SHORT[want] : '')
+    if (text.length > LIMIT) text = text.slice(0, LIMIT - 1) + '…'
+    const cards = (d.cards || []).length ? 'Found: ' + d.cards.join(', ') + '. ' : ''
+    const info = cards + 'Auto builds for ' + BUILD_NAME[d.backend || 'cpu'] + (d.why ? ' (' + d.why + ')' : '') + '. ' +
+      'NVIDIA (CUDA, ~7 GB) is the tested build. AMD (ROCm, ~15 GB; Radeon RX 6800 and newer) and Intel Arc (XPU, ~8 GB) ' +
+      'are new and not yet tested on real cards; without a usable card they run on the processor and say so. ' +
+      'Processor only (~1.3 GB) is slow. Update and Repair keep the build.'
+    return { text, info }
+  }
+
+  const api = { STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataHelperInstallModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

@@ -30,31 +30,40 @@
     setAttr(stateText, 'aria-live', 'polite')
     // the ⓘ (the DS5 app's long-text rule, as the sheet-notes band): hover or focus shows the words, a click
     // toggles them (touch), Esc closes them; screen readers get them as the button's description
-    const info = el('button', 'info-btn', 'i')
-    info.type = 'button'
-    setAttr(info, 'aria-label', 'More about the helper')
-    const infoText = el('span', 'info-text')
-    infoText.id = nextId('i')
-    infoText.hidden = true
-    setAttr(info, 'aria-describedby', infoText.id)
-    const tip = el('span', 'info-tip')
-    setAttr(tip, 'aria-hidden', 'true')
-    tip.hidden = true
-    line.append(stateText, info)
-    text.append(label, line, infoText, tip)
-    const showTip = (on) => { tip.hidden = !on || !infoText.textContent; info.classList.toggle('open', !tip.hidden) }
-    // lifetime: OK — the ⓘ's six handlers, set once, dropped with the section's body
-    info.onmouseenter = () => showTip(true)
-    info.onmouseleave = () => { if (doc.activeElement !== info) showTip(false) }
-    info.onfocus = () => showTip(true)
-    info.onblur = () => showTip(false)
-    info.onclick = (e) => { e.stopPropagation(); if (e.isTrusted) showTip(tip.hidden) }
-    info.onkeydown = (e) => { if (e.key === 'Escape' && !tip.hidden) { e.preventDefault(); e.stopPropagation(); showTip(false) } }
+    function infoTip(name, holder) {
+      const btn = el('button', 'info-btn', 'i')
+      btn.type = 'button'
+      setAttr(btn, 'aria-label', name)
+      const words = el('span', 'info-text')
+      words.id = nextId('i')
+      words.hidden = true
+      setAttr(btn, 'aria-describedby', words.id)
+      const tipEl = el('span', 'info-tip')
+      setAttr(tipEl, 'aria-hidden', 'true')
+      tipEl.hidden = true
+      holder.append(words, tipEl)
+      const show = (on) => { tipEl.hidden = !on || !words.textContent; btn.classList.toggle('open', !tipEl.hidden) }
+      // lifetime: OK — the ⓘ's six handlers, set once, dropped with the section's body
+      btn.onmouseenter = () => show(true)
+      btn.onmouseleave = () => { if (doc.activeElement !== btn) show(false) }
+      btn.onfocus = () => show(true)
+      btn.onblur = () => show(false)
+      btn.onclick = (e) => { e.stopPropagation(); if (e.isTrusted) show(tipEl.hidden) }
+      btn.onkeydown = (e) => { if (e.key === 'Escape' && !tipEl.hidden) { e.preventDefault(); e.stopPropagation(); show(false) } }
+      return {
+        btn,
+        set(t) { setText(words, t); setText(tipEl, t); btn.hidden = !t; if (!t) show(false) }
+      }
+    }
+    line.append(stateText)
+    text.append(label, line)
+    const stateInfo = infoTip('More about the helper', text)
+    line.append(stateInfo.btn)
     const btns = el('div', 'btns')
     const made = {}
-    // loop: NOT-WORTH — five buttons, once per body build
-    for (const id of ['install', 'update', 'repair', 'cancel', 'remove']) {
-      const b = el('button', 'btn' + (['install', 'update', 'repair'].includes(id) ? ' primary' : ''), HM.BUTTON_LABEL[id])
+    // loop: NOT-WORTH — six buttons, once per body build
+    for (const id of ['install', 'update', 'repair', 'rebuild', 'cancel', 'remove']) {
+      const b = el('button', 'btn' + (['install', 'update', 'repair', 'rebuild'].includes(id) ? ' primary' : ''), HM.BUTTON_LABEL[id])
       b.type = 'button'
       b.dataset.helper = id
       b.hidden = true
@@ -66,6 +75,27 @@
     }
     row.append(text, btns)
     setAttr(row, 'aria-labelledby', label.id)
+
+    // --- Build for: the card found and the PyTorch build (Auto, or one chosen); the ROCm and XPU builds are new ---
+    const brow = el('div', 'row helper-row build-row')
+    const btext = el('div', 'row-text')
+    const blabel = el('span', 'row-label', 'Build for')
+    blabel.id = nextId('l')
+    const bline = el('span', 'row-desc helper-state')
+    bline.id = nextId('d')
+    const bstate = el('span', 'helper-state-text')
+    bline.append(bstate)
+    btext.append(blabel, bline)
+    const buildInfo = infoTip('More about the builds', btext)
+    bline.append(buildInfo.btn)
+    const sel = el('select', 'select')
+    // loop: NOT-WORTH — five builds, once per body build
+    for (const [value, words] of HM.BUILD_FOR) { const op = el('option', '', words); op.value = value; sel.appendChild(op) }
+    setAttr(sel, 'aria-labelledby', blabel.id)
+    setAttr(sel, 'aria-describedby', bline.id)
+    // lifetime: OK — one change listener, dropped with the section's body
+    sel.addEventListener('change', (e) => { if (e.isTrusted) bridge.send('set', 'alignBackend', sel.value) })
+    brow.append(btext, sel)
 
     // --- progress: the step, one bar for the whole install, what is happening in bytes ---
     const prog = el('div', 'helper-progress')
@@ -147,7 +177,7 @@
     // lifetime: OK — two keydown listeners, dropped with the section's body
     lic.addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.isTrusted) { e.preventDefault(); e.stopPropagation(); send('helper-decline') } })
     conf.addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.isTrusted) { e.preventDefault(); e.stopPropagation(); send('helper-remove-cancel') } })
-    box.append(row, prog, result, lic, conf)
+    box.append(row, brow, prog, result, lic, conf)
 
     // after a press the pressed button may go (Install -> Cancel): the keyboard lands on what replaced it
     function keepFocus(had) {
@@ -165,10 +195,14 @@
       const st = HM.stateRow(h)
       setText(stateText, st.text)
       row.dataset.level = st.level
-      setText(infoText, st.info)
-      info.hidden = !st.info
-      setText(tip, st.info)
-      if (!st.info) showTip(false)
+      stateInfo.set(st.info)
+      // Build for: shown when there is something to build (not while a job, the licence or Remove's question shows)
+      const bf = HM.buildForRow(h)
+      setText(bstate, bf.text)
+      buildInfo.set(bf.info)
+      const choice = h.choice || 'auto'
+      if (sel.value !== choice && doc.activeElement !== sel) sel.value = choice
+      brow.hidden = !!(h.phase === 'running' || h.phase === 'licence-fetch' || h.phase === 'licence' || h.confirmRemove)
       // buttons: only the ones that do something now
       const want = HM.buttons(h)
       // loop: NOT-WORTH — five buttons
@@ -176,6 +210,7 @@
         made[id].hidden = !want.includes(id)
         if (id === 'remove') setText(made[id], h.state === 'missing' && !h.leftovers ? 'Delete the models…' : 'Remove…')
         if (id === 'update') setAttr(made[id], 'aria-label', h.available ? 'Update the helper to ' + h.available : 'Update the helper')
+        if (id === 'rebuild') setText(made[id], HM.buttonLabel('rebuild', h))
       }
       btns.hidden = !want.length
       // progress

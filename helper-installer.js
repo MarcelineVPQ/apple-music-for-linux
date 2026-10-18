@@ -110,7 +110,8 @@ function createHelperInstaller(opts, deps = {}) {
 
   /**
    * Starts an install, update or repair. o: { pinText (the feed's engine, engine-feed.js pinText), from
-   * (a test feed's folder), rebuild, cpu, hasModels, version, licence: the feed's { version, sha256 } }
+   * (a test feed's folder), rebuild, backend (cuda | rocm | xpu | cpu), hasModels, version, licence: the feed's
+   * { version, sha256 } }
    */
   async function start(kind, o) {
     if (st.phase === 'licence-fetch' || st.phase === 'running' || st.phase === 'licence') return false
@@ -120,7 +121,7 @@ function createHelperInstaller(opts, deps = {}) {
     let pin = null
     if (opt.pinText) { pin = writePin(opt.pinText); args.push('--pin', pin.file) }
     if (opt.from) args.push('--from', opt.from)
-    if (opt.cpu) args.push('--cpu')
+    if (opt.backend) args.push('--backend', opt.backend)   // cuda | rocm | xpu | cpu (checked by main and by install.sh)
     if (opt.rebuild || k === 'repair') args.push('--rebuild')
     run = { kind: k, args, pin, hasModels: !!opt.hasModels, licence: opt.licence || null }
     cancelling = false

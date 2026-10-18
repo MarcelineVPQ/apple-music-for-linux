@@ -65,7 +65,8 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   program and download (pinned in `align/engine.json`; `align/install.sh` checks and installs it into
   `~/.local/share/sonata-align/engine-X.Y.Z` with a private venv, or `SONATA_ALIGN_HOME`; Settings → Precise
   timing runs that same script through `helper-installer.js`, and `engine-feed.js` offers newer engines from a
-  signed feed, any protocol-compatible one at least the pin, the one in `<home>/active-engine` runs). Its code never
+  signed feed, any protocol-compatible one at least the pin, the one in `<home>/active-engine` runs; `gpu-detect.js`
+  picks the PyTorch build: CUDA, ROCm, XPU or CPU). Its code never
   enters this repository (gate: `test/engine-boundary.test.js`); CI tests against the fake helper only. One helper process at most, quits after 10 min idle while a lyric view is open (2 min
   when none is); only word times are cached. Lyrics and timing entries are keyed by the recording's ISRC
   (`recording-id.js`; `title|artist` without one) and refused when its length differs by > 1.5 s.

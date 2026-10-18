@@ -422,6 +422,24 @@ files; anything else in the folder, such as bench songs, stays). A fresh install
    A failed or cancelled run (its traps) leaves the working install as it was: the staging, a newly unpacked
    engine that never became active and a half-done switch are undone.
 
+**Builds (GPU backends).** Settings → Precise timing → *Build for* (`settings.alignBackend`: auto | cuda |
+rocm | xpu | cpu). `gpu-detect.js` reads `/sys/class/drm/cardN/device/{vendor,device,class}` (0x10de NVIDIA,
+0x1002 AMD, 0x8086 Intel; amdgpu's `mem_info_vram_total` < 4 GiB = an integrated GPU; Intel Arc = device ids
+0x5690–0x56cf, 0xe200–0xe2ff) and `lspci -mm -nn` for names (and as the fallback without sysfs). Auto: an
+NVIDIA card → cuda, else a discrete AMD card → rocm, else an Intel Arc card → xpu, else cpu. Install and
+*Rebuild for …* make the chosen build; Update and Repair keep the installed one (the venv stamp's variant).
+`install.sh --backend B` passes `--backend B` to the engine's setup-venv.sh when its ENGINE.json lists B in
+`"backends"` (engine 0.2.2 on), else `--gpu` / `--cpu` (cuda / cpu only; rocm and xpu fail with code
+`backend`, said in Settings). The PyTorch 2.11.0 indexes: cu128, rocm7.2 (the wheels carry the ROCm runtime;
+kernels for gfx1030, gfx1100–1102, gfx1150/1151, gfx1200/1201 and data-centre parts; the system needs the
+amdgpu driver and /dev/kfd access), xpu (Intel's runtime from the same index) and cpu. Measured 2026-10-18
+(Python 3.14, pip): cuda 3.9 GB download / 7.3 GB venv, rocm 6.5 / 15 GB, xpu 2.7 / 8.1 GB, cpu 0.3 / 1.3 GB.
+In the engine, every GPU call goes through `sonata_align.accel` (ROCm answers through torch.cuda, Intel through
+torch.xpu), a device must pass one small test computation before it is used, and the pong carries `backend`,
+`build` and, for a GPU build without a usable card, a `message` (it runs on the CPU; Settings says so).
+**ROCm and XPU are untested on real AMD/Intel cards**: both builds were installed from the real indexes and
+pinged on a machine without such cards (GPUs hidden), and fell back to the CPU with that message.
+
 **Engine updates without a Sonata release.** engine-feed.js reads latest-engine.json (Stable) or
 latest-engine-dev.json (Development, else Stable) from MarcelineVPQ/sonata-releases main, signed with the
 engine key (the one in engine.json, Ed25519 over the exact bytes, `<file>.sig`, the scheme of Sonata's own

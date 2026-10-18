@@ -2,8 +2,10 @@
 # Installs Precise word timing's helper (the Sonata engine, a separate download) into a private
 # folder: no sudo, no system packages. Generic: download -> verify -> licence -> unpack -> venv -> check.
 # The one installer: Settings → Precise timing runs this same script (with --progress), and so can a terminal.
-#   ./install.sh               GPU build (CUDA 12.8 wheels; works on CPU too, ~7 GB)
-#   ./install.sh --cpu         CPU-only build (~1 GB, much slower)
+#   ./install.sh               the build the venv has, else NVIDIA's (CUDA 12.8 wheels; works on CPU too, ~7 GB)
+#   ./install.sh --backend B   the PyTorch build: cuda (NVIDIA), rocm (AMD, new), xpu (Intel Arc, new) or cpu;
+#                              rocm and xpu need an engine whose ENGINE.json lists them ("backends", 0.2.2 on)
+#   ./install.sh --cpu         the same as --backend cpu: CPU-only build (~1 GB, much slower)
 #   ./install.sh --rebuild     a new venv even when the current one fits; the downloaded models in
 #                              <home>/models stay
 #   ./install.sh --dry-run     print the home, the engine and what is installed; change nothing
@@ -38,10 +40,12 @@ set -e
 # checks they are the same)
 PROTOCOLS="2"
 
-CPU="" REBUILD=0 DRY=0 ACCEPT=0 FROM="" PROGRESS=0 LICENCE_ONLY=0 LICENCE_SHA="" PINFILE="" PRUNE=0 REMOVE=0 DELETE_MODELS=0
+BACKEND="" REBUILD=0 DRY=0 ACCEPT=0 FROM="" PROGRESS=0 LICENCE_ONLY=0 LICENCE_SHA="" PINFILE="" PRUNE=0 REMOVE=0 DELETE_MODELS=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --cpu) CPU=--cpu ;;
+    --cpu) BACKEND=cpu ;;
+    --backend) BACKEND="$2"; shift
+      case "$BACKEND" in cuda|rocm|xpu|cpu) ;; *) echo "unknown backend: $BACKEND (cuda, rocm, xpu or cpu)" >&2; exit 2 ;; esac ;;
     --rebuild) REBUILD=1 ;;
     --dry-run) DRY=1 ;;
     --accept-licence|--accept-license) ACCEPT=1 ;;
@@ -154,13 +158,20 @@ elif [ -f "$KEEP/$FILE" ] && [ -f "$KEEP/$FILE.sig" ]; then
   URL="$KEEP/$FILE"   # the copy --licence-only kept: checked again below like any download
 fi
 
+# setup-venv.sh's flag for the backend: --backend when the engine lists it (ENGINE.json "backends", 0.2.2 on),
+# else --gpu / --cpu, the only two an older engine knows
+backend_flag() {   # backend_flag BACKEND ENGINE_DIR -> the flag, or nothing when that engine can't build it
+  eb="$(tr -d '\n' < "$2/ENGINE.json" 2>/dev/null | sed -n 's/.*"backends": *\[\([^]]*\)\].*/\1/p' | tr -d '" ' | tr ',' ' ')"
+  for x in $eb; do [ "$x" = "$1" ] && { echo "--backend $1"; return 0; }; done
+  case "$1" in cuda) echo --gpu ;; cpu) echo --cpu ;; esac
+}
 if [ "$DRY" = 1 ]; then
   echo "home: $HOME_DIR"
   echo "engine: $VERSION ($FILE, $SIZE bytes, sha256 $SHA)"
   echo "from: $URL"
   if [ -f "$ENGINE/.installed" ]; then echo "installed: yes ($ENGINE)"; else echo "installed: no"; fi
   echo "active: ${ACTIVE:-none}"
-  [ -x "$ENGINE/setup-venv.sh" ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run $CPU
+  [ -x "$ENGINE/setup-venv.sh" ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run $( [ -z "$BACKEND" ] || backend_flag "$BACKEND" "$ENGINE")
   exit 0
 fi
 
@@ -278,17 +289,21 @@ fi
 
 # --- the venv: reused when the engine's recipe says it is up to date, else built aside and switched ---
 export SONATA_ALIGN_HOME="$HOME_DIR"
-if [ "$REBUILD" = 0 ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run $CPU 2>/dev/null | grep -qx 'packages: up to date'; then
+# the backend: asked for, else the one the venv has, else NVIDIA's
+if [ -z "$BACKEND" ]; then
+  case "$(sed -n 's/^variant=//p' "$HOME_DIR/venv/.sonata-engine-venv" 2>/dev/null | head -n 1)" in
+    cpu) BACKEND=cpu ;; rocm*) BACKEND=rocm ;; xpu) BACKEND=xpu ;; *) BACKEND=cuda ;;
+  esac
+fi
+FLAG="$(backend_flag "$BACKEND" "$ENGINE")"
+[ -n "$FLAG" ] || fail backend "helper $VERSION can be built for NVIDIA or the processor only; the $BACKEND build needs a newer helper"
+if [ "$REBUILD" = 0 ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run $FLAG 2>/dev/null | grep -qx 'packages: up to date'; then
   echo "venv up to date ($HOME_DIR/venv)"
   ev "\"ev\":\"skip\",\"step\":\"venv\""
 else
-  # the variant the venv has (CPU or GPU wheels), unless --cpu asks
-  VARIANT="$CPU"
-  if [ -z "$VARIANT" ]; then
-    case "$(sed -n 's/^variant=//p' "$HOME_DIR/venv/.sonata-engine-venv" 2>/dev/null | head -n 1)" in cpu) VARIANT=--cpu ;; *) VARIANT=--gpu ;; esac
-  fi
-  # room for the new venv beside the old one (the old one goes only once the new one works)
-  if [ "$VARIANT" = --cpu ]; then NEED_GB=3; else NEED_GB=12; fi   # the venv plus pip's downloaded wheels
+  # room for the new venv beside the old one (the old one goes only once the new one works): the venv plus
+  # pip's downloaded wheels, per backend (measured 2026-10-18)
+  case "$BACKEND" in cpu) NEED_GB=3 ;; xpu) NEED_GB=12 ;; rocm) NEED_GB=24 ;; *) NEED_GB=12 ;; esac
   AVAIL_KB="$(df -Pk "$HOME_DIR" 2>/dev/null | awk 'NR==2 { print $4 }')"
   if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt $((NEED_GB * 1024 * 1024)) ]; then
     fail space "not enough free space for the helper: it needs about $NEED_GB GB in $HOME_DIR, $((AVAIL_KB / 1024 / 1024)) GB are free"
@@ -299,14 +314,14 @@ else
   # pip's and uv's temporary files (the wheels, ~4 GB) on the venv's disk, not in /tmp (often RAM)
   mkdir -p "$STAGE/tmp"
   export TMPDIR="$STAGE/tmp"
-  ev "\"ev\":\"step\",\"step\":\"venv\",\"variant\":\"${VARIANT#--}\""
+  ev "\"ev\":\"step\",\"step\":\"venv\",\"variant\":\"$BACKEND\""
   if [ "$PROGRESS" = 1 ]; then
     # the new venv's size on disk every 2 s: real progress whatever pip or uv print
     ( while :; do kb="$(du -sk "$STAGE/venv" 2>/dev/null | cut -f1)"; ev "\"ev\":\"size\",\"bytes\":$(( ${kb:-0} * 1024 ))"; sleep 2; done ) &
     WATCH=$!
     export PIP_PROGRESS_BAR=raw   # pip prints "Progress N of M" per download (uv prints a line per big package)
   fi
-  sh "$ENGINE/setup-venv.sh" --home "$STAGE" $VARIANT || { unset TMPDIR; fail venv "the helper's Python packages could not be installed (see the lines above)"; }
+  sh "$ENGINE/setup-venv.sh" --home "$STAGE" $FLAG || { unset TMPDIR; fail venv "the helper's Python packages could not be installed (see the lines above)"; }
   unset TMPDIR
   rm -rf "$STAGE/tmp"
   [ -z "$WATCH" ] || { kill "$WATCH" 2>/dev/null || true; WATCH=""; }
