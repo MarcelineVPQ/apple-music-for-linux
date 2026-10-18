@@ -498,3 +498,44 @@ last.
 Seen on the section bench with VRAM capped at 40 %: for 6 of 79 songs the helper had dropped the kept
 sections before the kept-final pass ("no-cache"); the app then sends the audio again, the bench now skips
 that pass and says so. Not investigated further (another branch's area).
+
+## Hold attribution (0.15.41)
+
+Marcy's report: in The Goo Goo Dolls' "So Alive (Live)", "You can make it on, you can make it on", the
+singer holds the last "on", but its highlight dropped after a moment. Her cache (version 3, model `en`):
+"it" 176.81–181.58, held from 176.85; "on" 181.63–182.02. The sung "it" is short and "on" is held from
+about 176.9 to about 182 s.
+
+**Cause.** A CTC aligner emits a held vowel mostly as blank, so the Viterbi path puts "on" on its last
+frames (the "n" at the end of the hold), and `extend_holds` then follows the loud stem from the end of
+"it" to "on"'s start: the word before gets the hold. The aligner's word starts are otherwise right, and
+the hold itself is real; only its owner is wrong.
+
+**What the bench says about moving holds** (79 JamendoLyrics songs, ±0.5 s anchors, the aligner's own
+starts, ends and `hold_from` now stored by `align/bench.py`). Of 278 mid-line words held ≥ 0.5 s, moving
+the next word's start to the hold's start made it worse for 201 and better for 68: mid-line holds ("la
+cellule", "tu musa", "a menos") are mostly real. Line-final words after a held function word are the
+other way round ("care at all": "all" 1.22 s late → 0.10 s early).
+
+**Change** (`lyrics-timing.js` `reattributeHolds`, one line's words): when a function word (per aligner
+language: en, de, fr, es lists; "no" and "so" left out, they are held) holds ≥ `MOVE_HOLD` (0.6 s), does
+not end a phrase itself, and the next word is the line's last word (or ends a phrase: , ; : . ! ?)
+spanning ≤ `MOVE_SHORT` (0.7 s), the function word ends where it was sung (its `holdFrom`) and the last
+word starts there and holds to its own end. It runs in `entryFromResult` (new helper results, stored
+and sent live) and in `applyAligned` (every cache read), so entries aligned before heal on their next
+play with no GPU run and no `ENTRY_VERSION` bump; on a fixed entry it is a no-op. The thresholds: a 1.0 s
+hold missed three "on my own" in Long Way Down (holds 0.73–0.83 s); a 0.6 s last word missed "at all"
+in Damn (0.61 s); a 0.5 s hold also moved pairs the bench can't vouch for; on the bench 0.4 s moved a
+Spanish "no no" wrongly until "no" left the list. The bench gives the same three moves from 0.6 to
+1.0 s for the last word.
+
+**Numbers.** JamendoLyrics, all words (aligned, rejected lines keep the estimate), new `aligned_as_shown`
+row of `align/bench.py`: median 0.033 s, 87.2 % ≤ 0.1 s, 96.1 % ≤ 0.3 s, mean 0.084 s, before and
+after; 3 words move, all closer to the annotation (1.22 → 0.10, 0.73 → 0.05, 0.81 → 0.07 s). Her
+library (a copy of her cache, 2026-10-17, 90 aligned entries, 3,656 lines): 31 pairs of a word held
+≥ 0.6 s before a short last word; 13 move (10 songs: "make it on", "on my own" ×4, "at all" ×4, "on us",
+"on in" ×2, "we are"), 18 stay (a content word held: "hold on", "scream it", "mean it", "go away"; or
+a phrase ending at the held word: "too, oh", "will, oh").
+
+Not covered: a mid-line function word that takes a hold belonging to a later word (no rule could tell
+it apart on the bench), and languages without a list (MMS).

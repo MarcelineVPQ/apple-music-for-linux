@@ -359,3 +359,44 @@ test('estimateWords: a hyphen run is timed as words, without a breath after each
   assert.equal(T.wordWeight('hey-'), T.wordWeight('hey'))
   assert.equal(T.wordWeight('-'), T.wordWeight('x') + 0.6)
 })
+
+// Hold attribution (0.15.41): "So Alive (Live)" line 53, as her cache had it (test/fixtures/hold-attribution.json)
+const SO_ALIVE = require('./fixtures/hold-attribution.json')
+
+test('reattributeHolds: the hold "it" got before the line\'s last word moves to "on"', () => {
+  const words = SO_ALIVE.words
+  const out = T.reattributeHolds(words, SO_ALIVE.model)
+  assert.notEqual(out, words)
+  // "it" keeps its short sung part and is no longer held
+  assert.deepEqual(out[8], { t: 176.81, end: 176.85, text: 'it' })
+  // "on" starts where "it" was sung, and holds to where the voice stops
+  assert.equal(out[9].t, 176.85)
+  assert.equal(out[9].end, 182.02)
+  assert.equal(out[9].held, true)
+  assert.ok(Math.abs(out[9].holdFrom - 176.93) < 1e-9)
+  // nothing else moves, and the input is untouched
+  for (let k = 0; k < 8; k++) assert.equal(out[k], words[k])
+  assert.equal(words[8].end, 181.58)
+  // a second pass changes nothing (cached entries go through it on every read)
+  assert.equal(T.reattributeHolds(out, SO_ALIVE.model), out)
+})
+
+test('reattributeHolds: only a function word before a short last word of a line or phrase', () => {
+  const w = (t, end, text, holdFrom) => Object.assign({ t, end, text }, holdFrom != null ? { held: true, holdFrom } : {})
+  const same = (words, model = 'en') => assert.equal(T.reattributeHolds(words, model), words)
+  // a content word held, then a short last word: the singer held "scream"
+  same([w(0, 0.3, 'I'), w(0.4, 7.5, 'scream', 1.8), w(7.6, 8.1, 'it')])
+  // a mid-line hold: the next word isn't the end of the line or phrase (JamendoLyrics: mostly right)
+  same([w(0, 2.5, 'la', 0.1), w(2.6, 3, 'cellule'), w(3.1, 3.4, 'noire')], 'xlsr-fr')
+  // the last word is long already, or the hold is short
+  same([w(0, 3, 'for', 0.3), w(3.1, 4.8, 'awhile')])
+  same([w(0, 0.6, 'at', 0.1), w(0.65, 0.9, 'all')])
+  // the phrase ends at the held word ("say," then a new phrase)
+  same([w(0, 2.5, 'say,', 0.4), w(2.6, 2.7, 'it')])
+  // a language without a function-word list (MMS) is left alone
+  same([w(0, 2, 'at', 0.1), w(2.1, 2.4, 'all')], 'mms')
+  // phrase-final: the word before a comma takes the hold
+  const out = T.reattributeHolds([w(0, 0.2, 'in'), w(0.3, 1.5, 'your', 0.4), w(1.5, 1.9, 'arms,'), w(2, 2.3, 'babe')], 'en')
+  assert.deepEqual(out[1], { t: 0.3, end: 0.4, text: 'your' })
+  assert.deepEqual(out[2], { t: 0.4, end: 1.9, text: 'arms,', held: true, holdFrom: 0.8 })
+})

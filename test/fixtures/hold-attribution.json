@@ -1,0 +1,18 @@
+{
+  "about": "The Goo Goo Dolls, \"So Alive (Live)\", line 53 as the aligner cached it (version 3, model en): the singer holds the final \"on\" from about 176.9 s to about 182 s, but extend_holds gave the hold to \"it\". Checked by test/lyrics-timing.test.js and test/align-session.test.js.",
+  "model": "en",
+  "line": 53,
+  "text": "You can make it on, you can make it on",
+  "words": [
+    { "t": 174.51, "end": 174.65, "text": "You" },
+    { "t": 174.73, "end": 174.85, "text": "can" },
+    { "t": 174.93, "end": 175.17, "text": "make" },
+    { "t": 175.25, "end": 175.29, "text": "it" },
+    { "t": 175.51, "end": 175.57, "text": "on," },
+    { "t": 176.09, "end": 176.23, "text": "you" },
+    { "t": 176.29, "end": 176.41, "text": "can" },
+    { "t": 176.47, "end": 176.73, "text": "make" },
+    { "t": 176.81, "end": 181.58, "text": "it", "held": true, "holdFrom": 176.85 },
+    { "t": 181.63, "end": 182.02, "text": "on", "held": true, "holdFrom": 181.71 }
+  ]
+}

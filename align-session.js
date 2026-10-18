@@ -97,7 +97,9 @@ function applyAligned(lines, entry) {
     const parts = splitWords(line.text)
     if (!Array.isArray(a.words) || a.words.length !== parts.length || a.words.some((w, k) => w.text !== parts[k])) return line
     used = true
-    const next = Object.assign({}, line, { words: a.words.map((w) => T.copyWord(w)), aligned: true })
+    // entries aligned before 0.15.41 heal here, without a new alignment (T.reattributeHolds; a no-op on newer ones)
+    const words = T.reattributeHolds(a.words, entry.model).map((w) => T.copyWord(w))
+    const next = Object.assign({}, line, { words, aligned: true })
     delete next.estimated
     return next
   })
@@ -247,6 +249,7 @@ function * alignMessages(id, raw, pcm, opts = {}) {
  */
 function entryFromResult(result, raw, heard, meta = {}) {
   const lines = {}
+  const model = meta.model || (result && result.stats && result.stats.aligner) || ''
   const rejected = []
   let n = 0
   // loop: NOT-WORTH — the helper's lines (tens), once per alignment result
@@ -276,12 +279,13 @@ function entryFromResult(result, raw, heard, meta = {}) {
       return out
     })
     if (!ok) continue
-    lines[i] = { text: line.text, words }
+    // a hold the aligner gave to a function word before the phrase's last word moves to that word
+    lines[i] = { text: line.text, words: T.reattributeHolds(words, model) }
     n++
   }
   return {
     version: ENTRY_VERSION,
-    model: meta.model || (result && result.stats && result.stats.aligner) || '',
+    model,
     lyricsHash: lyricsHash(raw),
     duration: meta.duration || 0,
     aligned: n,
