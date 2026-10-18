@@ -20,7 +20,7 @@
 //   The running AppImage is never overwritten or deleted (it is FUSE-mounted: SIGBUS); older ones are
 //   pruned at the next start, as before.
 const path = require('path')
-const { isNewerVersion, isDevVersion } = require('./update-feed')
+const { isNewerVersion, isDevVersion, shownVersion } = require('./update-feed')
 
 // Is `remote` offered to a copy running `current`? Newer only; Back to stable: anything but the same.
 function offers(remote, current, returningToStable) {
@@ -75,7 +75,9 @@ function updateNotice(st, ctx) {
 }
 
 // The Updates section's status line
-function statusLine(st, current, channel) {
+function statusLine(st, current0, channel) {
+  const current = shownVersion(current0)
+  if (st && st.version) st = Object.assign({}, st, { version: shownVersion(st.version) })
   const ch = channel === 'dev' ? 'Development' : 'Stable'
   switch (st.phase) {
     case 'checking': return 'Checking for updates…'

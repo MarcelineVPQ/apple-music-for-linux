@@ -2819,7 +2819,7 @@ function railSnapshot() {
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     precise: railPrecise(),
     channel: settings.updateChannel,
-    version: app.getVersion(),
+    version: updateFeed.shownVersion(app.getVersion()),
     theme: themeState()
   }
 }

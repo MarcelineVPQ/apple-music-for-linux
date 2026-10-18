@@ -10,6 +10,8 @@
 // No timers, no animation frames, no polling, no observers: it redraws on a state push, a click,
 // a key, or a colour-scheme change (theme-apply.js).
 ;(function () {
+  // a version as people see it: 0.15.43-dev.1 -> "0.15.43 Dev" (update-feed.js shownVersion; this page loads no modules)
+  const showV = (v) => String(v || '').replace(/-dev\.\d+$/, ' Dev')
   'use strict'
   const M = globalThis.SonataPanelModel
   const MD = globalThis.SonataMarkdown
@@ -431,8 +433,8 @@
       ],
       updates: () => [
         // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls
-        textBlock('note', (v) => (v.appImage ? '' : 'Sonata ' + (v.version || '') + ', running from source: only the AppImage updates itself. Update with git pull.')),
-        actionRow('Sonata ' + ((S && S.v && S.v.version) || ''), (v) => v.updateLine || '',
+        textBlock('note', (v) => (v.appImage ? '' : 'Sonata ' + showV(v.version) + ', running from source: only the AppImage updates itself. Update with git pull.')),
+        actionRow('Sonata ' + showV(S && S.v && S.v.version), (v) => v.updateLine || '',
           [{ label: 'Check now', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
         selectRow('updateChannel', 'Update channel', '', [['stable', 'Stable'], ['dev', 'Development']],
           { desc: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone.'),
@@ -491,7 +493,7 @@
             box.replaceChildren()
             if (!a) { box.appendChild(el('p', 'note', 'Loading…')); return }
             const add = (sec) => {
-              box.appendChild(el('h3', 'release', sec.version + (sec.title ? ' — ' + sec.title : '')))
+              box.appendChild(el('h3', 'release', showV(sec.version) + (sec.title ? ' — ' + sec.title : '')))
               box.appendChild(markdown(sec.body))
             }
             if (a.whatsNew.current) add(a.whatsNew.current)
@@ -645,7 +647,7 @@
   }
   function aboutStatus(id, s) {
     const a = s.about
-    if (id === 'whatsnew') return a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : '')
+    if (id === 'whatsnew') return showV(a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : ''))
     if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
     if (id === 'credits') return 'Built on · Third-party assets and code'
     if (id === 'graphics') { const g = s.v && s.v.gfx; return !g ? '' : g.safe ? 'Safe start (--safe-gpu)' : g.active.length ? g.active.length + ' experimental on' : 'No experimental switches' }
@@ -867,7 +869,7 @@
     setText(title, M.PAGES[page].title)
     // About's hero card shows the version and channel, so its header says what the page holds (DS5)
     setText(sub, page === 'about' ? 'Changes, plans, credits and numbers'
-      : 'Sonata ' + (S.v.version || '') + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
+      : 'Sonata ' + showV(S.v.version) + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
     renderMenu()
     renderNotices(topNotices, (S.notices || []).filter((n) => n.place === 'top'))

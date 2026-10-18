@@ -55,6 +55,9 @@ function versionKey(v) {
   return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? Infinity : +m[4]] : null
 }
 const isDevVersion = (v) => /-dev\.\d+$/.test(String(v || ''))
+// What people see: 0.15.43-dev.1 -> "0.15.43 Dev" (Marcy 2026-10-18: the dev number confuses; the
+// -dev.N stays in the real version, tags and feeds, where the updater needs it)
+const shownVersion = (v) => String(v || '').replace(/-dev\.\d+$/, ' Dev')
 
 // true when a is strictly newer than b; false when either can't be read
 function isNewerVersion(a, b) {
@@ -154,6 +157,6 @@ async function verifyDownload(filePath, update) {
 
 module.exports = {
   REPO, FEED_URLS, LEGACY_FEED_URL, PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
-  signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion,
+  signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion, shownVersion,
   parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload, testFeed
 }

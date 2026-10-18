@@ -15,6 +15,7 @@ See docs/RELEASING.md.
 
 ### Changed
 
+- **Development builds show as "0.15.43 Dev".** The rail, Settings → Updates and About → App changes no longer show the build number on the end ("-dev.1"); the real version, the tags and the update feeds keep it, because the updater needs it.
 - **The sheet-notes band always shows while Sheet notes is on.** It no longer folds to one line when a song has nothing to draw yet: the staff stays, empty, with the reason in the band's top row, and the Band on top / Over the sung line buttons stay too.
 
 ### Tests
