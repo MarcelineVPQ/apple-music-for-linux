@@ -732,7 +732,7 @@ function sungNotesFailed(s, e) {
 // lifetime: OK — one store object and one per-song state for the app's life; no timer, no child of its own
 // error: SHOWN — a failed notes step or pitch line is the band's one-line message (and the log)
 let sheetStore = null
-let sheet = null          // the song on screen: { key, title, artist, hash, entry, pitch: [], aligned, wordSynced, timed, error }
+let sheet = null          // the song on screen: { key, title, artist, hash, entry, pitch: [], aligned, wordSynced, timed, error, end }
 let sheetSent = ''
 function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
 function getSheetStore() {
@@ -743,7 +743,10 @@ function getSheetStore() {
 function setSheetSong(key, title, artist, lines, prep) {
   const hash = alignSessionLib.lyricsHash(lines || [])
   const timed = !!(lines && lines.length && lines[0].t != null)
-  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, error: '' }
+  // end: where the lyrics end on the align session's own reckoning (lyricSpan): past it the first play's band
+  // has nothing left to hear, so "Listening and learning" stops (sheet-notes-model.js listening())
+  const span = timed ? alignSessionLib.lyricSpan(lines) : null
+  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, error: '', end: span ? Math.round(span.end * 10) / 10 : 0 }
   // (lyrics with their own word timing too: their notes are worked out on those times, align-session.js)
   if (settings.sheetNotes && title && timed) {
     const e = getSheetStore().get(title, artist)
@@ -758,7 +761,7 @@ function sendSheet() {
   const on = !!settings.sheetNotes
   const st = on && sheet ? {
     on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, aligned: sheet.aligned,
-    paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length,
+    paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length, end: sheet.end,
     entryAt: sheet.entry ? sheet.entry.created || '1' : '', place: settings.sheetPlace
   } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
   const json = JSON.stringify(st)

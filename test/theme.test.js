@@ -50,6 +50,7 @@ test('plain (Glass off): every word >= 4.5:1 over ANY backdrop, every album hue,
         assert.ok(c[k] >= 4.5, k + ' ' + c[k].toFixed(2) + ' ' + JSON.stringify(p) + ' dark=' + dark)
       }
       assert.ok(c.ring >= 3, 'ring ' + JSON.stringify(p) + dark)
+      assert.ok(c.live >= 3, 'live ' + JSON.stringify(p) + dark)   // the "Listening and learning" dot (non-text)
       assert.ok(t.alpha.overPage < 0.98, 'still translucent over the page')
       assert.equal(t.alpha.material, 1, 'no artwork: a solid surface')
       worst = Math.min(worst, c.label, c.soft, c.active)
@@ -84,6 +85,7 @@ test('Glass: over the busiest artwork, every pixel of the backdrop keeps the wor
         // words on stacked layers: a card or badge on a section's field, a notice's detail line and its buttons
         for (const k of ['softField', 'noticeSoft', 'noticeButton']) assert.ok(t.contrast[k] >= 4.5, `${k} ${name} dark=${dark} ${JSON.stringify(p)}: ${t.contrast[k].toFixed(2)}`)
         assert.ok(t.contrast.ring >= 3, 'ring ' + name)
+        assert.ok(t.contrast.live >= 3, 'live ' + name)
         // the artwork shows through (not a solid surface pretending to be glass)
         assert.ok(mat.a <= 0.85, `${name} dark=${dark}: material alpha ${mat.a}`)
       }

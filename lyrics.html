@@ -287,7 +287,7 @@
   body.stage #lead { font-size: 12px; text-align: left; padding: 4px 0 10px; }
   #band { margin: 6px 18px 8px 22px; position: relative; }
   /* the sheet-notes band (sheet-notes-ui.js, Experimental): the staff and the pitch line, theme tokens
-     only. Nothing here transitions or animates: the strip moves by one Web Animation of its transform
+     only. Nothing here transitions or animates but the first play's "Listening and learning" dot (below): the strip moves by one Web Animation of its transform
      (compositor), the sung note changes class at its start and end. The label row on top, the staff (132 px)
      under it. The row never cuts its words off (the DS5 app's long-text rule, Marcy 2026-10-18): it wraps
      onto a second line when the column is narrow, and a longer explanation sits behind the ⓘ
@@ -341,6 +341,17 @@
   .sn .pl { fill: none; stroke: var(--s-soft); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .sn .pl.first { stroke: var(--active); }
   .sn-head { position: absolute; left: 0; top: 26px; width: 2px; height: 84px; margin-left: -1px; border-radius: 1px; background: var(--active); }
+  /* "Listening and learning" (first play, sheet-notes-model.js listening()): a small dot in the label row and
+     one on the staff at the playhead, --s-live (theme.js: green, >= 3:1 on every surface), a soft 1.2 s
+     opacity pulse (composited; the band's only CSS animation). Paused with the song or the window hidden
+     (.still), steady with reduced motion, ringed in the text colour with more contrast. */
+  .sn-live { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--s-live); animation: sn-live 1.2s ease-in-out infinite; }
+  .sn-live[hidden] { display: none; }
+  .sn-head .sn-live { position: absolute; left: -3px; top: 38px; }
+  .sn.still .sn-live { animation-play-state: paused; }
+  @keyframes sn-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @media (prefers-reduced-motion: reduce) { .sn-live { animation: none; } }
+  @media (prefers-contrast: more) { .sn-live { box-shadow: 0 0 0 1px var(--s-text); } }
 
   /* --- the Montage (montage-ui.js): related free photos drifting behind the lyrics, in the centre
      column only. Two photo layers move by transform and fade by opacity (composited); over them the

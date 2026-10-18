@@ -325,6 +325,11 @@ time push every 500 ms, the lyrics' countdown dots running in both):
 On a real GPU the strip is one composited layer moving, so the GPU process's share is far smaller than
 under Xvfb's software GL; measure it on Marcy's machine before stable.
 
+First play, "Listening and learning" (after 0.15.47-dev.1): two 8 px dots (label row, playhead) pulse by one CSS
+`opacity` animation (1.2 s), composited, on frames the strip's animation already makes while playing. No
+timer and no script: whether they show is decided on the 2/s time pushes and state pushes. Paused or
+hidden: `animation-play-state: paused` (0 frames); off: `display: none`; reduced motion: steady.
+
 ## About → For the Curious (0.15.42)
 
 The section reads its numbers only while it is open and the main window shown (curious-sampler.js; main.js

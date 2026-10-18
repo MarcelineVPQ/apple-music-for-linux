@@ -1347,6 +1347,24 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
     await send('lyrics-time', T, false); await sleep(400)
     xshot(path.join(OUT, 'sheet-notes-pitch-line-' + (dark ? 'dark' : 'light') + '.png'), W, H)
   }
+  // first play, the part at the playhead still being heard (past the pieces, before the lyrics' end):
+  // "Listening and learning" with its dot in the label row and on the staff at the playhead
+  await send('lyrics-sheet', Object.assign({}, base, { aligned: false, pieces: fx.pieces.length, entryAt: '', end: 200 }))
+  const TL = 56
+  // loop: two themes · test only
+  for (const dark of [false, true]) {
+    await mp.ev(`(${E}.nativeTheme.themeSource = ${JSON.stringify(dark ? 'dark' : 'light')}, true)`); await sleep(900)
+    await send('lyrics-time', TL, false); await sleep(600)
+    const ls = await page.ev(`(() => { const b = document.getElementById('band'); const dots = [...b.querySelectorAll('.sn-live')].filter((e) => !e.hidden)
+      const lab = b.querySelector('.sn-label'); return { d: sheetBand.debug(), label: lab.textContent, dots: dots.length, colour: dots[0] ? getComputedStyle(dots[0]).backgroundColor : '', live: getComputedStyle(document.documentElement).getPropertyValue('--s-live').trim(),
+        anim: dots[0] ? getComputedStyle(dots[0]).animationName : '', still: b.querySelector('.sn').classList.contains('still') } })()`)
+    check('sheet notes, first play: "Listening and learning" with its dot (label row + playhead) while the part is still heard, ' + (dark ? 'dark' : 'light'), ls.d.listening && ls.label === 'Listening and learning' && ls.dots === 2 && ls.live && ls.anim === 'sn-live' && /Sonata has heard it/.test(ls.d.info), ls)
+    xshot(path.join(OUT, 'sheet-notes-listening-' + (dark ? 'dark' : 'light') + '.png'), W, H)
+  }
+  // the part's line arrived (the playhead inside a piece): the dot goes, the label is back
+  await send('lyrics-time', T, false); await sleep(600)
+  const back = await page.ev('sheetBand.debug()')
+  check('sheet notes, first play: the dot stops once the part\'s line is there', !back.listening && /First play · pitch line/.test(back.label), back)
   // later plays: the cached notes on the staff
   await send('lyrics-sheet', Object.assign({}, base, { aligned: true, pieces: 0, entryAt: 'fixture', entry: fx.entry, pitch: [] }))
   await send('lyrics-time', T, false); await sleep(700)
@@ -1453,7 +1471,7 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   await send('lyrics-sheet', Object.assign({}, base, { wordSynced: true, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
   await sleep(500)
   const apple = await band()
-  check('sheet notes: a song with its own word timing, first play: the first-play pitch-line state, not turned away', !apple.hidden && apple.h >= 150 && /First play/.test(apple.label) && !/own word timing/.test(apple.label), apple)
+  check('sheet notes: a song with its own word timing, first play: the first-play pitch-line state, not turned away', !apple.hidden && apple.h >= 150 && /First play|Listening and learning/.test(apple.label) && apple.d.mode === 'line' && !/own word timing/.test(apple.label), apple)
   // nothing to draw for this song: one line says why (never an empty box)
   await send('lyrics-sheet', Object.assign({}, base, { timed: false, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
   await sleep(500)

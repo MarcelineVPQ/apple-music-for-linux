@@ -71,6 +71,14 @@ function createSheetBand(opts) {
   const top = el(doc, 'div', 'sn-top', root)
   const exp = el(doc, 'span', 'sn-exp', top)
   exp.textContent = 'Experimental'
+  // "Listening and learning" (first play, the part at the playhead still to come: M.listening): a small dot
+  // in the label row and one on the staff at the playhead, blinking softly by a CSS opacity animation
+  // (lyrics.html .sn-live). Idle cost: none while hidden (display: none, no animation), paused with the song
+  // or the window hidden (.still: animation-play-state paused), steady with reduced motion; playing, one
+  // composited opacity layer of 8 px on the frames the strip's own animation already makes. No timer.
+  const liveDot = el(doc, 'span', 'sn-live', top)
+  liveDot.setAttribute('aria-hidden', 'true')
+  liveDot.hidden = true
   const label = el(doc, 'span', 'sn-label', top)
   const msg = el(doc, 'span', 'sn-msg', top)
   // the ⓘ (the DS5 app's rule for long text, info-tip.js): the longer explanation behind a small button beside the message
@@ -96,6 +104,8 @@ function createSheetBand(opts) {
   const view = el(doc, 'div', 'sn-view', box)
   const strip = el(doc, 'div', 'sn-strip', view)
   const head = el(doc, 'div', 'sn-head', box)
+  const headDot = el(doc, 'span', 'sn-live', head)
+  headDot.hidden = true
 
   let st = { on: false }
   let entry = null          // the cached notes (main's entry), as sent
@@ -113,8 +123,7 @@ function createSheetBand(opts) {
   let nowIdx = -2
   let page = -1             // reduced motion: the page shown
   let duration = 0
-  let lineRuns = []         // the first play's drawn runs (buildLine), for lineGap
-  let gapShown = null       // the first play's "this part shows once sung" note while it is up
+  let live = null           // M.listening() while "Listening and learning" is up, else null
 
   const pps = () => PPS[m.band === 'line' ? 'line' : 'notes']
   const headAt = () => HEAD_AT[m.band === 'line' ? 'line' : 'notes']
@@ -205,8 +214,7 @@ function createSheetBand(opts) {
     strip.replaceChildren()
     strip.style.width = W + 'px'
     const svg = sv(doc, 'svg', { class: 'sn-svg', width: W, height: STAFF_H }, strip)
-    lineRuns = M.pitchRuns(line, clef, 0, null)
-    drawRuns(svg, lineRuns, (t) => r1(t * pps()), 'pl first')
+    drawRuns(svg, M.pitchRuns(line, clef, 0, null), (t) => r1(t * pps()), 'pl first')
     items = []
     built = 'line:' + pieces.length + ':' + (st.key || '')
   }
@@ -276,24 +284,23 @@ function createSheetBand(opts) {
     place(t)
     mark(t)
     schedule(t)
-    gapNote(t)
+    listenNote(t)
   }
 
-  // first play: none of the heard line in view (it has scrolled off behind the playhead): the message row
-  // says why the staff is empty, unless the mode already says something (an error, paused)
-  function gapNote(t) {
-    const g = m.band === 'line' && !m.text && built.startsWith('line:') ? gapAt(t) : null
-    if ((g && g.text) === (gapShown && gapShown.text) && (g && g.info) === (gapShown && gapShown.info)) return
-    gapShown = g
-    msg.textContent = g ? g.text : (m.text || '')
-    msg.hidden = !msg.textContent
-    const inf = g ? g.info : (m.info || '')
+  // first play: "Listening and learning" while the part at the playhead has no line yet (M.listening): it
+  // takes the label's place and the ⓘ, the dots show; the dots hold still while the song is paused or the
+  // window hidden. Re-checked on the 2/s time pushes and on every state push (a piece arrived: off).
+  function listenNote(t) {
+    const L = M.listening(m, pieces, t, Number(st.end) || 0)
+    root.classList.toggle('still', !(opts.playing() && doc.visibilityState === 'visible'))
+    if (L === live) return
+    live = L
+    root.classList.toggle('listening', !!L)
+    liveDot.hidden = headDot.hidden = !L
+    label.textContent = L ? L.label : m.label
+    label.hidden = !label.textContent
+    const inf = L ? L.info : (m.info || '')
     info.set(inf)
-  }
-  function gapAt(t) {
-    const w = box.clientWidth || 600
-    // the strip shows song time t + (x - the playhead's x) / pps from the gutter to the box's right edge
-    return M.lineGap(lineRuns, t - Math.max(0, w * headAt() - gutter) / pps(), t + w * (1 - headAt()) / pps())
   }
 
   // --- state from main ---
@@ -321,7 +328,9 @@ function createSheetBand(opts) {
     label.hidden = !m.label
     msg.textContent = m.text
     msg.hidden = !m.text
-    gapShown = null
+    live = null
+    liveDot.hidden = headDot.hidden = true
+    root.classList.remove('listening')
     info.set(m.info || '')
     box.hidden = m.band === 'off'
     const want = m.band === 'notes' ? 'notes:' + (s.key || '') + ':' + (entry && entry.created) : m.band === 'line' ? 'line:' + pieces.length + ':' + (s.key || '') : ''
@@ -331,14 +340,14 @@ function createSheetBand(opts) {
       else buildLine()
       nowIdx = -2
     }
-    if (!want) { lineRuns = []; stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
+    if (!want) { stopAnim(); if (built !== 'empty' && m.band !== 'off') { drawFixed('treble8', 0); strip.replaceChildren() } built = m.band === 'off' ? '' : 'empty' }
     if (opts.onLayout) opts.onLayout()
     setTime()
   }
 
   // lifetime: OK — one visibilitychange listener for the band's life (the window's)
   doc.addEventListener('visibilitychange', () => {
-    if (doc.visibilityState !== 'visible') { if (anim && anim.playState === 'running') anim.pause(); if (wake) { clearTimeout(wake); wake = 0 } }
+    if (doc.visibilityState !== 'visible') { if (anim && anim.playState === 'running') anim.pause(); if (wake) { clearTimeout(wake); wake = 0 } root.classList.add('still') }
     else setTime()
   })
 
@@ -353,7 +362,7 @@ function createSheetBand(opts) {
     get room() { return M.placement(st, m.band, true).room },
     get on() { return !!st.on },
     // for the UI checker: what is drawn and running
-    debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, info: info.info, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
+    debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, info: info.info, listening: !!live, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
   }
 }
 

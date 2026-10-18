@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- **The first play's sheet-notes band shows "Listening and learning".** On a song's first play each part's pitch line comes only once Sonata has heard that part, so the staff between the line heard so far and the playhead stays empty for a while. Now a small green dot blinks softly beside "Listening and learning" in the band's top row and on the staff at the playhead while the part being sung is still being heard; when its line arrives the dot stops and the line draws in. It replaces 0.15.47's message, so there is one signal; the ⓘ explains it. The dot holds still while the song is paused and stays steady with reduced motion.
+
 ### Fixed
 
 - **Lyrics timed for another version no longer highlight the wrong lines.** Some LRCLIB lyrics carry the line times of another recording (a live cut got the studio version's times, so the highlight ran several lines behind and later lines were never timed). When the lyrics clearly don't fit the recording (they end long before a live or alternate recording does, or run past its end), Sonata drops their times: the lines show without a highlight and a note says why ("Lyric timing is for another version: timed after this play", details behind its ⓘ), and with Precise word timing on, Sonata works out each line's time from the recording's audio once the song has played to its end. From the next play the lyrics follow the singing; a line it can't find stays un-highlighted rather than guessed. Apple's own timing is never dropped. LRCLIB lyrics that come without any line times are now timed the same way.

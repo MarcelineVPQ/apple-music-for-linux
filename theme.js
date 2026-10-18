@@ -49,8 +49,8 @@
 
   // --- the base palette (the only literal colours in Sonata's own UI, with theme.css's first-paint copy) ---
   const BASE = {
-    dark: { surface: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, overPage: 0.9, glass: 0.42, ok: [31, 143, 78], warn: [242, 179, 61], error: [255, 150, 140] },
-    light: { surface: [248, 248, 250], text: [29, 29, 31], soft: 0.20, tint: 0.10, overPage: 0.9, glass: 0.5, ok: [24, 128, 68], warn: [242, 179, 61], error: [150, 16, 28] }
+    dark: { surface: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, overPage: 0.9, glass: 0.42, ok: [31, 143, 78], live: [48, 209, 88], warn: [242, 179, 61], error: [255, 150, 140] },
+    light: { surface: [248, 248, 250], text: [29, 29, 31], soft: 0.20, tint: 0.10, overPage: 0.9, glass: 0.5, ok: [24, 128, 68], live: [36, 138, 61], warn: [242, 179, 61], error: [150, 16, 28] }
   }
   // Apple Music's red, when there's no album colour (the rail had it; the mini player and Settings
   // had near copies, now this one)
@@ -106,6 +106,11 @@
     let ring = accent
     // loop: NOT-WORTH — at most 20 steps
     for (let i = 0; i < 20 && Math.min(worstContrast(ring, overLayers()), worstContrast(ring, matLayers(), matBackdrops)) < 3; i++) ring = mix(ring, text, 0.12)
+    // "live" (a status, not the album's colour: the Studio band's "Listening and learning" dot): the theme's
+    // green pushed toward the text until 3:1 (non-text) on the card, plain or Glass, over anything
+    let live = b.live
+    // loop: NOT-WORTH — at most 20 steps
+    for (let i = 0; i < 20 && Math.min(worstContrast(live, overLayers()), worstContrast(live, matLayers(), matBackdrops)) < 3; i++) live = mix(live, text, 0.12)
     // the album accent as words (the sung lyric line): pushed toward the text colour until 4.5:1 on
     // the card (plain or Glass) over anything. Duets (0.15.33): the second singer's accent and the
     // group lines' blend of the two, fitted the same way.
@@ -207,6 +212,7 @@
       '--s-edge': dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)',
       '--s-specular': dark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)',
       '--s-shadow': dark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.18)',
+      '--s-live': css(live),
       '--s-ok': css(b.ok),
       '--s-on-ok': css(WHITE),
       '--s-warn': css(b.warn),
@@ -238,6 +244,7 @@
         noticeButton: Math.min(onStack(text, [field, warnWash, field]), onStack(text, [field, errWash, field])),
         errorText: worstContrast(errText, matLayers(), matBackdrops),
         ring: Math.min(worstContrast(ring, overLayers()), worstContrast(ring, matLayers(), matBackdrops)),
+        live: Math.min(worstContrast(live, overLayers()), worstContrast(live, matLayers(), matBackdrops)),
         accentText: Math.min(worstContrast(accentText, overLayers()), worstContrast(accentText, matLayers(), matBackdrops)),
         accent2Text: Math.min(worstContrast(accent2Text, overLayers()), worstContrast(accent2Text, matLayers(), matBackdrops)),
         mixText: Math.min(worstContrast(mixText, overLayers()), worstContrast(mixText, matLayers(), matBackdrops)),
