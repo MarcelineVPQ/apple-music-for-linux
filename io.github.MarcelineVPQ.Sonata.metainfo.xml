@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.42-dev.1" date="2026-10-17" type="development">
+      <description>
+        <p>Sheet notes in the Studio and Settings → Experimental (HDR output, hardware video decoding, truer video colours), About → For the Curious, and steadier lyrics timing.</p>
+      </description>
+    </release>
     <release version="0.15.41-dev.1" date="2026-10-17" type="development">
       <description>
         <p>The Studio: the lyrics as the centrepiece of a full now-playing screen, with an optional Montage of free photos; the album's liner notes as a booklet; and backing vocals placed under the words they answer.</p>

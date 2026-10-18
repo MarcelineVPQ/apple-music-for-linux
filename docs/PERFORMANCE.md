@@ -298,7 +298,7 @@ Marcy's running copy). Photos are fetched at Commons' standard widths covering t
 (montage-model.js `needWidth`), decoded once per photo; each photo's darkest and lightest pixel is measured
 once in main (montage-model.js `extremes`, one pass over the decoded thumbnail) and cached.
 
-## Sheet notes band (Unreleased, branch studio-sheet-notes)
+## Sheet notes band (0.15.42-dev.1)
 
 The Studio's band (sheet-notes-ui.js) draws the whole song once into one wide strip (SVG notes and
 pitch line, HTML syllables) when a song's notes or a new first-play section arrive. Playing moves the
