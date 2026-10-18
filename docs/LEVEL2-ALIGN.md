@@ -284,6 +284,13 @@ docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
   is 20 values a second (MIDI × 10, 0 = no voice), drawn from the right edge back (the band shows the
   last ~14 s): it follows each section by about the section's length, because a section is separated
   only once it has been heard.
+  The client draws it continuous through a phrase (sheet-notes-model.js `cleanPitch`, `LINE`): dropouts
+  up to 250 ms are bridged in a straight line in MIDI (log frequency) unless the voice lands more than
+  7 semitones away, a value 9.5–14.5 semitones off its ±250 ms median is folded back an octave, a lone
+  value over 2 semitones off both neighbours is smoothed, and specks under 60 ms are dropped. Measured
+  2026-10-18 on helper output (JamendoLyrics Cortez – Feel (Stripped) through RMVPE on CPU, eleven cached
+  songs): 60 % of the helper's gaps were 50–200 ms inside phrases; the drawn runs drop 2–4x (median run
+  0.3–0.5 s → 0.6–2.8 s), and the gaps left are pauses of 300 ms and more where RMVPE's voicing is ~0.
 - **Later plays: notes on a staff.** The whole-song job's notes step (the same as the developer log's)
   also returns the song's pitch line; main caches notes, syllables, key and line per song
   (sheet-notes-store.js, `~/.config/apple-music-for-linux/sheet-notes/`, one ~20–40 kB file per song,
