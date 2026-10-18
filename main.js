@@ -1547,6 +1547,7 @@ ipcMain.on('cover-command', (event, command) => {
 // playing song is open (and the window shown), a 500 ms now-playing poll marks the sung line.
 const linerSources = require('./liner-notes-sources')
 const linerModel = require('./liner-notes-model')
+const discFind = require('./disc-find')
 let linerWindow = null
 let linerReady = false     // the booklet page said 'ready'
 let linerStore = null      // created in app 'ready' (userData)
@@ -1639,8 +1640,52 @@ function linerLyricsFor(apple) {
 function sendLinerData(entry, pending) {
   const apple = entry.parts.apple && entry.parts.apple.data
   if (apple) linerAlbum = { id: apple.id, tracks: new Set(apple.tracks.map((t) => t.id)), byKey: new Map(apple.tracks.map((t) => [t.name + '|' + t.artist, t.id])) }
-  linerData = { booklet: linerModel.buildBooklet(entry, { lyrics: linerLyricsFor(apple) }), pending: !!pending, opts: { spin: !!settings.lyricsArtSpin }, open: linerOpenAt }
+  const booklet = linerModel.buildBooklet(entry, { lyrics: linerLyricsFor(apple) })
+  linerData = { booklet, pending: !!pending, opts: { spin: !!settings.lyricsArtSpin }, open: linerOpenAt, discs: linerDiscs(booklet) }
   if (linerReady && linerWindow && !linerWindow.isDestroyed()) linerWindow.webContents.send('liner-data', linerData)
+}
+// The disc scan's circle (disc-find.js): where the disc sits in a Cover Art Archive "Medium" scan, so the
+// booklet shows exactly the disc, centred, turning about its own centre. Found once per scan from its
+// 250 px thumbnail (one fetch + nativeImage decode, ~15 ms) and kept in the liner-notes cache
+// ('disc:' + the thumbnail's URL; { fit: null } when no disc was found for sure: shown as before, still).
+// -> { [key]: fit | null } of the circles known now; the others are sent as 'liner-disc' when found.
+const linerDiscAsking = new Set()
+function linerDiscs(booklet) {
+  const out = {}
+  // loop: NOT-WORTH — the booklet's sections and pages (≤ ~40), once per booklet push
+  for (const s of booklet.sections || []) {
+    for (const p of s.pages || []) {   // loop: NOT-WORTH — the section's pages
+      const key = p.kind === 'tray' ? discFind.discKey(p.scan) : ''
+      if (!key) continue
+      const got = linerStore ? linerStore.get('disc:' + key) : null
+      if (got) { out[key] = got.fit || null; continue }
+      if (linerDiscAsking.has(key)) continue
+      linerDiscAsking.add(key)
+      findScanDisc(key).then((fit) => {
+        if (fit !== undefined && linerStore) linerStore.set('disc:' + key, { fit })
+        if (linerData && linerData.discs) linerData.discs[key] = fit || null
+        if (linerReady && linerWindow && !linerWindow.isDestroyed()) linerWindow.webContents.send('liner-disc', { key, fit: fit || null })
+      }).finally(() => linerDiscAsking.delete(key))
+    }
+  }
+  return out
+}
+// -> the fit, null (no disc for sure: remembered), or undefined (the scan didn't load: asked again next time)
+async function findScanDisc(url) {
+  try {
+    const res = await net.fetch(url, { headers: { 'User-Agent': linerSources.userAgent(app.getVersion()) } })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    let img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()))
+    if (img.isEmpty()) return null
+    const { width, height } = img.getSize()
+    if (Math.max(width, height) > 300) img = img.resize(width >= height ? { width: 300 } : { height: 300 })
+    const size = img.getSize()
+    return discFind.findDisc({ data: img.toBitmap(), width: size.width, height: size.height })
+  } catch (e) {
+    // error: LOGGED-OK — offline or the archive refused: the disc shows as before (still), asked again next time
+    console.error('liner notes: disc scan: ' + e.message)
+    return undefined
+  }
 }
 // the playing song as the booklet shows it (its track marked, the disc turning); sent on change only
 function linerPlaying(state) {

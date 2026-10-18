@@ -103,6 +103,9 @@
   .disc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .disc.label::before { content: ''; position: absolute; inset: 0; z-index: 1; border-radius: 50%; background: conic-gradient(from 30deg, var(--s-specular), transparent 12%, var(--s-specular) 25%, transparent 40%, var(--s-specular) 55%, transparent 70%, var(--s-specular) 85%, transparent); }
   .disc.label::after { content: ''; position: absolute; inset: 42%; z-index: 2; border-radius: 50%; background: var(--s-surface); box-shadow: inset 0 0 0 5px var(--s-field), 0 0 0 1px var(--s-edge); }
+  /* a disc scan: shown once its circle is known (disc-find.js), cropped to exactly the disc */
+  .disc.wait img { opacity: 0; }
+  .disc img.fit { inset: auto; object-fit: fill; max-width: none; }
   .disc.spin { animation: spin 14s linear infinite; }
   .disc.spin.still { animation-play-state: paused; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -249,6 +252,9 @@
   let book = null          // buildBooklet's { head, sections, status }
   let pending = false      // sources still being asked
   let opts = { spin: false }
+  const discFind = require('./disc-find')
+  const discs = new Map()  // a disc scan's key -> its circle, or null (not sure: shown as before, kept still)
+  const discImgs = new Map() // a disc's image URL -> its img, kept across layouts (no reload, no blank frame)
   let playing = { song: '', playing: false, album: false }
   let pages = []           // [{ el, section, kind, songs: [ids] }] laid out for the current page size
   let spreads = []         // [[leftIndex, rightIndex]]
@@ -476,7 +482,11 @@
     } else if (p.kind === 'tray') {
       const tray = el('div', 'tray')
       const disc = el('div', 'disc' + (p.scan ? '' : ' label'))
-      disc.append(lazyImg(p.scan ? caaArt(p.scan, want * 0.74) : appleArt(p.art, want * 0.74), p.alt))
+      const src = p.scan ? caaArt(p.scan, want * 0.74) : appleArt(p.art, want * 0.74)
+      const img = discImgs.get(src) || lazyImg(src, p.alt)
+      discImgs.clear(); discImgs.set(src, img)
+      disc.append(img)
+      if (p.scan) { disc.dataset.key = discFind.discKey(p.scan); fitDisc(disc) }
       tray.append(disc, el('div', 'cap', p.caption))
       const foot = el('div', 'foot')
       // loop: NOT-WORTH — ≤ 2 chips
@@ -512,6 +522,18 @@
       page.remove()
     }
     return page
+  }
+
+  // a disc scan's crop: exactly the disc, centred (its circle from main); unknown yet: hidden; not sure: as before
+  function fitDisc(disc) {
+    const img = disc.querySelector('img')
+    const known = discs.has(disc.dataset.key)
+    const crop = known ? discFind.discCrop(discs.get(disc.dataset.key)) : null
+    disc.classList.toggle('wait', !known)
+    disc.classList.toggle('sure', !!crop)
+    img.classList.toggle('fit', !!crop)
+    img.style.width = crop ? crop.width : ''; img.style.height = crop ? crop.height : ''
+    img.style.left = crop ? crop.left : ''; img.style.top = crop ? crop.top : ''
   }
 
   // the booklet for this page size: every page, then the spreads (cover first, sources beside the back cover)
@@ -673,8 +695,8 @@
     // loop: NOT-WORTH — the two open pages' track rows (≤ ~60)
     for (const p of live) for (const e of p.querySelectorAll('[data-song]:not(.stz)')) e.classList.toggle('cur', !!playing.song && e.dataset.song === playing.song)
     const spin = opts.spin && playing.album
-    // loop: NOT-WORTH — the one disc on the cover spread
-    for (const p of live) for (const d of p.querySelectorAll('.disc')) { d.classList.toggle('spin', spin); d.classList.toggle('still', spin && !playing.playing) }
+    // loop: NOT-WORTH — the one disc on the cover spread; a scan turns only when its disc was found for sure (no wobble)
+    for (const p of live) for (const d of p.querySelectorAll('.disc')) { const s = spin && (!d.dataset.key || d.classList.contains('sure')); d.classList.toggle('spin', s); d.classList.toggle('still', s && !playing.playing) }
     const want = !!playing.song && live.some((p) => p.querySelector('.stz[data-song="' + CSS.escape(playing.song) + '"]'))
     if (!want) clearSung()
     if (want !== following) { following = want; send('follow', want) }
@@ -700,6 +722,8 @@
     if (d.open && d.open.n !== openedAt && d.booklet && d.booklet.sections.some((s) => s.id === d.open.section)) { openedAt = d.open.n; keep = d.open.section }
     book = d.booklet
     pending = !!d.pending
+    // loop: NOT-WORTH — the booklet's disc scans (0-1)
+    for (const [k, v] of Object.entries(d.discs || {})) discs.set(k, v)
     opts = Object.assign(opts, d.opts || {})
     $('title').textContent = book.head.title || 'Liner notes'
     $('sub').textContent = [book.head.line, 'liner notes'].filter(Boolean).join(' · ')
@@ -708,9 +732,16 @@
     status()
     relayout(keep)
   })
-  // lifetime: OK — the three listeners below, added once at load, die with the window
+  // lifetime: OK — the four listeners below, added once at load, die with the window
   ipcRenderer.on('liner-playing', (event, p) => { playing = Object.assign({ song: '', playing: false, album: false }, p); if (spreads.length) marks() })
   ipcRenderer.on('liner-time', (event, s) => { if (s && s.song === playing.song && Number.isInteger(s.line)) markSung(s.song, s.line) })
+  ipcRenderer.on('liner-disc', (event, d) => {
+    if (!d || typeof d.key !== 'string') return
+    discs.set(d.key, d.fit || null)
+    // loop: NOT-WORTH — the booklet's pages (≤ ~40), once when a scan's circle is found
+    for (const p of pages) for (const e of p.el.querySelectorAll('.disc[data-key]')) if (e.dataset.key === d.key) fitDisc(e)
+    if (spreads.length) marks()
+  })
   ipcRenderer.on('liner-opts', (event, o) => { opts = Object.assign(opts, o || {}); if (spreads.length) marks() })
 
   function status() {
@@ -735,6 +766,9 @@
   function relayout(keepSection) {
     if (!book) return
     const keep = keepSection || null
+    // the disc keeps turning where it was: a new layout must not snap it back to 0°
+    const turning = spreadEl.querySelector('.disc.spin')
+    const turned = turning && turning.getAnimations()[0] ? turning.getAnimations()[0].currentTime : null
     pg = sizeFor()
     spreadEl.style.setProperty('--pg', pg + 'px')
     spreadEl.style.setProperty('--fs', fsFor(pg) + 'px')
@@ -743,6 +777,9 @@
     const i = keep ? spreadOf(keep) : 0
     busy = false
     show(Math.max(0, Math.min(spreads.length - 1, i < 0 ? 0 : i)))
+    const now = turned == null ? null : spreadEl.querySelector('.disc.spin')
+    const anim = now && now.getAnimations()[0]
+    if (anim) anim.currentTime = turned
   }
   // a resize lays the pages out again for the new size (once it settles), keeping the open section
   let resizeTimer = null

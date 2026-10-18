@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The disc on the liner notes' cover turns about its own centre.** A disc scan from the Cover Art Archive is often a photo of the CD lying on paper, off-centre (Radiohead's *In Rainbows*, the 2008 US CD), so it wobbled and jumped once it started spinning. Sonata now finds the disc in the scan (once per scan, remembered with the booklet) and shows exactly the disc, centred, filling the circle. A scan where no disc is found for sure is shown as before and kept still. The disc also no longer snaps back or blinks when the booklet's sources finish loading or the window is resized.
+
 ## [0.15.43-dev.1] — The Liner notes tile takes the mouse, and the sheet-notes band always shows
 
 ### Fixed
