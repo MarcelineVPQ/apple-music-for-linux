@@ -10,10 +10,12 @@ See docs/RELEASING.md.
 ### Changed
 
 - **Coming soon is up to date.** About → Coming soon lists what's being built now (sheet notes in the Studio, more in the Studio), what's planned next (karaoke mode, romanized and translated lyrics, installing precise word timing from Settings, Sonata in more languages, and more) and the ideas on the list, each with its own title. Things that have shipped are no longer in it.
+- **Precise word timing starts sooner.** The word-timing helper now stays ready for 10 minutes between songs while the lyrics window, the Studio or the visualizer is open (it used to quit after 2 minutes and needed about 5 seconds to start again, so a new song's first words often came late). With no lyrics open it still quits after 2 minutes, and it still steps aside at once when a game starts or Sonata quits.
 
 ### Fixed
 
 - **A held last word stays lit for its whole hold.** With Precise word timing, a line whose singer holds the last word ("you can make it o—n", "on my o—wn", "at a—ll") sometimes gave the long hold to the short word before it, so the highlight sat on "it" and the held word only lit up at the very end. The hold now goes to the last word. Songs aligned before are corrected when they play, with no new alignment.
+- **A live recording no longer borrows the studio version's timing.** Sonata remembered lyrics and word timing by song title and artist, so a live recording with the same name as the studio one (or two live albums that both have "Iris (Live)") could get the other recording's word times. Each recording is now known by its ISRC from Apple Music (the same recording on a compilation still shares its timing), and stored timing is used only when its length matches the song playing, to within 1.5 seconds. Timing saved before this version is kept: titles without a live or alternate mark carry on as they are; for "(Live)", "Acoustic", "Remix", "Remaster" and similar titles the stored word times are checked against the song's own lyric timing the next time it plays, and the lyrics are fetched again.
 
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 

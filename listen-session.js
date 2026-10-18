@@ -7,11 +7,13 @@
 // (the audio in a monitor chunk was played slightly before it reached us), minus the chunk's
 // own length for its first sample.
 //
-// Learned words live in the lyrics store under `refined|title|artist`:
+// Learned words live in the lyrics store under `refined|isrc:<ISRC>` (`refined|title|artist` when the
+// ISRC is unknown; recording-id.js, which also checks the recording's length):
 //   { v: 1, lines: { [lineIndex]: { text, words: [{ t, end, text }], plays } } }
 // Each play refines from the plain estimate (so no word drifts more than MAX_SHIFT from it) and
 // the result is merged into the running average with mergeLearned.
 const T = require('./lyrics-timing')
+const R = require('./recording-id')
 
 // Not measurable in the isolated test run (no real audio there); 50 ms is parec's 20 ms
 // fragment plus PipeWire's typical quantum (1024 frames at 48 kHz ≈ 21 ms) and a margin.
@@ -160,8 +162,10 @@ function createListenSession(deps) {
       // error: LOGGED-OK — a refine that throws is logged; the line keeps its estimate
       try { res = deps.refineWords(line, evidence, opts) } catch (e) { log('refine failed: ' + e.message); continue }
       if (!res || !res.words || !sameWords(line.words, res.words) || !(res.confidence >= MIN_CONFIDENCE)) continue
-      const entry = recordLearned(deps.store.get(learnedKey(song.title, song.artist)), i, line, res.words, deps.mergeLearned)
-      deps.store.set(learnedKey(song.title, song.artist), entry)
+      // merged into this recording's entry only (song.learned: null when the stored one is another recording's)
+      const entry = recordLearned(song.learned, i, line, res.words, deps.mergeLearned)
+      song.learned = entry
+      R.put(deps.store, song.storeKey, entry, song.rec)
       deps.send('lyrics-refined', { key: song.key, lineIndex: i, words: entry.lines[i].words })
     }
     // drop evidence the remaining lines can't use any more
@@ -175,14 +179,21 @@ function createListenSession(deps) {
      * New lyrics for the window. lines: the estimated lines (before learned data). Returns the
      * lines to render ({ lines, refined }) with learned words applied.
      */
-    setLyrics(key, title, artist, lines, enabled) {
+    setLyrics(key, title, artist, lines, enabled, info) {
       stopListening()
       clock = null
       const estimated = !!lines && lines.some((l) => l.estimated)
       song = enabled && estimated ? { key, title, artist, base: lines, done: new Set() } : null
       allOnsets = []
       if (!song) return { lines, refined: false }
-      const got = applyLearned(lines, deps.store.get(learnedKey(title, artist)))
+      // this recording's learned words (info: { isrc, duration }); an old entry of a "(Live)"-style title
+      // only when its words start where these lines do
+      const rec = R.songOf(Object.assign({}, info, { title, artist }))
+      const found = R.lookup(deps.store, 'refined|', rec, { check: (e) => R.timingMatches(e.lines, lines) })
+      song.storeKey = found.key
+      song.rec = rec
+      song.learned = found.entry
+      const got = applyLearned(lines, found.entry)
       return { lines: got.lines, refined: got.used }
     },
     /** Per lyrics poll tick: the playback time push. Runs/stops the listener. */
