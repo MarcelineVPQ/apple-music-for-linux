@@ -827,6 +827,16 @@ class SongCache:
         self.seconds += secs
         return True
 
+    def piece(self, song, offset_s):
+        """One kept section's stem (the one whose slice starts at offset_s), or None."""
+        if song is None or song != self.song:
+            return None
+        at = int(round(offset_s / FRAME))
+        for o, stem in self.pieces:
+            if o == at:
+                return stem
+        return None
+
     def take(self, song, key):
         """The pieces for the final pass, or None (another song, other models, nothing kept)."""
         if song is None or song != self.song or key != self.key or not self.pieces:

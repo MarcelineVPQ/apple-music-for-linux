@@ -44,6 +44,8 @@ const SCHEMA = {
   lyricsPreciseTiming: [false, bool, 'Precise word timing'],
   alignGamingPause: [true, bool, 'Pause word timing while gaming'],
   sungNotesLog: [false, bool, 'Sung notes (developer log)'],
+  sheetNotes: [false, bool, 'Sheet notes in the Studio'],
+  sheetPlace: ['band', oneOf('band', 'over'), 'Sheet notes placement'],
   updateChannel: ['stable', oneOf('stable', 'dev'), 'Update channel'],
   checkForUpdates: [true, bool, 'Check for updates automatically'],
   autoInstallUpdates: [false, bool, 'Install updates automatically'],

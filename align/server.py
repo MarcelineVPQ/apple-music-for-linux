@@ -47,7 +47,15 @@ waiting, and answers {"type":"result","id":"n1","notes":{...},"stats":{...}}; co
 (nothing kept for that song), "no-model" (RMVPE not downloaded), "low-vram". Nothing is kept when
 "notes" is absent. {"cmd":"prepare","id":"p2","mode":"notes"} downloads RMVPE (181 MB, MIT; size and
 SHA-256 checked, code "checksum" on a mismatch) and answers {"ready":true}. The pong lists
-"note_models":{"rmvpe":bool}.
+"note_models":{"rmvpe":bool}. The notes result also carries the whole song's pitch line
+("pitch":{"t0","hop","v":[MIDI x 10, 0 = no voice]}) for the Studio's sheet notes.
+
+Sheet notes, first play (Settings -> "Sheet notes in the Studio", off by default): after a section's
+result, Sonata may ask for that section's pitch line from the stem the song cache kept for it:
+  {"cmd":"pitch","id":"q1","song":"<id>","offset":<the section job's offset, s>}
+-> {"type":"result","id":"q1","pitch":{"t0","hop","v"},"stats":{...}}; codes "no-stem" (that
+section isn't kept: another song, the final pass already took them), "no-model", "low-vram".
+RMVPE is loaded for the job and freed after it, as for the notes.
 
 One job runs at a time (a worker thread); requests queue. Cancel takes effect between stages.
 """
@@ -144,6 +152,9 @@ class Server:
             if req.get('cmd') == 'notes':
                 self.notes_job(req)
                 continue
+            if req.get('cmd') == 'pitch':
+                self.pitch_job(req)
+                continue
             if req.get('cmd') == 'prepare' and req.get('mode') == 'notes':
                 self.prepare_notes(req)
                 continue
@@ -228,6 +239,22 @@ class Server:
         self.kept = notes_step.Kept(req.get('song'), stem, covered, lines, dict(al.last_char_first or {}),
                                     req.get('lines') or [], lang, getattr(al, 'label_index', None))
 
+    def note_device(self, jid):
+        """-> (torch, device) for a notes or pitch job, or None after sending low-vram."""
+        import torch
+        if torch.cuda.is_available() and os.environ.get('SONATA_ALIGN_DEVICE') != 'cpu':
+            free, _total = torch.cuda.mem_get_info()
+            need = notes_step.vram_need()
+            if free < need:
+                send({'type': 'error', 'id': jid, 'code': 'low-vram',
+                      'message': 'not enough free graphics memory for the sung notes (%.1f GB free, %.1f GB needed)' % (free / 1e9, need / 1e9)})
+                return None
+            frac = os.environ.get('SONATA_ALIGN_VRAM_FRACTION')
+            if frac:
+                torch.cuda.set_per_process_memory_fraction(float(frac))
+            return torch, 'cuda'
+        return torch, 'cpu'
+
     def notes_job(self, req):
         jid = req.get('id')
         kept = self.kept
@@ -242,18 +269,10 @@ class Server:
         device = 'cpu'
         self.current = jid
         try:
-            import torch
-            if torch.cuda.is_available() and os.environ.get('SONATA_ALIGN_DEVICE') != 'cpu':
-                device = 'cuda'
-                free, _total = torch.cuda.mem_get_info()
-                need = notes_step.vram_need()
-                if free < need:
-                    send({'type': 'error', 'id': jid, 'code': 'low-vram',
-                          'message': 'not enough free graphics memory for the sung notes (%.1f GB free, %.1f GB needed)' % (free / 1e9, need / 1e9)})
-                    return
-                frac = os.environ.get('SONATA_ALIGN_VRAM_FRACTION')
-                if frac:
-                    torch.cuda.set_per_process_memory_fraction(float(frac))
+            got = self.note_device(jid)
+            if got is None:
+                return
+            torch, device = got
             part, st = notes_step.run(kept, req.get('syl') or [], device=device, torch=torch,
                                       progress=lambda stage, p: send({'type': 'progress', 'id': jid, 'stage': stage, 'p': round(p, 3)}),
                                       cancelled=lambda: jid in self.cancelled)
@@ -265,6 +284,42 @@ class Server:
             send({'type': 'error', 'id': jid, 'message': '%s: %s' % (type(e).__name__, e)})
         finally:
             kept = None
+            self.cancelled.discard(jid)
+            self.current = None
+            if device == 'cuda' and torch is not None:
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:  # error: NOT-WORTH — a failed empty_cache only keeps memory reserved
+                    pass
+
+    def pitch_job(self, req):
+        """The first play's pitch line of one kept section (Sheet notes in the Studio)."""
+        jid = req.get('id')
+        stem = self.songs.piece(req.get('song'), float(req.get('offset') or 0))
+        if stem is None:
+            send({'type': 'error', 'id': jid, 'code': 'no-stem', 'message': 'this section\'s vocal stem is not kept here'})
+            return
+        if not notes_step.have_rmvpe():
+            send({'type': 'error', 'id': jid, 'code': 'no-model', 'message': 'the RMVPE pitch model is not downloaded'})
+            return
+        torch = None
+        device = 'cpu'
+        self.current = jid
+        try:
+            got = self.note_device(jid)
+            if got is None:
+                return
+            torch, device = got
+            line, st = notes_step.pitch_section(stem, float(req.get('offset') or 0), device=device, torch=torch,
+                                                cancelled=lambda: jid in self.cancelled)
+            send({'type': 'result', 'id': jid, 'pitch': line, 'stats': st})
+        except SA.Cancelled:
+            send({'type': 'error', 'id': jid, 'message': 'cancelled'})
+        except Exception as e:  # error: SHOWN — Sonata's band says the line isn't there; the helper keeps running
+            traceback.print_exc()
+            send({'type': 'error', 'id': jid, 'message': '%s: %s' % (type(e).__name__, e)})
+        finally:
+            stem = None
             self.cancelled.discard(jid)
             self.current = None
             if device == 'cuda' and torch is not None:
@@ -291,7 +346,7 @@ class Server:
             send(self.pong())
         elif cmd == 'forget':
             self.jobs.put((req, None))     # in order: after the song's queued jobs
-        elif cmd in ('align', 'transcribe', 'prepare', 'notes'):
+        elif cmd in ('align', 'transcribe', 'prepare', 'notes', 'pitch'):
             if (req.get('audio') or {}).get('stream'):
                 self.streams[jid] = (req, [])
             else:
@@ -313,7 +368,7 @@ class Server:
         return True
 
     def pong(self):
-        info = {'type': 'pong', 'version': SA.VERSION, 'features': ['song-cache', 'vram-check', 'notes'],
+        info = {'type': 'pong', 'version': SA.VERSION, 'features': ['song-cache', 'vram-check', 'notes', 'pitch'],
                 'note_models': {'rmvpe': notes_step.have_rmvpe()},
                 'models': {k: SA.have_model(k) for k in SA.MODELS},
                 'whisper': {k: os.path.exists(os.path.join(SA.MODEL_DIR, 'whisper-' + k, 'model.bin')) for k in SA.WHISPER}}

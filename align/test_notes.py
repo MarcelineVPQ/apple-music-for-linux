@@ -138,6 +138,34 @@ class Syllables(unittest.TestCase):
         self.assertTrue(np.isnan(db[50:]).all())
 
 
+class PitchLine(unittest.TestCase):
+    """The Studio's pitch line (notes_step.contour): 50 ms values, MIDI x 10, 0 = no voice."""
+    def test_values_on_the_hop(self):
+        f0, times, conf = voice(vibrato=0.0)
+        line = SN.contour(f0, conf)
+        self.assertEqual((line['t0'], line['hop']), (0.0, 0.05))
+        self.assertEqual(len(line['v']), 140)                     # 7 s / 50 ms
+        self.assertEqual(line['v'][0], 0)                         # silence before the first note
+        self.assertAlmostEqual(line['v'][12] / 10, 60, delta=0.2)   # 0.6 s: the first note, C4
+        self.assertAlmostEqual(line['v'][28] / 10, 64, delta=0.2)   # 1.4 s: E4
+        self.assertTrue(all(isinstance(v, int) for v in line['v']))
+
+    def test_tuning_and_gates(self):
+        f0, times, conf = voice(cents=30, vibrato=0.0)
+        tuned = SN.contour(f0, conf, tuning_cents=30)
+        self.assertAlmostEqual(tuned['v'][12] / 10, 60, delta=0.2)  # the song's tuning taken off
+        quiet = np.zeros(len(f0), bool)
+        self.assertEqual(set(SN.contour(f0, conf, loud=quiet)['v']), {0})
+        self.assertEqual(set(SN.contour(f0, conf * 0.5)['v']), {0})    # under the voicing threshold
+        half = SN.contour(f0, conf, loud=quiet[:300], t0=12.34)          # a gate shorter than the song
+        self.assertEqual(half['t0'], 12.34)
+        self.assertEqual(set(half['v']), {0})
+
+    def test_section_line_needs_the_model(self):
+        with self.assertRaises(FileNotFoundError):
+            SN.pitch_section(np.zeros(16000, np.float32), 10.0)
+
+
 class Download(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp(prefix='rmvpe-src-')
@@ -247,6 +275,28 @@ class Protocol(unittest.TestCase):
             SN.RMVPE.update(saved)
         self.assertEqual((sends[-1]['type'], sends[-1]['code']), ('error', 'checksum'))
         self.assertFalse(SN.have_rmvpe())
+
+    def test_pitch_of_a_kept_section(self):
+        srv = server()
+        sends = capture(srv)
+        srv.pitch_job({'cmd': 'pitch', 'id': 'q1', 'song': 's1', 'offset': 20})
+        self.assertEqual(sends[-1]['code'], 'no-stem')
+        srv.songs.add('s1', ('en', True), 20.0, np.zeros(16000, np.float32))
+        srv.pitch_job({'cmd': 'pitch', 'id': 'q2', 'song': 's1', 'offset': 21})
+        self.assertEqual(sends[-1]['code'], 'no-stem')              # no section starts there
+        srv.pitch_job({'cmd': 'pitch', 'id': 'q3', 'song': 's1', 'offset': 20})
+        self.assertEqual(sends[-1]['code'], 'no-model')
+        calls = []
+        saved = (SN.have_rmvpe, SN.pitch_section)
+        SN.have_rmvpe = lambda: True
+        SN.pitch_section = lambda stem, off, **kw: (calls.append((len(stem), off, kw['device'])) or ({'t0': off, 'hop': 0.05, 'v': [0, 600]}, {'f0_s': 0.01}))
+        try:
+            srv.pitch_job({'cmd': 'pitch', 'id': 'q4', 'song': 's1', 'offset': 20})
+        finally:
+            SN.have_rmvpe, SN.pitch_section = saved
+        self.assertEqual(calls, [(16000, 20.0, 'cpu')])
+        self.assertEqual((sends[-1]['type'], sends[-1]['id'], sends[-1]['pitch']['v']), ('result', 'q4', [0, 600]))
+        self.assertIsNotNone(srv.songs.piece('s1', 20))            # the section stays for the final pass
 
     def test_forget_drops_the_kept_stem(self):
         r = talk([{'cmd': 'forget', 'song': 's1'}, {'cmd': 'notes', 'id': 'n1', 'song': 's1'}], replies=1)

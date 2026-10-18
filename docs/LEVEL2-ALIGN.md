@@ -255,6 +255,78 @@ torchaudio), align/test_notes.py (synthetic voice, syllables, download and check
 `SONATA_TEST_RMVPE=<rmvpe.pt>` adds a real RMVPE run), notes-log.js, test/notes-log.test.js,
 tools/notes-log.py.
 
+## Sheet notes in the Studio (experimental)
+
+Settings → Precise timing → **Sheet notes in the Studio (Experimental)**, off by default, needs
+Precise word timing on; the Studio's **Sheet notes** tile is the same switch. Sonata's +1: the sung
+melody in a band above the Studio's lyrics, on the lyrics clock (Marcy's decisions 2026-10-16/17,
+docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
+
+**What it shows** (sheet-notes-model.js `mode()`):
+- **First play: a pitch line.** Right after each section's words come back, align-session.js asks
+  the helper for that section's pitch line (`{"cmd":"pitch","id","song","offset"}`, from the stem the
+  song cache kept for the section: no second separation). It runs inside the section's job, so later
+  jobs keep their order, only while the Studio shows the band, and never while a game runs. The line
+  is 20 values a second (MIDI × 10, 0 = no voice), drawn from the right edge back (the band shows the
+  last ~14 s): it follows each section by about the section's length, because a section is separated
+  only once it has been heard.
+- **Later plays: notes on a staff.** The whole-song job's notes step (the same as the developer log's)
+  also returns the song's pitch line; main caches notes, syllables, key and line per song
+  (sheet-notes-store.js, `~/.config/apple-music-for-linux/sheet-notes/`, one ~20–40 kB file per song,
+  at most 500, least recently used out first) and sends them with the song once the lyrics on screen
+  are the aligned ones. A song aligned before the switch was on (a complete cache entry, no notes) is
+  recorded once more and aligned as a whole for its notes (`missing()`); a failed notes step is tried
+  again at most twice (`no-model` waits for the switch's download).
+- **Nothing to draw:** one line says why (no helper, Precise timing off, the song has its own word
+  timing, no line timing, paused for a game).
+
+**The staff** (`layout()`): each note at its spelled pitch (the note model's line-of-fifths name), as
+long as it was held (no rhythm quantising), the key signature (K-S on the notes: the helper has no
+key model, so relative keys can be confused, see below), accidentals where a note differs from the
+key (no bars carry them), ledger lines, the clef that keeps the most singing on the staff (treble,
+treble 8vb or bass), the syllable under its first note (a hyphen to the next syllable, an extender
+under a melisma; notes without a syllable drawn dim), bar lines when beats exist (none yet: no beat
+model in the helper), a playhead at 30 %. The clefs and accidentals are Noto Music outlines
+(sheet-notes-glyphs.js, SIL OFL 1.1, licenses/NotoMusic-OFL.txt), so they look the same on every system.
+
+**Placement** (Settings → Sheet notes placement, remembered; the band's two buttons switch it;
+`placement()`): **Band on top** (the band under the Studio's header) or **Over the sung line**: the sung
+line (or the countdown standing for it) opens 136 px of room above itself (lyrics-view.js `opts.room`:
+class `.room`, a transparent top border, so no other line's text moves into it; the lines in view slide
+to their new places by FLIP on the compositor), and the staff (label row with the buttons, the staff
+without its syllable row: the words are right below) sits in that room, inside the lyrics list so it
+scrolls with the lines, moving to the next line by one 300 ms transform animation (none with reduced
+motion). The sung line, room and all, is centred on the engine's anchor (a third of the way down). A
+message (nothing to draw) always stays in the band.
+
+**Honest confidence** (`gate()`): a note's `cents` is how far it sits from the nearest semitone in the
+song's own tuning. Sung melody clusters near the grid; rap and speech spread evenly (median ≈ 25).
+Each lyric line (and the notes between lines) is judged on its notes, pooled with those within 4 s
+when it has fewer than 4: duration-weighted median |cents| ≤ 20 and confidence ≥ 0.6 → notes; else the
+pitch line there (or nothing without one), and the band's label says "pitch line here: notes unsure".
+A whole song past 22 cents (or below 0.6) is the pitch line throughout. Measured 2026-10-17 with the
+real helper (Demucs → alignment → RMVPE → note model) on JamendoLyrics songs, and on Marcy's
+developer-log files (notes only):
+
+| Song | Kind | Song spread (cents) | Shown as notes | Pitch line |
+|---|---|---|---|---|
+| Cortez – Feel (Stripped) | sung | 5 | 100 % | 0 % |
+| Rxbyn – Bad Side | sung | 4 | 100 % | 0 % |
+| Lower Loveday – Is It Right | sung | 9 | 97 % | 3 % |
+| Wilson Way – Te Recuerdo | rapped verses, sung chorus | 7 | 75 % (the chorus) | 25 % (the verses) |
+| Wordsmith – The Statement | rap | 24 | 0 % | 100 % |
+| Jason Miller – Crowd Pleaser | rap | 25 | 0 % | 100 % |
+| Cortez, simulated live (reverb, noise, two out-of-tune "crowd" copies) | sung | 7 | 98 % | 2 % |
+| DMB studio songs (log files) | loose, slid vocals | 10–19 | 53–90 % | the rest |
+
+**Cost** (helper, RTX 5080): a section's pitch line 0.27–0.51 s (RMVPE load + f0), the notes step as
+for the developer log (~1.1 s per song), +0.6 GB VRAM while either runs. The band: docs/PERFORMANCE.md.
+
+**Known limits:** the key is guessed from the notes (Rxbyn: G major for the research's G minor;
+Cortez: E major for F♯ minor), so a key signature can be the relative or a neighbour; songs with
+Apple's own word timing are never aligned, so they get no notes yet; the first play's line trails a
+section behind.
+
 ## Install footprint
 
 Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it;

@@ -45,7 +45,7 @@ function setIcon(el, name) {
 
 /**
  * createStage({ doc, send(command, value), onLayout() }) -> { setForm, setNowPlaying, setQueue,
- * setTime, setBand, shown }. send: ipcRenderer.send('stage-command', …). onLayout: the stage's
+ * setTime, setBand, setSheet, shown }. send: ipcRenderer.send('stage-command', …). onLayout: the stage's
  * layout changed (the page recentres the lyrics and moves its drag grip).
  */
 function createStage(opts) {
@@ -72,8 +72,10 @@ function createStage(opts) {
   let shownSec = -1       // the whole second the times and the countdown show
   let seekP = -1          // the fraction the seek bar shows
   let volShown = -1
-  let bandNode = null     // the sheet-notes band's content (null: no data, no band, no tile)
-  let bandOn = true
+  let bandNode = null     // the sheet-notes band's content (sheet-notes-ui.js), set once by the page
+  let sheetOn = false     // Settings' "Sheet notes in the Studio" (Experimental), as main last said
+  let sheetMsg = false    // the band holds only a one-line message (nothing to draw for this song)
+  let sheetOver = false   // "Over the sung line": the staff rides in the lyrics, the band row stays empty
   let linerNone = ''      // the album (albumKey) the Liner notes tile found no booklet for: it says so until the album changes
   const albumKey = () => (np ? (np.album || '') + '|' + (np.artist || '') : '|')
 
@@ -89,7 +91,8 @@ function createStage(opts) {
   el.shuffle.onclick = () => send('shuffle')
   el.repeat.onclick = () => send('repeat')
   el.tLiner.onclick = () => send('liner-notes')
-  el.tNotes.onclick = () => { bandOn = !bandOn; showBand() }
+  // the Sheet notes tile is the setting itself (main turns it on or off and answers with 'lyrics-sheet')
+  el.tNotes.onclick = () => send('sheet-notes', !sheetOn)
 
   // --- the two sliders (song position, volume): pointer and keyboard ---
   // set(fraction, done): done on release and on a key (the seek is sent then; the volume as it moves)
@@ -190,14 +193,20 @@ function createStage(opts) {
     if (opts.onLayout) opts.onLayout()
   }
 
-  // the sheet-notes band (the +1): shown only with notes to show, folded away by its tile; never an empty box
+  // the sheet-notes band (the +1, Experimental): its tile shows in the Studio and switches it; on, the band
+  // sits above the words (a one-line message when this song has nothing to draw, never an empty box);
+  // off, it folds away and the lyrics take the room
   function showBand() {
     const has = !!bandNode && !!form.stage
     el.tNotes.hidden = !has
-    el.tNotes.setAttribute('aria-pressed', String(has && bandOn))
-    el.tNotes.querySelector('small').textContent = bandOn ? 'On' : 'Off'
-    el.band.hidden = !(has && bandOn)
+    el.tNotes.setAttribute('aria-pressed', String(has && sheetOn))
+    el.tNotes.querySelector('small').textContent = sheetOn ? 'Experimental' : 'Off'
+    el.tNotes.title = sheetOn ? 'Sheet notes are on (Experimental): click to fold the band away' : 'The sung melody as notes above the lyrics, in sync (Experimental): click to turn on'
+    const was = el.band.hidden
+    el.band.hidden = !(has && sheetOn) || sheetOver
+    el.band.classList.toggle('msg', sheetMsg)
     el.layers.hidden = el.tNotes.hidden && el.tMontage.hidden && el.tLiner.hidden
+    return was !== el.band.hidden
   }
   function setBand(node) {
     if (node === bandNode) return
@@ -205,6 +214,16 @@ function createStage(opts) {
     el.band.replaceChildren(...(bandNode ? [bandNode] : []))
     showBand()
     if (opts.onLayout) opts.onLayout()
+  }
+  // main's word on the switch (on), whether the band holds only a message (msg), and whether the staff
+  // rides over the sung line instead (over: the page moved it into the lyrics)
+  function setSheet(on, msg, over) {
+    const changed = sheetOn !== !!on || sheetMsg !== !!msg || sheetOver !== !!over
+    sheetOn = !!on
+    sheetMsg = !!msg
+    sheetOver = !!over
+    showBand()
+    if (changed && opts.onLayout) opts.onLayout()
   }
 
   function text(node, value) { if (node.textContent !== value) node.textContent = value }
@@ -369,6 +388,7 @@ function createStage(opts) {
   return {
     setForm,
     setBand,
+    setSheet,
     get shown() { return !!form.stage },
     setNowPlaying(n) {
       np = n && typeof n === 'object' ? n : null

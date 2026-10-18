@@ -145,15 +145,10 @@ class Kept:
         self.label_index = label_index    # the aligner's characters (normalise_word), for the syllable split
 
 
-def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambda: False):
-    """The notes step on a Kept job. -> (helper part of the note JSON, stats). RMVPE is freed before
-    returning, also on an error."""
-    import torch as _torch
-    torch = torch or _torch
+def _f0(stem, device, torch, st, cancelled):
+    """RMVPE over a CPU stem (16 kHz float32) -> (f0 Hz, voicing confidence) at 10 ms. The weights
+    live for this call only (freed before returning, also on an error)."""
     from rmvpe import RMVPE as Net
-    if not have_rmvpe():
-        raise FileNotFoundError('the RMVPE pitch model is not downloaded')
-    st = {'device': device}
     t = time.time()
     net = None
     try:
@@ -161,22 +156,83 @@ def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambd
         st['load_s'] = round(time.time() - t, 2)
         if cancelled():
             raise SA.Cancelled()
-        if progress:
-            progress('notes', 0.1)
         t = time.time()
         if device.startswith('cuda'):
             torch.cuda.reset_peak_memory_stats()
-        sal = net.salience(torch.from_numpy(np.ascontiguousarray(kept.stem, dtype=np.float32)))
+        sal = net.salience(torch.from_numpy(np.ascontiguousarray(stem, dtype=np.float32)))
         f0, conf = net.decode(sal)
         del sal
         if device.startswith('cuda'):
             torch.cuda.synchronize()
             st['vram_peak_mb'] = round(torch.cuda.max_memory_allocated() / 2 ** 20)
         st['f0_s'] = round(time.time() - t, 2)
+        return f0, conf
     finally:
         del net                       # lifetime: the RMVPE weights live for this step only
         if device.startswith('cuda'):
             torch.cuda.empty_cache()
+
+
+# The Studio's pitch line (Settings -> "Sheet notes in the Studio"): the sung pitch as one value per
+# PITCH_HOP_S, in tenths of a semitone (MIDI x 10, an int), 0 where nobody sings. About 20 values a
+# second: a 4-minute song is ~4,800 small ints (~15 kB of JSON). It is a drawing of the melody, not
+# audio: nothing of the voice can be rebuilt from it.
+PITCH_HOP_S = 0.05
+
+
+def contour(f0, conf, loud=None, vthr=0.7, fps=100, hop_s=PITCH_HOP_S, t0=0.0, tuning_cents=0.0):
+    """The pitch line from frame f0/confidence: per hop the median MIDI of the frames that are voiced
+    (conf >= vthr), loud (when a gate is given) and at least half of the hop; else 0. tuning_cents is
+    taken off, so the line sits on the same staff as the notes (which are spelled in the song's tuning).
+    -> {'t0': s, 'hop': s, 'v': [int]}"""
+    f0 = np.nan_to_num(np.asarray(f0, dtype=np.float64), nan=0.0)
+    conf = np.asarray(conf, dtype=np.float64)[:len(f0)]
+    ok = (f0 > 0) & (conf >= vthr)
+    if loud is not None:
+        g = np.asarray(loud, bool)[:len(ok)]
+        ok[:len(g)] &= g
+        ok[len(g):] = False
+    k = max(1, int(round(hop_s * fps)))
+    n = (len(f0) + k - 1) // k
+    midi = np.full(n * k, np.nan)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        midi[:len(f0)] = np.where(ok, 69.0 + 12.0 * np.log2(np.where(f0 > 0, f0, 1.0) / 440.0) - tuning_cents / 100.0, np.nan)
+    m = midi.reshape(n, k)
+    have = np.sum(np.isfinite(m), axis=1)
+    out = np.zeros(n, dtype=np.int64)
+    sel = have * 2 >= k
+    if sel.any():
+        out[sel] = np.round(np.nanmedian(m[sel], axis=1) * 10).astype(np.int64)
+    return {'t0': round(float(t0), 3), 'hop': hop_s, 'v': [int(x) for x in np.clip(out, 0, 1270)]}
+
+
+def pitch_section(stem, offset_s, device='cpu', torch=None, cancelled=lambda: False):
+    """The first play's pitch line for one section the helper kept (its stem starts at offset_s in
+    the song). -> ({'t0', 'hop', 'v'}, stats). No notes, no syllables: the line only."""
+    import torch as _torch
+    torch = torch or _torch
+    if not have_rmvpe():
+        raise FileNotFoundError('the RMVPE pitch model is not downloaded')
+    st = {'device': device}
+    f0, conf = _f0(stem, device, torch, st, cancelled)
+    if cancelled():
+        raise SA.Cancelled()
+    loud = loud_mask(level_db(stem, None, len(f0)))
+    return contour(f0, conf, loud, t0=offset_s), st
+
+
+def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambda: False):
+    """The notes step on a Kept job. -> (helper part of the note JSON, stats). RMVPE is freed before
+    returning, also on an error. The part carries the whole song's pitch line ('pitch', contour())
+    for the Studio; the developer log leaves it out (notes-log.js buildDoc)."""
+    import torch as _torch
+    torch = torch or _torch
+    if not have_rmvpe():
+        raise FileNotFoundError('the RMVPE pitch model is not downloaded')
+    st = {'device': device}
+    if progress:
+        progress('notes', 0.1)
+    f0, conf = _f0(kept.stem, device, torch, st, cancelled)
     if cancelled():
         raise SA.Cancelled()
     if progress:
@@ -193,6 +249,7 @@ def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambd
     part = dict(res, f0_model=F0_MODEL, vthr=0.7, gate_db=GATE_DB, beats=[], bars=[], meter=None, tempo_bpm=None,
                 lines=line_table(kept.results, kept.req_lines), syllables=syl, language=kept.language)
     part['confidence'] = dict(part.get('confidence') or {}, loud_share=round(float(np.mean(loud)) if T else 0.0, 3))
+    part['pitch'] = contour(f0, conf, loud, tuning_cents=float((res.get('tuning') or {}).get('cents') or 0.0))
     return plain(part), st
 
 

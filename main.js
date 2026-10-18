@@ -12,6 +12,8 @@ const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
 const notesLogLib = require('./notes-log')
+const sheetModel = require('./sheet-notes-model')
+const sheetStoreLib = require('./sheet-notes-store')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const railModel = require('./rail-model');
@@ -649,7 +651,16 @@ function getAlignSession() {
       now: () => performance.now(),
       log: (m) => console.log('align:', m),
       paused: () => alignPaused(),
-      notes: { wanted: () => sungNotesOn() && getNotesSwitch().wanted(), syl: notesLogLib.syllableSpec, done: sungNotesDone, failed: sungNotesFailed }
+      notes: {
+        wanted: () => notesActive() && getNotesSwitch().wanted(),
+        syl: notesLogLib.syllableSpec,
+        done: (s, result, lineOffset) => { sungNotesDone(s, result, lineOffset); sheetNotesDone(s, result, lineOffset) },
+        failed: (s, e) => { sungNotesFailed(s, e); sheetNotesFailed(s, e) },
+        // the first play's pitch line: only while the Studio shows its band (nothing for a band nobody sees)
+        pitchWanted: () => sheetNotesOn() && getNotesSwitch().wanted() && stageShowing(),
+        pitch: sheetPitch,
+        missing: (title, artist, hash) => sheetNotesOn() && getNotesSwitch().wanted() && getSheetStore().missing(title, artist, hash)
+      }
     })
   }
   return alignSession
@@ -665,9 +676,11 @@ function getAlignSession() {
 let notesSwitch = null
 let notesStatusText = ''
 function sungNotesOn() { return !!settings.sungNotesLog && settings.updateChannel === 'dev' && preciseTimingOn() }
-function setNotesStatus(text) { notesStatusText = text; pushPanel() }
+// the notes step runs for the developer log or for the Studio's sheet notes (one switch object: one download)
+function notesActive() { return sungNotesOn() || sheetNotesOn() }
+function setNotesStatus(text) { notesStatusText = text; pushPanel(); sendSheet() }
 function getNotesSwitch() {
-  if (!notesSwitch) notesSwitch = notesLogLib.createNotesSwitch({ on: sungNotesOn, helper: getAlignHelper(), status: setNotesStatus, log: (m) => console.log('align:', m) })
+  if (!notesSwitch) notesSwitch = notesLogLib.createNotesSwitch({ on: notesActive, helper: getAlignHelper(), status: setNotesStatus, log: (m) => console.log('align:', m) })
   return notesSwitch
 }
 function sungNotesDone(s, result, lineOffset) {
@@ -685,7 +698,7 @@ function sungNotesDone(s, result, lineOffset) {
   }
 }
 function sungNotesFailed(s, e) {
-  if (!settings.sungNotesLog) return
+  if (!settings.sungNotesLog && !settings.sheetNotes) return
   const code = e && e.code
   if (code === 'no-model' && notesSwitch) notesSwitch.learn({ note_models: { rmvpe: false } })
   const why = code === 'paused' ? 'skipped while a game ran'
@@ -694,6 +707,83 @@ function sungNotesFailed(s, e) {
         : code === 'no-stem' ? 'the helper no longer had the song (it was restarted)'
           : (e && e.message) || 'unknown error'
   setNotesStatus('No notes for “' + s.title + '”: ' + why)
+}
+
+// "Sheet notes in the Studio" (Settings → Precise timing, Experimental, off by default; the Studio's
+// Sheet notes tile switches it too; sheet-notes-model.js, docs/LEVEL2-ALIGN.md "Sheet notes"): the sung
+// melody in a band above the Studio's lyrics. The helper works the notes out with the song's whole-song
+// alignment (the same step as the developer log, on the stem it already separated); they are cached per
+// song (sheet-notes-store.js) and sent to the lyrics window with the song. First play: each section's
+// pitch line, asked right after that section's words, while the Studio shows. A song aligned before
+// the switch was on is recorded once more for its notes. Nothing runs while a game runs (the gaming guard
+// skips the jobs) and nothing at all while the switch is off; the band only draws.
+// lifetime: OK — one store object and one per-song state for the app's life; no timer, no child of its own
+// error: SHOWN — a failed notes step or pitch line is the band's one-line message (and the log)
+let sheetStore = null
+let sheet = null          // the song on screen: { key, title, artist, hash, entry, pitch: [], aligned, wordSynced, timed, error }
+let sheetSent = ''
+function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
+function getSheetStore() {
+  if (!sheetStore) sheetStore = sheetStoreLib.createSheetNotesStore({ dir: path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME) })
+  return sheetStore
+}
+// the song on screen changed (lyricsTick): its cached notes, if these lyrics have them
+function setSheetSong(key, title, artist, lines, prep) {
+  const hash = alignSessionLib.lyricsHash(lines || [])
+  const timed = !!(lines && lines.length && lines[0].t != null)
+  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, error: '' }
+  if (settings.sheetNotes && title && timed && !prep.wordSynced) {
+    const e = getSheetStore().get(title, artist)
+    if (sheetModel.entryValid(e, hash)) sheet.entry = e
+  }
+  sheetSent = ''
+  sendSheet()
+}
+// the band's state, to the lyrics window only (the visualizer has no band), on change only
+function sendSheet() {
+  if (!lyricsWindow || lyricsWindow.isDestroyed()) return
+  const on = !!settings.sheetNotes
+  const st = on && sheet ? {
+    on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, aligned: sheet.aligned,
+    paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length,
+    entryAt: sheet.entry ? sheet.entry.created || '1' : '', place: settings.sheetPlace
+  } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
+  const json = JSON.stringify(st)
+  if (json === sheetSent) return
+  const was = sheetSent ? JSON.parse(sheetSent) : {}
+  sheetSent = json
+  // the notes ride along only when they changed (another song, new notes), the pitch pieces when one came
+  const extra = {}
+  if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) extra.entry = sheet.entry
+  if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
+  lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
+}
+function sheetNotesDone(s, result, lineOffset) {
+  if (!sheetNotesOn() || !result || !result.notes) return
+  const entry = sheetModel.compact(result.notes, { lineOffset, lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
+  // error: SHOWN — a failed write: the band says the notes couldn't be kept (and the log)
+  try { getSheetStore().set(s.title, s.artist, entry) } catch (e) {
+    console.log('align: sheet notes not saved: ' + e.message)
+    if (sheet && sheet.key === s.key) { sheet.error = 'Could not keep the notes: ' + e.message; sendSheet() }
+  }
+  if (sheet && sheet.key === s.key) { sheet.entry = entry; sheet.aligned = true; sheet.error = ''; sendSheet() }
+}
+function sheetNotesFailed(s, e) {
+  if (!sheetNotesOn()) return
+  const code = (e && e.code) || ''
+  // a game running isn't the song's fault: not counted, tried again on a later play
+  // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
+  if (code !== 'paused') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
+  if (sheet && sheet.key === s.key) {
+    sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'no-model' ? 'The pitch model is not downloaded (turn Sheet notes off and on to download it)'
+      : code === 'low-vram' ? 'No notes this time: not enough free graphics memory' : 'No notes this time: ' + ((e && e.message) || 'unknown error')
+    sendSheet()
+  }
+}
+function sheetPitch(s, line, e) {
+  if (!sheet || sheet.key !== s.key) return
+  if (line) { sheet.pitch.push(line); sheet.error = '' } else if (e && e.code !== 'no-stem') sheet.error = 'Part of the pitch line is missing: ' + ((e && e.message) || 'unknown error')
+  sendSheet()
 }
 
 // Gaming guard (game-guard.js; Settings → "Pause word timing while gaming", on by default): while a
@@ -727,6 +817,7 @@ function alignGuardTick() {
       onChange: (st) => {
         if (st.paused && alignHelper) alignHelper.release()   // frees its graphics memory after the current job
         sendAlignNote()
+        sendSheet()
         pushRail()
       }
     })
@@ -821,6 +912,7 @@ async function lyricsTick() {
     // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
     sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
+    setSheetSong(key, state.title, state.artist, got.lines || [], prep)
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -1051,6 +1143,8 @@ ipcMain.on('stage-command', (event, command, value) => {
   else if (c.command === 'play-item') {
     run(stagePlayScript(c.value.index, c.value.id), 'play').then((ok) => { if (!ok) { stageQueueSig = ''; stageQueueKey = '' } })
   }
+  else if (c.command === 'sheet-notes') setSetting('sheetNotes', c.value)   // the Studio's Sheet notes tile: the same switch as Settings
+  else if (c.command === 'sheet-place') setSetting('sheetPlace', c.value)   // the band's placement buttons: the same setting as Settings
   else if (c.command === 'liner-notes' && linerNotesReady()) {
     // the booklet of the album the stage shows; the tile says so when no album matched
     const s = lastStage()
@@ -2298,7 +2392,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2354,11 +2448,14 @@ function setSetting(key, value) {
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
-  if (key === 'sungNotesLog' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
-    // the only download: when Sung notes becomes active (switch on, Development, Precise word timing on)
-    if (sungNotesOn()) getNotesSwitch().turnedOn()
-    else if (key === 'sungNotesLog') notesStatusText = ''
+  if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel') {
+    // the only download: when the notes step becomes active (the developer log on the Development
+    // channel, or Sheet notes in the Studio; Precise word timing on)
+    if (notesActive()) getNotesSwitch().turnedOn()
+    else if (key === 'sungNotesLog' || key === 'sheetNotes') notesStatusText = ''
+    if (key === 'sheetNotes' || key === 'lyricsPreciseTiming') { lyricsKey = null; sendSheet() }   // the song again, with or without its notes
   }
+  else if (key === 'sheetPlace') sendSheet()   // the band or over the sung line: the page moves the staff
   else if (key === 'alignGamingPause') {
     if (!value && gameGuard) gameGuard.reset()    // off: resume now
     sendAlignNote()

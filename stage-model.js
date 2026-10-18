@@ -204,6 +204,10 @@ function stageCommand(command, value) {
   // in the photos it sent and opens that photo's page, never a URL from the page)
   if (command === 'montage') return typeof value === 'boolean' ? { command, value } : null
   if (command === 'montage-credit') return typeof value === 'string' && value.length > 0 && value.length <= 300 && !/[\u0000-\u001f]/.test(value) ? { command, value } : null
+  // the Sheet notes tile: Settings' "Sheet notes in the Studio" on or off
+  if (command === 'sheet-notes') return typeof value === 'boolean' ? { command, value } : null
+  // the band's placement buttons: Settings' "Sheet notes placement"
+  if (command === 'sheet-place') return value === 'band' || value === 'over' ? { command, value } : null
   if (command === 'seek') { const t = numeric(value); return Number.isFinite(t) && t >= 0 && t <= 86400 ? { command, value: t } : null }
   if (command === 'volume') { const v = numeric(value); return Number.isFinite(v) && v >= 0 && v <= 1 ? { command, value: v } : null }
   if (command === 'play-item') {

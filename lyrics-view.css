@@ -147,3 +147,7 @@
   .line.active .w.now.hold .s.now,
   .line.active .bgv .w.now .s.now { transform: none; transition: none; }
 }
+
+/* the Studio's sheet notes "Over the sung line" (lyrics-view.js opts.room): the sung line opens room
+   above itself for the staff; a transparent top border, so the line's own padding and text are untouched */
+.line.room, .dots.room { border-top: var(--room, 0px) solid transparent; }

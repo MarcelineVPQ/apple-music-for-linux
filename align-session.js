@@ -480,10 +480,15 @@ function missedIn(missed, sec) {
  * One alignment session per main process. deps:
  *   createListener(opts) -> { start, stop }   (audio-listen.js, shared with Level 1)
  *   helper: { align(id, messages) -> Promise<result>, notes?(id, song, syl) }   (align-helper.js)
- *   notes?: { wanted(), syl(lines, lang), done(song, result, lineOffset), failed(song, error) }   sung
- *     notes (notes-log.js, main.js): when wanted, the song's whole-song job (the final pass, or the one
+ *   notes?: { wanted(), syl(lines, lang), done(song, result, lineOffset), failed(song, error),
+ *     pitchWanted?(), pitch?(song, line, error), missing?(title, artist, lyricsHash) }   sung notes
+ *     (notes-log.js, main.js): when wanted, the song's whole-song job (the final pass, or the one
  *     section of a one-section song) asks the helper to keep its stem, and once its words are delivered
- *     a notes job is queued behind whatever waits; the gaming guard skips it like any job
+ *     a notes job is queued behind whatever waits; the gaming guard skips it like any job.
+ *     Sheet notes in the Studio (sheet-notes-model.js): pitchWanted() asks, right after each section's
+ *     result, for that section's pitch line (the first play's band; part of the section's job, so the
+ *     song's later jobs keep their order); missing() says a fully aligned song has no notes yet, so it
+ *     is recorded once more and aligned as a whole for them (no section jobs)
  *   store: { get, set }   send(channel, payload)   now() (ms, same base as the clock)   log
  *
  * Progressive (0.15.33): the song is aligned section by section while it plays (sections()), one
@@ -603,6 +608,7 @@ function createAlignSession(deps) {
           log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
           if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           if (notes) submitNotes(s, req.lines, sec ? sec.from : 0)
+          if (sec && !whole && s.kept.has(sec.from) && deps.notes && deps.notes.pitchWanted && deps.notes.pitchWanted() && deps.helper.pitch) return sectionPitch(s, req.offset, what).then(() => s.entry)
           return s.entry
         })
         .catch((e) => {   // error: LOGGED-OK — see the comment above run()
@@ -620,6 +626,27 @@ function createAlignSession(deps) {
     const job = queue.then(run)
     queue = job.then(() => {}, () => {})
     return job
+  }
+
+  // Sheet notes, first play: the pitch line of a section just aligned, from the stem the helper kept for
+  // it (no second separation). Skipped while a game runs. The line goes to main (deps.notes.pitch),
+  // which sends it to the Studio's band if the song is still on screen.
+  // error: SHOWN — a failure is handed to deps.notes.pitch(song, null, error): the band says the line is missing
+  function sectionPitch(s, offset, what) {
+    if (paused()) { log('skipped the pitch line of ' + what + ' of "' + s.title + '" (paused while gaming)'); return Promise.resolve() }
+    const qid = 'q' + (++jobs)
+    const started = deps.now()
+    return Promise.resolve()
+      .then(() => deps.helper.pitch(qid, s.id, offset))
+      .then((result) => {
+        const line = result && result.pitch
+        log('pitch line of ' + what + ' of "' + s.title + '": ' + (line && line.v ? line.v.length : 0) + ' values in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+        deps.notes.pitch(s, line || null, line ? null : new Error('no pitch line in the answer'))
+      })
+      .catch((e) => {   // error: SHOWN — see above
+        log('pitch line failed for ' + what + ' of "' + s.title + '": ' + (e && e.message))
+        deps.notes.pitch(s, null, e)
+      })
   }
 
   // Sung notes: queued after the whole-song result was delivered (behind any job already waiting, so
@@ -706,14 +733,21 @@ function createAlignSession(deps) {
       const secs = sections(raw)
       // a complete entry with missed lines (0.15.39): their sections once more, on at most MAX_FILLS plays
       const refill = refillSections(have, secs)
-      if (have && !have.partial && !refill.length) return
-      const skip = new Set(have ? (have.done || []).filter((from) => !refill.some((sec) => sec.from === from)) : [])
-      if (!secs.some((sec) => !skip.has(sec.from))) return
+      const complete = !!(have && !have.partial && !refill.length)
+      // Sheet notes: a complete entry without notes (aligned before the switch was on, or the notes
+      // step was skipped): the song is recorded once more and aligned as a whole, for its notes
+      const notesOnly = complete && !!(deps.notes && deps.notes.missing && deps.notes.missing(title, artist, hash))
+      if (complete && !notesOnly) return
+      // notes only: no section jobs (a one-section song's section is its whole-song job)
+      const skip = notesOnly ? new Set(secs.length > 1 ? secs.map((sec) => sec.from) : [])
+        : new Set(have ? (have.done || []).filter((from) => !refill.some((sec) => sec.from === from)) : [])
+      if (!notesOnly && !secs.some((sec) => !skip.has(sec.from))) return
       const fills = refill.length ? (have.fills || 0) + 1 : (have && have.fills) || 0
-      const wholeDone = !!(have && have.whole)
+      const wholeDone = !notesOnly && !!(have && have.whole)
       // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
       const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
+      if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
       song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */

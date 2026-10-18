@@ -123,7 +123,7 @@ test('lyrics window: no blur on unsung lines, no backdrop blur on the card (the 
 })
 
 test('Web Animations in the lyric views and the visualizer animate transform/opacity only', () => {
-  for (const f of ['lyrics-view.js', 'lyrics.html', 'visualizer.html', 'liner-notes.html']) {
+  for (const f of ['lyrics-view.js', 'lyrics.html', 'visualizer.html', 'liner-notes.html', 'sheet-notes-ui.js']) {
     const src = read(f)
     // literal keyframe lists: .animate([{ prop: … }, …]
     for (const m of src.matchAll(/\.animate\(\[([\s\S]*?)\]\s*,/g)) {
