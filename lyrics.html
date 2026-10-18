@@ -906,7 +906,9 @@
     songEl.querySelector('.t').textContent = data.title || 'Lyrics'
     songEl.querySelector('.a').textContent = data.title ? (data.artist || '') : ''
     songEl.title = data.title ? data.title + (data.artist ? ' — ' + data.artist : '') : ''
-    linesEl.scrollTop = 0
+    // a new song starts at the top at once: the list's scroll-behavior is smooth, and a smooth scroll back up
+    // from the last song's end ran through every line (0.15.42)
+    linesEl.scrollTo({ top: 0, left: 0, behavior: 'instant' })
     view.setData(data)
     // screen readers hear the lyrics' state once per song (no lyrics, service busy), never the lines
     const empty = linesEl.querySelector('#empty')
@@ -920,8 +922,8 @@
   ipcRenderer.on('lyrics-aligned', (event, msg) => view.align(msg))
   ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
 
-  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying) => {
-    view.setTime(playbackTime, isPlaying)
+  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying, key) => {
+    view.setTime(playbackTime, isPlaying, key)
     updateStill()
     if (document.visibilityState === 'visible') updateRing(view.time())
   })

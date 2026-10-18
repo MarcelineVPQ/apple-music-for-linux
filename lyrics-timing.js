@@ -625,6 +625,36 @@ function seekClock(clock, time, nowMs) {
   return { anchor: time, at: nowMs, playing: prev.playing !== false, last: null, prev: null, prev2: null, seekAt: nowMs }
 }
 
+/**
+ * A new song's lyrics wait for its first time sample (0.15.42: at a track change the first samples can
+ * still carry the previous song's position, MusicKit not having reset its time yet, and the new lyrics
+ * then counted every line up to there as sung). prevClock: the previous song's clock (null: none);
+ * duration: the new song's length (s; 0: unknown). -> the gate trackSample checks samples against.
+ */
+const TRACK_WAIT = 3   // s: the longest a new song's lyrics wait for a time that isn't the previous song's
+function trackGate(prevClock, duration, nowMs) {
+  return { since: nowMs, prev: prevClock && prevClock.anchor != null ? prevClock : null, duration: Number(duration) > 0 ? Number(duration) : 0 }
+}
+
+/**
+ * Whether a time sample can be the new song's (trackGate). Not while it's past the song's length, nor
+ * while it plays on from where the previous song was (more than 3 s in, within 1.5 s of that song's
+ * last sample or its clock now): a real new song starts near 0. After TRACK_WAIT s any time is taken
+ * (a song that really starts late, a wrong length), so the lyrics never stay stuck.
+ */
+function trackSample(gate, t, isPlaying, nowMs) {
+  if (!gate) return true
+  if (!Number.isFinite(t) || t < 0) return false
+  if (nowMs - gate.since >= TRACK_WAIT * 1000) return true
+  if (gate.duration && t > gate.duration + 1) return false
+  if (gate.prev && isPlaying !== false && t > 3) {
+    const was = clockTime(gate.prev, nowMs)
+    const last = Number.isFinite(gate.prev.last) ? gate.prev.last : was
+    if (t >= Math.min(was, last) - 1.5 && t <= Math.max(was, last) + 1.5) return false
+  }
+  return true
+}
+
 function clockTime(clock, nowMs) {
   if (!clock || clock.anchor == null) return 0
   return clock.playing ? clock.anchor + (nowMs - clock.at) / 1000 : clock.anchor
@@ -637,3 +667,5 @@ module.exports = {
   lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime,
   PACE, songPace, learnedPace, learnedOnset, robustOnset, shownOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, ONSET_Q, ONSET_STEP, ONSET_LATE_SHARE, ONSET_LATE_MAX, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }
+// the track-change gate (0.15.42), on its own line so it merges beside other branches' exports
+Object.assign(module.exports, { TRACK_WAIT, trackGate, trackSample })
