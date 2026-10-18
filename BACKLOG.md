@@ -4,6 +4,7 @@ One list for planned work. Status words: **Planned**, **Building**, **Done** (an
 
 **Coming soon:** a row whose Notes start with `Soon: <one sentence for users>.` (the Item is the card's title) or `Soon (Card title): <one sentence>.` is listed in the app's About → Coming soon (about-data.js), grouped Building now, Planned and Ideas. Only that sentence is shown; the rest of the Notes stay developer notes. Every Building or Planned row is in Coming soon unless its Item ends with a marker that says why not: **(internal)** nothing for users to wait for, **(in testing)** already shipped and being checked, **(unannounced)** waiting for Marcy's OK. Idea rows join only when they get a Soon sentence. A Done row never keeps one. Gate: `node tools/doc-gates.js soon` (in `npm run gates`).
 
+| Settings → Precise timing: clearer layout (internal) | **Idea** | Marcy 2026-10-18 (screenshot, 0.15.46): "we'll need to work on how to present that in a clearer way to the user". The section grew into a wall of switches and paragraphs (Refine by listening, Helper, Build for, Precise word timing, Pause while gaming…). Cleanup-phase pass: group as Helper → Timing → Listening; one-line summary per switch, details behind ⓘ (DS5 rule); order by what people change most; the helper status as one clear line. |
 | Item | Status | Notes |
 |------|--------|-------|
 | 0.15.10: LRCLIB lyrics fallback | **Done** | Apple first, then lrclib.net; Settings → LRCLIB lyrics; credit line; unsynced lyrics shown plain. |
