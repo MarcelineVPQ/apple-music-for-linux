@@ -165,7 +165,7 @@
     if (badge) {
       if (!dev.firstChild) dev.append(el('b'), doc.createTextNode(''))
       setText(dev.firstChild, badge.text)
-      setText(dev.lastChild, badge.version ? ' · ' + badge.version : '')
+      setText(dev.lastChild, badge.shown ? ' · ' + badge.shown : '')
       setAttr(dev, 'title', badge.tip)
       setAttr(dev, 'role', 'note')
       setAttr(dev, 'aria-label', badge.tip)

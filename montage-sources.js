@@ -22,8 +22,7 @@
 // photos per artist and album, and the answer cached on disk by main (montage-store.js, lyrics-store.js).
 'use strict'
 
-const REPO_URL = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
-const userAgent = (version) => 'Sonata/' + (version || '0') + ' (' + REPO_URL + ')'
+// the User-Agent (naming Sonata and the repo) comes from version-display.js userAgent, passed in by main
 
 // the gap between two requests to one host (ms)
 const GAPS = { 'www.wikidata.org': 150, 'commons.wikimedia.org': 300, 'upload.wikimedia.org': 300, 'thumb.wikimedia.org': 300 }
@@ -364,6 +363,6 @@ function creditText(photo) {
 }
 
 module.exports = {
-  REPO_URL, WIDTHS, MAX_PHOTOS, MAX_IMAGE_BYTES, userAgent, createFetcher, failure,
+  WIDTHS, MAX_PHOTOS, MAX_IMAGE_BYTES, createFetcher, failure,
   reduceItem, matchItems, eraCategories, licenceOf, authorOf, photoFrom, thumbFor, widthFor, arrange, resolveMontage, creditText
 }

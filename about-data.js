@@ -8,6 +8,8 @@
 //   Credits       CREDITS below: the "Built on" group as prose, every other group and the hyphenation
 //                 patterns as one What | Credit table
 
+const V = require('./version-display')   // the product name, repo and every version shown (one place)
+
 // "## [0.15.31] — The rail never covers Apple's page" -> sections
 function changelogSections(md) {
   const out = []
@@ -59,7 +61,7 @@ function comingSoon(md) {
 
 const LRCLIB = 'https://lrclib.net'
 // the notices file in the source of this version (its tag; About passes the running version)
-const NOTICES = 'https://github.com/MarcelineVPQ/apple-music-for-linux/blob/v{version}/licenses/hyphenation-NOTICES.txt'
+const NOTICES = V.REPO_URL + '/blob/v{version}/licenses/hyphenation-NOTICES.txt'
 // hyphenation patterns Sonata ships (package.json build.files; lyrics-syllables.js), with the licence
 // each file's header (hyph-utf8, CTAN / github.com/hyphenation/tex-hyphen) states. Checked 2026-10-16,
 // versions confirmed 2026-10-17 against tex-hyphen master. Each file's original notice ships in
@@ -91,7 +93,7 @@ const PATTERNS = [
 // [title, rows: [what, by / licence, url?]]
 const CREDITS = [
   ['Built on', [
-    ['Sonata', 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', 'https://github.com/MarcelineVPQ/apple-music-for-linux'],
+    [V.NAME, 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', V.REPO_URL],
     ['Apple Music for Linux', 'The app Sonata started from, by Marcus Tomlinson (GPL-3.0).', 'https://github.com/cross-platform/apple-music-for-linux'],
     ['Electron for Content Security', 'castlabs\' Electron (MIT), with Chromium (BSD and others). Lets Apple Music\'s DRM play.', 'https://github.com/castlabs/electron-releases'],
     ['Widevine', 'Google\'s DRM module, downloaded by Electron at runtime under Google\'s terms; not part of Sonata.', '']
@@ -121,7 +123,7 @@ const CREDITS = [
 const NOT_AFFILIATED = 'Sonata is not affiliated with, endorsed by, or sponsored by Apple Inc. "Apple Music" and "Apple" are trademarks of Apple Inc. You need your own Apple Music subscription.'
 
 // About's hero card (the 42PS card, the same in every 42PS app: DS5 AboutPage.tsx StudioCard)
-const REPO = 'https://github.com/MarcelineVPQ/apple-music-for-linux'
+const REPO = V.REPO_URL
 const ISSUES_URL = REPO + '/issues'
 const RELEASES_URL = 'https://github.com/' + require('./update-feed').REPO + '/releases'
 const LINKS = [
@@ -133,15 +135,14 @@ const LINKS = [
 
 // -> the hero card's words for this run: version, update channel ('stable' | 'dev'), from source or not
 function hero(version, channel, appImage, year) {
-  const channelLabel = channel === 'dev' ? 'Development' : 'Stable'
   return {
     eyebrow: 'A 42 Pixel Studios production',
-    name: 'Sonata',
+    name: V.NAME,
     by: 'Marcy Kuhn',
     version: String(version || ''),
     channel: channel === 'dev' ? 'dev' : 'stable',
-    // "Developed by Marcy Kuhn · v0.15.38 · Stable" (from source: no updates, so no channel to follow)
-    line: 'v' + String(version || '') + ' · ' + channelLabel + (appImage ? '' : ' · from source'),
+    // "v0.15.38 · Stable", "v0.15.45 Dev · Development" (from source: no updates, so no channel to follow)
+    line: V.tagged(version) + ' · ' + V.channelName(channel) + (appImage ? '' : ' · from source'),
     copyright: '© ' + (year || new Date().getFullYear()) + ' 42 Pixel Studios — a Marcy Kuhn production.',
     links: LINKS
   }

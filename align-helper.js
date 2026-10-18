@@ -13,6 +13,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
+const V = require('./version-display')   // the engine version as people see it
 
 // Idle quit (0.15.42, docs/research/efficiency-audit-2026-10.md row 1). In 30 h of Marcy's listening the
 // 2-minute quit cost 59 restarts, 48 % of all helper time spent starting and a song's first words ~5 s
@@ -78,7 +79,7 @@ function helperPaths(env, appDir, exists = (f) => fs.existsSync(f), pin = engine
   homes.push(path.join(env.HOME || '', '.local', 'share', 'sonata-align'))
   const home = homes.find(hasVenv) || homes[0]
   const version = (pin && pin.version) || ''
-  let engine = version ? path.join(home, 'engine-' + version) : ''
+  let engine = version ? path.join(home, 'engine-' + version) : ''   // hardcode: OK — the engine's folder name (the raw pinned version), never shown
   let server = engine ? path.join(engine, 'main.py') : ''
   if (env.SONATA_ENGINE_DIR) {
     engine = env.SONATA_ENGINE_DIR
@@ -155,7 +156,7 @@ function checkInstall(paths, io = fs) {
 function repairText(health) {
   const how = 'Rebuild it from a normal terminal (not one inside an editor or another app): align/install.sh --rebuild. It keeps the downloaded models; the old venv is kept aside for a rollback.'
   if (!health) return ''
-  if (health.state === 'update') return 'Precise word timing needs its helper updated to engine ' + (health.want || 'of this Sonata') + ': run align/install.sh again from a normal terminal. It downloads the engine (a few MB), keeps the models, and rebuilds the Python packages only when they changed.'
+  if (health.state === 'update') return 'Precise word timing needs its helper updated to engine ' + (V.short(health.want) || 'of this Sonata') + ': run align/install.sh again from a normal terminal. It downloads the engine (a few MB), keeps the models, and rebuilds the Python packages only when they changed.'
   if (health.state === 'broken') return 'Precise word timing can\'t start: its helper\'s Python is gone' + (health.target ? ' (' + health.target + ')' : '') + '. ' + how
   if (health.state === 'sandboxed') return 'Precise word timing works, but its helper uses a Python inside another app (' + health.target + '), so that app\'s next update breaks it. ' + how
   if (health.state === 'stray') return 'The sonata-align helper was installed inside another app\'s folder (' + health.target + '), where Sonata doesn\'t look. Install it again from a normal terminal: align/install.sh'

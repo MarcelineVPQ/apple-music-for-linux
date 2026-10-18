@@ -6,6 +6,8 @@
 // keyboard focus, closes right after a pointer pick; pinned it takes its full width (Ctrl+B).
 ;(function (root) {
   'use strict'
+  // every version and channel name people read (version-display.js, loaded before this page script)
+  const V = root.SonataVersionDisplay || (typeof require === 'function' ? require('./version-display') : null)
 
   // DS5 density: 52 px icon column, 196 px open, 13 px labels, 36 px rows (hit targets >= 32 px)
   const RAIL = { collapsed: 52, expanded: 196, minContent: 800, row: 36 }
@@ -173,7 +175,7 @@
     out.push(st.discord === 'on'
       ? line('discord', 'Discord', 'ok', 'Connected', 'connected, showing what you play')
       : st.discord === 'waiting'
-        ? line('discord', 'Discord', 'wait', 'Waiting for Discord', 'on, waiting for the Discord app (retries every 30 s)')
+        ? line('discord', 'Discord', 'wait', 'Waiting for Discord', 'on, waiting for the Discord app' + (st.discordRetryS ? ' (retries every ' + st.discordRetryS + ' s)' : ''))
         : line('discord', 'Discord', 'off', 'Off', 'presence off'))
     out.push(st.precise === 'ready'
       ? line('precise', 'Precise word timing', 'ok', 'Helper ready', 'precise word timing on, helper installed and ready')
@@ -193,7 +195,8 @@
 
   function devBadge(s) {
     if (!s || s.channel !== 'dev') return null
-    return { text: 'Development', version: s.version || '', tip: 'Development channel' + (s.version ? ' · v' + s.version : '') + ' (Settings → Updates)' }
+    const name = V.channelName('dev')
+    return { text: name, shown: V.short(s.version), tip: name + ' channel' + (s.version ? ' · ' + V.tagged(s.version) : '') + ' (Settings → Updates)' }
   }
 
   const api = {

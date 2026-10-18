@@ -215,4 +215,24 @@ async function stageContrast(page, rootSel) {
   })()`)
 }
 
-module.exports = { deadControls, TOKENS, OVERFLOW, stageContrast }
+// --- versions as people see them (version-display.js) ---
+// every text the page shows, plus its tooltips and accessible names: none may carry a raw dev version
+// ("0.15.45-dev.1"); people read "0.15.45 Dev" (Marcy 2026-10-18, the update toast). Exact names that only
+// work exact are not words: a URL (a release tag in a link) and a release's file name (sonata-X-x86_64.AppImage
+// in a command to type) keep the real version
+const RAW_DEV = /\d-dev(\.\d+)?\b/
+const EXACT_NAMES = /\b(?:https?:\/\/|github\.com\/)\S+|\bsonata-[\w.-]+\.AppImage\b/g
+const VERSION_TEXT = (rootSel) => `(() => {
+  const root = document.querySelector(${JSON.stringify(rootSel)}) || document.body
+  const bad = []
+  const exact = ${EXACT_NAMES}
+  const raw = ${RAW_DEV}
+  const re = { test: (t) => raw.test(String(t).replace(exact, '')) }
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let n = w.nextNode(); n; n = w.nextNode()) if (re.test(n.nodeValue)) bad.push(n.nodeValue.trim().slice(0, 80))
+  for (const el of root.querySelectorAll('[title], [aria-label], [placeholder]')) for (const a of ['title', 'aria-label', 'placeholder']) { const v = el.getAttribute(a); if (v && re.test(v)) bad.push(a + ': ' + v.slice(0, 80)) }
+  if (re.test(document.title)) bad.push('title: ' + document.title)
+  return bad
+})()`
+
+module.exports = { deadControls, TOKENS, OVERFLOW, stageContrast, VERSION_TEXT, RAW_DEV, EXACT_NAMES }

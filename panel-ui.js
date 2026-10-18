@@ -10,15 +10,16 @@
 // No timers, no animation frames, no polling, no observers: it redraws on a state push, a click,
 // a key, or a colour-scheme change (theme-apply.js).
 ;(function () {
-  // a version as people see it: 0.15.43-dev.1 -> "0.15.43 Dev" (update-feed.js shownVersion; this page loads no modules)
-  const showV = (v) => String(v || '').replace(/-dev\.\d+$/, ' Dev')
   'use strict'
   const M = globalThis.SonataPanelModel
   const MD = globalThis.SonataMarkdown
   const K = globalThis.SonataShortcutsModel
   const G = globalThis.SonataGfxModel
+  const V = globalThis.SonataVersionDisplay   // every version and channel name shown (version-display.js)
   const bridge = globalThis.sonataPanelBridge
-  if (!M || !MD || !K || !G || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
+  if (!M || !MD || !K || !G || !V || !bridge || !globalThis.SonataIcons || !globalThis.SonataThemeApply || globalThis.__sonataPanel) return
+  // said by both switches that need the pitch model (Sung notes log, Sheet notes): one sentence
+  const rmvpeNote = (v) => (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + v.notesModelSize + ', MIT licence) into the helper\'s models folder.')
   const doc = document
   const icon = (name) => globalThis.SonataIcons.icon(doc, name)
   let uid = 0
@@ -385,13 +386,13 @@
         // a developer tool for judging the sung notes on live tracks: Development channel only
         switchRow('sungNotesLog', 'Sung notes (developer log)', '',
           { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
-            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ~/.local/share/apple-music-for-linux/notes-log/, at most 1,000 songs (about 110 MB), oldest removed.' +
-              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ' + v.notesDir + '/, at most ' + Number(v.notesMax).toLocaleString('en-US') + ' songs (' + v.notesMaxSize + '), oldest removed.' +
+              rmvpeNote(v) }),
         textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
         textBlock('note', (v) => (!v.alignInstalled
           ? (v.alignState === 'update'
-            ? 'Precise word timing needs its helper updated to engine ' + (v.alignEngine || 'of this Sonata') + '. Run align/install.sh again from the Sonata source: it downloads the engine (a few MB), checks it, keeps the models and reuses the Python packages when they haven\'t changed.'
-            : 'Precise word timing needs the sonata-align helper, a separate download (the Sonata engine ' + (v.alignEngine || '') + ' with its own licence, about 10 GB with its Python packages and models). Install it with align/install.sh from the Sonata source: it checks the download, shows the helper\'s licence first and installs into ' + (v.alignHome || '~/.local/share/sonata-align') + '; deleting that folder removes it. This section notices it.')
+            ? 'Precise word timing needs its helper updated to engine ' + (V.short(v.alignEngine) || 'of this Sonata') + '. Run align/install.sh again from the Sonata source: it downloads the engine (a few MB), checks it, keeps the models and reuses the Python packages when they haven\'t changed.'
+            : 'Precise word timing needs the sonata-align helper, a separate download (the Sonata engine ' + V.short(v.alignEngine) + ' with its own licence, about 10 GB with its Python packages and models). Install it with align/install.sh from the Sonata source: it checks the download, shows the helper\'s licence first and installs into ' + (v.alignHome || '~/.local/share/sonata-align') + '; deleting that folder removes it. This section notices it.')
           : v.lyricsPreciseTiming ? (v.alignStatus || 'Asking the helper…') : ''))
       ],
       appearance: () => [
@@ -435,14 +436,14 @@
       ],
       updates: () => [
         // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls
-        textBlock('note', (v) => (v.appImage ? '' : 'Sonata ' + showV(v.version) + ', running from source: only the AppImage updates itself. Update with git pull.')),
-        actionRow('Sonata ' + showV(S && S.v && S.v.version), (v) => v.updateLine || '',
+        textBlock('note', (v) => (v.appImage ? '' : V.full(v.version) + ', running from source: only the AppImage updates itself. Update with git pull.')),
+        actionRow(V.full(S && S.v && S.v.version), (v) => v.updateLine || '',
           [{ label: 'Check now', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
-        selectRow('updateChannel', 'Update channel', '', [['stable', 'Stable'], ['dev', 'Development']],
+        selectRow('updateChannel', 'Update channel', '', [['stable', V.channelName('stable')], ['dev', V.channelName('dev')]],
           { desc: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone.'),
             hidden: (v) => !v.appImage }),
-        switchRow('checkForUpdates', 'Check for updates automatically', 'At start and every 2 hours. Off: Sonata goes online for updates only when you press Check now',
-          { hidden: (v) => !v.appImage }),
+        switchRow('checkForUpdates', 'Check for updates automatically', '',
+          { desc: (v) => 'At start and every ' + (v.updateEveryHours === 1 ? 'hour' : v.updateEveryHours + ' hours') + '. Off: Sonata goes online for updates only when you press Check now', hidden: (v) => !v.appImage }),
         switchRow('autoInstallUpdates', 'Install updates automatically', 'Downloads and checks them in the background; the new version starts the next time you open Sonata',
           { hidden: (v) => !v.appImage, disabled: (v) => !v.checkForUpdates, why: 'Needs Check for updates automatically (above) on' }),
         // only where it can do something: on the Development channel or a development build
@@ -474,8 +475,8 @@
         // no restart, and needs the word-timing helper (shown only when it is installed)
         switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)', '',
           { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (Precise timing) on',
-            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (~/.config/apple-music-for-linux/sheet-notes/, at most 500 songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
-              (v.notesModel ? '' : ' Turning it on first downloads the RMVPE pitch model (' + (v.notesModelSize || '173 MiB') + ', MIT licence) into the helper\'s models folder.') }),
+            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (' + v.sheetNotesDir + '/, at most ' + Number(v.sheetNotesMax).toLocaleString('en-US') + ' songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
+              rmvpeNote(v) }),
         selectRow('sheetPlace', 'Sheet notes placement', 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.',
           [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !v.alignInstalled || !v.sheetNotes }),
         textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : ''))
@@ -495,7 +496,7 @@
             box.replaceChildren()
             if (!a) { box.appendChild(el('p', 'note', 'Loading…')); return }
             const add = (sec) => {
-              box.appendChild(el('h3', 'release', showV(sec.version) + (sec.title ? ' — ' + sec.title : '')))
+              box.appendChild(el('h3', 'release', V.short(sec.version) + (sec.title ? ' — ' + sec.title : '')))
               box.appendChild(markdown(sec.body))
             }
             if (a.whatsNew.current) add(a.whatsNew.current)
@@ -569,7 +570,7 @@
         copy.append(btns)
         return [
           textBlock('note', () => 'For the curious: how Sonata hears your music, counted on this PC. Only real numbers; what Sonata doesn\'t keep yet says so.'),
-          textBlock('note', (v) => (v.curious ? 'Read at ' + v.curious.at.slice(11) + ', again every 5 seconds while this is open.' : 'Reading…')),
+          textBlock('note', (v) => (v.curious ? 'Read at ' + v.curious.at.slice(11) + ', again every ' + v.curious.everyS + ' seconds while this is open.' : 'Reading…')),
           group('Your library', [readoutBlock(rows('library'))]),
           group('Now playing', [readoutBlock(rows('now'))]),
           group('Under the hood', [readoutBlock(rows('hood'))]),
@@ -649,7 +650,7 @@
   }
   function aboutStatus(id, s) {
     const a = s.about
-    if (id === 'whatsnew') return showV(a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : ''))
+    if (id === 'whatsnew') return V.short(a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : ''))
     if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
     if (id === 'credits') return 'Built on · Third-party assets and code'
     if (id === 'graphics') { const g = s.v && s.v.gfx; return !g ? '' : g.safe ? 'Safe start (--safe-gpu)' : g.active.length ? g.active.length + ' experimental on' : 'No experimental switches' }
@@ -871,7 +872,7 @@
     setText(title, M.PAGES[page].title)
     // About's hero card shows the version and channel, so its header says what the page holds (DS5)
     setText(sub, page === 'about' ? 'Changes, plans, credits and numbers'
-      : 'Sonata ' + showV(S.v.version) + ' · ' + (S.v.updateChannel === 'dev' ? 'Development' : 'Stable') + (S.v.appImage ? '' : ' · from source'))
+      : V.full(S.v.version) + ' · ' + V.channelName(S.v.updateChannel) + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
     renderMenu()
     renderNotices(topNotices, (S.notices || []).filter((n) => n.place === 'top'))

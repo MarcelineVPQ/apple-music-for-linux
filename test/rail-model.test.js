@@ -156,15 +156,18 @@ test('development badge only on the dev channel', () => {
   assert.equal(M.devBadge(null), null)
   const b = M.devBadge({ channel: 'dev', version: '0.15.27-dev.1' })
   assert.equal(b.text, 'Development')
-  assert.equal(b.version, '0.15.27-dev.1')
-  assert.match(b.tip, /Development channel · v0\.15\.27-dev\.1/)
+  assert.equal(b.shown, '0.15.27 Dev', 'the badge shows the version as people see it (version-display.js)')
+  assert.match(b.tip, /Development channel · v0\.15\.27 Dev/)
+  assert.doesNotMatch(JSON.stringify(b), /-dev\./)
 })
 
 test('one file, two worlds: without CommonJS it becomes a frozen SonataRailModel global', () => {
   const ctx = vm.createContext({})
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'version-display.js'), 'utf8'), ctx)
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'rail-model.js'), 'utf8'), ctx)
   const G = vm.runInContext('globalThis.SonataRailModel', ctx)
   assert.equal(typeof G.railLayout, 'function')
+  assert.equal(G.devBadge({ channel: 'dev', version: '0.15.45-dev.1' }).shown, '0.15.45 Dev', 'the page world finds SonataVersionDisplay')
   assert.ok(Object.isFrozen(G))
   assert.equal(JSON.stringify(G.railLayout(1100, true)), '{"mode":"pinned","room":196}')
 })
@@ -202,4 +205,11 @@ test('lock item: one name, pressed state, tooltip says what it does; the pin too
   assert.ok(M.COMMANDS.includes('lock'))
   assert.match(M.pinItem({ pinned: false, locked: true }).tip, /pinning unlocks it/)
   assert.doesNotMatch(M.pinItem({ pinned: false, locked: false }).tip, /unlocks/)
+})
+
+test('the Discord retry words come from main\'s constants (no typed "30 s")', () => {
+  const tip = (s) => M.railStatus({ discord: 'waiting', discordRetryS: s }).find((r) => r.id === 'discord').tip
+  assert.match(tip(30), /retries every 30 s/)
+  assert.match(tip(45), /retries every 45 s/)
+  assert.doesNotMatch(tip(undefined), /every/)
 })

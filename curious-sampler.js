@@ -19,6 +19,7 @@ const fsMod = require('fs')
 const C = require('./curious-model')
 const R = require('./recording-id')
 const { createCpuSampler } = require('./cpu-sampler')
+const AH = require('./align-helper')   // the helper's idle limits (what the Curious text says)
 
 // "2026-10-17 20:31:05" in the PC's own time zone
 function localStamp(d) {
@@ -108,7 +109,7 @@ function createCuriousSampler(deps) {
   async function helperRows() {
     const h = deps.helper()
     if (!h.installed) return { state: 'Not installed (Settings → Precise timing says how)', vram: 'None: no helper' }
-    if (!h.running) return { state: 'Installed, not running (it starts for a job and quits after 2 min idle)' + (h.paused ? '; paused while gaming' : ''), vram: 'None: not running' }
+    if (!h.running) return { state: 'Installed, not running (it starts for a job and quits after ' + AH.IDLE_MS / 60000 + ' min idle, ' + AH.WARM_IDLE_MS / 60000 + ' min while a lyric view is open)' + (h.paused ? '; paused while gaming' : ''), vram: 'None: not running' }
     const state = 'Running (process ' + h.pid + ')' + (h.paused ? ', paused while gaming' : '')
     const out = await run('nvidia-smi', ['--query-compute-apps=pid,used_memory', '--format=csv,noheader,nounits'])
     if (out == null) return { state, vram: C.UNKNOWN + ': no nvidia-smi (NVIDIA only)' }
@@ -200,6 +201,7 @@ function createCuriousSampler(deps) {
     data = {
       n: ticks,
       at: localStamp(deps.date()),
+      everyS: REFRESH_MS / 1000,
       library: C.libraryRows(library.stats, library.files, { estimate: st.estimate }),
       now,
       hood: C.hoodRows(hood),

@@ -20,7 +20,8 @@
 //   The running AppImage is never overwritten or deleted (it is FUSE-mounted: SIGBUS); older ones are
 //   pruned at the next start, as before.
 const path = require('path')
-const { isNewerVersion, isDevVersion, shownVersion } = require('./update-feed')
+const { isNewerVersion, isDevVersion } = require('./update-feed')
+const V = require('./version-display')   // every version and channel people read (one place)
 
 // Is `remote` offered to a copy running `current`? Newer only; Back to stable: anything but the same.
 function offers(remote, current, returningToStable) {
@@ -34,6 +35,10 @@ function updatedSince(lastRun, current) {
   return !!lastRun && lastRun !== current ? current : null
 }
 
+// the automatic check: at start and every CHECK_EVERY_HOURS (main's timer and Settings' words both read it)
+const CHECK_EVERY_HOURS = 2
+const CHECK_EVERY_MS = CHECK_EVERY_HOURS * 3600 * 1000
+
 const mb = (n) => (Number(n) > 0 ? (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB' : '')
 
 // The notice for an update state (place: top of the panel), or null. ctx: { playing, lastFailure }
@@ -41,28 +46,29 @@ const mb = (n) => (Number(n) > 0 ? (n / 1048576).toFixed(n < 10485760 ? 1 : 0) +
 // offer again (a later check), the notice keeps saying why (DS5: a failed install stays said)
 function updateNotice(st, ctx) {
   const c = ctx || {}
+  const shown = V.short(st.version)
   switch (st.phase) {
     case 'available': {
       const failed = c.lastFailure && c.lastFailure.version === st.version ? c.lastFailure.detail : ''
       return {
-        id: 'update', kind: failed ? 'error' : 'info', task: true, dismissKey: 'update:' + st.version + (failed ? ':failed' : ''),
+        id: 'update', kind: failed ? 'error' : 'info', task: true, dismissKey: 'update:' + st.version + (failed ? ':failed' : ''),   // hardcode: OK — the notice's key (raw version), never shown
         detail: failed ? 'The last try didn\'t install: ' + failed + ' Your current version is untouched.' : '',
         text: st.older
-          ? 'Stable ' + st.version + ' is ready to install (Back to stable)' + (st.size ? ', ' + mb(st.size) : '') + '.'
-          : 'Sonata ' + st.version + ' is available' + (st.size ? ' (' + mb(st.size) + ')' : '') + '.',
+          ? V.channelName('stable') + ' ' + shown + ' is ready to install (Back to stable)' + (st.size ? ', ' + mb(st.size) : '') + '.'
+          : V.full(st.version) + ' is available' + (st.size ? ' (' + mb(st.size) + ')' : '') + '.',
         actions: [{ id: 'update-details', label: 'Details' }, { id: 'update-install', label: failed ? 'Try again' : st.older ? 'Install stable' : 'Update', primary: true }]
       }
     }
     case 'downloading': {
       const pct = st.total ? Math.floor(st.got * 100 / st.total) : 0
-      return { id: 'update', kind: 'info', closable: false, text: 'Downloading Sonata ' + st.version + ': ' + mb(st.got) + ' of ' + mb(st.total) + ' (' + pct + ' %)', progress: pct }
+      return { id: 'update', kind: 'info', closable: false, text: 'Downloading ' + V.full(st.version) + ': ' + mb(st.got) + ' of ' + mb(st.total) + ' (' + pct + ' %)', progress: pct }
     }
     case 'installing':
-      return { id: 'update', kind: 'info', closable: false, text: 'Checking and installing Sonata ' + st.version + '…' }
+      return { id: 'update', kind: 'info', closable: false, text: 'Checking and installing ' + V.full(st.version) + '…' }
     case 'ready':
       return {
-        id: 'update', kind: 'info', task: true, dismissKey: 'update:ready:' + st.version,
-        text: 'Sonata ' + st.version + ' is installed. It starts the next time you open Sonata' + (c.playing ? ' (Restart now shows when the music is paused).' : ', or restart now.'),
+        id: 'update', kind: 'info', task: true, dismissKey: 'update:ready:' + st.version,   // hardcode: OK — the notice's key (raw version), never shown
+        text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.playing ? ' (Restart now shows when the music is paused).' : ', or restart now.'),
         actions: c.playing ? [] : [{ id: 'update-restart', label: 'Restart now', primary: true }]
       }
     case 'failed':
@@ -75,21 +81,33 @@ function updateNotice(st, ctx) {
 }
 
 // The Updates section's status line
-function statusLine(st, current0, channel) {
-  const current = shownVersion(current0)
-  if (st && st.version) st = Object.assign({}, st, { version: shownVersion(st.version) })
-  const ch = channel === 'dev' ? 'Development' : 'Stable'
+function statusLine(st, current, channel) {
+  const now = V.short(current)
+  const shown = V.short(st && st.version)
+  const ch = V.channelName(channel)
   switch (st.phase) {
     case 'checking': return 'Checking for updates…'
-    case 'up-to-date': return 'Up to date: ' + current + ' (' + ch + ')'
-    case 'available': return (st.older ? 'Stable ' : 'Version ') + st.version + ' is ready to install'
-    case 'downloading': return 'Downloading ' + st.version + '…'
-    case 'installing': return 'Installing ' + st.version + '…'
-    case 'ready': return st.version + ' is installed; it starts next time'
+    case 'up-to-date': return 'Up to date: ' + now + ' (' + ch + ')'
+    case 'available': return (st.older ? V.channelName('stable') + ' ' : 'Version ') + shown + ' is ready to install'
+    case 'downloading': return 'Downloading ' + shown + '…'
+    case 'installing': return 'Installing ' + shown + '…'
+    case 'ready': return shown + ' is installed; it starts next time'
     case 'failed': return (st.during === 'install' ? 'Install failed: ' : 'Check failed: ') + st.detail
     case 'manual': return 'Updates: ' + st.detail
-    default: return 'Version ' + current + ' (' + ch + ')'
+    default: return 'Version ' + now + ' (' + ch + ')'
   }
+}
+
+// The toast after Check now found nothing newer: "Sonata 0.15.45 Dev is up to date (Development)."
+const upToDateText = (current, channel) => V.full(current) + ' is up to date (' + V.channelName(channel) + ').'
+// The notice once after an update: "Updated to Sonata 0.15.45 Dev."
+const updatedText = (version) => 'Updated to ' + V.full(version) + '.'
+// The desktop notification while Sonata is in the tray (available or ready), or null
+function updateNotification(st) {
+  if (!st || (st.phase !== 'available' && st.phase !== 'ready')) return null
+  return st.phase === 'ready'
+    ? { title: V.full(st.version) + ' is installed', body: 'It starts the next time you open ' + V.NAME + '.' }
+    : { title: V.full(st.version) + ' is available', body: 'Open Settings → Updates to install it.' }
 }
 
 // deps: { version, channel(), fetchUpdate(channel), download(url, dest, onProgress(got, total)),
@@ -188,4 +206,4 @@ function createUpdater(deps) {
   }
 }
 
-module.exports = { offers, updatedSince, updateNotice, statusLine, createUpdater, mb }
+module.exports = { CHECK_EVERY_HOURS, CHECK_EVERY_MS, offers, updatedSince, updateNotice, statusLine, upToDateText, updatedText, updateNotification, createUpdater, mb }
