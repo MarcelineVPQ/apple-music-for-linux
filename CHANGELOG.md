@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Sheet notes for songs with Apple's own word timing.** Most popular songs come with Apple's word-by-word or syllable lyrics, and until now the Studio's sheet-notes band turned them away ("it has its own word timing"), so they never got notes. Now, with Sheet notes on, such a song is treated like any other: on its first play the band draws the pitch line as each part of the song is heard, and Sonata works out the notes on Apple's own word and syllable times (the precise-timing helper separates the vocals and follows their pitch; nothing is re-timed). From the next play the notes show on the staff, in sync with Apple's words. A song left before its end gets its notes on a later play. It still needs Precise word timing and its helper, and like all of it, it pauses while a game runs.
+
 ## [0.15.44-dev.1] — The liner notes disc turns about its own centre
 
 ### Fixed

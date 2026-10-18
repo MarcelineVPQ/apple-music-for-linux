@@ -13,6 +13,9 @@ each character's first frame. A `notes` request then runs:
 RMVPE is loaded for the job and freed after it (about 0.2 GB of weights, 0.6 GB working set).
 Nothing here downloads unless asked: download_rmvpe() runs only for `prepare` mode "notes", which
 Sonata sends when the switch is turned on.
+
+Lyrics with their own word timing (Apple's word/syllable lyrics) are never aligned: run_given() takes
+the syllable table Sonata sends (Apple's own times) and the stem server.py separated for the notes.
 """
 
 import json
@@ -225,6 +228,14 @@ def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambd
     """The notes step on a Kept job. -> (helper part of the note JSON, stats). RMVPE is freed before
     returning, also on an error. The part carries the whole song's pitch line ('pitch', contour())
     for the Studio; the developer log leaves it out (notes-log.js buildDoc)."""
+    syl = syllable_table(kept.results, kept.char_first, syl_spec, normalise=label_norm_for(kept))
+    return _notes(kept.stem, kept.covered, syl, line_table(kept.results, kept.req_lines), kept.language,
+                  device=device, torch=torch, progress=progress, cancelled=cancelled)
+
+
+def _notes(stem, covered, syl, lines, language, device='cpu', torch=None, progress=None, cancelled=lambda: False):
+    """RMVPE on a vocal stem (CPU float32, 16 kHz; covered: the stitched song's 20 ms mask or None),
+    then the note model on the syllables. -> (helper part of the note JSON, stats)"""
     import torch as _torch
     torch = torch or _torch
     if not have_rmvpe():
@@ -232,7 +243,7 @@ def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambd
     st = {'device': device}
     if progress:
         progress('notes', 0.1)
-    f0, conf = _f0(kept.stem, device, torch, st, cancelled)
+    f0, conf = _f0(stem, device, torch, st, cancelled)
     if cancelled():
         raise SA.Cancelled()
     if progress:
@@ -240,17 +251,65 @@ def run(kept, syl_spec, device='cpu', torch=None, progress=None, cancelled=lambd
     t = time.time()
     T = len(f0)
     times = np.arange(T) / float(N.FPS)
-    syl = syllable_table(kept.results, kept.char_first, syl_spec, normalise=label_norm_for(kept))
-    loud = loud_mask(level_db(kept.stem, kept.covered, T))
+    loud = loud_mask(level_db(stem, covered, T))
     res = N.notes_from(f0, times, conf, syl, {'profile': 'stem', 'loud': loud})
     st['notes_s'] = round(time.time() - t, 2)
     st['frames'] = T
     # no key or beat model in the helper (S-KEY and Beat This! are not in its venv): no beats or bars
     part = dict(res, f0_model=F0_MODEL, vthr=0.7, gate_db=GATE_DB, beats=[], bars=[], meter=None, tempo_bpm=None,
-                lines=line_table(kept.results, kept.req_lines), syllables=syl, language=kept.language)
+                lines=lines, syllables=syl, language=language)
     part['confidence'] = dict(part.get('confidence') or {}, loud_share=round(float(np.mean(loud)) if T else 0.0, 3))
     part['pitch'] = contour(f0, conf, loud, tuning_cents=float((res.get('tuning') or {}).get('cents') or 0.0))
     return plain(part), st
+
+
+# --- notes for lyrics with their own word timing (Apple's word/syllable lyrics, enhanced LRC) ---
+# Those songs are never force-aligned (their words are already timed), so the notes are anchored to the
+# times the lyrics carry: Sonata sends the syllable table itself (lyrics-syllables.js: Apple's own
+# syllables, else the views' split of each timed word) and the helper only separates the vocals and
+# tracks their pitch (server.py "separate" and "notes" with "given"). No alignment model is loaded.
+
+def given_syllables(rows, max_rows=20000):
+    """Sonata's syllable table, checked: rows with a finite t, end > t and a line index, time-ordered.
+    -> [{t, end, text, line, word, syl, nsyl, word_text}]"""
+    out = []
+    # loop: NOT-WORTH — the song's syllables (hundreds), once per song
+    for r in (rows or [])[:max_rows]:
+        if not isinstance(r, dict):
+            continue
+        try:
+            t, end, line = float(r.get('t')), float(r.get('end')), int(r.get('line'))
+        except (TypeError, ValueError):
+            continue
+        if not (np.isfinite(t) and np.isfinite(end)) or end <= t or t < 0 or line < 0:
+            continue
+        text = str(r.get('text') or '')[:80]
+        out.append({'t': round(t, 3), 'end': round(end, 3), 'text': text, 'line': line, 'word': int(r.get('word') or 0),
+                    'syl': int(r.get('syl') or 0), 'nsyl': max(1, int(r.get('nsyl') or 1)), 'word_text': str(r.get('word_text') or text)[:80]})
+    out.sort(key=lambda s: (s['t'], s['line'], s['word'], s['syl']))
+    return out
+
+
+def given_lines(syl, req_lines):
+    """The log's line table from the given syllables: every line that has one is 'aligned' (timed)."""
+    by = {}
+    # loop: NOT-WORTH — the song's syllables (hundreds), once per song
+    for s in syl:
+        a = by.setdefault(s['line'], [s['t'], s['end']])
+        a[0], a[1] = min(a[0], s['t']), max(a[1], s['end'])
+    out = []
+    # loop: NOT-WORTH — the song's lines (tens), once per song
+    for i in sorted(by):
+        text = req_lines[i].get('text') if i < len(req_lines) and isinstance(req_lines[i], dict) else ''
+        out.append({'index': i, 'text': text or '', 'aligned': True, 't': by[i][0], 'end': by[i][1]})
+    return out
+
+
+def run_given(stem, covered, syllables, req_lines, language=None, device='cpu', torch=None, progress=None, cancelled=lambda: False):
+    """The notes of a song whose lyrics carry their own word times. -> (helper part, stats)"""
+    syl = given_syllables(syllables)
+    return _notes(stem, covered, syl, given_lines(syl, req_lines or []), language,
+                  device=device, torch=torch, progress=progress, cancelled=cancelled)
 
 
 def label_norm_for(kept):

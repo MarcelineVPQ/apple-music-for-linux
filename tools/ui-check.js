@@ -1447,12 +1447,18 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   // --- placement "Over the sung line": the staff rides in the room the sung line opens above itself ---
   await sheetOverStep(mp, page, send, W, H, stageLog, fx, base)
 
-  // nothing to draw for this song: one line says why (never an empty box)
+  // a song with Apple's own word timing, first play: the same first-play state as any song (its notes are
+  // worked out on its own word times), never turned away
   await send('lyrics-sheet', Object.assign({}, base, { wordSynced: true, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
+  await sleep(500)
+  const apple = await band()
+  check('sheet notes: a song with its own word timing, first play: the first-play pitch-line state, not turned away', !apple.hidden && apple.h >= 150 && /First play/.test(apple.label) && !/own word timing/.test(apple.label), apple)
+  // nothing to draw for this song: one line says why (never an empty box)
+  await send('lyrics-sheet', Object.assign({}, base, { timed: false, aligned: false, pieces: 0, entryAt: '', entry: null, pitch: [] }))
   await sleep(500)
   const msg = await band()
   // since 0.15.43-dev.1 the band never folds (Marcy: no hiding it arbitrarily): full height, an empty staff, the reason on top
-  check('sheet notes: a song with its own word timing: the band stays whole (empty staff) and says why', !msg.hidden && !msg.msg && msg.h >= 150 && /its own word timing/.test(msg.label), msg)
+  check('sheet notes: lyrics without line timing: the band stays whole (empty staff) and says why', !msg.hidden && !msg.msg && msg.h >= 150 && /line timing/.test(msg.label), msg)
   // the tile off: the band folds away and the lyrics take the room
   await stageLog()
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)

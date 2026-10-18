@@ -21,6 +21,7 @@
 const T = require('./lyrics-timing')
 const { chunkStart, MONITOR_LATENCY } = require('./listen-session')
 const R = require('./recording-id')
+const LS = require('./lyrics-syllables')
 
 const RATE = 22050             // the Level 1 capture format; the bench shows no loss vs 44.1 kHz
 const CHANNELS = 2
@@ -507,12 +508,79 @@ function missedIn(missed, sec) {
   return false
 }
 
+// --- sheet notes for lyrics with their own word timing (Apple's word/syllable lyrics, enhanced LRC) ---
+// Those lyrics are never aligned (their words are timed already), so they had no vocal stem and no notes.
+// With Sheet notes on, such a song is recorded like a line-only one; each section is only separated
+// (helper `separate`, the stem kept, its first-play pitch line asked as for an aligned section), and once
+// the song was heard to the end the helper works out the notes on the times the lyrics carry (`notes`
+// with `given`: these syllables), from the kept sections or the whole song's audio. Nothing is aligned
+// and nothing goes into the lyrics store; the notes go to the sheet-notes store like any song's.
+
+/** Line-synced lyrics with their own word timing and words: the songs whose notes come from given times. */
+function canGiveNotes(raw) {
+  return !!raw && raw.length > 0 && raw[0].t != null && T.hasWordTiming(raw) && raw.some((l) => Array.isArray(l && l.words) && l.words.length)
+}
+
+/**
+ * The syllable table for the helper from the lyrics' own times: each lead-vocal word's syllables as the
+ * views pop them (Apple's own `syl`, else lyrics-syllables.js's split of the word's [t, end]; a word that
+ * doesn't split is one syllable). Background vocals are left out (the melody is the lead line).
+ * hyphenate: lyrics-syllables hyphenatorFor(lang) (null: whole words).
+ * -> time-ordered [{ t, end, text, line, word, syl, nsyl, word_text }]
+ */
+function givenSyllables(raw, hyphenate) {
+  const rows = []
+  const r3 = (v) => Math.round(v * 1000) / 1000
+  // loop: NOT-WORTH — the song's lines, words and syllables (hundreds), once per song
+  for (let i = 0; i < (raw || []).length; i++) {
+    const line = raw[i]
+    if (!line || !Array.isArray(line.words) || !line.words.length) continue
+    const words = LS.withSyllables(line.words, hyphenate)
+    // loop: NOT-WORTH — one line's words, once per song
+    words.forEach((w, k) => {
+      if (!w || !(Number(w.end) > Number(w.t))) return
+      const parts = Array.isArray(w.syl) && w.syl.length ? w.syl : [w]
+      // loop: NOT-WORTH — one word's syllables (a handful), once per song
+      parts.forEach((p, j) => {
+        const t = Number(p.t), end = Number(p.end)
+        if (!Number.isFinite(t) || !(end > t)) return
+        rows.push({ t: r3(t), end: r3(end), text: String(p.text == null ? '' : p.text), line: i, word: k, syl: j, nsyl: parts.length, word_text: String(w.text || '') })
+      })
+    })
+  }
+  return rows.sort((a, b) => a.t - b.t || a.line - b.line || a.word - b.word || a.syl - b.syl)
+}
+
+// a header, then the PCM as base64 chunks and `end` (stream mode), one chunk encoded at a time
+function * streamed(head, pcm, opts = {}) {
+  const size = opts.chunkBytes || STREAM_CHUNK
+  const step = size - (size % FRAME_BYTES)
+  yield head
+  // loop: SERIAL-REQUIRED — the helper reads its stdin in order; one message per 256 KB of PCM · ≤ ~330 for a 15 min song · ends with the buffer
+  for (let o = 0; o < pcm.length; o += step) yield { cmd: 'chunk', id: head.id, data: pcm.subarray(o, Math.min(pcm.length, o + step)).toString('base64') }
+  yield { cmd: 'end', id: head.id }
+}
+
+/** A section's separate-only job (its stem is kept under the song id and offset). */
+function separateMessages(id, pcm, opts = {}) {
+  return streamed({ cmd: 'separate', id, song: opts.song, offset: opts.offset || 0, audio: { stream: true, format: 's16le', rate: opts.rate || RATE, channels: CHANNELS } }, pcm, opts)
+}
+
+/** The notes on the lyrics' own times: from the kept sections (no pcm), or with the song's audio streamed. */
+function givenNotesMessages(id, song, raw, syllables, pcm, opts = {}) {
+  const head = { cmd: 'notes', id, song, given: { syllables, lines: requestLines(raw) } }
+  if (!pcm) return [head]
+  head.audio = { stream: true, format: 's16le', rate: opts.rate || RATE, channels: CHANNELS }
+  return streamed(head, pcm, opts)
+}
+
 // --- the session ---
 
 /**
  * One alignment session per main process. deps:
  *   createListener(opts) -> { start, stop }   (audio-listen.js, shared with Level 1)
- *   helper: { align(id, messages) -> Promise<result>, notes?(id, song, syl) }   (align-helper.js)
+ *   helper: { align(id, messages) -> Promise<result>, notes?(id, song, syl), pitch?, separate?(id, messages),
+ *     givenNotes?(id, messages), forget? }   (align-helper.js)
  *   notes?: { wanted(), syl(lines, lang), done(song, result, lineOffset), failed(song, error),
  *     pitchWanted?(), pitch?(song, line, error), missing?(title, artist, lyricsHash) }   sung notes
  *     (notes-log.js, main.js): when wanted, the song's whole-song job (the final pass, or the one
@@ -521,7 +589,10 @@ function missedIn(missed, sec) {
  *     Sheet notes in the Studio (sheet-notes-model.js): pitchWanted() asks, right after each section's
  *     result, for that section's pitch line (the first play's band; part of the section's job, so the
  *     song's later jobs keep their order); missing() says a fully aligned song has no notes yet, so it
- *     is recorded once more and aligned as a whole for them (no section jobs)
+ *     is recorded once more and aligned as a whole for them (no section jobs). Lyrics with their own word
+ *     timing (canGiveNotes) that missing() names are recorded for their notes only: each section separated
+ *     (separate), then the notes on the lyrics' own times (givenNotes), see "sheet notes for lyrics with
+ *     their own word timing" above
  *   store: { get, set }   send(channel, payload)   now() (ms, same base as the clock)   log
  *
  * Progressive (0.15.33): the song is aligned section by section while it plays (sections()), one
@@ -578,6 +649,12 @@ function createAlignSession(deps) {
     s.sent = true
     if (s === song) stopCapture()
     s.buf.clear()
+    // given times, not heard to the end: whatever sections the helper kept for the song are dropped after its jobs
+    if (s.given && s.cancelled && deps.helper.forget) {
+      const job = queue.then(() => deps.helper.forget(s.id))
+      queue = job.then(() => {}, () => {})
+      return
+    }
     if (!s.finalQueued && !s.notesQueued && s.kept.size && deps.helper.forget) {
       const job = queue.then(() => deps.helper.forget(s.id))
       queue = job.then(() => {}, () => {})
@@ -715,11 +792,101 @@ function createAlignSession(deps) {
     return job
   }
 
+  // Sheet notes on given times, one section: separated only (its stem kept in the helper), then its
+  // first-play pitch line as for an aligned section. Skipped when the song was left before its end
+  // (cancelled), the helper failed for it, or a game runs.
+  // error: LOGGED-OK — a failed separation is one log line; the notes job then sends the song's audio
+  function submitSeparate(s, sec) {
+    const req = sectionRequest(s.raw, sec, sec === s.secs[0])
+    const until = Math.min(s.buf.end, sec.end + TAIL_PAD)
+    let pcm = s.buf.pcm(until, req.offset)
+    const id = 'g' + (++jobs)
+    const what = 'lines ' + (sec.from + 1) + '–' + (sec.to + 1) + ' of ' + s.raw.length
+    const run = () => {
+      if (s.failed || s.cancelled) { pcm = null; return null }
+      if (paused()) { pcm = null; log('skipped separating ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
+      const started = deps.now()
+      const messages = separateMessages(id, pcm, { rate, song: s.id, offset: req.offset })
+      pcm = null
+      return Promise.resolve()
+        .then(() => deps.helper.separate(id, messages))
+        .then((result) => {
+          if (result && result.kept) s.kept.add(sec.from)
+          log('separated ' + what + ' of "' + s.title + '" for its notes in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+          if (result && result.kept && !s.cancelled && deps.notes.pitchWanted && deps.notes.pitchWanted() && deps.helper.pitch) return sectionPitch(s, req.offset, what)
+          return null
+        })
+        .catch((e) => {   // error: LOGGED-OK — see above
+          log('separating ' + what + ' of "' + s.title + '" failed: ' + (e && e.message))
+          return null
+        })
+    }
+    const job = queue.then(run)
+    queue = job.then(() => {}, () => {})
+    return job
+  }
+
+  // Sheet notes on given times, the whole song (heard to the end): the notes on the lyrics' own syllable
+  // times, from the sections the helper kept when every one was, else from the song's audio (also on
+  // no-stem: the helper restarted). The result goes where an aligned song's notes go (deps.notes.done).
+  // error: SHOWN — every failure goes to deps.notes.failed (the band's line, the store's retry count)
+  function submitGivenNotes(s) {
+    s.notesQueued = true
+    let pcm = s.buf.pcm(Math.min(s.buf.end, s.span.end + TAIL_PAD), 0)
+    const nid = 'n' + (++jobs)
+    const syl = givenSyllables(s.raw, LS.hyphenatorFor((s.info && s.info.lang) || 'en'))
+    const run = () => {
+      if (s.cancelled) { pcm = null; return null }
+      if (paused()) {
+        pcm = null
+        log('skipped the sheet notes of "' + s.title + '" (paused while gaming)')
+        deps.notes.failed(s, Object.assign(new Error('skipped while a game ran'), { code: 'paused' }))
+        return null
+      }
+      const started = deps.now()
+      const kept = s.secs.every((x) => s.kept.has(x.from))
+      const audio = () => { const m = givenNotesMessages(nid, s.id, s.raw, syl, pcm, { rate }); pcm = null; return m }
+      return Promise.resolve()
+        .then(() => deps.helper.givenNotes(nid, kept ? givenNotesMessages(nid, s.id, s.raw, syl, null) : audio()))
+        // error: PASSES-ON — kept sections the helper no longer has (no-stem): once more with the audio
+        .catch((e) => {
+          if (!(kept && e && e.code === 'no-stem' && pcm)) throw e
+          log('the helper no longer has the sections of "' + s.title + '": its notes from the audio')
+          return deps.helper.givenNotes(nid, audio())
+        })
+        .then((result) => {
+          pcm = null
+          log('sheet notes of "' + s.title + '" on its own word times: ' + ((result && result.notes && result.notes.notes) || []).length + ' notes in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+          deps.notes.done(s, result, 0)
+        })
+        .catch((e) => {   // error: SHOWN — see above
+          pcm = null
+          log('sheet notes failed for "' + s.title + '": ' + (e && e.message))
+          deps.notes.failed(s, e)
+        })
+    }
+    const job = queue.then(run).then(() => { s.notesQueued = false })
+    queue = job.then(() => {}, () => {})
+    return job
+  }
+
+  // the whole lyric span heard (≥ MIN_COVERAGE) up to its end
+  function heardWhole(s) {
+    return s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE
+  }
+
   // the sections whose audio is complete at song time `time` (all sung ones when final): queued if
   // heard, else skipped. After the last one, the whole song once more if it was all heard (a song of
   // one section: that job was the whole song). -> the last queued job or null
   function due(s, time, final) {
     let job = null
+    // given times, left before the end (a skip, the view closed): no notes this time; jobs still queued are skipped
+    if (s.given && final && !heardWhole(s)) {
+      s.cancelled = true
+      log('no sheet notes for "' + s.title + '" this time: it was not heard to the end')
+      wrapUp(s)
+      return null
+    }
     // loop: HOT-PATH-OK — over the sections not yet handled (≤ ~10 per song) · per tick
     while (s.next < s.secs.length) {
       const sec = s.secs[s.next]
@@ -727,9 +894,15 @@ function createAlignSession(deps) {
       if (final && s.buf.end < sec.end - 0.05) break          // not sung yet: nothing more is due
       s.next++
       if (s.skip.has(sec.from) || !heard(s, sec)) continue
-      job = submit(s, sec)
+      job = s.given ? submitSeparate(s, sec) : submit(s, sec)
     }
     if (s.next < s.secs.length && !final) return job
+    if (s.given) {
+      if (heardWhole(s)) job = submitGivenNotes(s)
+      else { s.cancelled = true; log('no sheet notes for "' + s.title + '" this time: it was not heard to the end') }
+      wrapUp(s)
+      return job
+    }
     // (not again on a play that only fills gaps of an entry that had its whole-song pass)
     if (!s.wholeDone && s.secs.length > 1 && s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE) job = submit(s, null)
     wrapUp(s)
@@ -759,6 +932,15 @@ function createAlignSession(deps) {
     setLyrics(key, title, artist, raw, enabled, info) {
       if (song && song.key === key) return
       finish(true)
+      // Sheet notes for lyrics with their own word timing: recorded for the notes only (no alignment)
+      if (enabled && canGiveNotes(raw) && deps.notes && deps.notes.missing && deps.helper.separate && deps.helper.givenNotes &&
+        deps.notes.wanted() && deps.notes.missing(title, artist, lyricsHash(raw))) {
+        const secs = sections(raw)
+        if (!secs.length) return
+        log('recording "' + title + '" for its sheet notes (its own word timing)')
+        song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: lyricSpan(raw), secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false }
+        return
+      }
       if (!enabled || !canAlign(raw)) return
       const hash = lyricsHash(raw)
       const found = findAligned(deps.store, title, artist, raw, info)
@@ -811,7 +993,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, findAligned, lyricsHash, validEntry, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
+  alignedKey, findAligned, lyricsHash, validEntry, canAlign, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

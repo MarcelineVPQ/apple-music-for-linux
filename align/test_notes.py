@@ -303,6 +303,92 @@ class Protocol(unittest.TestCase):
         self.assertEqual(r[0]['code'], 'no-stem')
 
 
+class GivenTimes(unittest.TestCase):
+    """Sheet notes for lyrics with their own word timing (Apple's): the syllables come from Sonata."""
+
+    def test_syllables_are_checked_and_ordered(self):
+        rows = [{'t': 2.0, 'end': 2.4, 'text': 'b', 'line': 1, 'word': 0, 'syl': 0, 'nsyl': 1, 'word_text': 'b'},
+                {'t': 1.0, 'end': 1.5, 'text': 'a', 'line': 0, 'word': 0, 'syl': 0, 'nsyl': 2, 'word_text': 'ab'},
+                {'t': 3.0, 'end': 2.0, 'text': 'bad end', 'line': 0}, {'t': None, 'end': 1, 'line': 0},
+                {'t': 1, 'end': 2, 'line': -1}, 'junk', {'t': 'x', 'end': 1, 'line': 0}]
+        syl = SN.given_syllables(rows)
+        self.assertEqual([s['text'] for s in syl], ['a', 'b'])
+        self.assertEqual(syl[0]['nsyl'], 2)
+        lines = SN.given_lines(syl, [{'t': 1.0, 'text': 'ab'}, {'t': 2.0, 'text': 'b'}])
+        self.assertEqual([(l['index'], l['text'], l['aligned'], l['t'], l['end']) for l in lines], [(0, 'ab', True, 1.0, 1.5), (1, 'b', True, 2.0, 2.4)])
+
+    def test_notes_on_the_given_times(self):
+        f0, _times, conf = voice()
+        saved = (SN.have_rmvpe, SN._f0)
+        SN.have_rmvpe = lambda: True
+        SN._f0 = lambda stem, device, torch, st, cancelled: (f0, conf)
+        try:
+            stem = (np.sin(np.arange(7 * 16000) / 16000 * 2 * np.pi * 220) * 0.3).astype(np.float32)
+            part, st = SN.run_given(stem, None, syllables(), [{'t': 0.5, 'text': 'la la la'}], 'en')
+        finally:
+            SN.have_rmvpe, SN._f0 = saved
+        self.assertEqual([n['midi'] for n in part['notes']], [m for _s, _d, m in MELODY])
+        self.assertEqual([n['syl_index'] for n in part['notes']], list(range(len(MELODY))))
+        self.assertEqual(len(part['syllables']), len(MELODY))
+        self.assertEqual(part['lines'][0]['index'], 0)
+        self.assertTrue(part['pitch']['v'])
+        self.assertEqual(st['device'], 'cpu')
+        json.dumps(part)
+
+    def test_protocol_separate_then_notes_from_the_kept_sections(self):
+        srv = server()
+        sends = capture(srv)
+        given = {'syllables': syllables(), 'lines': [{'t': 0.5, 'text': 'la'}]}
+        srv.given_notes_job({'cmd': 'notes', 'id': 'n1', 'song': 's1', 'given': given}, None)
+        self.assertEqual((sends[-1]['id'], sends[-1]['code']), ('n1', 'no-stem'))
+        saved = (S().Server.separate_stem, SN.have_rmvpe, SN.run_given)
+        S().Server.separate_stem = lambda self, al, jid, spec, st: (st.update(separate_s=0.1) or np.full(len(spec['bytes']) // 4 * 16000 // 22050, 0.1, np.float32))
+        calls = []
+        try:
+            srv.al = type('A', (), {'use_separation': True, 'aligner_name': 'en', 'device': 'cpu', 'release_cache': lambda self: None})()
+            srv.separate_job({'cmd': 'separate', 'id': 'g1', 'song': 's1', 'offset': 0}, b'\0' * 4 * 22050 * 2)
+            srv.separate_job({'cmd': 'separate', 'id': 'g2', 'song': 's1', 'offset': 1.5}, b'\0' * 4 * 22050 * 2)
+            self.assertEqual([(m['id'], m['type'], m['kept']) for m in sends[-2:]], [('g1', 'result', True), ('g2', 'result', True)])
+            self.assertIsNotNone(srv.songs.piece('s1', 1.5))             # the pitch request works on it too
+            srv.given_notes_job({'cmd': 'notes', 'id': 'n2', 'song': 's1', 'given': given}, None)
+            self.assertEqual(sends[-1]['code'], 'no-model')
+            self.assertIsNone(srv.songs.take('s1', srv.GIVEN_KEY))        # one try: the sections went with it
+            srv.separate_job({'cmd': 'separate', 'id': 'g3', 'song': 's1', 'offset': 0}, b'\0' * 4 * 22050 * 3)
+            SN.have_rmvpe = lambda: True
+            SN.run_given = lambda stem, covered, syl, lines, lang, **kw: (calls.append((len(stem), int(covered.sum()), len(syl), lines, kw['device'])) or ({'format': 1, 'notes': []}, {'f0_s': 0.1}))
+            srv.given_notes_job({'cmd': 'notes', 'id': 'n3', 'song': 's1', 'given': given}, None)
+        finally:
+            S().Server.separate_stem, SN.have_rmvpe, SN.run_given = saved
+        self.assertEqual(calls, [(3 * 16000 // 320 * 320, 150, len(MELODY), given['lines'], 'cpu')])
+        self.assertEqual((sends[-1]['type'], sends[-1]['id'], sends[-1]['notes']['format'], sends[-1]['stats']['given']), ('result', 'n3', 1, True))
+        self.assertIsNone(srv.songs.take('s1', srv.GIVEN_KEY))
+
+    def test_given_notes_with_audio_separates_first(self):
+        srv = server()
+        sends = capture(srv)
+        saved = (S().Server.separate_stem, SN.have_rmvpe, SN.run_given)
+        S().Server.separate_stem = lambda self, al, jid, spec, st: np.zeros(16000, np.float32)
+        SN.have_rmvpe = lambda: True
+        calls = []
+        SN.run_given = lambda stem, covered, syl, lines, lang, **kw: (calls.append((len(stem), covered)) or ({'format': 1, 'notes': []}, {}))
+        try:
+            srv.al = type('A', (), {'use_separation': True, 'aligner_name': 'en', 'device': 'cpu', 'release_cache': lambda self: None})()
+            srv.given_notes_job({'cmd': 'notes', 'id': 'n1', 'song': 's9', 'given': {'syllables': []}, 'audio': {'stream': True, 'rate': 22050}}, b'\0' * 400)
+        finally:
+            S().Server.separate_stem, SN.have_rmvpe, SN.run_given = saved
+        self.assertEqual(calls, [(16000, None)])
+        self.assertEqual(sends[-1]['type'], 'result')
+
+    def test_pong_lists_given_notes(self):
+        r = talk([{'cmd': 'ping'}])
+        self.assertIn('given-notes', r[0]['features'])
+
+
+def S():
+    import server
+    return server
+
+
 def server():
     import server as S
     return S.Server()
