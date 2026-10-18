@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hyphenated lyrics are written as they are.** A line like "Yeah-oh, oh-oh-oh-oh" showed with a gap after every hyphen ("Yeah- oh, oh- oh- oh- oh"). Each part still lights up and pops on its own beat, now written together as in the lyrics. Dashes (— and –) and a spaced " - " keep their spaces.
+- **The sheet-notes label matches the staff.** In a vocal break, such as Mad Season's "Wake Up (Live At the Moore)" at 4:50, the band said "pitch line here: notes unsure" over an empty staff. When nobody sings in the part of the song the staff shows (a break, or after the lyrics end), it now says "no singing here", with the detail behind its ⓘ; "pitch line here" shows only while a pitch line is on the staff.
+
 ## [0.15.49-dev.1] — Instrumentals say "Instrumental"
 
 ### Fixed
