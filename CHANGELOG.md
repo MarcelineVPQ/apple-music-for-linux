@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.50-dev.1] — Hyphenated lyrics look as written, and the sheet-notes band says when no one is singing
+
 ### Fixed
 
 - **Hyphenated lyrics are written as they are.** A line like "Yeah-oh, oh-oh-oh-oh" showed with a gap after every hyphen ("Yeah- oh, oh- oh- oh- oh"). Each part still lights up and pops on its own beat, now written together as in the lyrics. Dashes (— and –) and a spaced " - " keep their spaces.
