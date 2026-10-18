@@ -5,10 +5,8 @@
 // that doesn't exist or doesn't match. Never edit the feeds by hand: run the
 // "Update feed" workflow (.github/workflows/feed.yml). See docs/RELEASING.md.
 //
-//   node tools/build-feed.js [--channel stable|dev] [--out latest.json] [--repo owner/name]
+//   node tools/build-feed.js [--channel stable|dev] [--out latest.json]
 //
-// --repo: whose releases to list and point at; default the releases repository (update-feed.js REPO).
-// The source repository's feed.yml passes the legacy repository for the bridge feeds.
 // Exit 2: no matching release yet (nothing written). Uses GITHUB_TOKEN when set.
 const crypto = require('crypto')
 const fs = require('fs')
@@ -20,8 +18,6 @@ const opt = (name, dflt) => (args.includes(name) ? args[args.indexOf(name) + 1] 
 const channel = opt('--channel', 'stable')
 if (channel !== 'stable' && channel !== 'dev') throw new Error('unknown channel ' + channel)
 const out = opt('--out', channel === 'dev' ? 'latest-dev.json' : 'latest.json')
-const repo = opt('--repo', REPO)
-if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('bad --repo ' + repo)
 const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'sonata-feed-builder' }
 if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`
 
@@ -38,10 +34,10 @@ async function measure(asset) {
 }
 
 ;(async () => {
-  const r = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=50`, { headers })
+  const r = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=50`, { headers })
   if (!r.ok) throw new Error(`GitHub API returned ${r.status}`)
   const picked = selectRelease(await r.json(), channel)
   if (!picked) { console.error(`No ${channel} release with an AppImage yet; not writing ${out}.`); process.exit(2) }
-  fs.writeFileSync(out, feedText(channel, picked, await measure(picked.asset), repo))
-  console.log(`Wrote ${out}: ${picked.version} (${repo})`)
+  fs.writeFileSync(out, feedText(channel, picked, await measure(picked.asset)))
+  console.log(`Wrote ${out}: ${picked.version}`)
 })().catch((e) => { console.error(e.message); process.exit(1) })

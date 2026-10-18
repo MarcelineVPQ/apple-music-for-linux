@@ -1,7 +1,7 @@
 // The self-update feed, kept free of Electron so it can be tested with node --test.
 //
 // Same design as the DS5 app (electron/main/feedSignature.ts there): CI writes
-// latest.json (Stable) and latest-dev.json (Development) on the releases repository's main, signs each
+// latest.json (Stable) and latest-dev.json (Development) on master, signs each
 // file's exact bytes with an Ed25519 key that only exists as the
 // SONATA_FEED_KEY Actions secret (tools/sign-feed.mjs), and commits the
 // signature beside it as latest.json.sig (base64). The app refuses a feed no
@@ -10,24 +10,15 @@
 const crypto = require('crypto')
 const fs = require('fs')
 
-// Where releases and feeds live (0.15.19 / 0.15.44-dev.2 on): a public release-only repository with
-// the signed AppImages, latest.json / latest-dev.json (+ .sig) on main and each release's GPL source
-// archive. Builds up to 0.15.18 / 0.15.44-dev.1 read LEGACY_REPO (the source repository, feeds on
-// master); its feeds stay frozen on the bridge builds, which read REPO (docs/RELEASING.md, "Releases repository").
-const REPO = 'MarcelineVPQ/sonata-releases'
-const FEED_BRANCH = 'main'
-const LEGACY_REPO = 'MarcelineVPQ/apple-music-for-linux'
-const LEGACY_FEED_BRANCH = 'master'
-const feedUrls = (repo, branch) => ({
-  stable: `https://raw.githubusercontent.com/${repo}/${branch}/latest.json`,
-  dev: `https://raw.githubusercontent.com/${repo}/${branch}/latest-dev.json`
-})
-const downloadPrefix = (repo) => `https://github.com/${repo}/releases/download/`
-const FEED_URLS = feedUrls(REPO, FEED_BRANCH)
+const REPO = 'MarcelineVPQ/apple-music-for-linux'
+const FEED_URLS = {
+  stable: `https://raw.githubusercontent.com/${REPO}/master/latest.json`,
+  dev: `https://raw.githubusercontent.com/${REPO}/master/latest-dev.json`
+}
 // electron-builder's feed, read by installs up to 0.15.12 (and by this app while
 // the key below is still the placeholder). Unsigned: only GitHub's TLS vouches for it.
 const LEGACY_FEED_URL = `https://github.com/${REPO}/releases/latest/download/latest-linux.yml`
-const DOWNLOAD_PREFIX = downloadPrefix(REPO)
+const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`
 
 // PLACEHOLDER_KEY is kept for the tests and the fallback logic: while only the
 // placeholder is listed, signingReady() is false and the updater falls back to the
@@ -144,8 +135,7 @@ async function verifyDownload(filePath, update) {
 }
 
 module.exports = {
-  REPO, FEED_BRANCH, LEGACY_REPO, LEGACY_FEED_BRANCH, FEED_URLS, LEGACY_FEED_URL, DOWNLOAD_PREFIX, feedUrls, downloadPrefix,
-  PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
+  REPO, FEED_URLS, LEGACY_FEED_URL, PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
   signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion,
   parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload
 }
