@@ -1,8 +1,15 @@
 name: Release
 
-# A tag vX.Y.Z (Stable) or vX.Y.Z-dev.N (Development) builds the AppImage,
-# publishes the GitHub release (a prerelease for -dev tags), then refreshes the
-# signed update feeds (feed.yml). See docs/RELEASING.md.
+# A tag vX.Y.Z (Stable) or vX.Y.Z-dev.N (Development) runs the tests and gates, then hands the release
+# to the releases repository (RELEASES_REPO): the GPL source archive of this tag, its notes and title
+# are pushed there as a branch incoming/<tag> with the RELEASES_DEPLOY_KEY deploy key, and that
+# repository's publish workflow builds the AppImage from exactly that archive, publishes the release
+# (AppImage, source archive, SHA256SUMS) and signs its feeds. No token for the other repository exists.
+#
+# Bridge (BRIDGE: true): installed builds up to 0.15.18 / 0.15.44-dev.1 read only this repository.
+# Until the bridge ends, the same release (the same AppImage bytes, downloaded back from the releases
+# repository and checked against its SHA256SUMS) is also published here, and feed.yml refreshes this
+# repository's feeds. See docs/RELEASING.md, "Releases repository".
 
 on:
   push:
@@ -11,9 +18,14 @@ on:
 permissions:
   contents: write
 
+env:
+  RELEASES_REPO: MarcelineVPQ/sonata-releases
+  BRIDGE: 'true'
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -32,38 +44,102 @@ jobs:
             *) echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "stable versions are X.Y.Z"; exit 1; } ;;
           esac
 
-      - name: Build AppImage
-        run: npx electron-builder --linux AppImage --publish never
+      - name: Source archive, notes and title
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"; v="${tag#v}"
+          dev=false; case "$v" in *-dev.*) dev=true ;; esac
+          mkdir -p out
+          # the GPL source of this release: the whole tree of the tag (build files, lockfile, tools)
+          git archive --format=tar.gz --prefix="sonata-$v/" -o "out/sonata-$v-source.tar.gz" HEAD
+          section() { awk -v v="$1" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md; }
+          s="$v"; grep -q "^## \[$s\]" CHANGELOG.md || s=Unreleased
+          section "$s" > out/notes.md
+          # "## [X.Y.Z] — Short title" in CHANGELOG.md gives "vX.Y.Z — Short title"
+          sub="$(grep -m1 "^## \[$v\]" CHANGELOG.md | sed -n 's/^## \[[^]]*\][^—]*— *//p')"
+          if [ "$dev" = true ]; then
+            printf '\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n' >> out/notes.md
+          fi
+          printf '\nSource: `sonata-%s-source.tar.gz` in this release (GPL-3.0).\n' "$v" >> out/notes.md
+          node -e '
+            const [tag, v, dev, title, sha] = process.argv.slice(1)
+            const sum = require("crypto").createHash("sha256").update(require("fs").readFileSync(`out/sonata-${v}-source.tar.gz`)).digest("hex")
+            require("fs").writeFileSync("out/release.json", JSON.stringify({ tag, version: v, dev: dev === "true", title, commit: sha, source: `sonata-${v}-source.tar.gz`, source_sha256: sum }, null, 2) + "\n")
+          ' "$tag" "$v" "$dev" "$tag${sub:+ — $sub}" "$GITHUB_SHA"
+          cat out/release.json
 
-      - name: Draft release, publish when complete
+      # One commit on top of the releases repository's main, pushed as branch incoming/<tag>: release.json,
+      # notes.md and the source archive. A push runs the workflows of the pushed commit, so it must carry
+      # main's .github/workflows: its publish workflow runs on it and deletes the branch when done.
+      - name: Hand the release to the releases repository
+        env:
+          RELEASES_DEPLOY_KEY: ${{ secrets.RELEASES_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$RELEASES_DEPLOY_KEY" ] || { echo "::error::the RELEASES_DEPLOY_KEY secret is not set (docs/RELEASING.md, Releases repository)"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$RELEASES_DEPLOY_KEY" > ~/.ssh/releases_key; chmod 600 ~/.ssh/releases_key
+          # github.com's published SSH host key (docs.github.com, "GitHub's SSH key fingerprints")
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/releases_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+          git init -q handover; cd handover
+          git fetch -q --depth 1 "git@github.com:$RELEASES_REPO.git" main
+          git checkout -q -b "incoming/$GITHUB_REF_NAME" FETCH_HEAD
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          cp ../out/release.json ../out/notes.md "../out/sonata-${GITHUB_REF_NAME#v}-source.tar.gz" .
+          git add release.json notes.md "sonata-${GITHUB_REF_NAME#v}-source.tar.gz"
+          git commit -q -m "incoming: $GITHUB_REF_NAME from $GITHUB_SHA"
+          git push --force "git@github.com:$RELEASES_REPO.git" "HEAD:refs/heads/incoming/$GITHUB_REF_NAME"
+          rm -f ~/.ssh/releases_key
+
+      # Bridge: wait for the releases repository to publish, then publish the very same files here.
+      - name: Wait for the release in the releases repository
+        if: env.BRIDGE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # publish.yml there builds, tests and uploads: ~10-20 minutes
+          for i in $(seq 120); do
+            if gh release view "$GITHUB_REF_NAME" -R "$RELEASES_REPO" --json isDraft -q '.isDraft' 2>/dev/null | grep -qx false; then echo "published"; exit 0; fi
+            sleep 30
+          done
+          echo "::error::$RELEASES_REPO did not publish $GITHUB_REF_NAME within 60 minutes (see its publish workflow)"; exit 1
+
+      - name: Bridge release here (same bytes)
+        if: env.BRIDGE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"; v="${tag#v}"
           dev=false; case "$v" in *-dev.*) dev=true ;; esac
-          section() { awk -v v="$1" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md; }
-          s="$v"; grep -q "^## \[$s\]" CHANGELOG.md || s=Unreleased
-          section "$s" > notes.md
-          # "## [X.Y.Z] — Short title" in CHANGELOG.md gives "vX.Y.Z — Short title"
-          sub="$(grep -m1 "^## \[$v\]" CHANGELOG.md | sed -n 's/^## \[[^]]*\][^—]*— *//p')"
-          title="$tag${sub:+ — $sub}"
-          if [ "$dev" = true ]; then
-            printf '\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n' >> notes.md
-          fi
-          files=("dist/sonata-$v-x86_64.AppImage")
-          # Installs up to 0.15.12 only read releases/latest/download/latest-linux.yml.
+          mkdir -p bridge; cd bridge
+          gh release download "$tag" -R "$RELEASES_REPO" -p "sonata-$v-x86_64.AppImage" -p "sonata-$v-source.tar.gz" -p SHA256SUMS
+          files=("sonata-$v-x86_64.AppImage" "sonata-$v-source.tar.gz")
+          # Installs up to 0.15.12 only read releases/latest/download/latest-linux.yml here.
           # Keep publishing it with every Stable release (docs/RELEASING.md, "Transition").
           if [ "$dev" = false ]; then
-            [ -f dist/latest-linux.yml ] || { echo "dist/latest-linux.yml missing: old installs could not update"; exit 1; }
-            files+=(dist/latest-linux.yml)
+            gh release download "$tag" -R "$RELEASES_REPO" -p latest-linux.yml
+            files+=(latest-linux.yml)
           fi
-          gh release create "$tag" --draft --verify-tag $([ "$dev" = true ] && echo --prerelease) --title "$title" --notes-file notes.md
+          sha256sum -c SHA256SUMS --ignore-missing --strict
+          [ "$(grep -c " sonata-$v-x86_64.AppImage\$" SHA256SUMS)" = 1 ] || { echo "SHA256SUMS lists no AppImage"; exit 1; }
+          files+=(SHA256SUMS)
+          title="$(node -p 'require("../out/release.json").title')"
+          gh release create "$tag" --draft --verify-tag $([ "$dev" = true ] && echo --prerelease) --title "$title" --notes-file ../out/notes.md
           gh release upload "$tag" "${files[@]}"
           if [ "$dev" = true ]; then gh release edit "$tag" --draft=false; else gh release edit "$tag" --draft=false --latest; fi
 
   feed:
-    name: Refresh latest.json / latest-dev.json
+    name: Refresh this repository's latest.json / latest-dev.json (bridge)
     needs: build
+    # A called workflow gets only what its caller job grants: feed.yml commits the feeds and
+    # attests them.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     uses: ./.github/workflows/feed.yml
     secrets: inherit
