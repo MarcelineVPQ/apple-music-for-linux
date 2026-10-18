@@ -2,13 +2,13 @@
 
 Sonata updates itself from a **signed feed**, the same design as the DS5 app:
 
-| File (on `master`) | Channel | Lists |
+| File (on `main` of [MarcelineVPQ/sonata-releases](https://github.com/MarcelineVPQ/sonata-releases)) | Channel | Lists |
 |---|---|---|
 | `latest.json` + `latest.json.sig` | Stable (default) | the newest published `vX.Y.Z` release |
 | `latest-dev.json` + `latest-dev.json.sig` | Development | the newest of the `vX.Y.Z-dev.N` prereleases and the stable releases |
 
-The app reads them from `https://raw.githubusercontent.com/MarcelineVPQ/apple-music-for-linux/master/latest(-dev).json`
-plus `.sig`, every 2 hours, at start (after 20 s), on *Check for Updates…* and on a channel switch.
+The app reads them from `https://raw.githubusercontent.com/MarcelineVPQ/sonata-releases/main/latest(-dev).json`
+plus `.sig` (builds up to 0.15.18 / 0.15.44-dev.1: this repository's `master`, see [Releases repository](#releases-repository)), every 2 hours, at start (after 20 s), on *Check for Updates…* and on a channel switch.
 
 Feed format (`tools/feed-lib.js`):
 
@@ -17,7 +17,7 @@ Feed format (`tools/feed-lib.js`):
   "channel": "stable",
   "version": "0.15.13",
   "file": "sonata-0.15.13-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.13/sonata-0.15.13-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/sonata-releases/releases/download/v0.15.13/sonata-0.15.13-x86_64.AppImage",
   "sha512": "<128 hex>",
   "size": 125815305,
   "date": "<release published_at>",
@@ -28,7 +28,7 @@ Feed format (`tools/feed-lib.js`):
 
 What the app checks (`update-feed.js`): the `.sig` is an Ed25519 signature over the feed's exact bytes
 by a key in `TRUSTED_KEYS`; the feed's `channel` is the one asked for; Stable never takes a `-dev` version;
-`file` and `url` are this repo's release file for that version; then the download's size and SHA-512 must
+`file` and `url` are the releases repository's release file for that version; then the download's size and SHA-512 must
 match. Anything else is refused: the log says `update check failed: update refused: …`, and an interactive
 check shows the same message. Only strictly newer versions are installed (`0.15.13-dev.2 < 0.15.13 < 0.15.14-dev.1`).
 Switching from Development back to Stable installs nothing until Stable passes the dev build you have.
@@ -61,8 +61,9 @@ the same flow automatically: bad signature, bad hash, an older version on Stable
 Back to stable. Run a test AppImage only from a scratch folder, never from ~/Downloads: it repoints the
 `Sonata.AppImage` link beside itself and prunes older AppImages there.
 
-**Never edit the feeds by hand.** CI writes and signs them (`.github/workflows/feed.yml`); to regenerate,
-run that workflow (Actions → Update feed → Run workflow).
+**Never edit the feeds by hand.** CI writes and signs them (the releases repository's `feed.yml`; the
+legacy feeds here: `.github/workflows/feed.yml`); to regenerate, run that workflow (Actions → Update feed →
+Run workflow).
 
 ## Stable release
 
@@ -73,12 +74,17 @@ run that workflow (Actions → Update feed → Run workflow).
    check with `node tools/set-version.js --verify vX.Y.Z`, and commit on `master`.
 2. `git tag vX.Y.Z && git push origin master vX.Y.Z`.
 3. `release.yml` runs the tests and the verdict gate, checks the tag against the version
-   (`tools/set-version.js --verify "$GITHUB_REF_NAME"`: a mismatch fails the release), builds the AppImage, writes a
-   build-provenance attestation for the AppImage and `latest-linux.yml` (see [Build attestations](#build-attestations)), creates a
-   draft release with the CHANGELOG section as notes, uploads `sonata-X.Y.Z-x86_64.AppImage` **and
-   `latest-linux.yml`**, then publishes it as *Latest*.
-4. `feed.yml` (called by the release) downloads and hashes the AppImage, writes `latest.json` and
-   `latest-dev.json`, signs them, commits them to `master` and attests them.
+   (`tools/set-version.js --verify "$GITHUB_REF_NAME"`: a mismatch fails the release), makes the GPL source
+   archive (`git archive` of the tag → `sonata-X.Y.Z-source.tar.gz`) and the notes (the CHANGELOG section), and
+   hands them to the releases repository (see [Releases repository](#releases-repository)).
+4. There, `publish.yml` unpacks the archive, runs `npm ci`, `npm test` and the gates **from the archive**, builds
+   the AppImage from it, attests every file (see [Build attestations](#build-attestations)), and publishes the
+   release: `sonata-X.Y.Z-x86_64.AppImage`, `sonata-X.Y.Z-source.tar.gz`, **`latest-linux.yml`** and `SHA256SUMS`,
+   as *Latest*. Its `feed.yml` then downloads and hashes the AppImage, writes `latest.json` and `latest-dev.json`,
+   signs them, commits them to `main` and attests them.
+5. Bridge (while `BRIDGE: 'true'` in release.yml): release.yml waits for that release, downloads its files, checks
+   them against `SHA256SUMS` and publishes the same files as the same release here; this repository's `feed.yml`
+   refreshes the legacy feeds on `master`.
 
 ## Checks before tagging
 
@@ -101,7 +107,7 @@ Same steps on the `dev` branch (work lands there; commit and push `dev`, not `ma
 `X.Y.Z-dev.N` (the `X.Y.Z` it leads up to; N from 1) and tag `vX.Y.Z-dev.N`;
 the CHANGELOG section is `## [X.Y.Z-dev.N]` (falls back to `[Unreleased]`). The release is published as a
 **prerelease** (never *Latest*, so `releases/latest` and old installs never see it), without
-`latest-linux.yml`, and only `latest-dev.json` changes.
+`latest-linux.yml`, and only `latest-dev.json` changes (in both repositories while the bridge runs).
 
 ## Build attestations
 
@@ -114,9 +120,14 @@ says which workflow run made the file. Only releases tagged after these steps we
 
 | File | Attested by | When |
 |---|---|---|
-| `sonata-X.Y.Z(-dev.N)-x86_64.AppImage` | `release.yml` | every release, before the release is published |
-| `latest-linux.yml` | `release.yml` | Stable releases only (development releases don't upload it) |
-| `latest.json`, `latest-dev.json` and their `.sig` | `feed.yml` | whenever the feed run commits a change (a release, or a run that finds one); an unchanged daily run attests nothing |
+| `sonata-X.Y.Z(-dev.N)-x86_64.AppImage`, `sonata-X.Y.Z(-dev.N)-source.tar.gz`, `SHA256SUMS` | the releases repository's `publish.yml` | every release, before the release is published |
+| `latest-linux.yml` | the releases repository's `publish.yml` | Stable releases only (development releases don't upload it) |
+| `latest.json`, `latest-dev.json` and their `.sig` | `feed.yml` (each repository for its own feeds) | whenever the feed run commits a change (a release, or a run that finds one); an unchanged daily run attests nothing |
+
+Since the move to the releases repository (v0.15.19 / v0.15.44-dev.2), the files are attested there:
+use `-R MarcelineVPQ/sonata-releases` below. The bridge copies here carry the same bytes, so the same command
+verifies them. Earlier releases: `-R MarcelineVPQ/apple-music-for-linux`. The releases repository is public, so
+its attestations keep working when the source repository is private.
 
 Permissions: the jobs that attest have `id-token: write` (the OIDC token for the signing certificate) and
 `attestations: write` (to store it); `release.yml`'s `feed` job grants them to `feed.yml`, since a called
@@ -143,9 +154,52 @@ attestations: it checks the Ed25519 signature, the size and the SHA-512 (above).
 Not yet seen in a real run: a Stable release (its `latest-linux.yml` and `latest.json` attestations); check
 those with the lines above after the first stable tag.
 
+## Releases repository
+
+Releases, the signed feeds and each release's GPL source archive live in the public, release-only
+repository [MarcelineVPQ/sonata-releases](https://github.com/MarcelineVPQ/sonata-releases) (`update-feed.js`
+`REPO`; feeds on its `main`). It holds no source tree, only its README, its two workflows and what they publish.
+
+**Hand-over, no token.** This repository's `release.yml` pushes one commit to a branch `incoming/<tag>` there,
+over SSH with a deploy key (write access to `sonata-releases` only, nothing else): `release.json` (tag, version,
+title, source commit, the archive's SHA-256), notes.md and `sonata-X.Y.Z-source.tar.gz`. That push starts
+`publish.yml` there, which builds from the archive with its own `GITHUB_TOKEN`, calls its `feed.yml`, and
+deletes the branch. Secrets: here `RELEASES_DEPLOY_KEY` (the deploy key's private half), there
+`SONATA_FEED_KEY` (the same feed key as here). A `release.json` with `"dry_run": true` (any `incoming/…`
+branch) runs the whole build and the checks there and publishes nothing.
+
+Replacing the deploy key (e.g. for a new source repository), once:
+
+```bash
+ssh-keygen -q -t ed25519 -N '' -C 'sonata release workflow -> sonata-releases' -f k
+gh repo deploy-key add k.pub -R MarcelineVPQ/sonata-releases --allow-write --title "Sonata release workflow (push incoming/*)"
+gh secret set RELEASES_DEPLOY_KEY -R <source repository> < k && shred -u k && rm k.pub
+```
+
+(delete the old key under sonata-releases → Settings → Deploy keys).
+
+**The bridge.** Installed builds up to 0.15.18 (Stable) and 0.15.44-dev.1 (Development) read only this
+repository's feeds on `master` and accept only downloads from this repository's releases
+(`parseSignedFeed` compares the `url` with the prefix compiled into them). So the first builds that read the
+releases repository, **0.15.19** (Stable, v0.15.18 + only this change) and **0.15.44-dev.2** (Development), are
+published to both repositories with the same bytes, and this repository's `feed.yml` keeps signing its feeds
+(`tools/build-feed.js --repo MarcelineVPQ/apple-music-for-linux`). An installed build takes the bridge build
+from its old feed, verifies it with the same key, and from then on reads the releases repository.
+`test/release-bridge.test.js` checks this against the installed builds' own `update-feed.js`
+(`test/fixtures/installed-update-feed/`, frozen copies).
+
+Publish order: 0.15.19 first (on `master`, so this repository's `feed.yml`, which runs `master`'s tools,
+has `--repo`), then 0.15.44-dev.2 on `dev`.
+
+**Ending the bridge**, once Marcy's copies run bridge builds on both channels: set `BRIDGE: 'false'` in
+release.yml and drop its `feed` job and the bridge steps. No release is added here any more, so the legacy
+feeds stay on the bridge builds for good and a late updater still lands on a build that reads the releases
+repository. Keep this repository's releases and feeds online for those installs.
+
 ## Signing key
 
-The private key exists in two places only: the `SONATA_FEED_KEY` Actions secret and the developer's PC at
+The private key exists in these places only: the `SONATA_FEED_KEY` Actions secret (here and in the releases
+repository) and the developer's PC at
 `~/.config/sonata-release/feed-signing-key.pem` (folder 700, file 600, outside the repo; the DS5 key lives
 next to it in `~/.config/ds5-release`). The public key is embedded in `update-feed.js` (`TRUSTED_KEYS`).
 

@@ -25,7 +25,7 @@ Sonata is free and open source (GPL-3.0), made by one developer under 42 Pixel S
 
 ## Install
 
-**[Download the AppImage from Releases](https://github.com/MarcelineVPQ/apple-music-for-linux/releases/latest)** (x86-64), then:
+**[Download the AppImage from Releases](https://github.com/MarcelineVPQ/sonata-releases/releases/latest)** (x86-64), then:
 
 ```bash
 chmod +x sonata-*.AppImage
@@ -239,22 +239,22 @@ system at work belong here. Not recorded yet; don't add them before then.
 
 **Releases and signed update feeds.**
 
-- GitHub Actions builds each release's AppImage from its tag and uploads it to the release.
-- After each release, a second workflow ([feed.yml](.github/workflows/feed.yml)) downloads the AppImage, records its size and SHA-512 in the update feed, and signs the feed with Sonata's Ed25519 key.
+- Releases live in [MarcelineVPQ/sonata-releases](https://github.com/MarcelineVPQ/sonata-releases): each one carries the AppImage, the complete source of that release (`sonata-X.Y.Z-source.tar.gz`, GPL-3.0) and `SHA256SUMS`. GitHub Actions there builds the AppImage from exactly that source archive, so the published source is proven to build.
+- After each release, a second workflow there downloads the AppImage, records its size and SHA-512 in the update feed, and signs the feed with Sonata's Ed25519 key.
 - There are two feeds: **Stable** (`latest.json`, tested releases) and **Development** (`latest-dev.json`, development builds `X.Y.Z-dev.N` plus the stable releases). Stable never offers a development build.
-- **Build attestations:** releases from now on also carry a GitHub attestation for the AppImage and the feeds: a signed record that this repository's workflow built the file, from which commit. Check a download with the [GitHub CLI](https://cli.github.com):
+- **Build attestations:** releases also carry a GitHub attestation for the AppImage, the source archive and the feeds: a signed record of which workflow built the file. Check a download with the [GitHub CLI](https://cli.github.com):
 
   ```bash
-  gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/apple-music-for-linux
+  gh attestation verify sonata-X.Y.Z-x86_64.AppImage -R MarcelineVPQ/sonata-releases
   ```
 
-  Releases up to v0.15.38-dev.1 have none. Sonata itself doesn't need this: it checks the feed signature and the file's hash on every update.
+  Releases up to v0.15.44-dev.1 and the bridge builds v0.15.19 and v0.15.44-dev.2 are also in this repository (`-R MarcelineVPQ/apple-music-for-linux`); up to v0.15.38-dev.1 they have none. Sonata itself doesn't need this: it checks the feed signature and the file's hash on every update.
 
 **How updates work.**
 
-1. Sonata fetches the feed for your channel and its `.sig` from this repository (20 seconds after start, then every two hours, on *Check now* and when you switch channels).
+1. Sonata fetches the feed for your channel and its `.sig` from the releases repository (20 seconds after start, then every two hours, on *Check now* and when you switch channels).
 2. It refuses the feed unless the signature is from Sonata's key, the channel is the one you chose, and the version is newer than yours (or it's *Back to stable*).
-3. It downloads the AppImage named in the feed, from this repository's releases, and refuses it unless the size and SHA-512 match.
+3. It downloads the AppImage named in the feed, from the releases repository, and refuses it unless the size and SHA-512 match.
 4. It puts the new AppImage beside the running one, points `Sonata.AppImage` at it, and offers *Restart now* (only while nothing plays).
 
 What you see along the way, and the settings, are in [Updates](#updates). Details for maintainers: [docs/RELEASING.md](docs/RELEASING.md).
