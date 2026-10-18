@@ -291,14 +291,52 @@ function learnedPace(lines) {
 // start their words that much after their stamp (at most ONSET_SHARE of the line's time); the line
 // itself still lights at its stamp − LINE_LEAD, and the last word's hold still ends HOLD_GAP before
 // the next line (or at Apple's end minus TIGHT_TAIL), so the shift squeezes the line, never moves it.
+//
+// First play (0.15.42, docs/LYRIC-TIMING.md "First-play onset"): the onset is a song-level correction for
+// every line not yet placed from the audio, learned from the first aligned section and refined as more
+// arrive: lines more than ONSET_OUTLIER × MAD (at least ONSET_OUTLIER_MIN s) from the median are dropped,
+// then the ONSET_Q quantile is taken (a slight early bias: lyrics a little early are noticed less than
+// late ones, Lizé Masclef et al., ISMIR 2021: about 0.33 s early vs 0.22 s late), never so much that more
+// than ONSET_LATE_SHARE of the lines would start ONSET_LATE_MAX s after the voice, capped at ONSET_MAX
+// (offsets of 2–3 s are real on some albums; 1.5 s before 0.15.42). Once an onset is showing, a new one
+// moves it by at most ONSET_STEP per update, so the words on screen don't jump. While too few lines are
+// aligned/refined, the onset stored with the song (its aligned or learned entry's `offset`) stands in
+// (repace opts.onset).
 const ONSET_MIN = 0.15
-const ONSET_MAX = 1.5
+const ONSET_MAX = 3.0
 const ONSET_MIN_LINES = 3
 const ONSET_SHARE = 0.4
+const ONSET_Q = 0.45
+const ONSET_OUTLIER = 3
+const ONSET_OUTLIER_MIN = 0.25
+const ONSET_STEP = 0.5
+const ONSET_LATE_SHARE = 0.25
+const ONSET_LATE_MAX = 0.5
+
+/**
+ * The song's onset from per-line delays (s from a line's stamp to its first sung word): null for
+ * fewer than minLines; outliers dropped, the ONSET_Q quantile (at most the ONSET_LATE_SHARE quantile +
+ * ONSET_LATE_MAX), 0 under ONSET_MIN, at most ONSET_MAX.
+ */
+function robustOnset(delays, minLines = ONSET_MIN_LINES) {
+  const r = (delays || []).filter(Number.isFinite).sort((a, b) => a - b)
+  if (r.length < Math.max(1, minLines)) return null
+  const at = (xs, q) => { const p = q * (xs.length - 1), i = Math.floor(p); return xs[i] + ((xs[Math.min(i + 1, xs.length - 1)] - xs[i]) * (p - i)) }
+  const med = at(r, 0.5)
+  const mad = at(r.map((x) => Math.abs(x - med)).sort((a, b) => a - b), 0.5)
+  const lim = Math.max(ONSET_OUTLIER_MIN, ONSET_OUTLIER * 1.4826 * mad)
+  const kept = r.length >= 4 ? r.filter((x) => Math.abs(x - med) <= lim) : r
+  const use = kept.length ? kept : r
+  // no overshoot: at most ONSET_LATE_SHARE of the lines may start their words more than ONSET_LATE_MAX
+  // after the voice (a song whose lines are half on the stamp, half late gets little shift)
+  const m = Math.min(at(use, ONSET_Q), at(use, ONSET_LATE_SHARE) + ONSET_LATE_MAX)
+  return m < ONSET_MIN ? 0 : m > ONSET_MAX ? ONSET_MAX : m
+}
 
 /**
  * The song's onset (s from a line's stamp to its first sung word) from the lines whose words were
- * placed from the audio (aligned or refined, not mapped repeats). null for fewer than ONSET_MIN_LINES.
+ * placed from the audio (aligned or refined, not mapped repeats): robustOnset. null for fewer than
+ * ONSET_MIN_LINES.
  */
 function learnedOnset(lines) {
   const r = []
@@ -308,10 +346,7 @@ function learnedOnset(lines) {
     const d = line.words[0].t - line.t
     if (Number.isFinite(d)) r.push(d)
   }
-  if (r.length < ONSET_MIN_LINES) return null
-  r.sort((a, b) => a - b)
-  const m = r.length % 2 ? r[(r.length - 1) / 2] : (r[r.length / 2 - 1] + r[r.length / 2]) / 2
-  return m < ONSET_MIN ? 0 : m > ONSET_MAX ? ONSET_MAX : m
+  return robustOnset(r)
 }
 
 /** One line's estimated words at `pace`, the first starting `onset` s after the line's stamp (see
@@ -372,12 +407,17 @@ function estimateWords(lines, opts = {}) {
 /**
  * Re-estimates the plain estimated lines (not refined, not mapped repeats) at the pace and onset
  * learned from the song's aligned/refined lines (each only once known; lines with real word timing
- * are never touched). Same array when there's nothing to learn from or nothing changes.
+ * are never touched). opts.onset: the onset to use while too few lines are aligned/refined (heard by
+ * the listener, or stored with the song). A new onset moves the one showing by at most ONSET_STEP.
+ * Same array when there's nothing to learn from or nothing changes.
  */
-function repace(lines) {
+function repace(lines, opts = {}) {
   const learned = learnedPace(lines)
-  const onset = learnedOnset(lines)
+  let onset = learnedOnset(lines)
+  if (onset == null && Number.isFinite(opts.onset)) onset = Math.min(ONSET_MAX, Math.max(0, opts.onset))
   if (!learned && onset == null) return lines
+  const showing = shownOnset(lines)
+  if (onset != null && showing != null) onset = showing + Math.max(-ONSET_STEP, Math.min(ONSET_STEP, onset - showing))
   let changed = false
   const out = lines.map((line, i) => {
     if (!line.estimated || line.refined || line.repeat || !line.words || line.t == null) return line
@@ -391,6 +431,13 @@ function repace(lines) {
     return Object.assign({}, line, { words, pace, onset: at })
   })
   return changed ? out : lines
+}
+
+/** The onset the plain estimated lines show now (set by an earlier repace), null before one. */
+function shownOnset(lines) {
+  // loop: NOT-WORTH — stops at the first plain estimated line · per repace
+  for (const line of lines || []) if (line.estimated && !line.refined && !line.repeat && Number.isFinite(line.onset)) return line.onset
+  return null
 }
 
 // which timing a repeat was copied from (its source changes when that line is refined again)
@@ -588,5 +635,5 @@ module.exports = {
   MOVE_HOLD, MOVE_SHORT, reattributeHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
   lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime,
-  PACE, songPace, learnedPace, learnedOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
+  PACE, songPace, learnedPace, learnedOnset, robustOnset, shownOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, ONSET_Q, ONSET_STEP, ONSET_LATE_SHARE, ONSET_LATE_MAX, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }

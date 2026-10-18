@@ -62,7 +62,7 @@ function firstPlay(estimated, better, arrivedAt, opts = {}) {
     if (t == null) continue
     const known = estimated.map((l, j) => (better[j] && arrivedAt[j] != null && arrivedAt[j] <= t - T.LINE_LEAD ? better[j] : l))
     let lines = known
-    if (opts.pace) lines = T.repace(lines, i)                 // the song's pace from what's known
+    if (opts.pace) lines = T.repace(lines)                    // the song's pace and onset from what's known
     const mapped = T.reuseRepeats(lines)
     out[i] = mapped[i]
   }

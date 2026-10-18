@@ -802,15 +802,19 @@ async function lyricsTick() {
     })
     let lines = prep.lines
     let refined = false
+    let heardOnset = null
     if (settings.estimatedWordTiming) {
       const session = settings.lyricsListenRefine ? getListenSession() : listenSession
-      if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine, rec))
+      if (session) ({ lines, refined, onset: heardOnset } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine, rec))
     } else if (listenSession) listenSession.stop()
+    // the song's onset stored with it (aligned entry, else learned by listening): the estimated lines start
+    // their words that much after their stamps until enough lines are aligned/refined (lyrics-timing repace)
+    const onset = prep.onset != null ? prep.onset : heardOnset
     alignNote = alignNoteNow()
     // "Written by …" at the end of the lyrics: the TTML's songwriters (Apple lyrics), else the catalog's
     // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
-    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
+    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''

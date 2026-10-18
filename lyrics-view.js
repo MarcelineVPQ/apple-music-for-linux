@@ -34,7 +34,7 @@ const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC ho
  */
 function prepare(data) {
   const raw = (data && Array.isArray(data.lines)) ? data.lines : []
-  const words = learnFrom(data && data.estimate ? T.estimateWords(raw) : raw)
+  const words = learnFrom(data && data.estimate ? T.estimateWords(raw) : raw, data && data.onset)
   const hyphenate = S.hyphenatorFor(data && data.lang)
   const split = hyphenate ? words.map((l) => S.lineWithSyllables(l, hyphenate)) : words
   const lines = split.every((l, i) => l === words[i]) ? words : split
@@ -43,11 +43,12 @@ function prepare(data) {
 
 /**
  * What the song's aligned/refined lines teach the estimated ones (lyrics-timing.js): plain estimated
- * lines take the song's sung pace (repace), and repeats of an aligned/refined line (choruses) take
- * its timing (reuseRepeats). Same array when nothing changes.
+ * lines take the song's sung pace and onset (repace), and repeats of an aligned/refined line (choruses)
+ * take its timing (reuseRepeats). onset: the song's onset stored with it, used while too few lines are
+ * aligned/refined (lyrics-timing repace opts.onset). Same array when nothing changes.
  */
-function learnFrom(lines) {
-  return T.boundHolds(T.reuseRepeats(T.repace(lines)))
+function learnFrom(lines, onset) {
+  return T.boundHolds(T.reuseRepeats(T.repace(lines, { onset: Number.isFinite(onset) ? onset : undefined })))
 }
 
 /**
@@ -297,6 +298,7 @@ function createLyricsView(opts) {
   let clock = null
   let raf = 0
   let wake = 0
+  let songOnset            // the song's onset stored with it ('lyrics-data' onset, s; undefined: none)
   let songKey = ''          // the recording (main's key; title|artist without one), matches 'lyrics-refined'/'-aligned' to the song on screen
   let hyphenate = null      // the song's hyphenator, for syllables of refined/aligned words
   let refined = false       // learned or live-refined word timing in use
@@ -366,6 +368,7 @@ function createLyricsView(opts) {
     lines = prep.lines
     hyphenate = prep.hyphenate
     songKey = data.key || ((data.title || '') + '|' + (data.artist || ''))
+    songOnset = Number.isFinite(data.onset) ? data.onset : undefined
     refined = !!data.refined
     aligned = !!data.aligned
     alignState = typeof data.alignState === 'string' ? data.alignState : ''
@@ -530,9 +533,9 @@ function createLyricsView(opts) {
   }
 
   // a line just refined or aligned (progressive alignment sends each section as it's done): the
-  // song's later estimated lines take its pace, and its repeats its timing, during this play
+  // song's later estimated lines take its pace and onset, and its repeats its timing, during this play
   function relearn() {
-    const next = learnFrom(lines)
+    const next = learnFrom(lines, songOnset)
     if (next === lines) return
     // loop: NOT-WORTH — one pass over the song's lines · per 'lyrics-refined' / 'lyrics-aligned' message
     for (let i = 0; i < next.length; i++) {

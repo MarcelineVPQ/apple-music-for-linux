@@ -539,3 +539,60 @@ a phrase ending at the held word: "too, oh", "will, oh").
 
 Not covered: a mid-line function word that takes a hold belonging to a later word (no rule could tell
 it apart on the bench), and languages without a list (MMS).
+
+## First-play onset (0.15.42)
+
+Marcy's report on 0.15.41: LIVE, "The River" (Songs from Black Mountain), a new album: on the first play the
+lyrics came in "way before the singer sings them". Her cache (a copy, 2026-10-17): Apple line timing, no
+word timing; the aligned entry partial (sections 0 and 8 done). Apple's stamp vs the first sung word, line 1:
+21.39 → 24.27 s (2.9 s early), line 2: 1.3 s, line 3: 2.7 s.
+
+**The cause is not one offset.** Apple's stamps on this song run back to back (77 % of lines start where
+the line before ends), and the singer comes in after a breath: the lead per line runs from −0.24 s (lines
+0, 5, 7, 8 are on the stamp) to +2.88 s (line 1); median +0.77 s over the song, IQR 0.14–1.40 s. Ends are
+closer (median −0.07 s). On a first play a section's lines show while that section is being heard, before
+its own alignment, so section 0 shows at the stamps and section 8 with the onset learned from section 0.
+
+**Why Level 1 didn't catch it.** It refines a line only after the line is sung (evidence to its end +
+0.5 s), so never the line on screen; its word matching looks at most 1.0 s from the estimate and moves no
+word more than `MAX_SHIFT` (1.0 s), so a 2.9 s lead is invisible to it; the learned onset needed 3 lines
+and was capped at 1.5 s. Her cache has no learned (`refined|`) entry for this song at all. A line-level
+voice-start detector from the Level 1 evidence was tried (first voiced segment with an onset after the
+stamp): on JamendoLyrics with exact stamps it answered 31 % of lines with a median lead of +0.68 s instead
+of 0, and it did not recover a synthetic 2.9 s shift; not taken (BACKLOG Idea "Per-line voice-start
+detection").
+
+**Change** (`lyrics-timing.js` `robustOnset`, used by `learnedOnset`): lines more than 3 × MAD (at least
+0.25 s) from the median are dropped; the onset is the 0.45 quantile (a slight early bias: lyrics are noticed
+about 0.33 s early vs 0.22 s late, Lizé Masclef, Vaglio & Moussallam, ISMIR 2021), but never more than the
+25th percentile + 0.5 s (no overshoot: at most a quarter of the lines start their words more than 0.5 s
+after the voice); cap 3.0 s (was 1.5 s; offsets of 2–3 s are real). `repace` moves an onset already showing
+by at most 0.5 s per update (`ONSET_STEP`), so later sections refine it without the words jumping. The
+song's onset is stored: `offset` (s, + = sung after the stamp) and `offsetSource` (`aligned` on the aligned
+entry, `listen` on the learned entry), from 3+ lines; main sends it as `onset` in lyrics-data and the views
+use it while fewer than 3 lines are aligned/refined (`repace` opts.onset). Precise word timing is never
+touched. Linear drift was checked and not needed: the median change between a song's first and second half
+is 0.00 s (3 of 92 songs over 0.5 s).
+
+**Numbers** (`progressive`, first words per line unless said; asymmetric score = mean of early/0.33 +
+late/0.22, lower is better). Her library: 93 songs, 24,349 words, 3,754 lines.
+
+| set | median | mean | > 0.3 s late | > 1 s late | > 1 s early | asym. score |
+|---|--:|--:|--:|--:|--:|--:|
+| her library, before (all words) | 225 | 392 | 8.3 % | 2.2 % | 3.0 % | 1.01 |
+| her library, after (all words) | 227 | 393 | 7.8 % | 2.2 % | 3.1 % | 1.00 |
+| live songs, before → after (all words) | 281 → 284 | 423 → 427 | | | | |
+| "The River", before | 576 | 809 | 32.1 % | 7.1 % | 28.6 % | 2.84 |
+| "The River", after | 529 | 855 | 7.1 % | 0 % | 35.7 % | 2.46 |
+| JamendoLyrics LRC (79 songs) | 93 | 243 | unchanged | | | |
+
+The early-biased quantile without the guard measured "The River" 2.68 (28.6 % > 1 s early, 25 % > 0.3 s
+late); the guard was kept (decided 2026-10-17: the asymmetric score favours it). A song-level shift cannot fix this song: what is left is
+per line.
+
+**Her library** (lines vs aligned starts, 93 songs): a consistent offset over 1 s in 2 songs, "Low"
+(R.E.M., median +1.13 s, IQR 0.71–1.76) and "So Alive (Live)" (median +1.07 s, IQR 0.75–1.25); near it
+Broadway (Live) +0.99, Stay (Wasting Time) +0.97, January Friend (Live) +0.83. Apple's stamps lead the voice
+in almost every song (median +0.2 to +1.0 s), at the line's start rather than its end.
+
+Not covered: per-line leads on back-to-back stamps before the line's own section is aligned.

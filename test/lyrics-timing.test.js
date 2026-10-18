@@ -245,12 +245,13 @@ test('repace: plain estimated lines take the learned pace; aligned, refined and 
 // a line sung `delay` s after its stamp, words 0.25 s apart (aligned or refined)
 const late = (t, delay, extra) => Object.assign({ t, text: 'a b c d', words: ['a', 'b', 'c', 'd'].map((x, k) => ({ t: t + delay + k * 0.25, end: t + delay + k * 0.25 + 0.25, text: x })) }, extra)
 
-test('learnedOnset: median first-word delay of 3+ aligned/refined lines, clamped, small ones are 0', () => {
+test('learnedOnset: robust first-word delay of 3+ aligned/refined lines (outliers out, early-biased quantile), clamped, small ones are 0', () => {
   assert.equal(T.learnedOnset([late(0, 0.7, { aligned: true }), late(5, 0.7, { aligned: true })]), null)
   // repeats and plain estimates don't count
   assert.equal(T.learnedOnset([late(0, 0.7, { aligned: true }), late(5, 0.7, { aligned: true }), late(9, 0.7, { estimated: true }), late(12, 0.7, { aligned: true, repeat: 'aligned' })]), null)
   const lines = [late(0, 0.6, { aligned: true }), late(5, 0.8, { refined: true, estimated: true }), late(10, 0.75, { aligned: true }), late(15, 3, { aligned: true })]
-  assert.ok(Math.abs(T.learnedOnset(lines) - 0.775) < 1e-9, 'the median: one far-off line does not drag it')
+  // 3 s is an outlier (dropped); the 0.45 quantile of 0.6, 0.75, 0.8 (a slight early bias)
+  assert.ok(Math.abs(T.learnedOnset(lines) - 0.735) < 1e-9, 'one far-off line does not drag it')
   assert.equal(T.learnedOnset([late(0, 4, { aligned: true }), late(5, 4, { aligned: true }), late(10, 4, { aligned: true })]), T.ONSET_MAX)
   assert.equal(T.learnedOnset([late(0, -0.4, { aligned: true }), late(5, -0.3, { aligned: true }), late(10, -0.2, { aligned: true })]), 0)
   assert.equal(T.learnedOnset([late(0, 0.1, { aligned: true }), late(5, 0.1, { aligned: true }), late(10, 0.1, { aligned: true })]), 0, 'under ONSET_MIN: stamps on the voice')
@@ -266,8 +267,8 @@ test('repace: plain estimated lines start their words at the learned onset; the 
   for (let i = 0; i < 3; i++) assert.equal(out[i], lines[i])
   for (let i = 3; i < 6; i++) {
     assert.equal(out[i].t, raw[i].t, 'the line keeps its stamp (it still lights at t − LINE_LEAD)')
-    assert.ok(Math.abs(out[i].words[0].t - (raw[i].t + 0.75)) < 1e-9, 'first word at stamp + onset')
-    assert.equal(out[i].onset, 0.75)
+    assert.ok(Math.abs(out[i].words[0].t - (raw[i].t + 0.745)) < 1e-9, 'first word at stamp + onset')
+    assert.ok(Math.abs(out[i].onset - 0.745) < 1e-9)
     assert.equal(out[i].words.length, 4)
     if (i < 5) assert.ok(out[i].words[3].end <= raw[i + 1].t - T.HOLD_GAP + 1e-9, 'the hold still lets go before the next line')
   }
