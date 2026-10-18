@@ -13,7 +13,12 @@ See docs/RELEASING.md.
 
 ### Changed
 
+- **Precise word timing starts sooner.** The word-timing helper now stays ready for 10 minutes between songs while the lyrics window, the Studio or the visualizer is open (it used to quit after 2 minutes and needed about 5 seconds to start again, so a new song's first words often came late). With no lyrics open it still quits after 2 minutes, and it still steps aside at once when a game starts or Sonata quits.
 - **Precise word timing keeps a few more facts per song** for For the Curious: the helper's version, when the song was aligned, the helper's confidence in each line and how long it worked on the song. Songs aligned before this version say "Not yet known" for those until they're aligned again.
+
+### Fixed
+
+- **A live recording no longer borrows the studio version's timing.** Sonata remembered lyrics and word timing by song title and artist, so a live recording with the same name as the studio one (or two live albums that both have "Iris (Live)") could get the other recording's word times. Each recording is now known by its ISRC from Apple Music (the same recording on a compilation still shares its timing), and stored timing is used only when its length matches the song playing, to within 1.5 seconds. Timing saved before this version is kept: titles without a live or alternate mark carry on as they are; for "(Live)", "Acoustic", "Remix", "Remaster" and similar titles the stored word times are checked against the song's own lyric timing the next time it plays, and the lyrics are fetched again.
 
 ## [0.15.41-dev.1] — The Studio, liner notes, the Montage, and backing vocals under their words
 

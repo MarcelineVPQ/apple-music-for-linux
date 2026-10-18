@@ -107,6 +107,96 @@ test('lifetime: idle helper is sent quit and exits on its own', async () => {
   await waitFor(() => !h.running)
 })
 
+test('idle limit (0.15.42): 10 min while a lyric view is open, 2 min without, counted from the last job', () => {
+  assert.equal(H.IDLE_MS, 2 * 60 * 1000)
+  assert.equal(H.WARM_IDLE_MS, 10 * 60 * 1000)
+  assert.equal(H.idleDelay(0, true), 10 * 60 * 1000)
+  assert.equal(H.idleDelay(0, false), 2 * 60 * 1000)
+  assert.equal(H.idleDelay(60 * 1000, true), 9 * 60 * 1000)
+  assert.equal(H.idleDelay(60 * 1000, false), 60 * 1000, 'the view closed after 1 idle minute: 1 more')
+  assert.equal(H.idleDelay(3 * 60 * 1000, false), 0, 'closed after 3 idle minutes: quit now')
+  assert.equal(H.idleDelay(11 * 60 * 1000, true), 0)
+  assert.equal(H.idleDelay(-5, false), 2 * 60 * 1000, 'a clock step back never lengthens it')
+})
+
+// a fake clock for the helper's timers: advance(ms) fires what is due, in order
+function fakeClock() {
+  let t = 0
+  let timers = []
+  const api = {
+    now: () => t,
+    setTimeout: (fn, ms) => { const h = { fn, at: t + ms, unref() {} }; timers.push(h); return h },
+    clearTimeout: (h) => { timers = timers.filter((x) => x !== h) },
+    advance(ms) {
+      const end = t + ms
+      // loop: test clock · fires the due timers in time order
+      for (;;) {
+        const due = timers.filter((x) => x.at <= end).sort((a, b) => a.at - b.at)[0]
+        if (!due) break
+        timers = timers.filter((x) => x !== due)
+        t = due.at
+        due.fn()
+      }
+      t = end
+    },
+    get pending() { return timers.length }
+  }
+  return api
+}
+
+test('lifetime: warm while a lyric view is open, the shorter limit once the last one closes (fake clock)', async () => {
+  const clock = fakeClock()
+  let views = 1
+  const logs = []
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: (m) => logs.push(m), warm: () => views > 0 },
+    { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: clock.now })
+  await h.ping()
+  // a view open: still there after 9 idle minutes
+  clock.advance(9 * 60 * 1000)
+  assert.equal(h.running, true)
+  // a job resets the idle time
+  await h.ping()
+  clock.advance(9 * 60 * 1000)
+  assert.equal(h.running, true)
+  // the last view closes after 9 idle minutes: past the 2-minute limit, so it quits now
+  views = 0
+  h.viewsChanged()
+  await waitFor(() => !h.running, 3000)
+  assert.equal(logs.length, 0, 'a requested quit is not a crash')
+  // no view: 2 minutes; a view opening in between lengthens it to 10
+  await h.ping()
+  clock.advance(60 * 1000)
+  views = 1
+  h.viewsChanged()
+  clock.advance(5 * 60 * 1000)
+  assert.equal(h.running, true)
+  views = 0
+  h.viewsChanged()                      // 6 idle minutes, no view: quits now
+  await waitFor(() => !h.running, 3000)
+  // the plain 2-minute quit without any view
+  await h.ping()
+  clock.advance(2 * 60 * 1000 - 1)
+  assert.equal(h.running, true)
+  clock.advance(1)
+  await waitFor(() => !h.running, 3000)
+  h.stop()
+})
+
+test('lifetime: a warm idle helper still quits at once for the gaming guard and on stop()', async () => {
+  const clock = fakeClock()
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {}, warm: () => true },
+    { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: clock.now })
+  await h.ping()
+  clock.advance(30 * 1000)
+  h.release()                           // a game started
+  await waitFor(() => !h.running, 3000)
+  await h.ping()
+  h.stop()                              // app quit
+  await waitFor(() => !h.running, 3000)
+  h.viewsChanged()                      // nothing running: nothing to do
+  assert.equal(h.running, false)
+})
+
 test('error: a crash fails the job with one log line; the next job respawns; 3 crashes turn it off', async () => {
   const { h, logs } = helper('crash')
   for (let i = 0; i < 3; i++) {

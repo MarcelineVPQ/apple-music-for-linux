@@ -4,14 +4,24 @@
 // that venv's interpreter. Nothing here touches the install.
 //
 // lifetime: at most ONE helper process. Spawned on demand (first ping or alignment), sent `quit`
-// after IDLE_MS without work (frees ~2.7 GB of VRAM), killed on app quit (stop()) and, as a last
+// after IDLE_MS without work (WARM_IDLE_MS while a lyric view is open; frees ~1.8 GB of VRAM), told to
+// quit after its current job when a game starts (release()), killed on app quit (stop()) and, as a last
 // resort, on process exit. A crashed helper is spawned again only for the next job, and after
 // MAX_CRASHES crashes in one app run it stays off.
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 
+// Idle quit (0.15.42, docs/research/efficiency-audit-2026-10.md row 1). In 30 h of Marcy's listening the
+// 2-minute quit cost 59 restarts, 48 % of all helper time spent starting and a song's first words ~5 s
+// late (cold first job 5.4 s vs 0.5 s warm); 41 of the restarts came after ≤ 10 idle minutes. So:
+// lifetime: OK — the idle helper is kept WARM_IDLE_MS while a lyric view (lyrics window, Studio,
+// visualizer) is open, when the next job can come at any song change, and IDLE_MS when none is (no
+// recording, so no job until a view opens; the ~1.8 GB of VRAM goes back sooner). Measured from the end
+// of the last job: when the last view closes the shorter limit applies at once (an idle 3 min → quits
+// now). The gaming guard (release()) and app quit (stop()) still end it at once.
 const IDLE_MS = 2 * 60 * 1000
+const WARM_IDLE_MS = 10 * 60 * 1000
 const JOB_TIMEOUT_MS = 3 * 60 * 1000    // without any message for the job (progress resets it)
 const PING_TIMEOUT_MS = 60 * 1000       // importing torch + CUDA init takes a few seconds, more when cold
 const QUIT_GRACE_MS = 5000
@@ -136,9 +146,18 @@ const live = new Set()
 process.on('exit', () => { for (const p of live) { try { p.kill('SIGKILL') } catch (e) {} } })
 
 /**
- * createAlignHelper({ paths, env?, log?, idleMs?, jobTimeoutMs? }, deps?)
- *   -> { installed(), ping(), align(id, messages), stop(), running }
- * deps (tests): { spawn, setTimeout, clearTimeout, isInstalled }
+ * The wait before an idle helper quits (ms, ≥ 0): the limit for the views' state minus the time it has
+ * already been idle. idleFor: ms since the last job ended; warm: a lyric view is open.
+ */
+function idleDelay(idleFor, warm, coldMs = IDLE_MS, warmMs = WARM_IDLE_MS) {
+  return Math.max(0, (warm ? warmMs : coldMs) - Math.max(0, idleFor || 0))
+}
+
+/**
+ * createAlignHelper({ paths, env?, log?, idleMs?, warmIdleMs?, warm?, jobTimeoutMs? }, deps?)
+ *   -> { installed(), ping(), align(id, messages), viewsChanged(), release(), stop(), running }
+ * warm() -> true while a lyric view is open (the longer idle limit applies)
+ * deps (tests): { spawn, setTimeout, clearTimeout, now, isInstalled }
  */
 function createAlignHelper(opts, deps = {}) {
   const log = opts.log || ((m) => console.log('align:', m))
@@ -147,6 +166,10 @@ function createAlignHelper(opts, deps = {}) {
   const clearT = deps.clearTimeout || clearTimeout
   const installedFn = deps.isInstalled || (() => isInstalled(opts.paths))
   const idleMs = opts.idleMs || IDLE_MS
+  const warmIdleMs = opts.warmIdleMs || WARM_IDLE_MS
+  const warm = opts.warm || (() => false)
+  const now = deps.now || Date.now
+  let idleSince = 0           // when the last job ended (0: busy or not running)
   const jobTimeoutMs = opts.jobTimeoutMs || JOB_TIMEOUT_MS
   let child = null
   let pending = new Map()     // id -> { resolve, reject, timer, ms }
@@ -189,10 +212,13 @@ function createAlignHelper(opts, deps = {}) {
 
   function armIdle() {
     if (idle) { clearT(idle); idle = null }
-    if (!child || pending.size) return
+    if (!child || pending.size) { idleSince = 0; return }
     if (releasing) { releasing = false; quit(); return }
-    // loop: none · one-shot idle timer · re-armed after each job · fires once: quit the helper
-    idle = setT(() => { idle = null; if (!pending.size) quit() }, idleMs)
+    if (!idleSince) idleSince = now()
+    const wait = idleDelay(now() - idleSince, !!warm(), idleMs, warmIdleMs)
+    if (!wait) { quit(); return }
+    // loop: none · one-shot idle timer · re-armed after each job and when the lyric views open/close · fires once: quit the helper
+    idle = setT(() => { idle = null; if (!pending.size) quit() }, wait)
     if (idle && idle.unref) idle.unref()
   }
 
@@ -246,6 +272,7 @@ function createAlignHelper(opts, deps = {}) {
     child = null
     if (quitting === c) quitting = null
     if (idle) { clearT(idle); idle = null }
+    idleSince = 0
     if (crashed) {
       crashes++
       log('helper exited (' + (signal || code) + ')' + (stderrTail.length ? ': ' + stderrTail[stderrTail.length - 1].slice(0, 200) : ''))
@@ -305,6 +332,7 @@ function createAlignHelper(opts, deps = {}) {
       // error: PASSES-ON — not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it)
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
+      idleSince = 0
       pending.set(id, { resolve, reject, timer: null, ms })
       touch(id)
       write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
@@ -343,6 +371,8 @@ function createAlignHelper(opts, deps = {}) {
       if (pending.size) releasing = true
       else { if (idle) { clearT(idle); idle = null } quit() }
     },
+    /** A lyric view opened or the last one closed: the idle limit follows (main.js lyrics feed). */
+    viewsChanged() { if (child && !pending.size && quitting !== child) armIdle() },
     /** Separate once per song: drop that song's kept sections in the helper (queued behind its jobs; no reply). */
     forget(song) {
       if (!child || quitting === child) return
@@ -364,4 +394,4 @@ function createAlignHelper(opts, deps = {}) {
   }
 }
 
-module.exports = { inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, IDLE_MS }
+module.exports = { inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }

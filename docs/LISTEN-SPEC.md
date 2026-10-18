@@ -65,7 +65,7 @@ l.start(); l.stop()
 - main.js: when on, the lyrics window is open, the song is playing and the lines are estimated,
   run the listener, feed the detector, and per line (once its time has passed) call refineWords
   and send `lyrics-refined` { key, lineIndex, words } to the window. Store learned words per song
-  in the lyrics store under key `refined|title|artist` (version 1), merged across plays with
+  in the lyrics store under key `refined|isrc:<ISRC>` (`refined|title|artist` without an ISRC; 0.15.42) (version 1), merged across plays with
   mergeLearned. On the next play, apply learned words before rendering.
 - lyrics.html: accept `lyrics-refined` (replace that line's word timings live, no DOM rebuild
   beyond that line); the notes line says "Word timing estimated, refined by listening" when any

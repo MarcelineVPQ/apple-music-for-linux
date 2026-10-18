@@ -338,6 +338,9 @@ const nowPlayingScript = `(() => {
       duration: attrs && attrs.durationInMillis ? attrs.durationInMillis / 1000 : 0,
       /* the catalogue id (library songs: their library id); only the Sung notes log keeps it */
       appleId: item ? String((attrs && attrs.playParams && attrs.playParams.catalogId) || item.id || '') : '',
+      /* the recording's ISRC from the catalog attributes (no extra request; library uploads have none):
+         the lyrics and timing caches are keyed by it (recording-id.js) */
+      isrc: attrs ? String(attrs.isrc || item.isrc || '') : '',
       // precise time from the playing media element (fractional seconds); MusicKit's own value
       // can be whole seconds. Used only when the two agree, so a stray element never wins.
       playbackTime: (() => {
@@ -487,7 +490,7 @@ const nextItemScript = `(() => {
     const a = item && item.attributes;
     if (!a || !a.name) return { ok: false };
     return { ok: true, title: a.name, artist: a.artistName || '', album: a.albumName || '',
-             duration: a.durationInMillis ? a.durationInMillis / 1000 : 0 };
+             duration: a.durationInMillis ? a.durationInMillis / 1000 : 0, isrc: String(a.isrc || item.isrc || '') };
   } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to prefetch */ return { ok: false }; }
 })()`
 
@@ -517,6 +520,7 @@ const showAlbumScript = `(() => {
 })()`
 
 const lyricsSources = require('./lyrics-sources')
+const recordingId = require('./recording-id')
 
 // Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
 // Chromium's network stack, like the rest of the app.
@@ -596,7 +600,8 @@ function getSharedListener() {
 // after the hand-over.
 // lifetime: one session + one helper client for the app's life. The session records only while a
 // lyric view is open, the song plays and it isn't aligned yet; the helper process (one child) is
-// spawned for a job, quits after 2 min idle and is killed on setting off and quit (align-helper.js).
+// spawned for a job, quits after 10 min idle while a lyric view is open (2 min when none is), at once
+// when a game starts (gaming guard), and is killed on setting off and quit (align-helper.js).
 // error: helper not installed, crashing or refusing -> one log line, the song keeps its current timing
 // The install is checked at start and whenever Settings asks (install.sh runs outside Sonata), not
 // per poll tick.
@@ -625,7 +630,8 @@ function showAlignRepair() {
 }
 function getAlignHelper() {
   alignInstalled()
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, log: (m) => console.log('align:', m) })
+  // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, log: (m) => console.log('align:', m) })
   return alignHelper
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
@@ -675,7 +681,7 @@ function getNotesSwitch() {
 function sungNotesDone(s, result, lineOffset) {
   if (!sungNotesOn() || !result || !result.notes) return       // turned off meanwhile: nothing is written
   const info = s.info || {}
-  const doc = notesLogLib.buildDoc(result.notes, { title: s.title, artist: s.artist, album: info.album, duration: info.duration, appleId: info.appleId },
+  const doc = notesLogLib.buildDoc(result.notes, { title: s.title, artist: s.artist, album: info.album, duration: info.duration, appleId: info.appleId, isrc: info.isrc },
     { version: app.getVersion(), aligner: (s.entry && s.entry.model) || '', stats: result.stats, lineOffset })
   // error: SHOWN — a failed write (disk full, permissions) is the status line
   try {
@@ -755,6 +761,7 @@ function startLyricsFeed() {
   vizArt = null
   // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
+  if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
 }
 function stopLyricsFeedIfIdle() {
   if (lyricViews().length) return
@@ -763,6 +770,7 @@ function stopLyricsFeedIfIdle() {
   lyricsRetry = null
   if (listenSession) listenSession.stop()
   if (alignSession) alignSession.stop(true)   // a song heard to the end is still aligned
+  if (alignHelper) alignHelper.viewsChanged()   // no view: the 2-minute idle limit, counted from the last job
 }
 
 // error: NOT-WORTH — a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
@@ -774,7 +782,8 @@ async function lyricsTick() {
   } catch (e) { return }
   if (!state || !state.ok || !lyricViews().length) return
 
-  const key = state.title + '|' + state.artist
+  // one recording (title|artist plus its ISRC, else its length): a live cut titled like the studio one is a new song
+  const key = recordingId.trackKey(recordingId.songOf(state))
   // loop: NOT-WORTH — lyrics retry · when the lyrics service failed (busy/offline), refetch the same song after
   // 30 s, 60 s, then every 120 s · only while a lyric view is open and the song unchanged ·
   // stops on success, track change or when the last view closes · cost one lookup per retry.
@@ -799,16 +808,17 @@ async function lyricsTick() {
     // lyrics-timing call the views would make, so main knows which lines are estimated.
     const precise = preciseTimingOn()
     const aligner = precise ? getAlignSession() : alignSession
-    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise, { album: state.album, duration: state.duration, appleId: state.appleId, lang: got.lang || '' })
+    const rec = { duration: state.duration, isrc: state.isrc, appleId: state.appleId }
+    if (aligner) aligner.setLyrics(key, state.title, state.artist, got.lines || [], precise, { album: state.album, duration: state.duration, appleId: state.appleId, isrc: state.isrc, lang: got.lang || '' })
     const prep = alignSessionLib.prepareLines(got.lines || [], {
       estimate: !!settings.estimatedWordTiming,
-      entry: precise ? aligner.entryFor(state.title, state.artist, got.lines || []) : null
+      entry: precise ? aligner.entryFor(state.title, state.artist, got.lines || [], rec) : null
     })
     let lines = prep.lines
     let refined = false
     if (settings.estimatedWordTiming) {
       const session = settings.lyricsListenRefine ? getListenSession() : listenSession
-      if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine))
+      if (session) ({ lines, refined } = session.setLyrics(key, state.title, state.artist, lines, !!settings.lyricsListenRefine, rec))
     } else if (listenSession) listenSession.stop()
     alignNote = alignNoteNow()
     // About → For the Curious' "first or later play": what this song started with (one object per track change)
@@ -816,7 +826,7 @@ async function lyricsTick() {
     // "Written by …" at the end of the lyrics: the TTML's songwriters (Apple lyrics), else the catalog's
     // composerName (Apple's own "A, B & C" text, e.g. for LRCLIB lyrics); nothing when Apple has neither
     const writers = got.writers && got.writers.length ? got.writers : (state.composer ? [state.composer] : [])
-    sendLyrics('lyrics-data', { title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
+    sendLyrics('lyrics-data', { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, alignState: alignNote })
   }
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
@@ -1398,7 +1408,9 @@ function linerLyricsFor(apple) {
   if (!apple || !lyricsStore) return out
   // loop: NOT-WORTH — the album's tracks (≤ ~100), once per booklet push; in-memory cache lookups
   for (const t of apple.tracks) {
-    const got = lyricsStore.get(t.name + '|' + t.artist)
+    // the track's recording by its length (the album's track list has no ISRC); an old entry of a
+    // "(Live)"-style title is shown as before 0.15.42 (the booklet shows the text; the timing check is the lyrics window's)
+    const got = recordingId.lookup(lyricsStore, '', recordingId.songOf({ title: t.name, artist: t.artist, duration: t.ms / 1000 }), { write: false, check: () => true }).entry
     if (!got || !Array.isArray(got.lines) || !got.lines.length) continue
     if (got.source === 'lrclib' && !settings.lrclibFallback) continue
     out[t.id] = { lines: got.lines.map((l) => ({ t: l.t, end: l.end, text: l.text || '', gap: !!l.gap })), source: got.source, writers: got.writers || [] }
@@ -1431,7 +1443,7 @@ async function linerTick() {
   linerPlaying(state)
   const key = state.title + '|' + state.artist
   if (!linerSung || linerSung.key !== key) {
-    const got = lyricsStore ? lyricsStore.get(key) : null
+    const got = lyricsStore ? recordingId.lookup(lyricsStore, '', recordingId.songOf(state), { write: false }).entry : null
     linerSung = { key, times: got && Array.isArray(got.lines) ? got.lines.map((l) => (l && !l.gap && l.text && Number.isFinite(l.t) ? l.t : null)) : [] }
     linerSungLine = -2
   }

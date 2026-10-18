@@ -236,7 +236,7 @@ apart).
 
 **The log.** `~/.local/share/apple-music-for-linux/notes-log/<yyyymmdd>-<artist>-<title>.json`
 (XDG_DATA_HOME when set outside an app sandbox), format 1: `song` {title, artist, album, duration,
-appleId}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
+appleId, isrc (0.15.42; null when Apple gave none)}, `sonata` (version), `models` {f0, notes, aligner, params, vthr}, `tuning`, `key`, `lines`,
 `syllables`, `notes`, `confidence`, `stats`. No audio, no stem, no pitch frames (notes-log.js
 `validateDoc` refuses them). Written atomically (temp file + rename, mode 0600); at most 1000 files,
 the oldest removed. About 110 kB per song.
@@ -333,8 +333,10 @@ labelled.
    button that runs `install.sh` and later `prepare` with progress. A second toggle, "Transcribe
    songs without lyrics (may mishear)", is greyed out without a GPU.
 2. **Helper lifetime** (main.js, AVIEW verdict comments): spawn `align/sonata-align` on demand
-   when there's a job. It is one child process. Send `quit` after 2 minutes idle (frees 2.7 GB of
-   VRAM) and kill it on app quit. If it crashes, show a log line plus a status in Settings, and
+   when there's a job. It is one child process. Send `quit` after 10 minutes idle while a lyric view
+   (lyrics window, Studio, visualizer) is open and 2 minutes when none is (0.15.42; it holds ~1.8 GB of
+   VRAM idle; align-helper.js `IDLE_MS` / `WARM_IDLE_MS`), at once when a game starts (gaming guard),
+   and kill it on app quit. If it crashes, show a log line plus a status in Settings, and
    don't respawn more than once per song.
 3. **Capture**: reuse the Level 1 listener (`audio-listen.js`, 22.05 kHz s16 stereo; the bench
    shows no accuracy loss vs 44.1 kHz). main keeps a song-time-indexed buffer (≈ 88 KB/s, 21 MB for
@@ -347,8 +349,10 @@ labelled.
    - **Progressive** (later): align each 30–60 s section as it completes. The global pass works
      per section with the section's lines; about 1 s each on the GPU.
 4. **Apply + cache**:
-   - Store the result in lyrics-store as `aligned|title|artist` with
-     `{version:1, model, lyricsHash, duration, lines}`.
+   - Store the result in lyrics-store as `aligned|isrc:<ISRC>` (`aligned|title|artist` when the ISRC
+     is unknown; recording-id.js, 0.15.42) with `{version, model, lyricsHash, duration, lines}` plus the
+     recording's `songDuration`, `isrc`, `appleId`; an entry whose `songDuration` differs from the
+     playing song's by more than 1.5 s is not used.
    - Since 0.15.42 an entry also keeps, for About → For the Curious (curious-model.js): `engine` (the
      sonata-align version), `firstAt` / `lastAt` (ISO dates of the first and latest job), `workS` and
      `device` (the helper's separation + emissions + alignment seconds, summed over the song's jobs; left
