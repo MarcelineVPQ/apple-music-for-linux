@@ -263,6 +263,53 @@ function asPlain(hit) {
   return text ? Object.assign({}, hit, { syncedLyrics: null, plainLyrics: text }) : null
 }
 
+// a search hit "close in length" to the playing recording (s)
+const HIT_NEAR_S = 5
+
+// --- instrumentals (Marcy 2026-10-18, Mad Season "November Hotel (Live At the Moore)": "there are millions of
+// instrumental tracks in the world"). "Instrumental" is said only with evidence: LRCLIB's own instrumental
+// flag on a hit for this recording, or the title's own marker. Apple having no lyrics is not evidence. Lyrics
+// from any source always win. (The engine can't report "no vocals heard" yet: sonata-engine BACKLOG.) ---
+
+// the title's own marker: "(Instrumental)", "[Instrumental Version]", "(Live Instrumental)", " - Instrumental"
+const INSTRUMENTAL_TITLE = /[([][^)\]]*\binstrumentals?\b[^)\]]*[)\]]|\s[-–—]\s+(?:[^-–—]*\s)?instrumentals?\b[^-–—]*/i
+/** The title's instrumental marker ("(Instrumental)"…), or '' when it has none. */
+function instrumentalTitle(title) {
+  const m = INSTRUMENTAL_TITLE.exec(String(title || ''))
+  return m ? m[0].trim().replace(/^[-–—]\s*/, '') : ''
+}
+// a title without its qualifiers ("(Live At the Moore)", " - 2013 Remaster"), lower case, punctuation as spaces
+const QUALIFIERS = /[([][^)\]]*[)\]]|\s[-–—]\s+.*$/g
+const plainName = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+const baseTitle = (t) => plainName(String(t || '').replace(QUALIFIERS, ' '))
+// one artist: the same name, or one name followed by a featured / joined artist ("Mad Season feat. …")
+function sameArtist(a, b) {
+  const x = plainName(a)
+  const y = plainName(b)
+  return !!x && !!y && (x === y || x.startsWith(y + ' ') || y.startsWith(x + ' '))
+}
+const hasLyrics = (h) => !!(h && ((h.plainLyrics && h.plainLyrics.trim()) || (h.syncedLyrics && h.syncedLyrics.trim())))
+
+/**
+ * LRCLIB's evidence that this recording is instrumental: the hit flagged `instrumental` with the song's
+ * title (qualifiers aside) and artist, and the recording's length within HIT_NEAR_S (both lengths known;
+ * without them there is no telling which recording it is). A hit whose own title says "(Instrumental)" counts
+ * only for a song whose title says so too (else it is another version of a sung song). Any hit of the
+ * song (any length) that carries lyrics and isn't itself an instrumental version vetoes it: the song is
+ * sung somewhere, so Sonata says less rather than something wrong. -> the hit, or null.
+ */
+function instrumentalHit(hits, state) {
+  const s = state || {}
+  const list = (Array.isArray(hits) ? hits : []).filter(Boolean)
+  const title = baseTitle(s.title)
+  const marked = !!instrumentalTitle(s.title)
+  if (!title || !(s.duration > 0)) return null
+  const same = list.filter((h) => baseTitle(h.trackName || h.name) === title && sameArtist(h.artistName, s.artist))
+  if (same.some((h) => !h.instrumental && hasLyrics(h) && !instrumentalTitle(h.trackName || h.name))) return null
+  return same.find((h) => h.instrumental && h.duration > 0 && Math.abs(h.duration - s.duration) <= HIT_NEAR_S &&
+    (marked || !instrumentalTitle(h.trackName || h.name))) || null
+}
+
 /**
  * Best search hit: close in length (±5 s when both are known), then (with the song's `title`/`album`)
  * the same recording: a live cut takes a hit marked live, a studio cut one that isn't (0.15.39). Synced
@@ -275,7 +322,7 @@ function pickHit(hits, duration, title, album) {
 /** Every usable hit in pickHit's order of preference (pickHit takes the first). */
 function rankHits(hits, duration, title, album) {
   const list = Array.isArray(hits) ? hits : []
-  const near = list.filter((h) => h && (!duration || !h.duration || Math.abs(h.duration - duration) <= 5))
+  const near = list.filter((h) => h && (!duration || !h.duration || Math.abs(h.duration - duration) <= HIT_NEAR_S))
   if (title == null) return [...near.filter((h) => h.syncedLyrics), ...near.filter((h) => !h.syncedLyrics && h.plainLyrics)]
   const live = isLive(title, album)
   const same = near.filter((h) => isLive(h.trackName || h.name, h.albumName) === live)
@@ -326,22 +373,33 @@ async function fetchLrclib(state, deps) {
   // which LRCLIB rate-limits); any failure there just moves on to search.
   let lines = []
   let exactFailed = null
+  let exact = null
   try {
-    lines = lrclibLines(await get(base + '/api/get-cached?' + q))
+    exact = await get(base + '/api/get-cached?' + q)
+    lines = lrclibLines(exact)
   } catch (e) { exactFailed = e /* error: PASSES-ON — falls through to search; thrown below if that finds nothing */ }
   // a hit written as shorthand or timed for another version (hitProblem): the search's other hits are
   // tried for one that is complete and fits; the first one stays when none is (main.js writes it out / drops
   // its times)
   const problem = lines.length ? hitProblem(lines, state) : ''
+  let hits = null
   if (!lines.length || problem) {
     const s = new URLSearchParams({ track_name: state.title, artist_name: state.artist || '' })
-    let hits = null
-    try { hits = await get(base + '/api/search?' + s) } catch (e) { if (!lines.length) throw e /* error: PASSES-ON — with a hit in hand, its lines stand */ }
+    try { hits = await get(base + '/api/search?' + s) } catch (e) {
+      // error: PASSES-ON — with a hit in hand, its lines (or its instrumental flag) stand
+      if (!lines.length && !instrumentalHit([exact], state)) throw e
+    }
     const ranked = rankHits(hits, state.duration, state.title || '', state.album).map(lrclibLines).filter((l) => l.length)
     const good = problem || ranked.length ? ranked.find((l) => !hitProblem(l, state)) : null
     if (good && problem && deps.log) deps.log('lrclib: "' + state.title + '": the first hit was ' + problem + ', took another search hit that fits')
     if (good) lines = good
     else if (!lines.length) lines = ranked[0] || []
+  }
+  if (!lines.length) {
+    // no lyrics: LRCLIB's instrumental flag on a hit for this recording (instrumentalHit) rides on the empty
+    // result as `instrumental` { by: 'lrclib', duration } (the hit's length, for the ⓘ)
+    const hit = instrumentalHit([exact, ...(Array.isArray(hits) ? hits : [])], state)
+    if (hit) return Object.assign([], { instrumental: { by: 'lrclib', duration: hit.duration } })
   }
   if (!lines.length && exactFailed) throw exactFailed
   return lines
@@ -362,7 +420,13 @@ async function fetchLrclib(state, deps) {
  * ('none': Apple has no lyrics for it, 'failed': Apple's lookup failed too); main.js retries (retryPlan).
  * No lyrics anywhere: { lines: [], source: '', none: 'apple' | 'both' } ('both': LRCLIB was asked and had
  * none too). Only that definitive answer is kept in memory (NONE_TTL_MS), never a failure, so a song whose
- * lookup failed is asked again; nothing empty goes to the disk store.
+ * lookup failed is asked again; nothing empty goes to the disk store, except an instrumental verdict.
+ * Instrumental (no lyrics on Apple Music or LRCLIB, and evidence that none are sung): { lines: [], source,
+ * instrumental: { by: 'lrclib', duration } | { by: 'title', marker } }: LRCLIB's flag on a hit for this
+ * recording (fetchLrclib, instrumentalHit), else the title's own marker ("(Instrumental)"; also when LRCLIB
+ * is off or failing: no retry, no failure message). Kept in memory and on disk like lyrics (instant next
+ * time, LRCLIB not asked again); not stored while Apple's lookup failed (Apple's lyrics would win) or when
+ * the title alone stood in for a failed LRCLIB lookup.
  */
 // Version of the parsed Apple lyrics in the on-disk store: 2 = words keep their syllables (0.15.25),
 // 3 = the lyrics language (xml:lang) is stored too (0.15.26), 4 = the songwriters (<songwriters>) too.
@@ -428,10 +492,15 @@ function createLyricsResolver(deps) {
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
       if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers)
+      // an instrumental verdict played before: instant, nothing asked
+      if (stored && stored.instrumental && !(stored.lines && stored.lines.length)) return { lines: [], source: stored.source || '', instrumental: stored.instrumental }
       const remember = (result) => {
-        if (deps.store && result.lines.length) R.put(deps.store, found.key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source }, song)
+        if (deps.store && result.instrumental) R.put(deps.store, found.key, { lines: [], source: result.source, instrumental: result.instrumental }, song)
+        else if (deps.store && result.lines.length) R.put(deps.store, found.key, result.source === 'apple' ? Object.assign({}, result, { parse: TTML_PARSE }) : { lines: result.lines, source: result.source }, song)
         return result
       }
+      const marker = instrumentalTitle(state.title)
+      const byTitle = () => ({ lines: [], source: '', instrumental: { by: 'title', marker } })
       let appleFailed = ''
       let appleError = null
       const sleep = deps.sleep || realSleep
@@ -459,17 +528,24 @@ function createLyricsResolver(deps) {
           const lines = await deps.fetchLrclib(state)
           // standing in for Apple's that didn't load: shown, not stored (the next play asks Apple again)
           if (lines.length) return appleFailed ? { lines, source: 'lrclib', appleFailed: true } : remember({ lines, source: 'lrclib' })
+          if (lines.instrumental) {
+            const got = { lines: [], source: 'lrclib', instrumental: lines.instrumental }
+            return appleFailed ? Object.assign(got, { appleFailed: true, apple: 'failed' }) : remember(got)
+          }
         } catch (e) {
           // error: SHOWN — logged, and the window says which service failed and how (lyrics-view statusText);
           // main.js retries (retryPlan: fast at first, then backing off)
           if (deps.log) deps.log('lrclib lookup failed: ' + e.message)
+          // the title says instrumental: that stands (no retry, no failure message), not stored (LRCLIB unasked)
+          if (marker) return appleFailed ? Object.assign(byTitle(), { appleFailed: true, apple: 'failed' }) : byTitle()
           // the service failed (overloaded, rate limit, offline): not the same as "no lyrics"
           const status = e && Number.isInteger(e.status) ? e.status : 0
           return { lines: [], source: '', error: 'lrclib', lrclib: { status, message: (e && e.message) || '' }, apple: appleFailed ? 'failed' : 'none' }
         }
         // Apple's lookup failed and LRCLIB has none: Apple's is still unknown
-        if (!appleFailed) return { lines: [], source: '', none: 'both' }
+        if (!appleFailed) return marker ? remember(byTitle()) : { lines: [], source: '', none: 'both' }
       }
+      if (marker) return appleFailed ? Object.assign(byTitle(), { appleFailed: true, apple: 'failed' }) : remember(byTitle())
       // Apple's lookup failed and nothing stood in: not "no lyrics"
       return appleFailed ? { lines: [], source: '', error: 'apple', appleError: (appleError && appleError.message) || appleFailed } : { lines: [], source: '', none: 'apple' }
     })()
@@ -478,9 +554,9 @@ function createLyricsResolver(deps) {
     const result = await job
     // kept: lyrics, and a definitive "none on Apple Music or LRCLIB" (for NONE_TTL_MS); never a failure
     if (result.none === 'both') noneAt.set(key, now())
-    else if (!result.lines.length || result.appleFailed) cache.delete(key)
+    else if ((!result.lines.length && !result.instrumental) || result.appleFailed) cache.delete(key)
     return result
   }
 }
 
-module.exports = { rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { HIT_NEAR_S, instrumentalTitle, instrumentalHit, rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }

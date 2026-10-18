@@ -135,6 +135,17 @@ function lrclibFailure(status) {
   return { short: 'is unreachable', long: 'could not be reached (offline, or the site is down)' }
 }
 
+// the evidence behind an instrumental verdict (the ⓘ): only what was found, never a guess
+function instrumentalInfo(ev, apple) {
+  const appleWhy = apple === 'failed' ? ' Apple Music’s lyrics didn’t load this time; the next play asks again.' : ' Apple Music has no lyrics for it.'
+  if (ev.by === 'lrclib') {
+    return 'Marked instrumental on LRCLIB (lrclib.net), the free lyrics database, for a recording of this length' +
+      (ev.duration ? ' (' + mmss(ev.duration) + ')' : '') + '.' + appleWhy
+  }
+  if (ev.by === 'title') return 'The title marks this recording as instrumental' + (ev.marker ? ' (“' + ev.marker + '”)' : '') + '.' + appleWhy
+  return ''
+}
+
 /**
  * The empty view's text when a song has no lines: what is true about each source. data: 'lyrics-data'
  * ({ title, status, lookup: { lrclib: { status }, apple: 'none' | 'failed', appleError, none, lrclibOn,
@@ -144,11 +155,15 @@ function lrclibFailure(status) {
  *   status 'apple'          Apple's lookup failed and nothing stood in, a retry is due
  *   status 'apple-failed'   Apple's lookup kept failing
  *   none                    no lyrics: on Apple Music and LRCLIB ('both'), on Apple Music with LRCLIB off ('apple')
+ *   instrumental            { by: 'lrclib', duration } | { by: 'title', marker } (lyrics-sources.js): the calm
+ *                           "Instrumental" state (kind 'instrumental', drawn large), its evidence behind the ⓘ
+ * -> also kind: 'instrumental' for that state (lyrics.html #empty.instrumental), '' otherwise
  */
 function statusText(data) {
   const d = data || {}
   if (!d.title) return { text: 'Play a song to see its lyrics', info: '' }
   const lk = d.lookup || {}
+  if (lk.instrumental) return { text: 'Instrumental', info: instrumentalInfo(lk.instrumental, lk.apple), kind: 'instrumental' }
   const retry = lk.retry || null
   const next = retry && retry.at ? ' Try ' + retry.tries + ' of ' + retry.max + ' failed; the next one at ' + clockAt(retry.at) + '.' : ''
   const appleNone = lk.apple !== 'failed'
@@ -496,6 +511,7 @@ function createLyricsView(opts) {
       if (say.text) {
         const empty = doc.createElement('div')
         empty.id = 'empty'
+        if (say.kind) empty.className = say.kind   // 'instrumental': a state of the song, drawn large (lyrics.html)
         const span = doc.createElement('span')
         span.className = 'say'
         span.textContent = say.text
