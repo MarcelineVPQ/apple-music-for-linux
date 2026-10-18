@@ -1,0 +1,22 @@
+{
+  "_about": "LIVE, \"The River\" (Songs from Black Mountain): Apple's line stamps (t, end; line-timed, no word timing), the line's word count, and the first sung word from Sonata's alignment (sung; null = not aligned). Lines 0-15 = the first two progressive sections (done [0, 8]). Numbers only, from Marcy's lyrics cache 2026-10-17.",
+  "sections": [[0, 7], [8, 15]],
+  "lines": [
+    {"t": 19.034, "end": 21.389, "words": 4, "sung": 18.85},
+    {"t": 21.389, "end": 27.933, "words": 8, "sung": 24.27},
+    {"t": 27.933, "end": 32.17, "words": 5, "sung": 29.23},
+    {"t": 32.17, "end": 38.897, "words": 9, "sung": 34.87},
+    {"t": 38.897, "end": 44.707, "words": 8, "sung": 40.33},
+    {"t": 44.707, "end": 49.548, "words": 8, "sung": 44.47},
+    {"t": 49.548, "end": 54.625, "words": 9, "sung": 50.65},
+    {"t": 54.625, "end": 56.256, "words": 4, "sung": 54.57},
+    {"t": 56.256, "end": 61.319, "words": 9, "sung": 56.11},
+    {"t": 61.319, "end": 66.009, "words": 4, "sung": null},
+    {"t": 68.711, "end": 72.768, "words": 9, "sung": 68.81},
+    {"t": 72.768, "end": 76.882, "words": 5, "sung": 74.35},
+    {"t": 76.882, "end": 83.032, "words": 10, "sung": 79.55},
+    {"t": 83.032, "end": 89.177, "words": 9, "sung": 85.03},
+    {"t": 89.177, "end": 93.732, "words": 8, "sung": 90.09},
+    {"t": 93.732, "end": 99.061, "words": 9, "sung": 95.43}
+  ]
+}

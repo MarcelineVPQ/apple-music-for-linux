@@ -126,7 +126,7 @@ function applyAligned(lines, entry) {
  * The lines to show, by priority: word-timed lyrics (Apple TTML syllables, enhanced LRC) are never
  * touched; otherwise estimate (when that setting is on), then aligned words where a matching cache
  * entry exists. Level 1 runs after this and only refines lines that are still estimated.
- * -> { lines, wordSynced, aligned }
+ * -> { lines, wordSynced, aligned, onset? }  (onset: the entry's stored song offset, see withOffset)
  */
 function prepareLines(raw, opts = {}) {
   const lines = raw || []
@@ -135,7 +135,7 @@ function prepareLines(raw, opts = {}) {
   const entry = opts.entry ? validEntry(opts.entry, lyricsHash(lines), lines) : null
   if (!entry || !entry.lines) return { lines: base, wordSynced: false, aligned: false }
   const got = applyAligned(base, entry)
-  return { lines: got.lines, wordSynced: false, aligned: got.used }
+  return { lines: got.lines, wordSynced: false, aligned: got.used, onset: Number.isFinite(entry.offset) ? entry.offset : null }
 }
 
 // --- the recording ---
@@ -443,6 +443,25 @@ function mergeWhole(prev, add, secs, raw) {
   return Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
 }
 
+/**
+ * The entry with the song's learned onset (lyrics-timing robustOnset over its aligned lines: first word
+ * − the line's stamp) as `offset` (s, + = sung after the stamp) and `offsetSource: 'aligned'`, so a
+ * later play starts its estimated lines (rejected or missed ones) right, and the stats can show it.
+ * Unchanged when fewer than ONSET_MIN_LINES lines are aligned.
+ */
+function withOffset(entry, raw) {
+  if (!entry || !entry.lines || !raw) return entry
+  const delays = []
+  // loop: NOT-WORTH — the entry's aligned lines (tens), once per alignment result
+  for (const [k, a] of Object.entries(entry.lines)) {
+    const line = raw[k]
+    if (line && line.t != null && a && Array.isArray(a.words) && a.words.length) delays.push(a.words[0].t - line.t)
+  }
+  const offset = T.robustOnset(delays)
+  if (offset == null) return entry
+  return Object.assign({}, entry, { offset: Math.round(offset * 1000) / 1000, offsetSource: 'aligned' })
+}
+
 /** The sections a later play aligns again for an entry's missed lines (none once MAX_FILLS plays tried). */
 function refillSections(entry, secs) {
   if (!entry || !Array.isArray(entry.missed) || !entry.missed.length || (entry.fills || 0) >= MAX_FILLS) return []
@@ -579,6 +598,7 @@ function createAlignSession(deps) {
           const add = entryFromResult(sec ? sectionResult(result, sec, req.offset) : result, s.raw, lineHeard, { duration: until })
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
           if (s.fills) s.entry.fills = s.fills
+          s.entry = withOffset(s.entry, s.raw)
           R.put(deps.store, s.storeKey, s.entry, s.rec)
           log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
           if (song && song.key === s.key && add.aligned) deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
@@ -724,7 +744,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, findAligned, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole,
+  alignedKey, findAligned, lyricsHash, canAlign, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
 }

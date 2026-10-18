@@ -9,7 +9,9 @@
 //
 // Learned words live in the lyrics store under `refined|isrc:<ISRC>` (`refined|title|artist` when the
 // ISRC is unknown; recording-id.js, which also checks the recording's length):
-//   { v: 1, lines: { [lineIndex]: { text, words: [{ t, end, text }], plays } } }
+//   { v: 1, lines: { [lineIndex]: { text, words: [{ t, end, text }], plays } }, offset?, offsetSource? }
+// offset (0.15.42): the song's onset learned from those lines (lyrics-timing robustOnset of first word −
+// the line's stamp, from 3+ lines), offsetSource 'listen'; a later play starts its estimated lines with it.
 // Each play refines from the plain estimate (so no word drifts more than MAX_SHIFT from it) and
 // the result is merged into the running average with mergeLearned.
 const T = require('./lyrics-timing')
@@ -67,6 +69,18 @@ function recordLearned(prev, i, line, words, mergeLearned) {
   const plays = old ? old.plays || 1 : 0
   entry.lines[i] = { text: line.text, words: mergeLearned(old ? old.words : null, words, plays), plays: plays + 1 }
   return entry
+}
+
+/** The entry with its `offset` from its learned lines against `lines`' stamps (unchanged under 3 lines). */
+function withOffset(entry, lines) {
+  const delays = []
+  // loop: NOT-WORTH — the entry's learned lines (tens), once per refined line
+  for (const [k, l] of Object.entries(entry.lines)) {
+    const line = lines[k]
+    if (line && line.t != null && l.words && l.words.length) delays.push(l.words[0].t - line.t)
+  }
+  const offset = T.robustOnset(delays)
+  return offset == null ? entry : Object.assign(entry, { offset: Math.round(offset * 1000) / 1000, offsetSource: 'listen' })
 }
 
 /**
@@ -163,7 +177,7 @@ function createListenSession(deps) {
       try { res = deps.refineWords(line, evidence, opts) } catch (e) { log('refine failed: ' + e.message); continue }
       if (!res || !res.words || !sameWords(line.words, res.words) || !(res.confidence >= MIN_CONFIDENCE)) continue
       // merged into this recording's entry only (song.learned: null when the stored one is another recording's)
-      const entry = recordLearned(song.learned, i, line, res.words, deps.mergeLearned)
+      const entry = withOffset(recordLearned(song.learned, i, line, res.words, deps.mergeLearned), lines)
       song.learned = entry
       R.put(deps.store, song.storeKey, entry, song.rec)
       deps.send('lyrics-refined', { key: song.key, lineIndex: i, words: entry.lines[i].words })
@@ -177,7 +191,7 @@ function createListenSession(deps) {
   return {
     /**
      * New lyrics for the window. lines: the estimated lines (before learned data). Returns the
-     * lines to render ({ lines, refined }) with learned words applied.
+     * lines to render ({ lines, refined, onset }) with learned words applied (onset: the entry's offset, or null).
      */
     setLyrics(key, title, artist, lines, enabled, info) {
       stopListening()
@@ -185,7 +199,7 @@ function createListenSession(deps) {
       const estimated = !!lines && lines.some((l) => l.estimated)
       song = enabled && estimated ? { key, title, artist, base: lines, done: new Set() } : null
       allOnsets = []
-      if (!song) return { lines, refined: false }
+      if (!song) return { lines, refined: false, onset: null }
       // this recording's learned words (info: { isrc, duration }); an old entry of a "(Live)"-style title
       // only when its words start where these lines do
       const rec = R.songOf(Object.assign({}, info, { title, artist }))
@@ -194,7 +208,7 @@ function createListenSession(deps) {
       song.rec = rec
       song.learned = found.entry
       const got = applyLearned(lines, found.entry)
-      return { lines: got.lines, refined: got.used }
+      return { lines: got.lines, refined: got.used, onset: found.entry && Number.isFinite(found.entry.offset) ? found.entry.offset : null }
     },
     /** Per lyrics poll tick: the playback time push. Runs/stops the listener. */
     tick(playbackTime, isPlaying, enabled) {
@@ -214,5 +228,5 @@ function createListenSession(deps) {
 
 module.exports = {
   MONITOR_LATENCY, EVIDENCE_PAD, MIN_CONFIDENCE,
-  learnedKey, songTimeAt, chunkStart, applyLearned, recordLearned, createListenSession
+  learnedKey, songTimeAt, chunkStart, applyLearned, recordLearned, withOffset, createListenSession
 }
