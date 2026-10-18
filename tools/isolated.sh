@@ -17,10 +17,21 @@
 #     snap sandbox (a snap's GTK/locale paths crash Chromium: SIGTRAP and a desktop crash notice)
 #   - a throwaway HOME, XDG dirs and XDG_RUNTIME_DIR (own settings, login, sockets; no PulseAudio)
 #   - Wayland and KDE session variables unset; its own Xvfb display (nothing on Marcy's screen)
-#   - dbus-run-session: a private session bus (no tray icon, no media controls, no portal on hers)
+#   - env -i: a clean environment built here (PATH, LANG, USER, its HOME and XDG dirs, nothing else of the
+#     caller's: no WAYLAND_DISPLAY, DISPLAY, DBUS_SESSION_BUS_ADDRESS or session variables)
+#   - dbus-run-session from a minimal config (root/session.conf) whose only service folder is EMPTY: nothing
+#     can be D-Bus-activated on it by name, so no xdg-desktop-portal(-kde), document portal, kscreen,
+#     kwalletd/ksecretd, dconf or at-spi (2026-10-18: such helpers, started on test copies' private buses,
+#     left SIGABRT dumps that can pop crash notices on Marcy's desktop). GTK_USE_PORTAL=0, NO_AT_BRIDGE=1,
+#     GSETTINGS_BACKEND=memory and GIO_USE_VFS=local keep the toolkit from asking for them at all
+#   - bubblewrap with an empty tmpfs over /run/user/UID: Marcy's runtime dir (her bus, Wayland, PipeWire,
+#     wallet sockets) can't be reached even by a full path
 #   - --password-store=basic (no KDE Wallet prompt), --no-sandbox (Ubuntu's AppArmor userns rule)
 #   - quit via app.exit(0) through the inspector: never SIGTERM (Electron answers it with a core dump,
 #     and every dump pops a crash notice on Marcy's desktop); kill -KILL only as a last resort
+#   - stop's after-check fails on a core dump of this copy (its binary, or any process with its runtime dir
+#     in its environment or its app.log open) or a desktop helper it started; other sessions' dumps and
+#     helpers (other agents' copies, the desktop) are listed, not judged
 set -euo pipefail
 cmd="${1:-}"; shift || true
 cdp=9481; insp=9482; disp=87; disp_given=0; envs=(); bin=""; extra=()
@@ -39,6 +50,9 @@ byport="${TMPDIR:-/tmp}/sonata-isolated-insp-$insp"
 [ "$cmd" = stop ] && [ "$disp_given" = 0 ] && [ -s "$byport" ] && disp="$(cat "$byport")"
 root="${TMPDIR:-/tmp}/sonata-isolated-$disp"
 unit="sonata-isolated-$disp"
+# desktop helpers a test copy must never start, matched by the program path at the start of the command line
+WATCH='^/usr/[^ ]*/(xdg-desktop-portal[^ /]*|xdg-document-portal|xdg-permission-store|kscreen_backend_launcher|kwalletd[0-9]*|ksecretd|at-spi-bus-launcher|at-spi2-registryd|dconf-service)( |$)'
+watched_pids() { pgrep -f "$WATCH" | sort || true; }
 
 case "$cmd" in
   start)
@@ -54,7 +68,23 @@ case "$cmd" in
     # the private bus may have started the document portal, whose FUSE mount sits in the runtime dir
     [ -f "$root/cleanup.sh" ] && bash "$root/cleanup.sh"
     { fusermount3 -u "$root/run/doc" || fusermount3 -uz "$root/run/doc"; } 2>/dev/null || true
-    rm -rf "$root"; mkdir -p "$root/home" "$root/run"; chmod 700 "$root/run"
+    rm -rf "$root"; mkdir -p "$root/home" "$root/run" "$root/no-services"; chmod 700 "$root/run"
+    # the private session bus: its only service folder is empty, so nothing can be started on it by name
+    cat > "$root/session.conf" <<EOF
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <keep_umask/>
+  <listen>unix:dir=$root/run</listen>
+  <auth>EXTERNAL</auth>
+  <servicedir>$root/no-services</servicedir>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+EOF
     bin="$(readlink -f "$bin")"
     xa=""; [ ${#extra[@]} -gt 0 ] && xa="$(printf '%q ' "${extra[@]}")"
     cat > "$root/inner.sh" <<EOF
@@ -62,13 +92,15 @@ case "$cmd" in
 Xvfb :$disp -screen 0 1920x1080x24 -nolisten tcp > "$root/xvfb.log" 2>&1 &
 xvfb=\$!
 for i in \$(seq 50); do [ -e /tmp/.X11-unix/X$disp ] && break; sleep 0.1; done
-DISPLAY=:$disp dbus-run-session -- bash -c 'echo "\$DBUS_SESSION_BUS_ADDRESS" > "$root/bus"; exec "\$@"' sonata "$bin" --no-sandbox --password-store=basic --remote-debugging-port=$cdp --inspect=$insp $xa > "$root/app.log" 2>&1
+DISPLAY=:$disp dbus-run-session --config-file="$root/session.conf" -- bash -c 'echo "\$DBUS_SESSION_BUS_ADDRESS" > "$root/bus"; exec "\$@"' sonata \
+  bwrap --dev-bind / / --tmpfs "/run/user/$(id -u)" "$bin" --no-sandbox --password-store=basic --remote-debugging-port=$cdp --inspect=$insp $xa > "$root/app.log" 2>&1
 code=\$?
 kill \$xvfb 2>/dev/null
 echo "exit \$code" >> "$root/app.log"
 EOF
     chmod +x "$root/inner.sh"
     echo "$bin" > "$root/bin"; date '+%Y-%m-%d %H:%M:%S' > "$root/started"; echo "$disp" > "$byport"
+    watched_pids > "$root/watched-before"
     # however the unit ends (app.exit, a closed window, a kill), systemd ends every process left in it,
     # FUSE daemons included: the portal's and an AppImage's own. Their mounts stay behind, so the unit's
     # ExecStopPost (and stop) unmount them: run/doc, and the AppImage mount recorded at start.
@@ -80,11 +112,11 @@ done
 true
 EOF
     systemd-run --user --quiet --collect --unit "$unit" -p "ExecStopPost=/bin/bash $root/cleanup.sh" \
-      env -u WAYLAND_DISPLAY -u XDG_SESSION_TYPE -u XDG_SESSION_DESKTOP -u XDG_CURRENT_DESKTOP -u DESKTOP_SESSION \
-          -u KDE_FULL_SESSION -u KDE_SESSION_VERSION -u KDE_SESSION_UID -u SESSION_MANAGER -u DBUS_SESSION_BUS_ADDRESS \
-          -u ELECTRON_OZONE_PLATFORM_HINT -u QT_QPA_PLATFORMTHEME -u GTK_MODULES -u DISPLAY -u APPIMAGE -u APPDIR \
+      env -i PATH=/usr/local/bin:/usr/bin:/bin LANG="${LANG:-C.UTF-8}" USER="$USER" LOGNAME="$USER" \
           HOME="$root/home" XDG_CONFIG_HOME="$root/home/.config" XDG_DATA_HOME="$root/home/.local/share" \
-          XDG_CACHE_HOME="$root/home/.cache" XDG_RUNTIME_DIR="$root/run" PULSE_SERVER=unix:/nonexistent \
+          XDG_CACHE_HOME="$root/home/.cache" XDG_RUNTIME_DIR="$root/run" XDG_DATA_DIRS=/usr/local/share:/usr/share \
+          XDG_CONFIG_DIRS=/etc/xdg PULSE_SERVER=unix:/nonexistent \
+          GTK_USE_PORTAL=0 NO_AT_BRIDGE=1 GSETTINGS_BACKEND=memory GIO_USE_VFS=local \
           "${envs[@]}" "$root/inner.sh"
     for i in $(seq 100); do curl -fs "http://127.0.0.1:$insp/json/list" >/dev/null 2>&1 && break; sleep 0.2; done
     # an AppImage runs from its own FUSE mount (/tmp/.mount_*): note this copy's, from its unit's processes
@@ -121,12 +153,31 @@ EOF
     procs=$((procs + $(pgrep -fc "^Xvfb :$disp " || true)))
     echo "left behind: $left mounts, $procs processes"
     [ "$left" = 0 ] && [ "$procs" = 0 ] || exit 1
-    # every dump since the start (of this copy's binary, and of anything else, as a warning)
+    # core dumps since the start: this copy's (its binary, or any process with its runtime dir in its
+    # environment or its app.log open) fail; other sessions' are listed only
     since="$(cat "$root/started" 2>/dev/null || echo '-10min')"
-    all="$(coredumpctl list --since "$since" --no-legend 2>/dev/null || true)"
-    ours="$(printf '%s\n' "$all" | grep -cF "$(cat "$root/bin" 2>/dev/null || echo /nonexistent)" || true)"
-    echo "coredumps of this copy since its start: $ours (any process: $(printf '%s\n' "$all" | grep -c . || true))"
-    [ "$ours" = 0 ] || exit 1
+    dumps="$(journalctl --user --system --since "$since" MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1 -o json 2>/dev/null |
+      node -e '
+        const [run, log, exe] = process.argv.slice(1)
+        const text = (v) => (Array.isArray(v) ? Buffer.from(v).toString() : String(v == null ? "" : v))
+        let data = ""; process.stdin.on("data", (c) => (data += c)).on("end", () => {
+          for (const line of data.split("\n").filter(Boolean)) {
+            const d = JSON.parse(line)
+            const mine = text(d.COREDUMP_ENVIRON).includes("XDG_RUNTIME_DIR=" + run) || text(d.COREDUMP_OPEN_FDS).includes(log) || text(d.COREDUMP_EXE) === exe
+            console.log((mine ? "OURS " : "OTHER ") + text(d.COREDUMP_PID) + " " + text(d.COREDUMP_EXE) + " " + text(d.COREDUMP_SIGNAL_NAME))
+          }
+        })' "$root/run" "$root/app.log" "$(cat "$root/bin" 2>/dev/null || echo /nonexistent)" || true)"
+    ours="$(printf '%s\n' "$dumps" | grep -c '^OURS ' || true)"
+    printf '%s\n' "$dumps" | grep '^OURS ' || true
+    printf '%s\n' "$dumps" | grep '^OTHER ' | sed 's/^/not this copy, reported only: /' || true
+    # desktop helpers started since the start: this copy's (its runtime dir in their environment) fail
+    helpers=0
+    for p in $(comm -13 "$root/watched-before" <(watched_pids) 2>/dev/null); do
+      if grep -qsaF "XDG_RUNTIME_DIR=$root/run" "/proc/$p/environ"; then echo "this copy started a desktop helper: $(ps -o pid=,args= -p "$p" || true)"; helpers=$((helpers + 1))
+      else echo "not this copy, reported only: helper $(ps -o pid=,args= -p "$p" || echo "$p (gone)")"; fi
+    done
+    echo "core dumps of this copy since its start: $ours; desktop helpers it started: $helpers"
+    [ "$ours" = 0 ] && [ "$helpers" = 0 ] || exit 1
     ;;
   *) sed -n 2,9p "$0"; exit 2 ;;
 esac

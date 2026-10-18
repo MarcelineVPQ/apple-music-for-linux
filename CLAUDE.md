@@ -123,11 +123,13 @@ Every Electron run for a check uses `tools/isolated.sh` (or the same recipe):
 - a throwaway `HOME`, `XDG_*` dirs and `XDG_RUNTIME_DIR` (own settings and login, no PulseAudio);
 - `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `KDE_*`, `DESKTOP_SESSION`,
   `SESSION_MANAGER`, `DBUS_SESSION_BUS_ADDRESS` unset; its own Xvfb display (never her screen);
-- `dbus-run-session` (no tray icon, no media player, no portal on her bus);
+- `env -i` (a clean environment) and `dbus-run-session` from a config whose only service folder is empty: nothing
+  can be D-Bus-activated (no portal, kscreen, wallet, at-spi; no tray icon or media player on her bus), with
+  `GTK_USE_PORTAL=0`; her `/run/user/UID` hidden by `bwrap`;
 - `--password-store=basic` (no KDE Wallet prompt) and `--no-sandbox` (Ubuntu's AppArmor userns rule);
 - quit with `app.exit(0)` through the inspector (`tools/isolated.sh stop`) or by closing the window;
   **never SIGTERM** (Electron answers it with a core dump), `kill -KILL` only as a last resort;
-  afterwards `coredumpctl list --since -10min` must be empty;
+  afterwards `tools/isolated.sh stop` must report no core dump and no desktop helper of this copy;
 - **never start an AppImage from `~/Downloads`**: it repoints `~/Downloads/Sonata.AppImage` to itself and
   prunes older `sonata-*.AppImage` beside it, even with a throwaway HOME. Use `dist/linux-unpacked/apple-music-for-linux`
   or copy the AppImage to a scratch folder. Never touch the `Sonata.AppImage` symlink or Marcy's running
