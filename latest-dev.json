@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.59-dev.1",
-  "file": "sonata-0.15.59-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.59-dev.1/sonata-0.15.59-dev.1-x86_64.AppImage",
-  "sha512": "267670b27657b1aa22ac193345e49c3fd771f4d4080283c9ea7705904e650bdb2d9ca06b4afc4c1b2015888163462cfef20ec223938b4869d6e7c98e4cf5089c",
-  "size": 127557985,
-  "date": "2026-10-19T20:31:53Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.59-dev.1",
-  "notes": "### Fixed\n- **The words no longer jump back and forth.** On a PC without a graphics card for the helper (a laptop with Intel graphics: \"Processor only\"), timing a new song took longer than the song itself. The lyric clock then stepped backwards whenever a late update arrived, and words timed 20–50 s late re-timed the very line being sung, so a lit word went dark again. Now the clock never moves backwards (it eases small differences in, and takes the update's delay into account), and a line being sung keeps its timing until it ends; the new timing applies from the next line.\n- **Sonata no longer gets slower and bigger the longer an album repeats.** On a processor-only PC the helper fell behind the music and kept every waiting song's audio and work in a queue (Marcy's laptop: 53 % CPU and 3.5 GiB after a long stretch, 3 % and 600 MiB after a restart). The helper now only works on the song playing and the one before it; anything older is dropped (it is timed on a later play).\n- **A song whose last line comes right at its end is timed completely.** Its last section was never counted as heard, so the song was recorded again on every play without ever finishing.\n\n### Changed\n- **Processor only: songs are timed after they play.** Instead of section by section during the song, a new song is timed once, as a whole, when it ends, about half the work. The lyrics say \"Precise timing after this song, to keep playback smooth\" meanwhile; the next play has the precise words.\n- **The helper runs below the music.** It runs at a lower priority than playback on every PC; on a processor-only PC it also leaves two cores free and quits after 2 minutes idle (its models hold about 3 GB of memory) instead of 10.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.59-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.60-dev.1",
+  "file": "sonata-0.15.60-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.60-dev.1/sonata-0.15.60-dev.1-x86_64.AppImage",
+  "sha512": "0fa1ea4f1e286a16369e561f40ad2d92c975cb9843dc49f0399b2723c6488edd91e599ddab18833d54c674c56abdb140bfc8b6578e18561026d9861d635e5ab8",
+  "size": 127557911,
+  "date": "2026-10-19T20:34:22Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.60-dev.1",
+  "notes": "### Added\n- **Lyrics for the next songs are ready before they play.** While the lyrics show, Sonata quietly looks up the lyrics of the next three songs in Up Next (the rest of the album when you're playing one), one at a time, and keeps them with the songs you've played. When LRCLIB is busy it waits and tries later; with LRCLIB lyrics off only Apple Music is asked. Lyrics text only: no timing work runs for songs that aren't playing.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.60-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
