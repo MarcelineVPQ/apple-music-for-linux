@@ -455,7 +455,7 @@ Apple page, worst-case test artwork for the Glass checks unless noted):
 | 50 show/hide (real clicks on the rail), 50 pin + open/fold cycles, 50 navigations, at 1600 px (docked) and 1100 px (drawer) | main-process IPC handler, window and view listener counts unchanged; views and web contents unchanged (no toast view left); timers 1; panel page 22 listeners / 215 nodes folded, every time; rail 10 / unchanged; Apple's page unchanged over show/hide and pin cycles (7,379 listeners), growing only with navigations (Apple's own, as before) |
 | progressive alignment while playing (`tools/drift-check/stutter-check.js`, real helper on the RTX 5080, 6 section jobs inside the running app) | media time vs wall clock 1.0006 (quiet 1.0001), longest stall 25 ms = one sample (quiet: same), main-process event-loop lag max 2 ms; the first job 17 s (model load), the others 0.2–0.4 s |
 
-## Graphics experiments: Settings → Experimental (after 0.15.41-dev.1)
+## Graphics experiments: Settings → Experimental graphics (after 0.15.41-dev.1)
 
 docs/research/hdr-hw-accel-apple-music-2026-10.md (research-gpu-render branch) sections 5–7. Every switch is
 measured on and off on an isolated copy on the real GPU: this branch from source with castlabs Electron

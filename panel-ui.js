@@ -108,16 +108,7 @@
     b.dataset.key = key
     // lifetime: OK — one click listener per switch, dropped with its section's body
     b.addEventListener('click', (e) => { if (e.isTrusted && !b.disabled) bridge.send('set', key, b.getAttribute('aria-checked') !== 'true') })
-    // the longer explanation behind an ⓘ beside the switch (opt.info: a string or a function of the snapshot)
-    // (inline after the label, as the helper row's: the switch keeps its place on the right)
-    const info = opt.info ? attachInfo(r, desc, labelText, opt.info) : null
-    // (the label and the ⓘ share a line; the label alone names the switch)
-    if (info) {
-      r.classList.add('inline-info')
-      const head = el('span', 'row-head')
-      label.replaceWith(head)
-      head.append(label, ' ', info.btn)
-    }
+    const info = rowInfo(r, label, desc, labelText, opt.info)
     return {
       el: r,
       update(s) {
@@ -132,6 +123,18 @@
       }
     }
   }
+  // the longer explanation behind an ⓘ beside a row's label (info: a string or a function of the snapshot;
+  // none: null). Inline after the label, as the helper row's: the control keeps its place on the right; the
+  // label alone names the control. One implementation for switches, selects and key rows (attachInfo below).
+  function rowInfo(r, label, desc, labelText, infoText) {
+    if (!infoText) return null
+    const info = attachInfo(r, desc, labelText, infoText)
+    r.classList.add('inline-info')
+    const head = el('span', 'row-head')
+    label.replaceWith(head)
+    head.append(label, ' ', info.btn)
+    return info
+  }
   function selectRow(key, labelText, descText, options, o) {
     const opt = o || {}
     const sel = el('select', 'select')
@@ -143,10 +146,12 @@
     sel.dataset.key = key
     // lifetime: OK — one change listener per select, dropped with its section's body
     sel.addEventListener('change', (e) => { if (e.isTrusted) bridge.send('set', key, sel.value) })
+    const info = rowInfo(r, label, desc, labelText, opt.info)
     return {
       el: r,
       update(s) {
         const v = s.v || {}
+        if (info) info.update(v)
         // option labels that state a constant's number (a function of the snapshot)
         // loop: NOT-WORTH — ≤ 3 options per state push
         options.forEach(([, text], i) => { if (typeof text === 'function') setText(sel.options[i], text(v)) })
@@ -155,7 +160,7 @@
         const off = opt.disabled ? opt.disabled(v) : false
         sel.disabled = !!off
         r.classList.toggle('disabled', !!off)
-        setText(desc, (off && opt.why) || (opt.desc ? opt.desc(v) : descText) || '')
+        setText(desc, (off && (typeof opt.why === 'function' ? opt.why(v) : opt.why)) || (opt.desc ? opt.desc(v) : descText) || '')
         r.hidden = opt.hidden ? !!opt.hidden(v) : false
       }
     }
@@ -212,6 +217,7 @@
     setAttr(input, 'aria-describedby', desc.id)
     setAttr(save, 'aria-label', 'Save the ' + labelText + ' key')
     setAttr(remove, 'aria-label', 'Remove the ' + labelText + ' key')
+    const info = rowInfo(r, label, desc, labelText, opt.info)
     const valid = () => /^[A-Za-z0-9-]{8,64}$/.test(input.value.trim())
     const paint = () => { save.hidden = !input.value.trim(); save.disabled = !valid() }
     // lifetime: OK — input, keydown and the two clicks, dropped with the section's body
@@ -225,6 +231,7 @@
       update(s) {
         const v = s.v || {}
         const set = !!v[opt.setFlag]
+        if (info) info.update(v)
         remove.hidden = !set
         setText(desc, statusFn(v, set))
       }
@@ -390,13 +397,26 @@
     const p = el('p', cls)
     return { el: p, update(s) { const t = fn(s.v || {}, s); setText(p, t); p.hidden = !t } }
   }
-  const group = (titleText, parts) => {
+  // a group of rows under a subhead; o.hidden(v): the whole group (subhead too) hides
+  const group = (titleText, parts, o) => {
     const g = el('div', 'group')
     if (titleText) g.appendChild(el('h3', 'subhead', titleText))
     // loop: NOT-WORTH — a few controls per group
     for (const p of parts) g.appendChild(p.el)
-    return { el: g, update(s) { for (const p of parts) p.update(s) } }
+    return {
+      el: g,
+      update(s) {
+        g.hidden = !!(o && o.hidden && o.hidden(s.v || {}))
+        if (g.hidden) return
+        // loop: NOT-WORTH — a few controls per group
+        for (const p of parts) p.update(s)
+      }
+    }
   }
+  // Settings' one Development-build check: true hides a dev-only row (main.js devBuild: the version is -dev.N)
+  const devOnly = (v) => !v.devBuild
+  // the helper installed and Precise word timing on: what Expressive words and Sheet notes need
+  const preciseReady = (v) => !!(v.alignInstalled && v.lyricsPreciseTiming)
 
   // --- links: only http(s), opened by main in the browser ---
   function link(text, url, cls) {
@@ -436,67 +456,119 @@
   // --- the sections' bodies (built only while open) ---
   const BODY = {
     settings: {
+      // the IA pass (2026-10-19, Marcy approved): every visible line ≤ 60 characters, the rest behind the ⓘ;
+      // a row that needs another sits right under it; the danger zone last; one Development-build check
+      // (devOnly) for the dev-only rows
+      timing: () => {
+        // the helper: its state, Install / Update / Repair / Rebuild, progress, licence (panel-helper.js);
+        // its Remove… is the section's last row
+        const helper = globalThis.SonataPanelHelper.create({ doc, el, setAttr, setText, nextId, bridge, markdown })
+        return [
+          helper,
+          switchRow('alignAutoUpdate', 'Update the helper automatically', 'Newer helpers install by themselves; licences shown first',
+            { hidden: (v) => !v.alignInstalled, info: 'When a newer helper is out, it is installed by itself; the downloaded models stay. A changed licence is still shown first, and nothing is installed until you accept it.' }),
+          switchRow('lyricsPreciseTiming', 'Precise word timing (experimental)', 'Lines each word up with the singing, on this PC',
+            { hidden: (v) => !v.alignInstalled,
+              info: 'The helper separates the vocals and lines up each word with the singing, on this computer\'s graphics card (the processor works too, slowly), after a song has played once with a lyric view open. The audio stays in memory; only the word times are kept.' }),
+          // look-ahead play (lookahead.js): Experimental, Linux, Development builds only (hidden elsewhere)
+          switchRow('lookahead', 'First play: precise from the start (experimental)', 'A first play starts a few seconds late, its words on time',
+            { hidden: (v) => devOnly(v) || !v.lookaheadShown || !v.alignInstalled,
+              disabled: (v) => !v.lookaheadOk || !v.lyricsPreciseTiming,
+              why: (v) => (!v.lookaheadOk ? 'Not in this build: its delay helper is missing' : 'Needs Precise word timing (above) on'),
+              info: (v) => 'On a song\'s first play, Sonata plays it ' + v.lookaheadPrecise + ' s (Precise) or ' + v.lookaheadQuick + ' s (Quick) behind, so the timing helper hears every word before you do and the words light up on time from the first play. ' +
+                'Playback starts that long after you press play, and after a seek you hear the new place after the same wait. Pause stops at once. ' +
+                'Songs Sonata has learned, songs with nothing to learn and music videos play with no delay. ' +
+                'It needs Precise word timing and a graphics card that isn\'t busy; without them a song plays with no delay and its timing comes in sections, as before. ' +
+                'Apple\'s own progress bar runs ahead by the delay; Sonata\'s lyrics, Studio and mini player follow what you hear. ' +
+                'Linux only: while it runs, your sound settings show a "Sonata look-ahead" device; it goes away when Sonata closes or the switch goes off.' }),
+          selectRow('lookaheadDelay', 'Look-ahead delay', 'Precise times more words right; Quick starts sooner',
+            [['precise', (v) => 'Precise (' + v.lookaheadPrecise + ' s delay)'], ['quick', (v) => 'Quick (' + v.lookaheadQuick + ' s delay)']],
+            { hidden: (v) => devOnly(v) || !v.lookaheadShown || !v.alignInstalled || !v.lookahead || !v.lyricsPreciseTiming }),
+          textBlock('note', (v) => (!devOnly(v) && v.lookaheadShown && v.alignInstalled && v.lookahead ? v.lookaheadStatus || '' : '')),
+          switchRow('alignGamingPause', 'Pause while gaming', 'No new work while a game uses the graphics card',
+            { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
+              info: 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.' }),
+          group('Without the helper', [
+            switchRow('estimatedWordTiming', 'Estimated word timing', 'Spreads line-timed lyrics across their words',
+              { info: 'When a song has line timing only, Sonata spreads each line across its words, marked "estimated", until Precise word timing or listening does better.' }),
+            switchRow('lyricsListenRefine', 'Refine timing by listening (experimental)', 'Moves estimated words to where they are sung',
+              { disabled: (v) => !v.estimatedWordTiming, why: 'Needs Estimated word timing (above) on',
+                info: 'Listens to Sonata\'s own audio on the processor while a lyric view is open and moves estimated words to where they\'re sung. Analysed in memory, never saved or sent.' })
+          ]),
+          // a developer tool for judging the sung notes on live tracks
+          group('Developer', [
+            switchRow('sungNotesLog', 'Sung notes (developer log)', 'Saves each song\'s sung notes, never the audio',
+              { disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
+                info: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ' + v.notesDir + '/, at most ' + Number(v.notesMax).toLocaleString('en-US') + ' songs (' + v.notesMaxSize + '), oldest removed.' + rmvpeNote(v) }),
+            textBlock('note', (v) => (v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : ''))
+          ], { hidden: (v) => devOnly(v) || !v.alignInstalled }),
+          helper.danger
+        ]
+      },
       playback: () => [
-        switchRow('notifications', 'Track notifications', 'A desktop notification when the song changes'),
-        switchRow('lrclibFallback', 'LRCLIB lyrics', 'When Apple has no lyrics, look the song up on lrclib.net (sends title, artist, album and length)'),
-        switchRow('estimatedWordTiming', 'Estimated word timing', 'When a song has line timing only, spread each line across its words (marked "estimated")'),
-        // Expressive words (lyrics-expressive.js): on by default on Development channel builds (main sends the effective value)
-        switchRow('expressiveWords', 'Expressive words', 'Held notes stretch, waver and drift behind the lyrics the way they were sung, on top of the word light. Only what Precise word timing measured is shown; off is the plain karaoke.',
-          { disabled: (v) => !v.alignInstalled || !v.lyricsPreciseTiming, why: 'Needs Precise word timing (Precise timing) on' }),
-        // its sub-switch, for judging on Development builds: a neutral "ooo" where a held note has no lyric word
-        switchRow('expressiveVocalise', 'Wordless vocalise ghosts', 'A faint "ooo" behind the lyrics where a held note has no lyric word (an intro\'s "ooh"), only where it was measured.',
-          { hidden: (v) => !/-dev(\.\d+)?$/.test(v.version || ''), disabled: (v) => !v.expressiveWords || !v.alignInstalled || !v.lyricsPreciseTiming, why: 'Needs Expressive words (above) on' }),
-        switchRow('lyricsArtSpin', 'Spin album art like a record', 'Turn the round cover in the lyrics window while music plays'),
-        selectRow('lyricsArtSpinSpeed', 'Record speed', 'Relaxed feels like a record across the room; True is 33⅓ rpm for albums, 45 for singles and EPs',
-          [['relaxed', 'Relaxed'], ['true', 'True']], { disabled: (v) => !v.lyricsArtSpin, why: 'Needs Spin album art like a record (above) on' }),
-        // look-ahead play (lookahead.js): Experimental, Linux, Development builds only (hidden elsewhere)
-        switchRow('lookahead', 'First play: precise from the start (experimental)', 'A first play starts a few seconds late, its words on time',
-          { hidden: (v) => !v.lookaheadShown, disabled: (v) => !v.lookaheadOk, why: 'Not in this build: its delay helper is missing',
-            info: (v) => 'On a song\'s first play, Sonata plays it ' + v.lookaheadPrecise + ' s (Precise) or ' + v.lookaheadQuick + ' s (Quick) behind, so the timing helper hears every word before you do and the words light up on time from the first play. ' +
-              'Playback starts that long after you press play, and after a seek you hear the new place after the same wait. Pause stops at once. ' +
-              'Songs Sonata has learned, songs with nothing to learn and music videos play with no delay. ' +
-              'It needs Precise word timing and a graphics card that isn\'t busy; without them a song plays with no delay and its timing comes in sections, as before. ' +
-              'Apple\'s own progress bar runs ahead by the delay; Sonata\'s lyrics, Studio and mini player follow what you hear. ' +
-              'Linux only: while it runs, your sound settings show a "Sonata look-ahead" device; it goes away when Sonata closes or the switch goes off.' }),
-        selectRow('lookaheadDelay', 'Look-ahead delay', 'Precise times more words right; Quick starts sooner',
-          [['precise', (v) => 'Precise (' + v.lookaheadPrecise + ' s delay)'], ['quick', (v) => 'Quick (' + v.lookaheadQuick + ' s delay)']],
-          { hidden: (v) => !v.lookaheadShown || !v.lookahead }),
-        textBlock('note', (v) => (v.lookaheadShown && v.lookahead ? v.lookaheadStatus || '' : ''))
-      ],
-      timing: () => [
-        switchRow('lyricsListenRefine', 'Refine timing by listening (experimental)', 'Listens to Sonata\'s own audio while a lyric view is open to move estimated words to where they\'re sung. Analysed in memory, never saved or sent.',
-          { disabled: (v) => !v.estimatedWordTiming, why: 'Needs Estimated word timing (Playback & lyrics) on' }),
-        // the helper: its state, Install / Update / Repair / Remove, progress, licence (panel-helper.js)
-        globalThis.SonataPanelHelper.create({ doc, el, setAttr, setText, nextId, bridge, markdown }),
-        switchRow('lyricsPreciseTiming', 'Precise word timing (GPU, experimental)', 'Separates the vocals and lines up each word with the singing, on this computer, after a song has played once with a lyric view open. Audio stays in memory; only the word times are kept.',
-          { hidden: (v) => !v.alignInstalled }),
-        switchRow('alignGamingPause', 'Pause word timing while gaming', 'While a game runs (GameMode, a Steam game, or another app keeping the graphics card busy), Precise word timing starts no new work and its helper quits to free graphics memory. Songs keep their estimated timing; what was missed is aligned on a later play.',
-          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on' }),
-        // a developer tool for judging the sung notes on live tracks: Development channel only
-        switchRow('sungNotesLog', 'Sung notes (developer log)', '',
-          { hidden: (v) => !v.alignInstalled || v.updateChannel !== 'dev', disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (above) on',
-            desc: (v) => 'After a song\'s whole-song alignment, Sonata works out the sung notes and saves only the notes (no audio) to ' + v.notesDir + '/, at most ' + Number(v.notesMax).toLocaleString('en-US') + ' songs (' + v.notesMaxSize + '), oldest removed.' +
-              rmvpeNote(v) }),
-        textBlock('note', (v) => (v.alignInstalled && v.updateChannel === 'dev' && v.lyricsPreciseTiming && v.sungNotesLog ? v.notesStatus || '' : '')),
-        switchRow('alignAutoUpdate', 'Update the helper automatically', 'When a newer helper is out, it is installed by itself (the models stay). A changed licence is still shown first.',
-          { hidden: (v) => !v.alignInstalled }),
-        // the helper's answer while it starts or when it doesn't work ("Ready on …" is in the state row above)
-        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && !/^Ready/.test(v.alignStatus || '') ? (v.alignStatus || 'Asking the helper…') : ''))
+        group('Sources', [
+          switchRow('lrclibFallback', 'LRCLIB lyrics', 'When Apple has none, looks them up on lrclib.net',
+            { info: 'When Apple Music has no lyrics for a song, Sonata looks it up on lrclib.net, a free lyrics database, sending only its title, artist, album and length.' })
+        ]),
+        group('How the words look', [
+          // without the helper and Precise word timing nothing here can show: one line and the way there
+          actionRow('Expressive words', () => 'Needs Precise timing', [{ label: 'Set up Precise timing', action: 'show-timing' }],
+            { hidden: preciseReady }),
+          // Expressive words (lyrics-expressive.js): on by default on Development builds (main sends the effective value)
+          switchRow('expressiveWords', 'Expressive words', 'Held notes stretch and drift the way they were sung',
+            { hidden: (v) => !preciseReady(v),
+              info: 'Held notes stretch, waver and drift behind the lyrics the way they were sung, on top of the word light. Only what Precise word timing measured is shown; off is the plain karaoke.' }),
+          // its sub-switch, for judging on Development builds: a neutral "ooo" where a held note has no lyric word
+          switchRow('expressiveVocalise', 'Wordless vocalise ghosts', 'A faint “ooo” where a held note has no word',
+            { hidden: (v) => devOnly(v) || !preciseReady(v), disabled: (v) => !v.expressiveWords, why: 'Needs Expressive words (above) on',
+              info: 'A faint "ooo" behind the lyrics where a held note has no lyric word (an intro\'s "ooh"), only where it was measured.' })
+        ]),
+        group('In the Studio', [
+          actionRow('Sheet notes in the Studio', () => 'Needs Precise timing', [{ label: 'Set up Precise timing', action: 'show-timing' }],
+            { hidden: preciseReady }),
+          // Sonata's +1: the Studio's Sheet notes tile is the same switch (sheet-notes-model.js); it applies at once
+          switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)', 'The sung melody on a staff, in time with the words',
+            { hidden: (v) => !preciseReady(v),
+              info: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (' + v.sheetNotesDir + '/, at most ' + Number(v.sheetNotesMax).toLocaleString('en-US') + ' songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
+                rmvpeNote(v) }),
+          selectRow('sheetPlace', 'Placement', 'Where the staff sits; the band\'s buttons switch it too',
+            [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !preciseReady(v) || !v.sheetNotes,
+              info: 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.' }),
+          textBlock('note', (v) => (preciseReady(v) && v.sheetNotes && !(!devOnly(v) && v.sungNotesLog) ? v.notesStatus || '' : ''))
+        ])
       ],
       appearance: () => [
         selectRow('theme', 'Theme', 'Ctrl+D switches between light and dark', [['system', 'Same as the desktop'], ['light', 'Light'], ['dark', 'Dark']]),
-        switchRow('adaptiveColor', 'Adaptive album color', 'Tint Sonata\'s windows (this panel, the rail, mini player, lyrics) with the current album\'s colour'),
-        switchRow('glass', 'Glass look', 'A translucent material made from the album artwork, behind the panel, the rail, the lyrics window and the mini player. Off: plain surfaces',
-          { disabled: (v) => !v.adaptiveColor, why: 'Glass is made from the album artwork: it needs Adaptive album color (above) on' })
+        switchRow('adaptiveColor', 'Adaptive album color', 'Tints Sonata\'s windows with the album\'s colour',
+          { info: 'Tints Sonata\'s windows (this panel, the rail, the mini player, the lyrics) with the current album\'s colour.' }),
+        switchRow('glass', 'Glass look', 'A see-through material made from the album art',
+          { disabled: (v) => !v.adaptiveColor, why: 'Needs Adaptive album color (above) on',
+            info: 'A translucent material made from the album artwork, behind the panel, the rail, the lyrics window and the mini player. Off: plain surfaces. Glass is made from the album artwork, so it needs Adaptive album color.' }),
+        switchRow('lyricsArtSpin', 'Spin album art like a record', 'Turn the round cover in the lyrics window while music plays'),
+        selectRow('lyricsArtSpinSpeed', 'Record speed', 'Relaxed, or True: 33⅓ rpm albums, 45 singles',
+          [['relaxed', 'Relaxed'], ['true', 'True']], { disabled: (v) => !v.lyricsArtSpin, why: 'Needs Spin album art like a record (above) on',
+            info: 'Relaxed feels like a record across the room; True is 33⅓ rpm for albums, 45 for singles and EPs.' })
+      ],
+      // Windows & startup (Startup's old id 'startup' lands here: panel-model.js SECTION_MOVED)
+      windows: () => [
+        switchRow('notifications', 'Track notifications', 'A desktop notification when the song changes'),
+        switchRow('miniAlwaysOnTop', 'Keep the mini player on top', 'Floats above other windows',
+          { info: 'Floats the mini player above other windows. On GNOME Wayland the desktop decides: Alt+Space → Always on Top.' }),
+        switchRow('lyricsAlwaysOnTop', 'Keep lyrics on top', 'Float the lyrics window above other windows'),
+        switchRow('closeToTray', 'Close to tray', 'Closing the window hides it; music keeps playing'),
+        switchRow('launchAtLogin', 'Launch at login', 'Start Sonata when you log in'),
+        switchRow('startMinimized', 'Start minimized', 'Start hidden in the tray')
       ],
       shortcuts: () => [
         switchRow('globalShortcuts', 'Global shortcuts', '', {
           disabled: (v) => !v.globalShortcuts && (!v.shortcuts || ['none', 'unknown'].includes(v.shortcuts.backend.kind)),
           why: (v) => (v.shortcuts ? v.shortcuts.unavailable : 'Starting…'),
           desc: (v) => (!v.shortcuts ? '' : v.shortcuts.unavailable ? v.shortcuts.unavailable   // on, but not here (another session type): say so
-            : v.shortcuts.backend.kind === 'portal'
-            ? 'Play, pause, skip and the lyrics window from any app. The first time, your desktop asks you to confirm the keys; it keeps them in ' + v.shortcuts.where + '.'
-            : 'Play, pause, skip and the lyrics window from any app, with the keys below. Sonata holds these keys while this is on.')
+            : 'Play, pause, skip and lyrics from any app'),
+          info: (v) => (!v.shortcuts || v.shortcuts.unavailable ? '' : v.shortcuts.backend.kind === 'portal'
+            ? 'Play, pause, skip and the lyrics window from any app. The first time, your desktop asks you to confirm the keys; it keeps them in ' + v.shortcuts.where + '. '
+            : 'Play, pause, skip and the lyrics window from any app, with the keys below. Sonata holds these keys while this is on. ') +
+            'Your keyboard\'s media keys (play/pause, next, previous) work without this: the desktop sends them to Sonata through its media controls.'
         }),
         ...K.ACTIONS.map(shortcutRow),
         textBlock('note', (v) => (v.shortcuts ? (v.shortcuts.error || (v.shortcuts.enabled ? v.shortcuts.message : '')) : '')),
@@ -506,12 +578,7 @@
           { hidden: (v) => !v.shortcuts || v.shortcuts.backend.kind !== 'portal' || !v.globalShortcuts }),
         actionRow('Suggested keys', () => 'Put every shortcut back to its suggested key',
           [{ label: 'Reset all', action: 'shortcuts-reset' }],
-          { hidden: (v) => !v.shortcuts || v.shortcuts.backend.kind !== 'x11' || !v.shortcuts.anyChanged }),
-        textBlock('note', () => 'Your keyboard\'s media keys (play/pause, next, previous) work without this: the desktop sends them to Sonata through its media controls.')
-      ],
-      windows: () => [
-        switchRow('miniAlwaysOnTop', 'Keep the mini player on top', 'Float the mini player above other windows (on GNOME Wayland: Alt+Space → Always on Top)'),
-        switchRow('lyricsAlwaysOnTop', 'Keep lyrics on top', 'Float the lyrics window above other windows')
+          { hidden: (v) => !v.shortcuts || v.shortcuts.backend.kind !== 'x11' || !v.shortcuts.anyChanged })
       ],
       integrations: () => [
         actionRow('Last.fm', (v) => (v.lastfmConnected ? 'Connected as ' + (v.lastfmUser || '?') + ', scrobbling' : 'Not connected'),
@@ -519,59 +586,52 @@
         actionRow('Discord Rich Presence', (v) => (!v.discordEnabled ? 'Off' : v.discordState === 'on' ? 'Connected, showing what you play' : 'On, waiting for the Discord app'),
           [{ label: (v) => (v.discordEnabled ? 'Disconnect' : 'Connect…'), action: 'discord' }]),
         keyRow('setlistfmKey', 'setlist.fm', (v, set) => (set
-          ? 'Key saved. The liner notes of live albums show the show\'s setlist from setlist.fm.'
-          : 'Optional, for the liner notes of live albums: the show\'s setlist. Uses your own free API key (setlist.fm → Settings → API).'), { setFlag: 'setlistfmKeySet', placeholder: 'Your setlist.fm API key' })
+          ? 'Key saved: live albums show the show\'s setlist'
+          : 'Optional: live albums\' setlists, with your own key'), { setFlag: 'setlistfmKeySet', placeholder: 'Your setlist.fm API key',
+          info: 'For the liner notes of live albums: the show\'s setlist from setlist.fm. Uses your own free API key (setlist.fm → Settings → API); the saved key is never shown again.' })
       ],
       updates: () => [
         // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls
         textBlock('note', (v) => (v.appImage ? '' : V.full(v.version) + ', running from source: only the AppImage updates itself. Update with git pull.')),
         actionRow(V.full(S && S.v && S.v.version), (v) => v.updateLine || '',
-          [{ label: 'Check now', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
+          [{ label: 'Check for updates', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
         selectRow('updateChannel', 'Update channel', '', [['stable', V.channelName('stable')], ['dev', V.channelName('dev')]],
-          { desc: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone.'),
+          { desc: (v) => (v.updateChannel === 'dev' ? 'Newer builds before release, less tested' : 'Tested releases, for everyone'),
+            info: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone. Development builds come before they\'re released: newer, less tested.'),
             hidden: (v) => !v.appImage }),
         switchRow('checkForUpdates', 'Check for updates automatically', '',
-          { desc: (v) => 'At start and every ' + (v.updateEveryHours === 1 ? 'hour' : v.updateEveryHours + ' hours') + '. Off: Sonata goes online for updates only when you press Check now', hidden: (v) => !v.appImage }),
-        switchRow('autoInstallUpdates', 'Install updates automatically', 'Downloads and checks them in the background; the new version starts the next time you open Sonata',
-          { hidden: (v) => !v.appImage, disabled: (v) => !v.checkForUpdates, why: 'Needs Check for updates automatically (above) on' }),
+          { desc: (v) => 'At start and every ' + (v.updateEveryHours === 1 ? 'hour' : v.updateEveryHours + ' hours'), hidden: (v) => !v.appImage,
+            info: 'Off: Sonata goes online for updates only when you press Check for updates (or the tray\'s Check for Updates…).' }),
+        switchRow('autoInstallUpdates', 'Install updates automatically', 'The new version starts next time you open Sonata',
+          { hidden: (v) => !v.appImage, disabled: (v) => !v.checkForUpdates, why: 'Needs Check for updates automatically (above) on',
+            info: 'Downloads and checks updates in the background; the new version starts the next time you open Sonata.' }),
         // only where it can do something: on the Development channel or a development build
         actionRow('Back to stable', (v) => (v.backConfirm
           ? 'Install the newest stable release, even though it is older than this build? Settings stay. It starts the next time you open Sonata.'
-          : 'Install the newest stable release, even if it is older than this build'),
+          : 'Installs the newest stable, even if it is older'),
         [{ label: (v) => (v.backConfirm ? 'Install stable' : 'Back to stable…'), action: 'back-to-stable', primary: false, disabled: (v) => v.updateBusy },
           { label: 'Cancel', action: 'back-cancel', hidden: (v) => !v.backConfirm }], { hidden: (v) => !v.appImage || !v.backToStable })
       ],
-      startup: () => [
-        switchRow('closeToTray', 'Close to tray', 'Closing the window hides it; music keeps playing'),
-        switchRow('launchAtLogin', 'Launch at login', 'Start Sonata when you log in'),
-        switchRow('startMinimized', 'Start minimized', 'Start hidden in the tray')
-      ],
-      // the switches still being tested (gfx-model.js EXPERIMENTS: names and descriptions in one place); each
+      // the graphics switches still being tested (gfx-model.js EXPERIMENTS: names and texts in one place); each
       // row says what this start does with it, and a waiting change offers Restart now
       experimental: () => [
-        textBlock('note', () => 'Switches still being tested, all off until you turn them on. They stay on when you quit or restart Sonata; only if two starts in a row with one on fail (or the graphics process crashes twice in a run), Sonata turns it off and says so here. About → Graphics shows what this start uses.'),
+        infoRow('Graphics switches being tested', 'Off until you turn them on; a bad start undoes them',
+          'Switches still being tested, all off until you turn them on. They stay on when you quit or restart Sonata; only if two starts in a row with one on fail (or the graphics process crashes twice in a run), Sonata turns it off and says so here. About → Graphics shows what this start uses.'),
         // what the guard turned off (gfx-runtime.js), with why, until Turn back on
         actionRow('Turned off by Sonata', (v) => (v.gfx && v.gfx.turnedOff ? v.gfx.turnedOff.text : ''),
           [{ label: 'Turn back on', action: 'gfx-back-on', primary: true, tip: (v) => 'Turn ' + ((v.gfx && v.gfx.turnedOff && v.gfx.turnedOff.names.join(' and ')) || 'it') + ' back on' }],
           { hidden: (v) => !v.gfx || !v.gfx.turnedOff }),
-        ...G.EXPERIMENTS.map((e) => switchRow(e.key, e.label, e.desc, {
+        // the visible line: what this start does with it when that differs from the plain state, else the short line
+        ...G.EXPERIMENTS.map((e) => switchRow(e.key, e.label, e.short, {
           disabled: (v) => !!(v.gfx && v.gfx.blocked[e.key]),
           why: (v) => (v.gfx && v.gfx.blocked[e.key]) || '',
-          desc: (v) => e.desc + (v.gfx && v.gfx.note[e.key] ? ' ' + v.gfx.note[e.key] : '')
+          desc: (v) => (v.gfx && v.gfx.note[e.key]) || e.short,
+          info: e.desc
         })),
         actionRow('Restart to apply', (v) => (v.gfx && v.gfx.pending.length ? 'Waiting for a restart: ' + v.gfx.pending.join(', ') + '. Music stops for a moment.' : ''),
           [{ label: 'Restart now', action: 'gfx-restart', primary: true, tip: () => 'Close Sonata and start it again with these switches' }],
           { hidden: (v) => !v.gfx || !v.gfx.pending.length }),
-        textBlock('note', (v) => (v.gfx && v.gfx.safe ? 'Started with --safe-gpu: no graphics switch is used in this start, and your settings stay as they are.' : '')),
-        // Sonata's +1: the Studio's Sheet notes tile is the same switch (sheet-notes-model.js); it applies at once,
-        // no restart, and needs the word-timing helper (shown only when it is installed)
-        switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)', '',
-          { hidden: (v) => !v.alignInstalled, disabled: (v) => !v.lyricsPreciseTiming, why: 'Needs Precise word timing (Precise timing) on',
-            desc: (v) => 'The sung melody above the Studio\'s lyrics, in sync: a pitch line the first time a song plays, then notes on a staff with their syllables from the next play on. Worked out on this computer with the word timing; only the notes are kept (' + v.sheetNotesDir + '/, at most ' + Number(v.sheetNotesMax).toLocaleString('en-US') + ' songs). Where the singing doesn\'t sit on notes (rap, speech, shouting) it shows the pitch line instead.' +
-              rmvpeNote(v) }),
-        selectRow('sheetPlace', 'Sheet notes placement', 'Band on top: the staff in its own band above the lyrics. Over the sung line: the staff rides just above the line being sung, and moves with it. The band\'s two buttons switch it too.',
-          [['band', 'Band on top'], ['over', 'Over the sung line']], { hidden: (v) => !v.alignInstalled || !v.sheetNotes }),
-        textBlock('note', (v) => (v.alignInstalled && v.lyricsPreciseTiming && v.sheetNotes && !(v.updateChannel === 'dev' && v.sungNotesLog) ? v.notesStatus || '' : ''))
+        textBlock('note', (v) => (v.gfx && v.gfx.safe ? 'Started with --safe-gpu: no graphics switch is used in this start, and your settings stay as they are.' : ''))
       ]
     },
     about: {
@@ -644,7 +704,7 @@
       // what this start uses and what it costs (gfx-model.js graphicsRows; main samples only while this shows)
       graphics: () => [
         readoutBlock((v) => (v.gfx ? v.gfx.rows : [])),
-        textBlock('note', () => 'Measured while this section is open. To compare a switch: open an album with an animated cover, read the CPU line after a minute, flip the switch in Settings → Experimental, restart, and read it again.')
+        textBlock('note', () => 'Measured while this section is open. To compare a switch: open an album with an animated cover, read the CPU line after a minute, flip the switch in Settings → Experimental graphics, restart, and read it again.')
       ],
       // the honest numbers (curious-model.js rows; main samples only while this section is open and shown)
       curious: () => {

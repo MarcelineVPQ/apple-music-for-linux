@@ -90,7 +90,7 @@ function createSheetBand(opts) {
   const msg = el(doc, 'span', 'sn-msg', top)
   // the ⓘ (the DS5 app's rule for long text, info-tip.js): the longer explanation behind a small button beside the message
   const info = createInfoTip(doc, top)
-  // where the staff sits (Settings → Experimental → Sheet notes placement, remembered): two buttons,
+  // where the staff sits (Settings → Lyrics & Studio → Placement, remembered): two buttons,
   // shown while there is something to draw
   const placeSeg = el(doc, 'span', 'sn-place', top)
   placeSeg.setAttribute('role', 'group')

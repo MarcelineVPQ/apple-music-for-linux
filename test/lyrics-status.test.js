@@ -40,7 +40,7 @@ test('statusText: Apple failing alone, no lyrics anywhere, LRCLIB off, nothing p
   assert.equal(V.statusText(data('', { none: 'both' })).text, 'No lyrics on Apple Music or LRCLIB for this song')
   const off = V.statusText(data('', { none: 'apple', lrclibOn: false }))
   assert.equal(off.text, 'No Apple Music lyrics for this song')
-  assert.match(off.info, /Settings → Playback & lyrics → LRCLIB lyrics/)
+  assert.match(off.info, /Settings → Lyrics & Studio → LRCLIB lyrics/)
   assert.deepEqual(V.statusText({ title: '' }), { text: 'Play a song to see its lyrics', info: '' })
   assert.deepEqual(V.statusText({ title: 'x' }), { text: 'No lyrics available for this song', info: '' })
 })

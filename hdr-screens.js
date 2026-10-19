@@ -1,4 +1,4 @@
-// Which screens run in HDR, for Settings → Experimental → HDR output (gfx-model.js expHdrOutput). Pure:
+// Which screens run in HDR, for Settings → Experimental graphics → HDR output (gfx-model.js expHdrOutput). Pure:
 // text in, data out; main runs the one read-only program (`kscreen-doctor -o`, KDE Plasma, fixed argv, no
 // shell, a 5 s timeout) and keeps the result. Ported from the DS5 app's electron/main/games/hdr.ts
 // (parseKscreenOutputs), plus the brightness lines KWin prints for an HDR output, because the HDR glow's

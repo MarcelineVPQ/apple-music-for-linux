@@ -272,7 +272,7 @@ run), the notes-log.py tool. In Sonata: notes-log.js, test/notes-log.test.js.
 
 ## Sheet notes in the Studio (experimental)
 
-Settings → Experimental → **Sheet notes in the Studio (experimental)**, off by default, needs
+Settings → Experimental graphics → **Sheet notes in the Studio (experimental)**, off by default, needs
 Precise word timing on; the Studio's **Sheet notes** tile is the same switch. Sonata's +1: the sung
 melody in a band above the Studio's lyrics, on the lyrics clock (Marcy's decisions 2026-10-16/17,
 docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
@@ -346,7 +346,7 @@ under a melisma; notes without a syllable drawn dim), bar lines when beats exist
 model in the helper), a playhead at 30 %. The clefs and accidentals are Noto Music outlines
 (sheet-notes-glyphs.js, SIL OFL 1.1, licenses/NotoMusic-OFL.txt), so they look the same on every system.
 
-**Placement** (Settings → Experimental → Sheet notes placement, remembered; the band's two buttons switch it;
+**Placement** (Settings → Lyrics & Studio → Placement, remembered; the band's two buttons switch it;
 `placement()`): **Band on top** (the band under the Studio's header) or **Over the sung line**: the sung
 line (or the countdown standing for it) opens 136 px of room above itself (lyrics-view.js `opts.room`:
 class `.room`, a transparent top border, so no other line's text moves into it; the lines in view slide

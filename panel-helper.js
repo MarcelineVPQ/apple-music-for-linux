@@ -1,6 +1,7 @@
 // Settings → Precise timing's helper block (panel.html, before panel-ui.js; SonataPanelHelper): the state
-// row with its ⓘ and buttons (Install / Update / Repair / Remove… / Cancel), the install's progress, the
-// helper's licence (Accept / Cancel) and Remove's confirmation, all in the page (no dialogs). Main owns
+// row with its ⓘ and buttons (Install / Update / Repair / Rebuild / Cancel), the install's progress and the
+// helper's licence (Accept / Cancel); and, apart, the section's last row (the danger zone last): Remove…
+// with its confirmation, all in the page (no dialogs). Main owns
 // the state (main.js helperSnapshot) and does the work; this sends command names only. The words come from
 // helper-install-model.js (SonataHelperInstallModel). Built only while Precise timing is open; no timers,
 // no animation, no observers: it redraws on a state push (≤ 4 a second while an install runs).
@@ -10,7 +11,8 @@
   const V = root.SonataVersionDisplay
 
   /**
-   * create({ doc, el, setAttr, setText, nextId, bridge, markdown }) -> { el, update(S) }
+   * create({ doc, el, setAttr, setText, nextId, bridge, markdown }) -> { el, update(S), danger: { el, update(S) } }
+   * (danger: the Remove the helper row and its confirmation, for the section's end)
    * markdown(text) -> a DOM tree (panel-ui.js, text nodes only)
    */
   function create(ctx) {
@@ -62,8 +64,8 @@
     line.append(stateInfo.btn)
     const btns = el('div', 'btns')
     const made = {}
-    // loop: NOT-WORTH — six buttons, once per body build
-    for (const id of ['install', 'update', 'repair', 'rebuild', 'cancel', 'remove']) {
+    // loop: NOT-WORTH — five buttons, once per body build
+    for (const id of ['install', 'update', 'repair', 'rebuild', 'cancel']) {
       const b = el('button', 'btn' + (['install', 'update', 'repair', 'rebuild'].includes(id) ? ' primary' : ''), HM.BUTTON_LABEL[id])
       b.type = 'button'
       b.dataset.helper = id
@@ -148,7 +150,26 @@
     lic.append(licHead, licNote, licBody, licBtns)
     let licShown = ''
 
-    // --- Remove…: the confirmation, in the page; the models stay unless unticked ---
+    // --- Remove the helper (the section's last row): Remove…, then the confirmation, in the page; the
+    // models stay unless unticked ---
+    const dangerBox = el('div', 'group helper helper-danger')
+    const drow = el('div', 'row action-row helper-row')
+    const dtext = el('div', 'row-text')
+    const dlabel = el('span', 'row-label', 'Remove the helper')
+    dlabel.id = nextId('l')
+    const dline = el('span', 'row-desc')
+    dline.id = nextId('d')
+    dtext.append(dlabel, dline)
+    const dbtns = el('div', 'btns')
+    const removeAsk = el('button', 'btn', HM.BUTTON_LABEL.remove)
+    removeAsk.type = 'button'
+    removeAsk.dataset.helper = 'remove'
+    setAttr(removeAsk, 'aria-describedby', dline.id)
+    // lifetime: OK — one click listener, dropped with the section's body
+    removeAsk.addEventListener('click', (e) => { if (e.isTrusted && !removeAsk.disabled) send('helper-remove') })
+    dbtns.appendChild(removeAsk)
+    drow.append(dtext, dbtns)
+    setAttr(drow, 'aria-labelledby', dlabel.id)
     const conf = el('div', 'helper-confirm')
     conf.hidden = true
     setAttr(conf, 'role', 'group')
@@ -178,14 +199,22 @@
     // lifetime: OK — two keydown listeners, dropped with the section's body
     lic.addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.isTrusted) { e.preventDefault(); e.stopPropagation(); send('helper-decline') } })
     conf.addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.isTrusted) { e.preventDefault(); e.stopPropagation(); send('helper-remove-cancel') } })
-    box.append(row, brow, prog, result, lic, conf)
+    box.append(row, brow, prog, result, lic)
+    dangerBox.append(drow, conf)
 
     // after a press the pressed button may go (Install -> Cancel): the keyboard lands on what replaced it
     function keepFocus(had) {
       if (!had) return
       const a = doc.activeElement
       if (a && box.contains(a) && !a.closest('[hidden]') && !a.disabled) return
-      const next = !lic.hidden ? licBody : !conf.hidden ? keep : [...btns.children].find((b) => !b.hidden && !b.disabled)
+      const next = !lic.hidden ? licBody : [...btns.children].find((b) => !b.hidden && !b.disabled)
+      if (next) next.focus({ focusVisible: true })
+    }
+    function keepDangerFocus(had) {
+      if (!had) return
+      const a = doc.activeElement
+      if (a && dangerBox.contains(a) && !a.closest('[hidden]') && !a.disabled) return
+      const next = !conf.hidden ? (keepRow.hidden ? removeBtn : keep) : !drow.hidden ? removeAsk : [...btns.children].find((b) => !b.hidden && !b.disabled)
       if (next) next.focus({ focusVisible: true })
     }
 
@@ -193,7 +222,14 @@
       const v = (S && S.v) || {}
       const h = v.helper || { state: 'missing' }
       const had = box.contains(doc.activeElement)
-      const st = HM.stateRow(h)
+      let st = HM.stateRow(h)
+      // the running helper's own answer while it starts or when it doesn't work (one place for the helper's
+      // state: this line; "Ready on …" and the plain Installed line stay as they are)
+      const said = String(v.alignStatus || '')
+      if (h.state === 'ok' && !h.available && !(h.job && h.job.phase === 'running') && v.alignInstalled && v.lyricsPreciseTiming && !/^Ready/.test(said) && h.phase !== 'licence') {
+        const t = said || 'Asking the helper…'
+        st = { text: t.length > 60 ? t.slice(0, 59) + '…' : t, info: (t.length > 60 ? t + '. ' : '') + st.info, level: /not working/i.test(t) ? 'warn' : 'busy' }
+      }
       setText(stateText, st.text)
       row.dataset.level = st.level
       stateInfo.set(st.info)
@@ -209,11 +245,10 @@
       // loop: NOT-WORTH — five buttons
       for (const id of Object.keys(made)) {
         made[id].hidden = !want.includes(id)
-        if (id === 'remove') setText(made[id], h.state === 'missing' && !h.leftovers ? 'Delete the models…' : 'Remove…')
         if (id === 'update') setAttr(made[id], 'aria-label', h.available ? 'Update the helper to ' + h.available : 'Update the helper')
         if (id === 'rebuild') setText(made[id], HM.buttonLabel('rebuild', h))
       }
-      btns.hidden = !want.length
+      btns.hidden = !want.some((id) => id !== 'remove')
       // progress
       const job = h.job
       const running = !!job && (h.phase === 'running' || h.phase === 'licence-fetch')
@@ -245,21 +280,34 @@
         setText(licNote, L.again ? 'The helper\'s licence changed since you last accepted it. Read it, then accept to go on.' : 'The helper is a separate program with its own licence. Read it, then accept to install.')
         if (licShown !== L.text) { licShown = L.text; licBody.replaceChildren(markdown(L.text)); licBody.scrollTop = 0 }
       } else licShown = ''
+      keepFocus(had)
+    }
+    // the danger zone: Remove… only when there is something to remove (HM.buttons), then its question
+    function updateDanger(S) {
+      const v = (S && S.v) || {}
+      const h = v.helper || { state: 'missing' }
+      const had = dangerBox.contains(doc.activeElement)
+      const can = HM.buttons(h).includes('remove')
+      const onlyModels = h.state === 'missing' && !h.leftovers
+      dangerBox.hidden = !can && !h.confirmRemove
+      drow.hidden = !!h.confirmRemove
+      setText(dlabel, onlyModels ? 'Downloaded models' : 'Remove the helper')
+      setText(removeAsk, onlyModels ? 'Delete the models…' : HM.BUTTON_LABEL.remove)
+      setText(dline, onlyModels ? 'Left from an earlier install' + (h.modelsText ? ' (' + h.modelsText + ')' : '') : 'The downloaded models can stay for later')
       // the confirmation
       conf.hidden = !h.confirmRemove
       if (h.confirmRemove) {
-        const onlyModels = h.state === 'missing' && !h.leftovers
         if (!confWas) keep.checked = true   // each time it opens: keep the models
         setText(confText, onlyModels ? 'Delete the downloaded models' + (h.modelsText ? ' (' + h.modelsText + ')' : '') + '? A later install downloads them again.'
-          : 'Remove the Precise timing helper? Precise word timing stops until it is installed again.')
+          : 'Remove the helper? Precise word timing stops until it is installed again.')
         keepRow.hidden = onlyModels || !h.models
         setText(keepText, 'Keep the downloaded models' + (h.modelsText ? ' (' + h.modelsText + ')' : '') + ' for a later install')
         setText(removeBtn, onlyModels ? 'Delete' : 'Remove')
       }
       confWas = !!h.confirmRemove
-      keepFocus(had)
+      keepDangerFocus(had)
     }
-    return { el: box, update }
+    return { el: box, update, danger: { el: dangerBox, update: updateDanger } }
   }
 
   root.SonataPanelHelper = Object.freeze({ create })

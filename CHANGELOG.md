@@ -7,6 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.58-dev.1] — Settings, reorganised: Precise timing first, everything in one place
+
+### Changed
+- **Settings has a new order.** Precise timing comes first, then Lyrics & Studio, Appearance, Windows & startup, Global shortcuts, Integrations, Updates and Experimental graphics.
+- **Precise timing holds everything about word timing:** the helper and how it's built, Update the helper automatically, Precise word timing with First play and Pause while gaming under it, then Estimated word timing and Refine timing by listening under "Without the helper". Remove the helper is now the last row.
+- **Lyrics & Studio:** LRCLIB lyrics, Expressive words (and its vocalise ghosts) and Sheet notes in the Studio, which moved here from Experimental. Without the helper they no longer show greyed out: one line says "Needs Precise timing", with a Set up Precise timing button that takes you there. Sheet notes' Placement shows only while Sheet notes is on.
+- **Spin album art like a record** and **Record speed** moved to Appearance; **Track notifications** and the old Startup switches joined the window switches in **Windows & startup**.
+- **Shorter text:** every setting's line is one short sentence; the longer explanation is behind its ⓘ. The media-keys note in Global shortcuts is now behind the switch's ⓘ.
+- **Updates:** the button is now called Check for updates (it was Check now).
+- **Development builds:** the developer-only rows (Sung notes log, Wordless vocalise ghosts, First play) all show on a Development build, whatever the update channel.
+
 ## [0.15.57-dev.1] — Expressive words: works on your songs, and says what it's waiting for
 
 ### Fixed

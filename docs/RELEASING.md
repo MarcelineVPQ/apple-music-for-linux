@@ -37,7 +37,7 @@ What the user sees (0.15.32, `updater.js`): "Sonata X is available" with *Update
 `notes`), download progress, "Sonata X is installed" with *Restart now* (only while nothing plays), and
 "Updated to X · See what's new" after the restart. *Install updates automatically* (asked once) installs an
 offered newer version by itself; *Check for updates automatically* off means no timer and nothing online
-until *Check now*. **Back to stable** (Settings → Updates, from Development, confirmed) is the one path that
+until *Check for updates*. **Back to stable** (Settings → Updates, from Development, confirmed) is the one path that
 installs an older version: the newest stable release. A plain switch from Development to Stable installs
 nothing until Stable passes the build you have.
 

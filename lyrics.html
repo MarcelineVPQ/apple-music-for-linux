@@ -1019,7 +1019,7 @@
   // the band's width changed (a resize, the form): its playhead and strip placed again from the clock
   new ResizeObserver(() => { if (sheetBand) sheetBand.relayout() }).observe(document.getElementById('band'))
   new ResizeObserver(placeGrip).observe(document.getElementById('q-top'))
-  // Settings → Experimental → HDR output: the sung word glows brighter than SDR white on an HDR screen
+  // Settings → Experimental graphics → HDR output: the sung word glows brighter than SDR white on an HDR screen
   // (hdr-glow.js; nothing exists while main says this window isn't on one)
   const hdrGlow = require('./hdr-glow').createHdrGlow(document)
   // lifetime: OK — added once at load, released with the window

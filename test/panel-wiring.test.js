@@ -113,3 +113,31 @@ test('accessibility in the markup: headers are buttons with aria-expanded/contro
   assert.match(ui, /e\.key === 'Escape'/)
   assert.match(ui, /bridge\.send\(e\.shiftKey \? 'focus-prev' : 'focus-next'\)/)
 })
+
+// the Settings IA pass (2026-10-19, Marcy approved): placement and text only
+test('Settings IA: visible hints ≤ 60 characters, one dev check, the merged Startup id lands in Windows & startup', () => {
+  const ui = read('panel-ui.js')
+  const settings = ui.slice(ui.indexOf('    settings: {'), ui.indexOf('    about: {'))
+  // every literal visible line of a switch / select (the rest goes behind the ⓘ)
+  const lines = [...settings.matchAll(/(?:switchRow|selectRow)\('\w+', '((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)'/g)].map((m) => [m[1], m[2].replace(/\\'/g, '\'')])
+  assert.ok(lines.length >= 25, 'found the rows: ' + lines.length)
+  for (const [label, line] of lines) assert.ok(line.length <= 60, label + ': ' + line.length + ' characters')
+  // one Development-build check for the dev-only rows (not the channel, not a version regex)
+  assert.doesNotMatch(settings, /updateChannel !== 'dev'|-dev\(/)
+  assert.match(ui, /const devOnly = \(v\) => !v\.devBuild/)
+  assert.ok((settings.match(/devOnly\(v\)/g) || []).length >= 5)
+  const main = read('main.js')
+  assert.match(main, /devBuild: updateFeed\.isDevVersion\(app\.getVersion\(\)\)/)
+  // a merged section's old id (Startup) lands where it went; Lyrics & Studio's Set up Precise timing opens Precise timing
+  assert.match(main, /section = panelModel\.sectionId\(settings\.panelPage, section\)/)
+  assert.match(main, /else if \(name === 'show-timing'\) showPanel\('settings', 'timing'\)/)
+  assert.match(main, /const PANEL_ACTIONS = \[[^\]]*'show-timing'/)
+  // Precise timing: the helper first, the danger zone (Remove the helper) last; Estimated + Refine under "Without the helper"
+  const timing = settings.slice(settings.indexOf('timing: () => {'), settings.indexOf('playback: () => ['))
+  assert.ok(timing.indexOf('helper,') < timing.indexOf("switchRow('alignAutoUpdate'") && timing.indexOf("switchRow('alignAutoUpdate'") < timing.indexOf("switchRow('lyricsPreciseTiming'"))
+  assert.ok(timing.indexOf("group('Without the helper'") < timing.indexOf("switchRow('estimatedWordTiming'") && timing.indexOf("switchRow('estimatedWordTiming'") < timing.indexOf("switchRow('lyricsListenRefine'"))
+  assert.match(timing, /helper\.danger\n\s*\]\n\s*\},\s*$/)
+  // with Precise not ready, Expressive words and Sheet notes say so and offer the way there (no greyed dead end)
+  assert.equal((settings.match(/'Needs Precise timing', \[\{ label: 'Set up Precise timing', action: 'show-timing' \}\]/g) || []).length, 2)
+  assert.doesNotMatch(settings, /Check now'/)
+})

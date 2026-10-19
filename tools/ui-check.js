@@ -21,7 +21,7 @@
 //           minimised; the real Commons path with SONATA_TEST_MONTAGE), the form)
 //           liner (the liner notes booklet for one real album, --album <Apple Music ID>: contrast in every theme,
 //           no dead controls, the keyboard, reduced motion; needs the network)
-//           experimental (Settings → Experimental and About → Graphics: the switches, a real click on the
+//           experimental (Settings → Experimental graphics and About → Graphics: the switches, a real click on the
 //           dither with Apple's album header read back, Restart now shown (never pressed), the readout)
 //           every (every Sonata window and view, light and
 //           dark, a song playing through tools/stand-in.js: the rail, Settings and About with every section open,
@@ -292,23 +292,23 @@ async function keys() {
   // in the panel: the first stop is the first section header
   x('key', 'F6'); await sleep(500)
   let f = await where()
-  check('the panel takes focus on its first section header', /^panel:h-settings-playback/.test(f), f)
+  check('the panel takes focus on its first section header', /^panel:h-settings-timing/.test(f), f)
   const order = [f]
   for (let i = 0; i < 3; i++) { x('key', 'down'); await sleep(150); order.push(await where()) }
   x('key', 'end'); await sleep(150); order.push(await where())
   x('key', 'home'); await sleep(150); order.push(await where())
   x('key', 'up'); await sleep(150); order.push(await where())
-  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['playback', 'timing', 'appearance', 'windows', 'experimental', 'playback', 'experimental'].map((id) => 'panel:h-settings-' + id).join('|'), order)
+  check('↓ / ↑ / Home / End move between section headers (wrapping)', order.join('|') === ['timing', 'playback', 'appearance', 'windows', 'experimental', 'timing', 'experimental'].map((id) => 'panel:h-settings-' + id).join('|'), order)
   x('key', 'home'); await sleep(150)
   const exp = () => panel.ev('document.activeElement.getAttribute("aria-expanded") + "|" + (document.activeElement.getAttribute("aria-controls") || "")')
   const e0 = await exp(); x('key', 'enter'); await sleep(500); const e1 = await exp(); x('key', 'space'); await sleep(500); const e2 = await exp()
-  check('Enter opens, Space folds (aria-expanded, aria-controls only while open); focus stays on the header', e0 === 'false|' && /^true\|b-settings-playback$/.test(e1) && e2 === 'false|' && /h-settings-playback/.test(await where()), [e0, e1, e2])
+  check('Enter opens, Space folds (aria-expanded, aria-controls only while open); focus stays on the header', e0 === 'false|' && /^true\|b-settings-timing$/.test(e1) && e2 === 'false|' && /h-settings-timing/.test(await where()), [e0, e1, e2])
   // Tab: header -> its pin -> (open body controls) -> next header; Tab past the panel's end -> the rail
   x('key', 'tab'); await sleep(200)
   const pinF = await panel.ev('document.activeElement.className + "|" + document.activeElement.getAttribute("aria-label") + "|" + document.activeElement.getAttribute("aria-pressed")')
-  check('Tab from a header reaches its pin (named, aria-pressed)', /^sec-pin\|Keep Playback & lyrics open\|false$/.test(pinF), pinF)
+  check('Tab from a header reaches its pin (named, aria-pressed)', /^sec-pin\|Keep Precise timing open\|false$/.test(pinF), pinF)
   x('key', 'enter'); await sleep(500)
-  check('Enter on the pin pins it (saved)', ((await mp.ev(settingsFile)).panelPins.settings || []).includes('playback'))
+  check('Enter on the pin pins it (saved)', ((await mp.ev(settingsFile)).panelPins.settings || []).includes('timing'))
   x('key', 'enter'); await sleep(400)
   for (let i = 0; i < 60 && !/^rail/.test(await where()); i++) { x('key', 'tab'); await sleep(60) }
   check('Tab past the panel\'s last control reaches the rail', /^rail/.test(await where()))
@@ -1334,7 +1334,7 @@ async function sheetNotesStep(mp, page, send, W, H, stageLog, T0) {
   // the tile is the setting: main turns it on (its own state push is held back here; the fixture's comes next)
   await page.ev(`(document.getElementById('t-notes').click(), true)`); await sleep(500)
   let l = await stageLog()
-  check('sheet notes: the tile turns the setting on (Settings → Experimental follows)', l.length === 1 && l[0][0] === 'sheet-notes' && l[0][1] === true && (await mp.ev(settingsFile)).sheetNotes === true, l)
+  check('sheet notes: the tile turns the setting on (Settings → Experimental graphics follows)', l.length === 1 && l[0][0] === 'sheet-notes' && l[0][1] === true && (await mp.ev(settingsFile)).sheetNotes === true, l)
   await pointerReach(page, 'all three tiles shown (Sheet notes on)', mp)
   const base = { on: true, installed: true, precise: true, key: 'fixture', wordSynced: false, timed: true, paused: false, error: '' }
   // first play: two sections' pitch lines back
@@ -2327,7 +2327,7 @@ async function liner() {
   mp.c.close()
 }
 
-// --- experimental: Settings → Experimental and About → Graphics (gfx-model.js) ---
+// --- experimental: Settings → Experimental graphics and About → Graphics (gfx-model.js) ---
 // The four switches from the one registry, off by default, labelled Experimental, each with its line; a
 // restart switch whose setting changed shows Restart now (never pressed here: it would start a copy outside
 // this isolated one); the dither switch, clicked for real, adds its CSS to Apple's album header at once and
@@ -2353,14 +2353,15 @@ async function experimental() {
     return {
       status: sec ? sec.querySelector('.sec-status').textContent : null,
       rows: body ? [...body.querySelectorAll('button.switch')].map((b) => { const r = b.closest('.row'); const q = r.getBoundingClientRect(); return { key: b.dataset.key, label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, checked: b.getAttribute('aria-checked'), disabled: b.disabled, at: [Math.round(b.getBoundingClientRect().left + 10), Math.round(b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)], h: q.height } }) : [],
-      sheetInTiming: !!document.querySelector('#b-settings-timing button.switch[data-key="sheetNotes"]'),
+      sheetHere: !!document.querySelector('#b-settings-experimental button.switch[data-key="sheetNotes"]'),
       restart: body ? [...body.querySelectorAll('.action-row')].filter((r) => !r.hidden).map((r) => ({ label: r.querySelector('.row-label').textContent, desc: r.querySelector('.row-desc').textContent, buttons: [...r.querySelectorAll('button')].filter((b) => !b.hidden).map((b) => b.textContent) })) : []
     }
   })()`)
   let st = await read()
   const gpu = await mp.ev(`${E}.app.getGPUFeatureStatus().gpu_compositing`)
   const soft = !/^enabled/.test(gpu)
-  check('experimental: the section lists the four switches from gfx-model.js, in order, then Sheet notes in the Studio (not in Precise timing)', st.rows.map((r) => r.key).join() === GFX.EXPERIMENTS.map((e) => e.key).concat('sheetNotes').join() && !st.sheetInTiming, [st.rows.map((r) => r.key), st.sheetInTiming])
+  check('experimental graphics: the section lists the four switches from gfx-model.js, in order, and nothing else (Sheet notes moved to Lyrics & Studio)', st.rows.map((r) => r.key).join() === GFX.EXPERIMENTS.map((e) => e.key).join() && !st.sheetHere, [st.rows.map((r) => r.key), st.sheetHere])
+  check('experimental graphics: every visible line ≤ 60 characters, the rest behind the ⓘ', st.rows.every((r) => r.desc.length <= 60), st.rows.map((r) => r.desc))
   check('experimental: every switch is labelled Experimental and has its one-line description', st.rows.every((r) => / \(experimental\)$/.test(r.label) && r.desc.length > 20), st.rows.map((r) => [r.label, r.desc.slice(0, 40)]))
   check('experimental: all off by default; the header says "All off"', st.rows.every((r) => r.checked === 'false') && st.status === 'All off', [st.status, st.rows.map((r) => r.checked)])
   const restartRows = st.rows.filter((r) => (GFX.EXPERIMENTS.find((e) => e.key === r.key) || {}).restart)

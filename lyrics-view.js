@@ -235,7 +235,7 @@ function statusText(data) {
   if (d.status === 'apple') return { text: 'Apple Music’s lyrics didn’t load, trying again…', info: appleWhy + next }
   if (d.status === 'apple-failed') return { text: 'Apple Music’s lyrics didn’t load; next play asks again', info: appleWhy + ' Sonata tried a few times and stopped for now; the next time this song plays it asks again.' }
   if (lk.none === 'both') return { text: 'No lyrics on Apple Music or LRCLIB for this song', info: 'Apple Music has no lyrics for this recording, and LRCLIB (lrclib.net) has none for it either.' }
-  if (lk.none === 'apple' && !lk.lrclibOn) return { text: 'No Apple Music lyrics for this song', info: 'Apple Music has no lyrics for this recording. Sonata can also look on LRCLIB (lrclib.net), a free lyrics database: Settings → Playback & lyrics → LRCLIB lyrics.' }
+  if (lk.none === 'apple' && !lk.lrclibOn) return { text: 'No Apple Music lyrics for this song', info: 'Apple Music has no lyrics for this recording. Sonata can also look on LRCLIB (lrclib.net), a free lyrics database: Settings → Lyrics & Studio → LRCLIB lyrics.' }
   return { text: 'No lyrics available for this song', info: '' }
 }
 

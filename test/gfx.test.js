@@ -1,4 +1,4 @@
-// Settings → Experimental (gfx-model.js, gfx-runtime.js): which Chromium switches a start gets, the start
+// Settings → Experimental graphics (gfx-model.js, gfx-runtime.js): which Chromium switches a start gets, the start
 // marker and its auto-disable, the GPU-crash handler, the restart line and About → Graphics' readout.
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -69,7 +69,7 @@ test('gfx: start marker: none -> nothing; one start that died -> a strike, kept 
   assert.deepEqual(one.strikes, { expRiskA: 1, expRiskB: 0 }, 'a strike only for the switches it used')
   const twice = G.sentinelAtStart(G.sentinelText(['expRiskA'], 'x', 0, { strikes: one.strikes }), on)
   assert.deepEqual(twice.disable, ['expRiskA'], 'the second in a row: off')
-  assert.equal(twice.notice, 'Sonata turned off Switch A: the last 2 starts with it on ended before Sonata was running properly (it closed without being quit). Turn it back on in Settings → Experimental.')
+  assert.equal(twice.notice, 'Sonata turned off Switch A: the last 2 starts with it on ended before Sonata was running properly (it closed without being quit). Turn it back on in Settings → Experimental graphics.')
   assert.deepEqual(twice.strikes, { expRiskB: 0 })
   // a clean exit (Quit, Restart now, an update) before the healthy mark: no strike, the row stays where it was
   assert.deepEqual(G.sentinelAtStart(G.sentinelText(['expRiskA'], 'x', 0, { clean: true }), on), { disable: [], notice: '', strikes: { expRiskA: 0, expRiskB: 0 } })
@@ -187,7 +187,7 @@ test('gfx runtime: two starts in a row that died before healthy -> that start le
   assert.equal(said.length, 1)
   assert.equal(said[0][0], 'gfx-start')
   const snap = gfx.snapshot({ gpu_compositing: 'enabled' })
-  assert.deepEqual(snap.turnedOff, { names: ['Switch A'], text: said[0][1] }, 'Settings → Experimental says what and why')
+  assert.deepEqual(snap.turnedOff, { names: ['Switch A'], text: said[0][1] }, 'Settings → Experimental graphics says what and why')
   // Turn back on: main sets the keys it returns; the row goes
   assert.deepEqual(gfx.backOn(), ['expRiskA'])
   assert.equal(gfx.snapshot({ gpu_compositing: 'enabled' }).turnedOff, null)
@@ -311,7 +311,9 @@ test('gfx runtime: the panel snapshot says what each switch does this start and 
 test('gfx: the panel builds Experimental from the one registry and offers Restart now; the readout is About → Graphics', () => {
   const ui = fs.readFileSync(path.join(__dirname, '..', 'panel-ui.js'), 'utf8')
   assert.match(ui, /experimental: \(\) => \[/)
-  assert.match(ui, /G\.EXPERIMENTS\.map\(\(e\) => switchRow\(e\.key, e\.label, e\.desc/)
+  assert.match(ui, /G\.EXPERIMENTS\.map\(\(e\) => switchRow\(e\.key, e\.label, e\.short, \{[\s\S]*?info: e\.desc/)
+  // the visible line ≤ 60 (the ⓘ rule), the long text behind the ⓘ
+  for (const e of G.EXPERIMENTS) assert.ok(e.short && e.short.length <= 60, e.key)
   assert.match(ui, /action: 'gfx-restart'/)
   assert.match(ui, /action: 'gfx-back-on'/, 'Turn back on in Experimental')
   assert.match(ui, /graphics: \(\) => \[\s*readoutBlock/)

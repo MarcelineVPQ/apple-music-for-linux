@@ -1,4 +1,4 @@
-// Settings → Experimental → Dithered cover glow (gfx-model.js expGlowDither): CSS for Apple's page that
+// Settings → Experimental graphics → Dithered cover glow (gfx-model.js expGlowDither): CSS for Apple's page that
 // breaks the visible steps in the soft glow around an album's cover. Pure (Node's zlib only), so
 // node --test covers it; main.js adds the CSS to Apple's page through css-replacer.js.
 //

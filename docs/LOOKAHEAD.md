@@ -1,6 +1,6 @@
 # Look-ahead play: "First play: precise from the start"
 
-Experimental, **Linux only, Development builds only**, off by default: Settings → Playback & lyrics →
+Experimental, **Linux only, Development builds only**, off by default: Settings → Lyrics & Studio →
 *First play: precise from the start*, with *Precise (3 s delay)* or *Quick (2 s delay)*. Marcy said yes
 on 2026-10-19 ("build look-ahead play for real"). The research behind it (the delay curve, the online
 aligner, the prototype) is in the engine's private repository; this page is the build.

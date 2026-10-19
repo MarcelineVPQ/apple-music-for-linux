@@ -1,4 +1,4 @@
-// Settings → Experimental at run time (main process only): the start-up decision before 'ready', the
+// Settings → Experimental graphics at run time (main process only): the start-up decision before 'ready', the
 // start marker, the GPU-crash handler and About → Graphics' readout. The rules are gfx-model.js (pure,
 // tested); this file only does the Electron and file work around them, so main.js calls four things:
 //   const gfx = createGfx({ app, … }); gfx.beforeReady()     at module load, before 'ready'
@@ -6,7 +6,7 @@
 //   gfx.ready({ … })                                           in 'ready', after the settings are loaded
 //   gfx.painted()                                              when the main window's first page loaded
 //   gfx.cleanExit(why)                                         on every quit and self-restart (before app.exit)
-//   gfx.backOn()                                               Settings → Experimental → Turn back on
+//   gfx.backOn()                                               Settings → Experimental graphics → Turn back on
 //   gfx.snapshot() / gfx.readout(open, kindOf)                 the panel's state, About → Graphics
 // Docs: docs/research/hdr-hw-accel-apple-music-2026-10.md section 5.
 const M = require('./gfx-model')
@@ -31,7 +31,7 @@ function createGfx(o) {
   let hooks = null
   let crashed = false          // a real graphics crash in this run (gfx-model.js realCrash)
   let crashes = 0              // real graphics crashes since the last switch this run turned off
-  let turnedOff = null         // { keys, text }: what the guard turned off, shown in Settings → Experimental until Turn back on
+  let turnedOff = null         // { keys, text }: what the guard turned off, shown in Settings → Experimental graphics until Turn back on
   let exited = false
   let healthTimer = null
   let healthyAt = 0
@@ -164,7 +164,7 @@ function createGfx(o) {
     writeMarker(true)
     log('[gpu] start marker: clean exit (' + (why || 'quit') + ')')
   }
-  // Settings → Experimental → Turn back on: the switches the guard turned off, on again (main sets them)
+  // Settings → Experimental graphics → Turn back on: the switches the guard turned off, on again (main sets them)
   function backOn() {
     const keys = turnedOff ? turnedOff.keys.slice() : []
     turnedOff = null

@@ -184,7 +184,7 @@ test('a bad checksum: nothing kept, one status line, not wanted; turning it on a
 
 test('main: the download only when Sung notes becomes active; nothing written once it is off', () => {
   const src = read('main.js')
-  assert.match(src, /function sungNotesOn\(\) \{ return !!settings\.sungNotesLog && settings\.updateChannel === 'dev' && preciseTimingOn\(\) \}/)
+  assert.match(src, /function sungNotesOn\(\) \{ return !!settings\.sungNotesLog && updateFeed\.isDevVersion\(app\.getVersion\(\)\) && preciseTimingOn\(\) \}/)
   // the notes step serves the developer log, the Studio's sheet notes (sheet-notes.test.js) and Expressive
   // words (expressive.test.js): one download, for a switch that is on (Expressive words' own default on a
   // Development build included since 0.15.57: without the model it never measured anything)
@@ -198,12 +198,14 @@ test('main: the download only when Sung notes becomes active; nothing written on
   assert.match(src, /'alignGamingPause', 'sungNotesLog'/)
 })
 
-test('Settings: the switch shows only on the Development channel; wording and theme', () => {
+test('Settings: the switch shows only on a Development build (the Developer group); wording and theme', () => {
   const ui = read('panel-ui.js')
   const at = ui.indexOf("switchRow('sungNotesLog'")
   const row = ui.slice(at, ui.indexOf('textBlock', at))
   assert.match(row, /'Sung notes \(developer log\)'/)
-  assert.match(row, /hidden: \(v\) => !v\.alignInstalled \|\| v\.updateChannel !== 'dev'/)
+  const grp = ui.slice(at, ui.indexOf('helper.danger', at))
+  assert.match(grp, /\], \{ hidden: \(v\) => devOnly\(v\) \|\| !v\.alignInstalled \}\)/, 'the Developer group: one dev check')
+  assert.match(ui, /const devOnly = \(v\) => !v\.devBuild/)
   assert.match(row, /saves only the notes \(no audio\) to ' \+ v\.notesDir \+ '\/, at most ' \+ Number\(v\.notesMax\)\.toLocaleString\('en-US'\) \+ ' songs \(' \+ v\.notesMaxSize \+ '\), oldest removed/)
   assert.equal(N.MAX_FILES.toLocaleString('en-US') + ' songs (' + N.maxSizeText() + ')', '1,000 songs (about 110 MB)', 'the words come from the constant')
   assert.doesNotMatch(row, /#[0-9a-f]{3,6}\b|rgb\(|style/i)

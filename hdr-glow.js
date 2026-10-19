@@ -1,4 +1,4 @@
-// The HDR glow on the sung word (Settings → Experimental → HDR output; the lyrics window and the
+// The HDR glow on the sung word (Settings → Experimental graphics → HDR output; the lyrics window and the
 // visualizer's lyrics). Only while main says this window sits on an HDR screen ('lyrics-hdr' { on,
 // headroom }); otherwise nothing here exists and the lyrics keep their SDR glow (lyrics-view.css).
 //

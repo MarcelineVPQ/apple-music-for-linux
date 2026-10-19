@@ -59,7 +59,7 @@ const TITLES = { mini: appName + ' — Mini Player', lyrics: appName + ' — Lyr
   app.setPath('userData', keepUserData)
 }
 
-// Settings → Experimental (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
+// Settings → Experimental graphics (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
 // are decided here, before 'ready', from the settings file; a start marker turns them off again when two
 // starts in a row with them died before they got healthy (a quit or a restart never counts: gfx.cleanExit). --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
 // the one CPU sampler (cpu-sampler.js) for About → Graphics and About → For the Curious: it reads only
@@ -694,7 +694,7 @@ function getAlignSession() {
 // error: SHOWN — every outcome (saved, skipped, failed, download) is the one status line under the switch
 let notesSwitch = null
 let notesStatusText = ''
-function sungNotesOn() { return !!settings.sungNotesLog && settings.updateChannel === 'dev' && preciseTimingOn() }
+function sungNotesOn() { return !!settings.sungNotesLog && updateFeed.isDevVersion(app.getVersion()) && preciseTimingOn() }   // a Development build (Settings' one dev check)
 // the notes step runs for the developer log, the Studio's sheet notes or Expressive words (one switch object: one download)
 function notesActive() { return sungNotesOn() || sheetNotesOn() || expressiveOn() }
 // the pitch model is downloaded when a switch that needs it is on: Expressive words on by default (a
@@ -749,7 +749,7 @@ let sheet = null          // the song on screen: { key, title, artist, hash, ent
 let sheetSent = ''
 function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
 
-// "Expressive words" (Settings → Playback & lyrics; on by default on Development channel builds;
+// "Expressive words" (Settings → Lyrics & Studio; on by default on Development channel builds;
 // lyrics-expressive.js): how each word was sung, drawn on top of the karaoke from what the helper measured
 // in the song's notes step (protocol 2 feature "expr"). Kept with the song's notes (the sheet-notes store),
 // sent with the lyrics ('lyrics-data' expr). Off, or an engine without it: no expr is sent, the view is the
@@ -984,7 +984,7 @@ function alignGuardTick() {
   sendAlignNote()
 }
 
-// --- Look-ahead play (Settings → Playback & lyrics → First play: precise from the start; Experimental,
+// --- Look-ahead play (Settings → Precise timing → First play: precise from the start; Experimental,
 // Linux, Development builds; lookahead.js, docs/LOOKAHEAD.md). On a song's first play Sonata's own stream
 // is heard D s late (3 s Precise, 2 s Quick), through the native delay helper (native/lookahead/,
 // shipped in the app's resources): the engine hears every word D s early, so its word timing is ready
@@ -2965,7 +2965,7 @@ function noticeAction(id, action) {
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
   'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
-  ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
+  ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental graphics (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
   if (key === 'setlistfmKey') {
@@ -3507,7 +3507,7 @@ const appUrl = 'https://music.apple.com/'
 
 // Our CSS for Apple's page: the native-app upsell hidden.
 const customCss = '.web-navigation__native-upsell {display: none !important;}'
-// Apple's page's CSS: ours, plus the cover-glow dither while Settings → Experimental has it on (glow-dither.js;
+// Apple's page's CSS: ours, plus the cover-glow dither while Settings → Experimental graphics has it on (glow-dither.js;
 // built once, ~6 KB with its noise tile)
 let glowDitherCss = ''
 function appleCss() {
@@ -3695,6 +3695,7 @@ function showPanel(page, section, opts) {
   const o = opts || {}
   if (page && panelModel.PAGE_IDS.includes(page)) settings.panelPage = page
   settings.panelShown = true
+  if (section) section = panelModel.sectionId(settings.panelPage, section)   // a merged section's old id lands where it went
   if (section) {
     saveAcc(settings.panelPage, panelModel.accReduce(accOf(settings.panelPage), { type: 'reveal', id: section }))
     reveal = { page: settings.panelPage, section, n: ++revealCount, focus: !!o.focus }
@@ -3769,6 +3770,7 @@ function panelSnapshot() {
     updateBusy: ['checking', 'downloading', 'installing'].includes(u.phase),
     updateNotes: u.phase === 'available' ? (u.notes || '') : '',
     backToStable: settings.updateChannel === 'dev' || updateFeed.isDevVersion(app.getVersion()),
+    devBuild: updateFeed.isDevVersion(app.getVersion()),   // Settings' one Development-build check (the dev-only rows)
     backConfirm,
     shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null,
     gfx: gfx.snapshot(app.getGPUFeatureStatus()),
@@ -3794,7 +3796,7 @@ function panelSnapshot() {
     reveal
   }
 }
-// Settings → Experimental in 'ready' (gfx-runtime.js): a switch the start marker or a graphics crash turned
+// Settings → Experimental graphics in 'ready' (gfx-runtime.js): a switch the start marker or a graphics crash turned
 // off is saved off and said once, at the top of the panel, with a way to the section
 function startGfx() {
   gfx.ready({
@@ -3806,7 +3808,7 @@ function startGfx() {
   })
   watchScreens()
 }
-// Turn back on (Settings → Experimental, or the notice): the switches the guard turned off are on again; a
+// Turn back on (Settings → Experimental graphics, or the notice): the switches the guard turned off are on again; a
 // switch off for this start waits for Restart now, as any change does
 function gfxBackOn() {
   // loop: NOT-WORTH — ≤ 4 switches, on a click
@@ -3832,7 +3834,7 @@ function decodeProbe() {
     }
   }
 }
-// HDR output (Settings → Experimental, active this start): each lyric window is told whether it sits on an
+// HDR output (Settings → Experimental graphics, active this start): each lyric window is told whether it sits on an
 // HDR screen and with what headroom ('lyrics-hdr', hdr-glow.js), when it loads, after it moves (300 ms after
 // the last move event) and when the screens change. Without HDR output nothing is registered.
 function sendHdr(win) {
@@ -4107,7 +4109,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'gfx-back-on', 'curious-copy',
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'show-timing', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'gfx-back-on', 'curious-copy',
   'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
@@ -4141,6 +4143,7 @@ function panelAction(name) {
   if (name === 'lastfm') { if (lastfm && lastfm.connected) disconnectLastFm(); else connectLastFm() }
   else if (name === 'discord') { if (discordConfig.enabled) disconnectDiscord(); else connectDiscord() }
   else if (name === 'check-now') checkForUpdates(true)
+  else if (name === 'show-timing') showPanel('settings', 'timing')   // Lyrics & Studio's "Set up Precise timing"
   else if (name === 'back-to-stable') {
     // the first press asks (the line says what happens), the second installs
     if (!backConfirm) { backConfirm = true; pushPanel(); return }
@@ -4586,7 +4589,7 @@ function restartIntoUpdate() {
   stopDesktopScheme()
   app.exit(0)
 }
-// Settings → Experimental → Restart now: this same Sonata again (the AppImage in use, or Electron with the
+// Settings → Experimental graphics → Restart now: this same Sonata again (the AppImage in use, or Electron with the
 // app folder when run from source, in the folder it was started from), without --safe-gpu: the switches
 // are decided again at its start from the settings (gfx-runtime.js). Music stops for the restart.
 function restartApp() {

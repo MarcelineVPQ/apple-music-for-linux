@@ -1,4 +1,4 @@
-// Settings → Experimental: the graphics switches (docs/research/hdr-hw-accel-apple-music-2026-10.md,
+// Settings → Experimental graphics: the graphics switches (docs/research/hdr-hw-accel-apple-music-2026-10.md,
 // section 5). Pure: no Electron, no DOM (fs injected where a file is read), so node --test covers it.
 //
 //   EXPERIMENTS        the switches, in the order Settings lists them
@@ -26,6 +26,7 @@
       key: 'expTrueVideoColours',
       name: 'True video colours',
       label: 'True video colours (experimental)',
+      short: 'Videos keep the still cover\'s colours (Wayland)',   // the visible line (≤ 60); desc goes behind the ⓘ
       desc: 'On Wayland, animated album covers and music videos keep the colours of the still cover: reds and magentas no longer turn orange when the video fades in. Same CPU cost. Applies at restart.',
       restart: true,
       crashRank: 3,
@@ -47,6 +48,7 @@
       key: 'expGlowDither',
       name: 'Dithered cover glow',
       label: 'Dithered cover glow (experimental)',
+      short: 'Smooths the steps in the cover\'s glow',   // the visible line (≤ 60); desc goes behind the ⓘ
       desc: 'Adds the finest grain to the soft glow around an album\'s cover on Apple\'s page, so it fades smoothly instead of in visible steps (they show most on HDR screens). Applies at once.',
       restart: false,
       readout: (i) => ({
@@ -63,6 +65,7 @@
       key: 'expHdrOutput',
       name: 'HDR output',
       label: 'HDR output (experimental)',
+      short: 'Brighter-than-white glow on HDR screens (KDE)',   // the visible line (≤ 60); desc goes behind the ⓘ
       desc: 'On an HDR screen (KDE Plasma), Sonata draws in high dynamic range: the word being sung in the lyrics window and the visualizer glows brighter than white. Applies at restart.',
       restart: true,
       crashRank: 2,
@@ -85,6 +88,7 @@
       key: 'expHwVideoDecode',
       name: 'Hardware video decoding',
       label: 'Hardware video decoding (experimental)',
+      short: 'Decodes covers on the graphics card, less CPU',   // the visible line (≤ 60); desc goes behind the ⓘ
       desc: 'Decodes animated covers on the graphics card instead of the processor (about 7 % of a CPU core less while one plays). On Wayland, video colours are currently a little off with this on. Applies at restart.',
       restart: true,
       crashRank: 1,
@@ -211,7 +215,7 @@
       disable,
       strikes,
       notice: 'Sonata turned off ' + names + ': the last ' + STRIKES + ' starts with ' + it + ' on ended before Sonata was running ' +
-        'properly (it closed without being quit). Turn ' + it + ' back on in Settings → Experimental.'
+        'properly (it closed without being quit). Turn ' + it + ' back on in Settings → Experimental graphics.'
     }
   }
   const listWords = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1])
@@ -232,7 +236,7 @@
     return {
       key,
       notice: 'The graphics process stopped twice in this run (' + d.reason + '), so Sonata turned off ' + labelOf(key) +
-        ' for the next start. Turn it back on in Settings → Experimental.'
+        ' for the next start. Turn it back on in Settings → Experimental graphics.'
     }
   }
 

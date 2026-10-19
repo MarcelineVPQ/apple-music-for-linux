@@ -1,4 +1,4 @@
-// Expressive words (Settings → Playback & lyrics → Expressive words; on by default on Development
+// Expressive words (Settings → Lyrics & Studio → Expressive words; on by default on Development
 // channel builds): how the singing was sung, layered on top of the karaoke. The syllable pop stays
 // exactly as it is (Marcy 2026-10-18: "it's how I follow along, it's key"); while a vowel is held, the
 // expression lives inside and around the popped syllable:
@@ -516,7 +516,7 @@ function noteFor(state) {
   if (!st.precise) return say('Expressive words: Precise word timing is off', what + ' Turn on Precise word timing in Settings → Precise timing.', 'show')
   if (st.helper === 'lacks') return say('Expressive words needs a newer helper', what + ' This helper version doesn’t measure it: update it in Settings → Precise timing.', 'show')
   if (st.pitch === 'downloading') return say('Expressive words: downloading the pitch model…', what + ' It needs the pitch model, downloaded once.')
-  if (st.pitch === 'failed') return say('Expressive words: the pitch model didn’t download', (st.pitchWhy ? st.pitchWhy + '. ' : '') + 'Turn Expressive words off and on in Settings → Playback & lyrics to try again.')
+  if (st.pitch === 'failed') return say('Expressive words: the pitch model didn’t download', (st.pitchWhy ? st.pitchWhy + '. ' : '') + 'Turn Expressive words off and on in Settings → Lyrics & Studio to try again.')
   if (st.paused) return null
   if (st.entry === 'none') return say('Expressive words: nothing held long enough in this song', 'The helper measured this song and found no word held long enough, and no wordless singing, to draw with confidence.')
   if (st.job === 'measuring') return say('Expressive words: measuring this song…', what + ' It draws as soon as the helper is done, during this play.')

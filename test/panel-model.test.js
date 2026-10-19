@@ -38,13 +38,13 @@ test('accordion: one open section, pins stay open, DS5 rules for pinned headers 
   assert.deepEqual(st, { open: null, pins: [] })
   st = P.accReduce(st, { type: 'toggle', id: 'updates' })
   assert.deepEqual(st, { open: 'updates', pins: [] })
-  st = P.accReduce(st, { type: 'toggle', id: 'startup' })
-  assert.deepEqual(st, { open: 'startup', pins: [] }, 'another one folds the first')
+  st = P.accReduce(st, { type: 'toggle', id: 'windows' })
+  assert.deepEqual(st, { open: 'windows', pins: [] }, 'another one folds the first')
   st = P.accReduce(st, { type: 'pin', id: 'appearance' })
-  assert.ok(P.isOpen(st, 'appearance') && P.isOpen(st, 'startup') && !P.isOpen(st, 'updates'))
+  assert.ok(P.isOpen(st, 'appearance') && P.isOpen(st, 'windows') && !P.isOpen(st, 'updates'))
   st = P.accReduce(st, { type: 'toggle', id: 'updates' })
   assert.ok(P.isOpen(st, 'appearance'), 'a pinned section stays open while others fold')
-  assert.ok(!P.isOpen(st, 'startup'))
+  assert.ok(!P.isOpen(st, 'windows'))
   // a pinned header folds it and drops the pin
   st = P.accReduce(st, { type: 'toggle', id: 'appearance' })
   assert.ok(!P.isOpen(st, 'appearance') && !P.isPinned(st, 'appearance'))
@@ -52,13 +52,13 @@ test('accordion: one open section, pins stay open, DS5 rules for pinned headers 
   st = P.accReduce(P.accReduce(st, { type: 'pin', id: 'timing' }), { type: 'pin', id: 'timing' })
   assert.deepEqual(st, { open: 'timing', pins: [] })
   // reveal (a deep link) opens without touching pins
-  assert.deepEqual(P.accReduce({ open: null, pins: ['startup'] }, { type: 'reveal', id: 'updates' }), { open: 'updates', pins: ['startup'] })
+  assert.deepEqual(P.accReduce({ open: null, pins: ['windows'] }, { type: 'reveal', id: 'updates' }), { open: 'updates', pins: ['windows'] })
   // remembered state is cleaned: unknown ids and duplicates go
   assert.deepEqual(P.accState({ open: 'nope', pins: ['updates', 'updates', 'x'] }, 'settings'), { open: null, pins: ['updates'] })
 })
 
 test('⋮ menu: Collapse all folds everything (pins too), Clear pins keeps the open one; disabled when it would do nothing', () => {
-  const st = { open: 'updates', pins: ['startup', 'appearance'] }
+  const st = { open: 'updates', pins: ['windows', 'appearance'] }
   assert.deepEqual(P.accReduce(st, { type: 'collapseAll' }), { open: null, pins: [] })
   assert.deepEqual(P.accReduce(st, { type: 'clearPins' }), { open: 'updates', pins: [] })
   const m = P.menuItems(st)
@@ -85,7 +85,12 @@ test('header keys: ↑ ↓ wrap, Home End jump, others pass; focus cycle apple -
 
 test('settings sections: every setting of the old Settings window has a section; statuses say the state in words', () => {
   const ids = P.sectionIds('settings')
-  assert.deepEqual(ids, ['playback', 'timing', 'appearance', 'windows', 'shortcuts', 'integrations', 'updates', 'startup', 'experimental'])
+  // the IA pass (2026-10-19): Precise timing first; Startup merged into Windows & startup (its id links there)
+  assert.deepEqual(ids, ['timing', 'playback', 'appearance', 'windows', 'shortcuts', 'integrations', 'updates', 'experimental'])
+  assert.deepEqual(P.PAGES.settings.sections.map((x) => x.title), ['Precise timing', 'Lyrics & Studio', 'Appearance', 'Windows & startup', 'Global shortcuts', 'Integrations', 'Updates', 'Experimental graphics'])
+  assert.equal(P.sectionId('settings', 'startup'), 'windows')
+  assert.equal(P.sectionId('settings', 'timing'), 'timing')
+  assert.deepEqual(P.accState({ open: 'startup', pins: ['startup', 'windows'] }, 'settings'), { open: 'windows', pins: ['windows'] }, 'a stored Startup opens Windows & startup')
   const ui = fs.readFileSync(path.join(__dirname, '..', 'panel-ui.js'), 'utf8')
   // every toggle the retired settings.html had
   for (const k of ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'adaptiveColor', 'lyricsAlwaysOnTop', 'lyricsArtSpin', 'lrclibFallback', 'estimatedWordTiming', 'lyricsListenRefine', 'lyricsPreciseTiming', 'lyricsArtSpinSpeed', 'updateChannel']) {
@@ -95,8 +100,18 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.match(ui, /action: 'discord'/)
   const s = { lrclibFallback: true, estimatedWordTiming: true, notifications: false, updateChannel: 'dev', checkForUpdates: true, autoInstallUpdates: false, closeToTray: true, launchAtLogin: false, startMinimized: false, adaptiveColor: true, glass: true, theme: 'dark' }
   assert.equal(P.sectionStatus('settings', 'updates', s), 'Development · asks before installing')
-  assert.equal(P.sectionStatus('settings', 'startup', s), 'Close to tray')
-  assert.equal(P.sectionStatus('settings', 'startup', {}), 'All off')
+  assert.equal(P.sectionStatus('settings', 'windows', s), 'Close to tray')
+  assert.equal(P.sectionStatus('settings', 'windows', {}), 'All off')
+  assert.equal(P.sectionStatus('settings', 'windows', Object.assign({}, s, { notifications: true, miniAlwaysOnTop: true })), 'Notifications · mini player on top · close to tray')
+  // Precise timing: the helper's task first, else where it runs and the switch
+  assert.equal(P.sectionStatus('settings', 'timing', {}), 'Helper not installed')
+  assert.equal(P.sectionStatus('settings', 'timing', { alignInstalled: true, lyricsPreciseTiming: true, alignStatus: 'Ready on NVIDIA GeForce RTX 4070' }), 'Ready on RTX 4070 · Precise on')
+  assert.equal(P.sectionStatus('settings', 'timing', { alignInstalled: true, lyricsPreciseTiming: false, alignStatus: '' }), 'Installed · Precise off')
+  assert.equal(P.sectionStatus('settings', 'timing', { alignInstalled: true, helper: { state: 'update' } }), 'helper needs an update')
+  // Lyrics & Studio: only what is on; expressive and sheet notes only where they can show
+  assert.equal(P.sectionStatus('settings', 'playback', s), 'Apple + LRCLIB')
+  assert.equal(P.sectionStatus('settings', 'playback', Object.assign({}, s, { expressiveWords: true, sheetNotes: true, alignInstalled: true, lyricsPreciseTiming: true })), 'Apple + LRCLIB · expressive · sheet notes')
+  assert.equal(P.sectionStatus('settings', 'playback', { expressiveWords: true, sheetNotes: true }), 'Apple lyrics only')
   assert.equal(P.sectionStatus('settings', 'appearance', s), 'Dark · album colours · Glass')
   assert.equal(P.sectionStatus('settings', 'updates', Object.assign({}, s, { checkForUpdates: false })), 'Development · no automatic checks')
   assert.deepEqual(P.sectionIds('about'), ['whatsnew', 'soon', 'credits', 'graphics', 'curious'])
@@ -104,9 +119,8 @@ test('settings sections: every setting of the old Settings window has a section;
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g }), 'All off')
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { pending: ['A'] }), expA: true }), '1 on · restart to apply')
   assert.equal(P.sectionStatus('settings', 'experimental', { gfx: Object.assign({}, g, { safe: true }), expA: true, expB: true }), '2 on · safe start')
-  // Sheet notes in the Studio lives in Experimental too: counted when its row shows (the helper installed)
-  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g, sheetNotes: true, alignInstalled: true }), '1 on')
-  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g, sheetNotes: true, alignInstalled: false }), 'All off')
+  // Sheet notes moved to Lyrics & Studio: no longer counted here
+  assert.equal(P.sectionStatus('settings', 'experimental', { gfx: g, sheetNotes: true, alignInstalled: true }), 'All off')
 })
 
 test('panel-model: one file, two worlds (frozen global without CommonJS)', () => {

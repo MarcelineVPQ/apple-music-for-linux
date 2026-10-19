@@ -484,12 +484,13 @@ test('wiring: the setting, the tile, main\'s state to the lyrics window, the bui
   assert.match(html, /ipcRenderer\.on\('lyrics-sheet', \(event, st\) => \{/)
   assert.match(html, /stage\.setBand\(sheetBand\.el\)/)
   const panel = read('panel-ui.js')
-  // Settings → Experimental (beside the graphics switches; it applies at once), no longer in Precise timing
-  const expAt = panel.indexOf('experimental: () => ['), timingAt = panel.indexOf('timing: () => [')
+  // Settings → Lyrics & Studio → In the Studio (a lyrics feature; it applies at once), not in Experimental graphics
+  const lyrAt = panel.indexOf('playback: () => ['), appAt = panel.indexOf('appearance: () => [')
   const rowAt = panel.indexOf("switchRow('sheetNotes', 'Sheet notes in the Studio (experimental)'")
-  assert.ok(expAt > 0 && rowAt > expAt, 'the Sheet notes switch is in the Experimental section')
-  assert.ok(!(rowAt > timingAt && rowAt < panel.indexOf('startup: () => [')), 'not in Precise timing')
-  assert.ok(panel.indexOf("selectRow('sheetPlace'") > expAt, 'its placement row goes with it')
+  assert.ok(lyrAt > 0 && rowAt > lyrAt && rowAt < appAt, 'the Sheet notes switch is in Lyrics & Studio')
+  assert.ok(panel.indexOf("group('In the Studio'") > lyrAt && panel.indexOf("group('In the Studio'") < rowAt, 'under In the Studio')
+  const placeAt = panel.indexOf("selectRow('sheetPlace'")
+  assert.ok(placeAt > rowAt && placeAt < appAt, 'its placement row right under it')
   const files = require('../package.json').build.files
   for (const f of ['sheet-notes-model.js', 'sheet-notes-store.js', 'sheet-notes-ui.js', 'sheet-notes-glyphs.js', 'licenses/NotoMusic-OFL.txt']) assert.ok(files.includes(f), f)
   // the glyphs carry their own licence (OFL), named in the file
@@ -545,7 +546,7 @@ test('placement: the setting, the band\'s two buttons and main', () => {
   assert.match(main, /else if \(c\.command === 'sheet-place'\) setSetting\('sheetPlace', c\.value\)/)
   assert.match(main, /place: settings\.sheetPlace \}/)
   const panel = read('panel-ui.js')
-  assert.match(panel, /selectRow\('sheetPlace', 'Sheet notes placement'/)
+  assert.match(panel, /selectRow\('sheetPlace', 'Placement'[\s\S]{0,200}hidden: \(v\) => !preciseReady\(v\) \|\| !v\.sheetNotes/)
   const ui = read('sheet-notes-ui.js')
   assert.match(ui, /\['band', 'Band on top'/)
   assert.match(ui, /\['over', 'Over the sung line'/)
