@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.60-dev.1",
-  "file": "sonata-0.15.60-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.60-dev.1/sonata-0.15.60-dev.1-x86_64.AppImage",
-  "sha512": "0fa1ea4f1e286a16369e561f40ad2d92c975cb9843dc49f0399b2723c6488edd91e599ddab18833d54c674c56abdb140bfc8b6578e18561026d9861d635e5ab8",
-  "size": 127557911,
-  "date": "2026-10-19T20:34:22Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.60-dev.1",
-  "notes": "### Added\n- **Lyrics for the next songs are ready before they play.** While the lyrics show, Sonata quietly looks up the lyrics of the next three songs in Up Next (the rest of the album when you're playing one), one at a time, and keeps them with the songs you've played. When LRCLIB is busy it waits and tries later; with LRCLIB lyrics off only Apple Music is asked. Lyrics text only: no timing work runs for songs that aren't playing.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.60-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.61-dev.1",
+  "file": "sonata-0.15.61-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.61-dev.1/sonata-0.15.61-dev.1-x86_64.AppImage",
+  "sha512": "d8c0d28fa3b1c146f9792370dd82bec105ff8e609ea20af24939662f5e967da99ac4394d4d9ad9244092373a76ae7cfa67ae2d2c0e0c5d8de607238868bfe54d",
+  "size": 127557908,
+  "date": "2026-10-19T22:33:21Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.61-dev.1",
+  "notes": "### Fixed\n- **Sung lines keep their notes.** In a song Sonata has learned, a few sung lines showed the pitch line instead of notes, the same ones on every play (Radiohead's \"15 Step\": four lines in the first verse). Their notes sat a little loose on the pitch grid, as real singing does with scoops and vibrato, and the check for each line was stricter than singing allows. Now a line in a sung song shows its notes unless it is rapped (fast, off the grid) or its pitch is unsure; rapped and spoken songs still show the pitch line.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.61-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
