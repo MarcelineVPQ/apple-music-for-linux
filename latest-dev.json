@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.52-dev.1",
-  "file": "sonata-0.15.52-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.52-dev.1/sonata-0.15.52-dev.1-x86_64.AppImage",
-  "sha512": "f7eb2cfccec96f4a601221f5d40eafca201f1d3e7e35a312ca7a2b820389f92b495ba7ffd4bb377a6c06c81389dc03f01d1015a5ffcbb874059ab557302513c8",
-  "size": 127484190,
-  "date": "2026-10-19T12:54:49Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.52-dev.1",
-  "notes": "### Added\n\n- **Expressive words** (Settings → Playback & lyrics; on by default on Development builds, needs Precise word timing). Held notes show how they were sung, on top of the word light and the syllable pop, which stay exactly as they are: while a vowel is held its letter repeats in place (\"take me hoooome tonight\": the rest of the line slides over to make room and glides back when the note ends, never past the edge), the letters waver with the singer's vibrato and a belted word gains ink; lines look as they always did until a hold starts, and a sung word goes back to its spelling. A long held vowel also floats as large, faint letters behind the lyrics beside the sung line, growing with the hold and fading when the voice lets go. On Development builds, *Wordless vocalise ghosts* also shows a faint \"ooo\" where a note is held with no lyric word (an intro's \"ooh\"). Only what Sonata measured with confidence is shown; with reduced motion nothing drifts or waves. Off, it's today's karaoke.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.52-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.53-dev.1",
+  "file": "sonata-0.15.53-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.53-dev.1/sonata-0.15.53-dev.1-x86_64.AppImage",
+  "sha512": "0890107884fec27f61ea57a3c2a17f7a389dd3adb037189e330b3bf713dbd12c77ced71632790fbf0d49948a2cea8684f9c86a6166d99753269ee09862153500",
+  "size": 127488387,
+  "date": "2026-10-19T13:15:50Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.53-dev.1",
+  "notes": "### Fixed\n\n- **Settings → Experimental's graphics switches no longer turn themselves off when you restart Sonata.** Quitting or restarting Sonata (Restart now, an update's restart, the tray's Quit) within the first seconds of a start was taken for a start that went wrong, so HDR output, Hardware video decoding and True video colours were switched off on the next start without a word in Settings. A quit or a restart never counts now. Sonata turns a switch off only after a real failure, twice: two starts in a row that ended on their own before Sonata was running, or two graphics-process crashes in one run. When it does, Settings → Experimental says which switch and why, with **Turn back on**. Opening Sonata again while it runs no longer counts either. Switches that were turned off before this update stay off until you turn them back on.\n- **True video colours says when it can't work.** With Hardware video decoding on, it read \"Turns on at the next start\" although it isn't used then; it now says \"Not used while Hardware video decoding is on: this fix covers software-decoded video only.\"\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.53-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
