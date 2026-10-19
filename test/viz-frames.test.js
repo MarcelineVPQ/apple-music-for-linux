@@ -108,7 +108,7 @@ test('pushes stop (nothing playing on Apple\'s page): it freezes after STALE_MS;
 test('visualizer.html: the render loop runs through the gate, fed by the playing flag', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'visualizer.html'), 'utf8')
   assert.match(html, /createFrameGate\(\{ draw: frame/)
-  assert.match(html, /ipcRenderer\.on\('lyrics-time', \(e, t, playing, key, readAt\) => \{ lyricsView\.setTime\(t, playing, key, readAt\); gate\.setPlaying\(!!playing\) \}\)/)
+  assert.match(html, /ipcRenderer\.on\('lyrics-time', \(e, clock\) => \{ lyricsView\.setTime\(clock\); gate\.setPlaying\(lyricsView\.playing\) \}\)/)
   assert.doesNotMatch(html, /requestAnimationFrame\(frame\)/, 'no free-running loop')
   assert.match(html, /function setMode[\s\S]*?gate\.kick\(\)/, 'a scene change while frozen redraws')
   assert.match(html, /if \(gate\) gate\.kick\(\)/, 'a resize while frozen redraws')

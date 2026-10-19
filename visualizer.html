@@ -226,7 +226,7 @@
   window.__sonataHdr = hdrGlow.state
   const lyricsView = require('./lyrics-view').createLyricsView({ container: document.getElementById('lyrics'), layout: 'stage', onSung: (el) => hdrGlow.sung(el) })
   ipcRenderer.on('lyrics-data', (e, data) => lyricsView.setData(data))
-  ipcRenderer.on('lyrics-time', (e, t, playing, key, readAt) => { lyricsView.setTime(t, playing, key, readAt); gate.setPlaying(!!playing) })
+  ipcRenderer.on('lyrics-time', (e, clock) => { lyricsView.setTime(clock); gate.setPlaying(lyricsView.playing) })
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
   ipcRenderer.on('lyrics-aligned', (e, msg) => lyricsView.align(msg))
   ipcRenderer.on('lyrics-stream', (e, msg) => lyricsView.stream(msg))   // look-ahead play: words committed while the song plays

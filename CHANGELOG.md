@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.62-dev.1] — Words no longer jump: listening refines only estimated timing; one clock for everything: lyrics, sheet notes and effects stay in step
+
+### Fixed
+- **Words no longer jump: listening refines only estimated timing.** With Settings → Precise timing → Refine timing by listening on, words could move back and forth while they were sung ("Dancing Queen"). Listening now moves only words Sonata estimated from line-timed lyrics, each line once per play and never while it is lit; songs with Apple's own word timing, Precise word timing or an earlier learned result are never touched.
+- **One clock for everything: lyrics, sheet notes and effects stay in step.** The lyrics, the sheet-notes band, the interlude dots, Expressive words and the listening and recording for Precise timing each kept their own time, so they drifted apart: the band's playhead jumped back and forth and could show no notes under a line being sung. Now one song clock sets the time for all of them. It eases small differences in, never goes backwards except on a seek or a new song, and a new song's clock waits for that song's own time (the recording for its notes no longer takes the previous song's position for its opening). A correction over 100 ms is noted in the log, once a minute at most.
+
 ## [0.15.61-dev.1] — Sheet notes stay notes: the band no longer swaps sung lines for the pitch line
 
 ### Fixed

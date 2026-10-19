@@ -8,6 +8,9 @@ const { LastFm, createScrobbleQueue } = require('./lastfm');
 const { DiscordPresence } = require('./discord');
 const { Visualizer, RATE: VIZ_RATE } = require('./visualizer');
 const { createListenSession } = require('./listen-session')
+// the one song clock (song-clock.js, 0.15.62): every lyric consumer runs on its pushes (epoch-ms base)
+// lifetime: NOT-WORTH — one for the app's life, plain state (no timer, no listener)
+const songClock = require('./song-clock').createSongClock({ now: () => Date.now(), log: (m) => console.log(m) })
 const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
@@ -1280,11 +1283,20 @@ async function lyricsTick() {
   const heard = heardState(state)
   lookaheadReady = heard.heardReady !== false
   const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
-  if (Date.now() - readAt < 1000) sendLyrics('lyrics-time', heard.playbackTime, heard.isPlaying, key, readAt)
+  // the one song clock: its snapshot is the only time the views get (song-clock.js; they interpolate it)
+  songClock.setSong(key, state.duration)
+  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt) : null
+  if (clockNow) sendLyrics('lyrics-time', clockNow)
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
-  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
-  if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())
+  // the refiner and the recorder hear the player's own stream: on the song clock (rebased to their
+  // performance.now() base) unless look-ahead runs, when the clock is the heard time and they keep the player's
+  // (a new song's first ticks: the clock waits for the song's own time, and so do they: the previous
+  // song's position at a track change is never recorded as this song's opening)
+  const master = heard.playerTime ? null : songClock.snapshot()
+  const playerClock = heard.playerTime ? null : master ? require('./song-clock').localize(master, Date.now(), performance.now()) : { anchor: null, playing: false }
+  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine, playerClock)
+  if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn(), playerClock)
   alignGuardTick()
   vizAudioTick(state.isPlaying)
   refreshPalette(state)
@@ -1840,6 +1852,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
   else if (command === 'expressive') showPanel('settings', 'timing')   // the Expressive words line's Install / Show
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
+    if (!lookahead || lookahead.phase !== 'on') songClock.seek(seconds)   // the master knows at once (stale pushes dropped)
     if (mainWindow) {
       appleWC().executeJavaScript(`(() => { MusicKit.getInstance().seekToTime(${seconds}); })();`)
         .catch((e) => console.error('lyrics seek failed:', e.message)) // error: LOGGED-OK — page mid-load: that seek is lost (the next click works)

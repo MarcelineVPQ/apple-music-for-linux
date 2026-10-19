@@ -765,3 +765,6 @@ module.exports = {
   compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }
+// the band follows the song clock the way every clocked animation does (song-clock.js followRate)
+const { followRate, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX } = require('./song-clock')
+Object.assign(module.exports, { followRate, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX })

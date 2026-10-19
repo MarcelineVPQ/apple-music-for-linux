@@ -1075,8 +1075,9 @@
   ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
   ipcRenderer.on('lyrics-expr-note', (event, note) => view.exprNote(note))   // Expressive words' line (lyrics-view.js showXNote)
 
-  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying, key, readAt) => {
-    view.setTime(playbackTime, isPlaying, key, readAt)
+  // the song clock's snapshot (song-clock.js, main's one clock for every view and the band)
+  ipcRenderer.on('lyrics-time', (event, clock) => {
+    view.setTime(clock)
     updateStill()
     if (document.visibilityState === 'visible') updateRing(view.time())
   })
@@ -1126,6 +1127,8 @@
   sheetBand = require('./sheet-notes-ui').createSheetBand({
     doc: document,
     time: () => view.time(),
+    rate: () => view.rate(),
+    epoch: () => view.epoch(),
     playing: () => view.playing,
     duration: () => duration,
     reducedMotion: () => matchMedia('(prefers-reduced-motion: reduce)').matches,

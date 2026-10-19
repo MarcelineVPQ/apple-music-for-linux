@@ -68,7 +68,7 @@ function accidentalAt(doc, name, x, y, parent, cls) {
 const ACC_NAME = { [M.SHARP]: 'sharp', [M.FLAT]: 'flat', '♮': 'natural', '𝄪': 'dsharp', '𝄫': 'dflat' }
 
 /**
- * createSheetBand({ doc, time() (the lyrics clock, s), playing() , reducedMotion() , onLayout() })
+ * createSheetBand({ doc, time() (the lyrics clock, s), rate() / epoch() (its speed and discontinuity count), playing() , reducedMotion() , onLayout() })
  * -> { el, setState(st), setTime(), hasContent, mode }
  * st: main's 'lyrics-sheet' (on, installed, precise, key, wordSynced, timed, aligned, paused, error, entry?, pitch?)
  */
@@ -125,6 +125,7 @@ function createSheetBand(opts) {
   let gutter = 60
   let anim = null           // the strip's Web Animation
   let animFrom = 0          // the song time the animation started at
+  let animEpoch = 0         // the song clock's discontinuity count the strip last followed
   let wake = 0              // the timeout to the next note change
   let items = []            // [{ g, syl, i }] per drawn note
   let nowIdx = -2
@@ -274,13 +275,21 @@ function createSheetBand(opts) {
     if (!anim) {
       // lifetime: OK — one Web Animation at a time (stopAnim cancels it on a rebuild, a relayout, the band off or reduced motion)
       animFrom = t
+      animEpoch = opts.epoch ? opts.epoch() : 0
       anim = strip.animate([{ transform: 'translateX(' + r1(stripX(t)) + 'px)' }, { transform: 'translateX(' + r1(stripX(end)) + 'px)' }],
         { duration: (end - t) * 1000, easing: 'linear', fill: 'both' })
       if (!playing) anim.pause()
       return
     }
+    // on the song clock (0.15.62): the strip runs at the clock's own speed and eases any drift in, so it
+    // never steps back while the clock eases (it snapped back up to 2x a second before); it jumps only
+    // on the clock's discontinuity (a seek, a new song) or a drift no easing would close
     const want = (t - animFrom) * 1000
-    if (Math.abs((anim.currentTime || 0) - want) > 60) anim.currentTime = want
+    const ep = opts.epoch ? opts.epoch() : 0
+    const fit = M.followRate((anim.currentTime || 0) / 1000, want / 1000, opts.rate ? opts.rate() : 1, ep !== animEpoch || !playing)
+    animEpoch = ep
+    if (fit.snap) anim.currentTime = want
+    if (anim.playbackRate !== fit.rate) anim.playbackRate = fit.rate
     if (playing && anim.playState !== 'running') anim.play()
     else if (!playing && anim.playState === 'running') anim.pause()
   }

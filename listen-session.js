@@ -158,7 +158,7 @@ function createListenSession(deps) {
     // loop: HOT-PATH-OK — due-line scan · per tick (2/s) · over the song's lines (tens) · cost trivial
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
-      if (song.done.has(i) || !line.estimated || !line.words || !line.words.length) continue
+      if (song.done.has(i) || !line.estimated || line.aligned || line.repeat || !line.words || !line.words.length) continue
       const end = T.lineEnd(line, lines[i + 1])
       const from = line.t - EVIDENCE_PAD
       const to = end + EVIDENCE_PAD
@@ -196,7 +196,12 @@ function createListenSession(deps) {
     setLyrics(key, title, artist, lines, enabled, info) {
       stopListening()
       clock = null
-      const estimated = !!lines && lines.some((l) => l.estimated)
+      // 0.15.62: only words Sonata estimated (line-timed lyrics spread across words) are refined. A song
+      // with any word timing of its own (Apple's or LRC words; not estimated, not aligned) is never
+      // touched, and aligned / mapped lines are skipped below (Marcy: Apple-word-timed "Dancing Queen"'s
+      // words jumped back and forth with Refine on)
+      const own = !!lines && lines.some((l) => ((l.words && l.words.length) || (l.bg && l.bg.length)) && !l.estimated && !l.aligned)
+      const estimated = !!lines && !own && lines.some((l) => l.estimated && !l.aligned)
       song = enabled && estimated ? { key, title, artist, base: lines, done: new Set() } : null
       allOnsets = []
       if (!song) return { lines, refined: false, onset: null }
@@ -211,10 +216,11 @@ function createListenSession(deps) {
       return { lines: got.lines, refined: got.used, onset: found.entry && Number.isFinite(found.entry.offset) ? found.entry.offset : null }
     },
     /** Per lyrics poll tick: the playback time push. Runs/stops the listener. */
-    tick(playbackTime, isPlaying, enabled) {
+    tick(playbackTime, isPlaying, enabled, songClock) {
       if (!song || !enabled) { stopListening(); if (!enabled) song = null; return }
       const now = deps.now()
-      clock = T.syncClock(clock, playbackTime, isPlaying, now)
+      // songClock: main's one song clock in deps.now()'s base (song-clock.js localize); without it, the raw push smoothed here
+      clock = songClock || T.syncClock(clock, playbackTime, isPlaying, now)
       if (!clock.playing) { stopListening(); return }
       startListening()
       processDue(songTimeAt(clock, now, latency))

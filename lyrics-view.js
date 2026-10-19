@@ -28,6 +28,7 @@
 // countdown dots are Web Animations made once per interlude (dotKeyframes); a dots row opening or
 // closing slides the lines around it with a transform (FLIP), never a height animation.
 const T = require('./lyrics-timing')
+const C = require('./song-clock')
 const S = require('./lyrics-syllables')
 const X = require('./lyrics-expressive')
 const { createInfoTip } = require('./info-tip')
@@ -71,7 +72,9 @@ function refinedLine(lines, msg, key) {
   const line = lines[msg.lineIndex]
   const words = msg.words
   // a repeat mapped from an aligned line keeps that (aligned beats refined)
-  if (!line || !line.estimated || line.repeat === 'aligned' || !Array.isArray(words) || !line.words ||
+  // once per play, estimated words only (0.15.62): never a line timed by Apple / LRC, aligned (Precise word
+  // timing), streamed, or already refined (learned or earlier this play), so no word moves twice
+  if (!line || !line.estimated || line.aligned || line.refined || line.streaming || line.repeat === 'aligned' || !Array.isArray(words) || !line.words ||
       words.length !== line.words.length || words.some((w, i) => !w || w.text !== line.words[i].text)) return null
   const out = Object.assign({}, line, { words: words.map((w) => T.copyWord(w)), refined: true })
   delete out.repeat
@@ -498,6 +501,8 @@ function createLyricsView(opts) {
   let roomEl = null         // the element holding the room above itself (opts.room), or null
   let roomPx = 0
   let clock = null
+  let masterEpoch = -1      // the song clock's discontinuity count (song-clock.js) this view last took
+  let seekHold = null       // after a click-seek here: { epoch, until } (master pushes from before it are dropped)
   let waiting = null        // a new song's lyrics wait for its first time sample (lyrics-timing trackGate); null: the clock is the song's
   let shownTime = null      // the song time and the latest line of the last render (a jump snaps, see JUMP_S)
   let shownLatest = -1
@@ -775,6 +780,7 @@ function createLyricsView(opts) {
           opts.onSeek(line.t)
           waiting = null
           clock = T.seekClock(clock, line.t, performance.now())
+          seekHold = { epoch: masterEpoch, until: performance.now() + 1200 }   // main's next pushes may predate the seek
           render(line.t)
           updateFrames()
         }
@@ -1293,7 +1299,7 @@ function createLyricsView(opts) {
     const playing = !!clock && clock.playing && doc.visibilityState === 'visible'
     // loop: NOT-WORTH — the 4 countdown animations, per render while the dots show
     for (const a of g.anims) {
-      if (Math.abs((a.currentTime || 0) - at) > 60) a.currentTime = at
+      C.follow(a, at, C.rateAt(clock, performance.now()), masterEpoch, !playing)   // on the song clock, never a step back
       if (playing && a.playState !== 'running') a.play()
       else if (!playing && a.playState === 'running') a.pause()
     }
@@ -1347,7 +1353,7 @@ function createLyricsView(opts) {
       const at = (time - x.t0) * 1000
       // loop: HOT-PATH-OK — one expression's animations (≤ ~14), per render
       for (const a of x.anims) {
-        if (Math.abs((a.currentTime || 0) - at) > 60) a.currentTime = at
+        C.follow(a, at, C.rateAt(clock, performance.now()), masterEpoch, !playing)   // on the song clock, never a step back
         if (playing && a.playState !== 'running') a.play()
         else if (!playing && a.playState === 'running') a.pause()
       }
@@ -1514,7 +1520,7 @@ function createLyricsView(opts) {
     const playing = !!clock && clock.playing && doc.visibilityState === 'visible'
     const at = (time - x.t0) * 1000
     // loop: NOT-WORTH — one expression's animations (≤ ~14), once when it starts
-    for (const a of x.anims) { a.currentTime = at; if (playing) a.play(); else a.pause() }
+    for (const a of x.anims) { a.currentTime = at; a.sonataEpoch = masterEpoch; if (playing) a.play(); else a.pause() }
   }
   function endExpression(x) {
     for (const a of x.anims) a.cancel()   // loop: NOT-WORTH — one expression's animations (≤ ~14)
@@ -1568,14 +1574,27 @@ function createLyricsView(opts) {
   // previous one's last, or the next one's before its lyrics arrive) is dropped. A new song's first
   // samples that still carry the previous song's position are dropped too (lyrics-timing trackSample).
   // readAt (0.15.59): when Apple's page read the time (epoch ms); the push's age is added (lyrics-timing freshTime)
+  // setTime(snapshot): the song clock's (song-clock.js, main's master, 0.15.62): taken as is, moved to this
+  // window's time base, so the words, the band and the stage show the same instant as every other view.
+  // setTime(t, playing, key, readAt): a raw time (tests, no master), smoothed here the same way.
   function setTime(playbackTime, isPlaying, key, readAt) {
-    if (typeof key === 'string' && key !== songKey) return
-    playbackTime = T.freshTime(playbackTime, isPlaying, readAt, Date.now())
-    if (waiting) {
-      if (!T.trackSample(waiting, playbackTime, isPlaying, performance.now())) return
+    if (playbackTime && typeof playbackTime === 'object') {
+      const st = playbackTime
+      if (typeof st.key === 'string' && st.key !== songKey) return
+      if (seekHold && st.epoch <= seekHold.epoch && performance.now() < seekHold.until) return
+      seekHold = null
       waiting = null
+      masterEpoch = st.epoch
+      clock = C.localize(st, Date.now(), performance.now())
+    } else {
+      if (typeof key === 'string' && key !== songKey) return
+      playbackTime = T.freshTime(playbackTime, isPlaying, readAt, Date.now())
+      if (waiting) {
+        if (!T.trackSample(waiting, playbackTime, isPlaying, performance.now())) return
+        waiting = null
+      }
+      clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
     }
-    clock = T.syncClock(clock, playbackTime, isPlaying, performance.now())
     if (doc.visibilityState !== 'visible') {
       stopFrames()
       if (shownInterlude >= 0) syncDots(interludes[shownInterlude], T.clockTime(clock, performance.now()))   // pauses them
@@ -1648,6 +1667,9 @@ function createLyricsView(opts) {
     exprNote: setXNote,
     stream,
     time: () => T.clockTime(clock, performance.now()),
+    // the clock's speed now (0 paused, 0.5-1.5 while it eases) and its discontinuity count: the band follows both
+    rate: () => C.rateAt(clock, performance.now()),
+    epoch: () => masterEpoch,
     // the song's timed lines ({ t, text }), for the Studio's ↑/↓ and the seek bar's hover (on demand, not per frame)
     // loop: NOT-WORTH — the song's lines (≤ ~150), once per key press or hover move
     timedLines: () => lines.filter((l) => l && l.t !== null && Number.isFinite(l.t) && !l.gap && l.text).map((l) => ({ t: l.t, text: String(l.text) })),

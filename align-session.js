@@ -1279,11 +1279,12 @@ function createAlignSession(deps) {
       song.slow = !song.lookahead && !!slow()
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
-    tick(playbackTime, isPlaying, enabled) {
+    tick(playbackTime, isPlaying, enabled, songClock) {
       if (!enabled) { finish(false); return null }
       if (!song || song.sent) { stopCapture(); return null }
       const now = deps.now()
-      clock = T.syncClock(clock, playbackTime, isPlaying, now)
+      // songClock: main's one song clock in deps.now()'s base (song-clock.js localize); without it, the raw push smoothed here
+      clock = songClock || T.syncClock(clock, playbackTime, isPlaying, now)
       if (!clock.playing) { stopCapture(); expectNext = null; return null }
       // gaming guard: nothing is recorded while a game runs, so the sections it covers are not
       // heard (skipped) and fill in on a later play (a partial entry); recording resumes after
