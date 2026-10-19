@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.52-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Expressive words: held notes stretch and waver in the lyrics and float as faint letters behind them.</p>
+      </description>
+    </release>
     <release version="0.15.51-dev.1" date="2026-10-18" type="development">
       <description>
         <p>Long words keep a clear gap to their neighbours when they pop, and a high or low voice stays readable on the sheet-notes staff.</p>
