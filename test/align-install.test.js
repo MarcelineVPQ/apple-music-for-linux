@@ -198,7 +198,7 @@ test('install: --licence-only keeps the checked download and its licence; --lice
     assert.equal(events(bad.stdout).pop().code, 'licence')
     assert.deepEqual(engines(w.sa), [])
     assert.equal(fs.existsSync(path.join(w.sa, '.download')), false)
-    assert.deepEqual(fs.readdirSync(w.sa), [])                 // nothing left behind (no empty python/ either)
+    assert.deepEqual(fs.readdirSync(w.sa).filter((f) => f !== '.install.lock'), [])   // nothing left behind (no empty python/ either; the lock file stays)
     assert.equal(w.run(['--from', w.rel, '--licence-only']).status, 0)
     fs.rmSync(w.rel, { recursive: true })                     // the install uses the kept download
     const ok = w.run(['--licence-sha', lic.sha, '--progress'])
@@ -452,4 +452,169 @@ test('install --backend: the engine builds what its ENGINE.json lists; an older 
     // the dry run reports what the engine's recipe says for that backend
     assert.equal(w2.run(['--dry-run', '--backend', 'xpu']).status, 0)
   } finally { w2.done() }
+})
+
+// --- killed outright (SIGKILL: a crash, a power cut, Sonata gone): nothing is lost, the next run goes on ---
+
+// a loopback server for the release folder: Range requests answered (206), what each request asked and
+// how many bytes went out recorded; stallAfter: the first full answer stops after that many bytes and hangs
+function serve(dir, opts = {}) {
+  const http = require('http')
+  const log = []
+  let stalled = false
+  // lifetime: OK — closed by the test (close())
+  const server = http.createServer((req, res) => {
+    const f = path.join(dir, decodeURIComponent(req.url.replace(/^\/+/, '')))
+    if (!fs.existsSync(f)) { res.statusCode = 404; res.end(); return }
+    const all = fs.readFileSync(f)
+    const m = /^bytes=(\d+)-$/.exec(req.headers.range || '')
+    const from = m ? +m[1] : 0
+    const body = all.subarray(from)
+    const entry = { url: req.url, range: req.headers.range || '', sent: 0 }
+    log.push(entry)
+    res.writeHead(m ? 206 : 200, Object.assign({ 'Content-Length': body.length, ETag: '"e1"', 'Accept-Ranges': 'bytes' }, m ? { 'Content-Range': 'bytes ' + from + '-' + (all.length - 1) + '/' + all.length } : {}))
+    if (opts.stallAfter && !stalled && !m && f.endsWith('.tar.gz')) {
+      stalled = true
+      res.write(body.subarray(0, opts.stallAfter))
+      entry.sent = opts.stallAfter
+      return   // hangs: the test kills the installer
+    }
+    entry.sent = body.length
+    res.end(body)
+  })
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({
+    url: 'http://127.0.0.1:' + server.address().port + '/', log,
+    close: () => new Promise((r) => { server.closeAllConnections(); server.close(r) })
+  })))
+}
+const until = (fn, ms = 10000) => new Promise((resolve, reject) => {
+  const t0 = Date.now()
+  // lifetime: OK — cleared when the condition holds or the time is up
+  const t = setInterval(() => { if (fn()) { clearInterval(t); resolve() } else if (Date.now() - t0 > ms) { clearInterval(t); reject(new Error('timed out')) } }, 20)
+})
+const ended = (c) => new Promise((resolve) => c.on('close', (x, sig) => resolve(x === null ? sig : x)))
+// a run while the test's own server answers (spawnSync would block it): { status, stdout, stderr }
+async function runAsync(w, args, env) {
+  const c = w.start(args, env)
+  let stdout = ''
+  let stderr = ''
+  c.stdout.on('data', (d) => { stdout += d })
+  c.stderr.on('data', (d) => { stderr += d })
+  const status = await ended(c)
+  return { status, stdout, stderr }
+}
+
+test('install: the engine download killed midway continues where it stopped (Range), is checked whole, then installs', async () => {
+  // a big enough engine that half of it is a real part (the licence text pads the archive)
+  const w = world({ licence: 'TERMS\n' + crypto.randomBytes(300000).toString('base64') + '\n' })
+  const s = await serve(w.rel, { stallAfter: 98304 })
+  try {
+    const c = w.start(['--from', s.url, '--accept-licence', '--cpu', '--progress'])
+    const part = path.join(w.sa, '.resume', FILE)
+    // the part has what the server sent and stays put (curl writes in blocks: up to the stall point)
+    let last = -1
+    let still = 0
+    await until(() => { const n = fs.existsSync(part) ? fs.statSync(part).size : 0; still = n > 0 && n === last ? still + 1 : 0; last = n; return still >= 25 })
+    process.kill(-c.pid, 'SIGKILL')
+    await ended(c)
+    const k = fs.statSync(part).size
+    assert.ok(k > 0 && k <= 98304)                                     // the part stays (no trap ran)
+    assert.ok(w.pin.size > 200000)
+    const r = await runAsync(w, ['--from', s.url, '--accept-licence', '--cpu', '--progress'])
+    assert.equal(r.status, 0, r.stderr + r.stdout)
+    assert.match(r.stdout, new RegExp('continuing the download of the Sonata engine 9\\.9\\.9 at ' + k + ' of \\d+ bytes'))
+    const tar = s.log.filter((e) => e.url.endsWith('.tar.gz'))
+    assert.equal(tar.length, 2)
+    assert.equal(tar[1].range, 'bytes=' + k + '-')                        // asked only for the rest
+    assert.equal(tar[1].sent, w.pin.size - k)                     // and got only the rest
+    assert.match(r.stdout, /checked: size, SHA-256 and signature match the pin/)
+    assert.equal(read(path.join(w.sa, 'active-engine')).trim(), V)
+    assert.equal(fs.existsSync(path.join(w.sa, '.resume')), false)     // gone after the install
+  } finally { await s.close(); w.done() }
+})
+
+test('install: a kept part that is not the pinned file is refused by the checks and deleted, never continued', async () => {
+  const w = world()
+  const s = await serve(w.rel)
+  try {
+    fs.mkdirSync(path.join(w.sa, '.resume'), { recursive: true })
+    const real = fs.readFileSync(path.join(w.rel, FILE))
+    const bad = Buffer.from(real); bad[10] ^= 0xff                     // the right length, one wrong byte
+    fs.writeFileSync(path.join(w.sa, '.resume', FILE), bad.subarray(0, 1000))
+    const r = await runAsync(w, ['--from', s.url, '--accept-licence', '--progress'])
+    assert.equal(r.status, 1)
+    assert.equal(events(r.stdout).pop().code, 'verify')
+    assert.equal(fs.existsSync(path.join(w.sa, '.resume', FILE)), false)
+    const r2 = await runAsync(w, ['--from', s.url, '--accept-licence', '--progress'])   // the next try starts from the start
+    assert.equal(r2.status, 0, r2.stderr)
+  } finally { await s.close(); w.done() }
+})
+
+test('install: an update killed outright while its venv builds leaves the working install; the next run cleans up and goes on', async () => {
+  const w = world()
+  try {
+    assert.equal(w.run(['--from', w.rel, '--accept-licence', '--cpu'], { VERSION_MARK: 'old' }).status, 0)
+    const c = w.start(['--rebuild', '--progress'], { FAKE_SLOW: '30', VERSION_MARK: 'new' })
+    let out = ''
+    c.stdout.on('data', (d) => { out += d })
+    await until(() => /"step":"venv"/.test(out))
+    process.kill(-c.pid, 'SIGKILL')
+    await ended(c)
+    // the working install is untouched; the staging is left (no trap ran)
+    assert.equal(read(path.join(w.sa, 'venv', 'marker')).trim(), 'old')
+    assert.equal(read(path.join(w.sa, 'active-engine')).trim(), V)
+    assert.ok(fs.existsSync(path.join(w.sa, '.staging')))
+    assert.ok(fs.readdirSync(w.sa).some((f) => f.startsWith('.download.')))
+    const r = w.run(['--rebuild'], { VERSION_MARK: 'new' })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(read(path.join(w.sa, 'venv', 'marker')).trim(), 'new')
+    assert.equal(fs.existsSync(path.join(w.sa, '.staging')), false)
+    assert.deepEqual(fs.readdirSync(w.sa).filter((f) => f.startsWith('.download')), [])
+  } finally { w.done() }
+})
+
+test('install: killed between moving the old venv aside and switching in the new one: the next run puts it back', () => {
+  const w = world()
+  try {
+    assert.equal(w.run(['--from', w.rel, '--accept-licence', '--cpu'], { VERSION_MARK: 'old' }).status, 0)
+    fs.renameSync(path.join(w.sa, 'venv'), path.join(w.sa, 'venv.old-20261019-120000'))   // the state such a kill leaves
+    const r = w.run([])
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /the previous venv is back/)
+    assert.match(r.stdout, /venv up to date/)                          // nothing rebuilt: it was whole
+    assert.equal(read(path.join(w.sa, 'venv', 'marker')).trim(), 'old')
+  } finally { w.done() }
+})
+
+test('install: one run at a time: a second run waits for the first (a run left behind by a killed Sonata)', async () => {
+  const w = world()
+  try {
+    assert.equal(w.run(['--from', w.rel, '--accept-licence', '--cpu']).status, 0)
+    const a = w.start(['--rebuild', '--progress'], { FAKE_SLOW: '2', VERSION_MARK: 'a' })
+    let outA = ''
+    a.stdout.on('data', (d) => { outA += d })
+    await until(() => /"step":"venv"/.test(outA))
+    const b = w.start(['--rebuild', '--progress'], { VERSION_MARK: 'b' })
+    let outB = ''
+    b.stdout.on('data', (d) => { outB += d })
+    await until(() => /"ev":"wait"/.test(outB))
+    assert.equal(await ended(a), 0)
+    assert.equal(await ended(b), 0)
+    assert.match(outB, /another install of the helper is running/)
+    assert.equal(read(path.join(w.sa, 'venv', 'marker')).trim(), 'b')   // the second ran after the first, whole
+  } finally { w.done() }
+})
+
+test('install --remove: stopped midway, run again: it finishes (Sonata resumes it on the next start)', () => {
+  const w = world()
+  try {
+    assert.equal(w.run(['--from', w.rel, '--accept-licence', '--cpu']).status, 0)
+    fs.mkdirSync(path.join(w.sa, 'models'))
+    fs.writeFileSync(path.join(w.sa, 'models', 'm.pt'), 'x')
+    fs.rmSync(path.join(w.sa, 'engine-' + V), { recursive: true })      // what a kill partway through rm -rf leaves
+    fs.mkdirSync(path.join(w.sa, '.resume'))
+    const r = w.run(['--remove'])
+    assert.equal(r.status, 0, r.stderr)
+    assert.deepEqual(fs.readdirSync(w.sa), ['models'])
+  } finally { w.done() }
 })

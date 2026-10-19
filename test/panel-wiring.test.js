@@ -67,8 +67,10 @@ test('the floating Settings window is retired; tray, menus and --settings open t
   assert.match(sp, /if \(!mainWindow\.isVisible\(\)\) mainWindow\.show\(\)/)
 })
 
-test('informational pop-ups became notices or toasts; no dialog.showMessageBox left', () => {
-  const src = code(read('main.js'))
+test('informational pop-ups became notices or toasts; no dialog.showMessageBox left but the question before quitting', () => {
+  // the one question left is the quit guard's (quit-guard.js): it must show while the window is in the
+  // tray and must answer before Sonata exits, which a notice can't
+  const src = code(read('main.js')).replace(/const quitGuard = quitGuardLib\.createQuitGuard\(\{[\s\S]*?\n\}\)\n/, '')
   assert.doesNotMatch(src, /dialog\.showMessageBox/)
   for (const id of ["id: 'discord'", "id: 'lastfm'", "id: 'whatsnew'", "id: 'ask-auto'"]) assert.ok(read('main.js').includes(id), id)
 })

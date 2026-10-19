@@ -41,7 +41,7 @@ const CHECK_EVERY_MS = CHECK_EVERY_HOURS * 3600 * 1000
 
 const mb = (n) => (Number(n) > 0 ? (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB' : '')
 
-// The notice for an update state (place: top of the panel), or null. ctx: { playing, lastFailure }
+// The notice for an update state (place: top of the panel), or null. ctx: { playing, lastFailure, helperBusy }
 // lastFailure ({ version, detail }): an install of that version failed; while the same version is on
 // offer again (a later check), the notice keeps saying why (DS5: a failed install stays said)
 function updateNotice(st, ctx) {
@@ -68,8 +68,9 @@ function updateNotice(st, ctx) {
     case 'ready':
       return {
         id: 'update', kind: 'info', task: true, dismissKey: 'update:ready:' + st.version,   // hardcode: OK — the notice's key (raw version), never shown
-        text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.playing ? ' (Restart now shows when the music is paused).' : ', or restart now.'),
-        actions: c.playing ? [] : [{ id: 'update-restart', label: 'Restart now', primary: true }]
+        // a Precise timing helper job running: no restart until it has finished (helperBusy)
+        text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.helperBusy ? ' (Restart now shows when the Precise timing helper has finished).' : c.playing ? ' (Restart now shows when the music is paused).' : ', or restart now.'),
+        actions: c.playing || c.helperBusy ? [] : [{ id: 'update-restart', label: 'Restart now', primary: true }]
       }
     case 'failed':
       return st.during === 'install' || st.shown

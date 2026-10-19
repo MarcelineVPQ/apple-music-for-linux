@@ -1,4 +1,4 @@
-const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, clipboard, Notification, components, net, screen, globalShortcut } = require('electron')
+const { app, BaseWindow, BrowserWindow, WebContentsView, Menu, Tray, shell, nativeTheme, nativeImage, ipcMain, clipboard, Notification, components, net, screen, globalShortcut, dialog } = require('electron')
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -2874,7 +2874,8 @@ function noticeAction(id, action) {
     case 'lastfm-cancel': notices.clear('lastfm'); break
     case 'update-details': showPanel('settings', 'updates'); break
     case 'update-install': installUpdate(); break
-    case 'update-restart': if (!lastPlaying) restartIntoUpdate(); break
+    case 'update-restart': if (!lastPlaying) quitGuard.allow('restart').then((go) => { if (go) restartIntoUpdate() }); break
+    case 'helper-resume-show': showPanel('settings', 'precise'); break
     case 'whatsnew-see': showPanel('about', 'whatsnew'); break
     case 'ask-auto-yes': setSetting('autoInstallUpdates', true); break
     case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
@@ -3011,6 +3012,8 @@ const helperInstallerLib = require('./helper-installer')
 const helperModel = require('./helper-install-model')
 const engineFeedLib = require('./engine-feed')
 const gpuDetect = require('./gpu-detect')
+const modelFetch = require('./model-fetch')
+const quitGuardLib = require('./quit-guard')
 const engineTestFeed = engineFeedLib.testEngineFeed(process.env)
 if (engineTestFeed) console.log('helper: TEST ENGINE FEED ' + engineTestFeed.prefix + ' (loopback only)')
 let helperInstaller = null
@@ -3028,6 +3031,40 @@ let helperAutoTried = ''        // the version an automatic update last tried (o
 let helperPushTimer = null
 let helperFeedFirst = null
 let helperFeedTimer = null
+// a job a quit, a crash or a power cut stopped continues at the next start (Marcy 2026-10-19): while one
+// runs, <userData>/helper-job.json says what it is (helper-install-model.js jobMarker); it goes when the
+// job ends (done, cancelled or failed with its reason shown), never on quit
+let helperJob = null            // { kind, o (the start options), tries } of the job that runs
+let helperJobStep = ''          // the step last written to the marker
+let helperResumed = false       // the job that runs was resumed at start (Settings says so)
+let helperModelsAbort = null    // cancels the models download (model-fetch.js) while it runs
+const helperJobFile = () => path.join(app.getPath('userData'), 'helper-job.json')
+function writeHelperJob(step) {
+  if (!helperJob) return
+  helperJobStep = step
+  const f = helperJobFile()
+  // error: LOGGED-OK — the marker can't be written (read-only config): the job runs, only a resume after a crash is lost
+  try {
+    fs.writeFileSync(f + '.tmp', JSON.stringify(helperModel.jobMarker(helperJob.kind, helperJob.o, step, helperJob.tries)) + '\n')
+    fs.renameSync(f + '.tmp', f)
+  } catch (e) { console.log('helper: the job marker: ' + e.message) }
+}
+function clearHelperJob() {
+  helperJob = null
+  helperJobStep = ''
+  // error: NOT-WORTH — no marker there: nothing to clear
+  try { fs.rmSync(helperJobFile(), { force: true }) } catch (e) {}
+}
+// Every way out of Sonata asks first while a job runs (quit-guard.js): [Keep installing] [Quit anyway]
+// lifetime: NOT-WORTH — one guard for the app's life; at most one question at a time
+const quitGuard = quitGuardLib.createQuitGuard({
+  job: () => (helperInstaller && helperInstaller.busy ? helperInstaller.state().job : null),
+  ask: (w) => {
+    const opts = { type: 'question', message: w.message, detail: w.detail, buttons: [w.keep, w.go], defaultId: 0, cancelId: 0, noLink: true }
+    const parent = mainAlive() && mainWindow.isVisible() ? mainWindow : null
+    return (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).then((r) => r.response)
+  }
+})
 function learnPong(pong) {
   alignGpu = pong.device === 'cuda' || pong.device === 'xpu' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
   alignRunDevice = String(pong.device || '')
@@ -3088,6 +3125,7 @@ function engineCtx() {
 function refreshOffer() { engineOffer = engineFeedLib.judgeOffer(engineOffer.offer, installedEngineVersion(), engineCtx()) }
 // progress moves the bars a few times a second: the panel and rail get it at most 4 times a second
 function helperChanged(st) {
+  if (st && st.phase === 'running' && st.job && helperJob && st.job.step !== helperJobStep) writeHelperJob(st.job.step)
   if (!st || st.phase !== 'running') { clearTimeout(helperPushTimer); helperPushTimer = null; pushPanel(); pushRail(); return }
   if (helperPushTimer) return
   // lifetime: OK — one-shot, at most one pending (≤ 4 pushes a second while a job runs)
@@ -3112,7 +3150,7 @@ function getHelperInstaller() {
       alignInstalled(true)
     },
     models: (job, report) => helperModels(report),
-    cancelModels: () => { if (alignHelper) alignHelper.stop() },
+    cancelModels: () => { if (helperModelsAbort) helperModelsAbort(); if (alignHelper) alignHelper.stop() },
     after: helperAfter
   })
   return helperInstaller
@@ -3121,6 +3159,32 @@ function getHelperInstaller() {
 // languages download on first use). Skipped while a game runs (they come on first use then).
 async function helperModels(report) {
   alignInstalled(true)
+  if (alignPaused()) return
+  // the files first, here: a download cut short continues from where it stopped and is checked whole
+  // (model-fetch.js); a model the engine doesn't list, or an engine that can't say, is left to the helper
+  let plan = []
+  try {
+    plan = await modelFetch.enginePlan({ python: alignPaths.python, engine: alignPaths.engine, home: alignPaths.home, names: modelFetch.installNames(helperFiles.backend || keepBackend()), env: helperInstallerLib.installerEnv(process.env, alignPaths.home) })
+  } catch (e) { console.log('helper models: ' + e.message + '; the helper downloads them itself') }   // error: LOGGED-OK — the helper's own download below (from the start)
+  let aborted = false
+  const listeners = []
+  helperModelsAbort = () => { aborted = true; listeners.forEach((f) => f()) }   // loop: NOT-WORTH — one listener per download
+  try {
+    // loop: SERIAL-REQUIRED — one download at a time (the connection's bandwidth); 2-3 models, once per install
+    for (const item of plan) {
+      if (modelFetch.complete(item)) continue
+      const label = { htdemucs: 'htdemucs', en: 'en', kim: 'kim' }[item.name] || item.name
+      report({ p: 0, detail: label + ' 0/' + Math.round(item.bytes / 1e6) + ' MB' })
+      const r = await modelFetch.fetchModel(item, {
+        signal: { get aborted() { return aborted }, onAbort: (f) => listeners.push(f) },
+        userAgent: versionDisplay.userAgent(app.getVersion()),
+        log: (m) => console.log('helper models: ' + m),
+        onProgress: (d, t) => report({ p: d / t, detail: label + ' ' + Math.round(d / 1e6) + '/' + Math.round(t / 1e6) + ' MB' })
+      })
+      console.log('helper models: ' + item.name + (r.skipped ? ' already there' : ': ' + r.fetched + ' bytes fetched' + (r.resumedFrom ? ' (continued at ' + r.resumedFrom + ')' : '') + (r.checked ? ', SHA-256 checked' : ', size checked')))
+    }
+  } finally { helperModelsAbort = null }
+  if (aborted) return
   const h = getAlignHelper()
   const pong = await h.ping()
   learnPong(pong)
@@ -3130,6 +3194,18 @@ async function helperModels(report) {
 }
 function helperAfter(kind, job) {
   const ok = !!(job && job.phase === 'done')
+  // the job ended by itself (done, cancelled, or failed with its reason in Settings): no resume; a quit
+  // keeps the marker (the job continues at the next start)
+  if (!shuttingDown) {
+    clearHelperJob()
+    if (helperResumed) {
+      if (job && job.phase === 'failed') notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(kind, 'failed')))
+      else notices.clear('helper-resume')
+      if (ok) toast('The Precise timing helper is ready.')
+    }
+    helperResumed = false
+  }
+  if (updater.state().phase === 'ready') onUpdateState()   // Restart now for an update waited for the job
   alignStatusText = ''
   aboutCache = null
   alignInstalled(true)
@@ -3149,11 +3225,20 @@ function helperAfter(kind, job) {
 }
 // Install / Update / Repair: the newest compatible engine from the feed, else the pinned one (the minimum).
 // The build: Install and Rebuild make the one Build for asks for; Update and Repair keep the installed one.
-function helperStart(kind, backend) {
+function helperStart(kind, backend, resume) {
   const inst = getHelperInstaller()
   if (inst.busy) return
   helperConfirm = false
-  const o = { hasModels: helperFiles.models, backend: backend || (kind === 'install' ? wantBackend() : keepBackend()) }
+  // the models step always runs: it skips the files that are whole, and continues one cut short
+  if (resume) {
+    // the same job again: the same engine (the feed's pin it had), licence and build
+    const o = Object.assign({}, resume.opts, { hasModels: false })
+    helperJob = { kind, o: resume.opts, tries: resume.tries + 1 }
+    writeHelperJob(resume.step)
+    inst.start(kind, o)
+    return
+  }
+  const o = { hasModels: false, backend: backend || (kind === 'install' ? wantBackend() : keepBackend()) }
   const off = engineOffer.offer
   const pin = alignHelperLib.enginePin(__dirname) || {}
   const active = installedEngineVersion()
@@ -3166,7 +3251,33 @@ function helperStart(kind, backend) {
     if (engineTestFeed) o.from = engineTestFeed.prefix + 'engine-v' + off.version + '/'   // hardcode: OK — a download URL (the release tag), never shown
   } else o.version = pin.version || ''
   if (off && off.version === o.version) o.licence = off.licence   // the feed names this engine's licence: version and SHA-256
+  helperJob = { kind, o, tries: 0 }
+  helperJobStep = ''   // written when the job runs (after the licence): a quit at the licence leaves nothing to resume
+  helperResumed = false
   inst.start(kind, o)
+}
+// at start: a job a quit, a crash or a power cut stopped continues (with Cancel), and a notice says so once;
+// one that keeps getting stopped (RESUME_TRIES) is left to the user: Settings shows Install or Repair
+function helperResume() {
+  let text = ''
+  // error: NOT-WORTH — no marker: nothing was interrupted
+  try { text = fs.readFileSync(helperJobFile(), 'utf8') } catch (e) { return }
+  const m = helperModel.parseMarker(text)
+  const d = helperModel.resumeDecision(m)
+  if (!d.resume) {
+    clearHelperJob()
+    console.log('helper: an interrupted job is not resumed (' + (m ? d.why : 'unreadable marker') + ')')
+    if (m) notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'failed')))
+    return
+  }
+  console.log('helper: continuing the interrupted ' + m.kind + ' (step ' + (m.step || '?') + ', try ' + (m.tries + 1) + ')')
+  helperResumed = true
+  notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', task: true, actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'running')))
+  if (m.kind === 'remove') {
+    helperJob = { kind: 'remove', o: m.opts, tries: m.tries + 1 }
+    writeHelperJob(m.step)
+    getHelperInstaller().remove(!!m.opts.deleteModels)
+  } else helperStart(m.kind, '', m)
 }
 function helperAutoUpdate() {
   if (!settings.alignAutoUpdate || engineOffer.state !== 'available' || !alignHealth || alignHealth.state !== 'ok') return
@@ -3212,7 +3323,7 @@ function helperAction(name) {
   else if (name === 'helper-repair') helperStart('repair')
   else if (name === 'helper-rebuild') helperStart('repair', wantBackend())
   else if (name === 'helper-accept') inst.accept()
-  else if (name === 'helper-decline') inst.decline()
+  else if (name === 'helper-decline') { inst.decline(); clearHelperJob() }
   else if (name === 'helper-cancel') inst.cancel()
   else if (name === 'helper-dismiss') inst.dismiss()
   else if (name === 'helper-remove') {
@@ -3226,6 +3337,9 @@ function helperAction(name) {
   else if (name === 'helper-remove-keep' || name === 'helper-remove-all') {
     if (!helperConfirm) return
     helperConfirm = false
+    helperJob = { kind: 'remove', o: { deleteModels: name === 'helper-remove-all' }, tries: 0 }
+    helperJobStep = ''
+    helperResumed = false
     inst.remove(name === 'helper-remove-all')
   }
   pushPanel()
@@ -3243,7 +3357,7 @@ function helperSnapshot() {
     available: engineOffer.state === 'available' && h.state === 'ok' ? engineOffer.offer.version : '',
     availableNotes: engineOffer.state === 'available' && engineOffer.offer.notes ? engineOffer.offer.notes.slice(0, 300) : '',
     incompatible: engineOffer.state === 'incompatible' ? engineOffer.offer.version : '', incompatibleWhy: engineOffer.why || '',
-    phase: inst.phase, kind: inst.kind,
+    phase: inst.phase, kind: inst.kind, resumed: helperResumed,
     job: job ? Object.assign({}, job, { tail: [] }) : null,   // the output lines stay in main (they go to the log)
     fail: job && job.phase === 'failed' ? helperModel.failText(job) : '',
     licence: inst.phase === 'licence' && inst.licence ? { version: inst.licence.version, licenceVersion: inst.licence.licenceVersion || '', text: inst.licence.text, again: !!settings.alignLicence } : null,
@@ -3298,7 +3412,7 @@ function refreshTrayMenu() {
     { label: 'Check for Updates…', click: () => { showPanel('settings', 'updates'); checkForUpdates(true) } },
     { label: 'Settings…', click: () => showPanel('settings') },
     { label: 'About Sonata', click: () => showPanel('about') },
-    { label: 'Quit', click: () => { gfx.cleanExit('tray quit'); stopDesktopScheme(); app.exit(0) } }
+    { label: 'Quit', click: () => quitGuard.allow('quit').then((go) => { if (go) { shuttingDown = true; if (helperInstaller) helperInstaller.stop(); gfx.cleanExit('tray quit'); stopDesktopScheme(); app.exit(0) } }) }
   ]))
   pushRail()   // Last.fm / Discord connected or not
 }
@@ -3961,7 +4075,7 @@ function panelAction(name) {
   else if (name === 'shortcuts-configure' && shortcuts) shortcuts.configure()
   else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
-  else if (name === 'gfx-restart') restartApp()
+  else if (name === 'gfx-restart') quitGuard.allow('restart').then((go) => { if (go) restartApp() })
   else if (name === 'gfx-back-on') gfxBackOn()
   else if (name === 'curious-copy') curiousCopy()
   else if (name.startsWith('helper-')) helperAction(name)
@@ -4167,6 +4281,12 @@ function createWindow() {
       mainWindow.hide()
       return
     }
+    // closing quits: while the helper installs, ask first (quit-guard.js)
+    if (!shuttingDown && helperInstaller && helperInstaller.busy) {
+      e.preventDefault()
+      quitGuard.allow('quit').then((go) => { if (go && mainAlive()) { shuttingDown = true; mainWindow.close() } })
+      return
+    }
     shuttingDown = true
     gfx.cleanExit('window closed')
     stopDesktopScheme()
@@ -4305,7 +4425,7 @@ function onUpdateState() {
   const st = updater.state()
   if (st.phase === 'failed' && st.during === 'install') lastInstallFailure = { version: st.version, detail: st.detail }
   else if (st.phase === 'ready') lastInstallFailure = null
-  const n = updaterLib.updateNotice(st, { playing: lastPlaying, lastFailure: lastInstallFailure })
+  const n = updaterLib.updateNotice(st, { playing: lastPlaying, lastFailure: lastInstallFailure, helperBusy: !!(helperInstaller && helperInstaller.busy) })
   if (n) notices.show(Object.assign({ place: 'top', page: 'settings' }, n))
   else if (st.phase !== 'checking') notices.clear('update')
   // Install updates automatically: an offered (newer) update downloads, checks and installs by itself
@@ -4381,7 +4501,8 @@ function askAutoUpdate() {
 
 function restartIntoUpdate() {
   shuttingDown = true
-  gfx.cleanExit('update restart')   // before the new copy starts: it reads the marker
+  gfx.cleanExit('update restart')
+  if (helperInstaller) helperInstaller.stop()   // asked first (quit-guard.js); it continues at the next start   // before the new copy starts: it reads the marker
   // free the single-instance lock so the replacement can take it immediately
   app.releaseSingleInstanceLock()
   const target = (stablePath && fs.existsSync(stablePath)) ? stablePath : installedPath
@@ -4394,7 +4515,8 @@ function restartIntoUpdate() {
 // are decided again at its start from the settings (gfx-runtime.js). Music stops for the restart.
 function restartApp() {
   shuttingDown = true
-  gfx.cleanExit('Restart now')   // before the new copy starts: it reads the marker
+  gfx.cleanExit('Restart now')
+  if (helperInstaller) helperInstaller.stop()   // asked first (quit-guard.js); it continues at the next start   // before the new copy starts: it reads the marker
   app.releaseSingleInstanceLock()
   const args = relaunch.relaunchArgs(process.argv).filter((a) => a !== '--safe-gpu')
   startNewCopy(installedPath || process.execPath, args, appImagePath ? '' : process.cwd())
@@ -4512,6 +4634,8 @@ app.on('second-instance', () => {
     mainWindow.show()
     mainWindow.focus()
   }
+  // the helper installing: the second launch shows its progress (this copy keeps it going)
+  if (helperInstaller && helperInstaller.busy) showPanel('settings', 'precise')
 })
 
 // One startup step: a failure is logged and the next step still runs, so a theme, locale or
@@ -4562,6 +4686,7 @@ app.whenReady().then(async () => {
   })
   // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
+    shuttingDown = true   // the helper job's marker stays: it continues at the next start
     gfx.stop()
     stopDesktopScheme()
     if (shortcuts) shortcuts.stop()
@@ -4590,6 +4715,7 @@ app.whenReady().then(async () => {
   startupStep('auto-update question', askAutoUpdate)
   startupStep('precise timing install check', () => alignInstalled(true))
   startupStep('helper update checks', startHelperFeedChecks)
+  startupStep('interrupted helper job', helperResume)
   startupStep('look-ahead play', applyLookahead)   // the switch on (Linux, Development builds): its helper starts
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()

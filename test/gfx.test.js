@@ -321,7 +321,7 @@ test('gfx: the panel builds Experimental from the one registry and offers Restar
   // every self-restart marks the start clean before the new copy starts (it reads the marker)
   assert.match(main, /function restartApp\(\) \{\s*shuttingDown = true\s*gfx\.cleanExit\(/)
   assert.match(main, /function restartIntoUpdate\(\) \{\s*shuttingDown = true\s*gfx\.cleanExit\(/)
-  assert.match(main, /label: 'Quit', click: \(\) => \{ gfx\.cleanExit\(/)
+  assert.match(main, /label: 'Quit', click: \(\) => quitGuard\.allow\('quit'\)\.then\(\(go\) => \{ if \(go\) \{ shuttingDown = true; if \(helperInstaller\) helperInstaller\.stop\(\); gfx\.cleanExit\(/)
   assert.match(main, /\} else gfx\.claim\(\)/, 'only the copy with the lock writes the marker')
   // decided before 'ready': the runtime is created and asked before app.whenReady()
   assert.ok(main.indexOf('gfx.beforeReady()') > 0 && main.indexOf('gfx.beforeReady()') < main.indexOf('app.whenReady()'))

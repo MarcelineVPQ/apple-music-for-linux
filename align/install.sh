@@ -30,7 +30,10 @@
 # ENGINE.json, 3.14) builds a new venv in <home>/.staging, which replaces <home>/venv only after the
 # engine answers a ping in it (the old venv comes back if the ping in place fails). Then
 # <home>/active-engine names the engine Sonata runs. A failed or cancelled run leaves the working
-# install as it was. Models download on first use. The home: SONATA_ALIGN_HOME, else
+# install as it was, and so does a run killed outright (SIGKILL, a crash, a power cut): the next run
+# clears what it left and puts a venv that was moved aside back. One run at a time: a second one waits
+# for the first (<home>/.install.lock, flock). The engine's download continues where it stopped
+# (<home>/.resume, HTTP Range) and is checked whole. Models download on first use. The home: SONATA_ALIGN_HOME, else
 # $XDG_DATA_HOME/sonata-align (outside app sandboxes), else ~/.local/share/sonata-align; never inside
 # another app's sandbox (~/snap, /snap, ~/.var/app, an AppImage mount). Same rule as align-helper.js
 # helperPaths.
@@ -98,13 +101,35 @@ if in_sandbox "$HOME_DIR"; then
 fi
 [ "$(readlink -f "$HOME_DIR" 2>/dev/null || echo "$HOME_DIR")" != "$REAL_HOME" ] && [ "$HOME_DIR" != / ] || fail home "refusing to use $HOME_DIR as the helper's folder"
 
+# --- one run at a time (a run Sonata left behind when it was killed may still be going): wait for it ---
+if [ "$DRY" = 0 ] && { [ "$REMOVE" = 0 ] || [ -d "$HOME_DIR" ]; }; then
+  mkdir -p "$HOME_DIR"
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$HOME_DIR/.install.lock"
+    if ! flock -n 9; then
+      echo "another install of the helper is running in $HOME_DIR; waiting for it to end"
+      ev "\"ev\":\"wait\""
+      flock 9
+    fi
+  fi
+  # what a run killed outright left (no trap ran): its temporary folders, an engine not yet switched in,
+  # the staging venv; and a venv moved aside whose replacement never arrived comes back
+  rm -rf "$HOME_DIR"/.download.* "$HOME_DIR"/engine-*.new "$HOME_DIR/.staging" "$HOME_DIR/.active-engine.tmp"
+  if [ ! -e "$HOME_DIR/venv" ] && [ ! -L "$HOME_DIR/venv" ]; then
+    last="$(ls -1d "$HOME_DIR"/venv.old-* 2>/dev/null | sort | tail -n 1)"
+    if [ -n "$last" ] && [ -d "$last" ]; then mv "$last" "$HOME_DIR/venv"; echo "the previous venv is back in $HOME_DIR/venv (a run was stopped while switching)"; fi
+  fi
+fi
+
 # --- remove: the helper's own files only (bench songs or anything else in the folder stay) ---
 if [ "$REMOVE" = 1 ]; then
   step remove
   if [ -d "$HOME_DIR" ]; then
     rm -rf "$HOME_DIR"/engine-* "$HOME_DIR/venv" "$HOME_DIR"/venv.old-* "$HOME_DIR/python" "$HOME_DIR/.staging" \
-      "$HOME_DIR/.download" "$HOME_DIR"/.download.* "$HOME_DIR/active-engine" "$HOME_DIR/.active-engine.tmp"
+      "$HOME_DIR/.download" "$HOME_DIR"/.download.* "$HOME_DIR/active-engine" "$HOME_DIR/.active-engine.tmp" \
+      "$HOME_DIR/.resume"
     if [ "$DELETE_MODELS" = 1 ]; then rm -rf "$HOME_DIR/models"; fi
+    rm -f "$HOME_DIR/.install.lock"
     rmdir "$HOME_DIR" 2>/dev/null || true
   fi
   echo "the Precise timing helper is removed from $HOME_DIR$([ "$DELETE_MODELS" = 1 ] || echo ' (the downloaded models stay in models/)')"
@@ -176,22 +201,29 @@ if [ "$DRY" = 1 ]; then
 fi
 
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -c1-64; else shasum -a 256 "$1" | cut -c1-64; fi; }
-fetch() {   # fetch URL-or-path DEST
+fetch() {   # fetch URL-or-path DEST [resume]: with resume, a DEST already there is continued (HTTP Range)
   case "$1" in
     https://*|http://127.0.0.1[:/]*|http://localhost[:/]*)
       if command -v curl >/dev/null 2>&1; then
-        if [ "$PROGRESS" = 1 ]; then curl -fsSL --retry 3 --proto '=https,http' --proto-redir '=https' -o "$2" "$1"
-        else curl -fL# --retry 3 --proto '=https,http' --proto-redir '=https' -o "$2" "$1"; fi
-      elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
+        c=""; [ "$3" = resume ] && [ -s "$2" ] && c="-C -"
+        r=0
+        if [ "$PROGRESS" = 1 ]; then curl -fsSL --retry 3 --proto '=https,http' --proto-redir '=https' $c -o "$2" "$1" || r=$?
+        else curl -fL# --retry 3 --proto '=https,http' --proto-redir '=https' $c -o "$2" "$1" || r=$?; fi
+        # a server that can't continue (33) or refuses the range (22 on a 416): once more from the start
+        if [ "$r" != 0 ] && [ -n "$c" ] && { [ "$r" = 33 ] || [ "$r" = 22 ]; }; then
+          rm -f "$2"; r=0; curl -fsSL --retry 3 --proto '=https,http' --proto-redir '=https' -o "$2" "$1" || r=$?
+        fi
+        return $r
+      elif command -v wget >/dev/null 2>&1; then if [ "$3" = resume ]; then wget -q -c -O "$2" "$1"; else wget -q -O "$2" "$1"; fi
       else echo "needs curl or wget to download the engine" >&2; return 1; fi ;;
     file://*) cp "${1#file://}" "$2" ;;
     *) cp "$1" "$2" ;;
   esac
 }
 # the download with its bytes reported (--progress): the file's size, read twice a second
-fetch_counted() {   # fetch_counted URL DEST TOTAL
-  if [ "$PROGRESS" = 0 ]; then fetch "$1" "$2"; return; fi
-  fetch "$1" "$2" &
+fetch_counted() {   # fetch_counted URL DEST TOTAL (continues a DEST already there)
+  if [ "$PROGRESS" = 0 ]; then fetch "$1" "$2" resume; return; fi
+  fetch "$1" "$2" resume &
   fpid=$!
   while kill -0 "$fpid" 2>/dev/null; do
     g="$( (wc -c < "$2") 2>/dev/null | tr -d ' ')"
@@ -222,6 +254,7 @@ cleanup() {
   # the download kept for the install that follows the licence goes with any other ending of an install
   [ "$LICENCE_ONLY" = 1 ] || rm -rf "$KEEP"
   rmdir "$HOME_DIR/python" 2>/dev/null || true   # made for uv's Python; empty when the system's was used
+  rmdir "$HOME_DIR/.resume" 2>/dev/null || true   # a part being continued stays; an empty folder goes
 }
 trap 'cleanup' EXIT
 trap 'ev "\"ev\":\"cancelled\""; exit 130' INT TERM HUP
@@ -231,8 +264,23 @@ if [ -f "$ENGINE/.installed" ] && [ "$(sed -n 's/^sha256=//p' "$ENGINE/.installe
   step download; step verify
 else
   step download
-  echo "downloading the Sonata engine $VERSION ($SIZE bytes) from $URL"
-  fetch_counted "$URL" "$TMPD/$FILE" "$SIZE" || fail download "the engine could not be downloaded from $URL"
+  # the download is kept in <home>/.resume until it passes the checks: a run stopped midway continues it
+  RESUME="$HOME_DIR/.resume"
+  mkdir -p "$RESUME"
+  PARTIAL="$RESUME/$FILE"
+  find "$RESUME" -maxdepth 1 -type f ! -name "$FILE" -delete 2>/dev/null || true   # another engine's part
+  had="$( (wc -c < "$PARTIAL") 2>/dev/null | tr -d ' ')"
+  [ -z "$had" ] || [ "$had" -le "$SIZE" ] || { rm -f "$PARTIAL"; had=""; }
+  case "$URL" in https://*|http://127.0.0.1[:/]*|http://localhost[:/]*) ;; *) rm -f "$PARTIAL"; had="" ;; esac
+  if [ "${had:-0}" = "$SIZE" ]; then
+    echo "the Sonata engine $VERSION is already downloaded ($PARTIAL); checking it"
+  else
+    if [ "${had:-0}" -gt 0 ]; then echo "continuing the download of the Sonata engine $VERSION at $had of $SIZE bytes from $URL"
+    else echo "downloading the Sonata engine $VERSION ($SIZE bytes) from $URL"; fi
+    fetch_counted "$URL" "$PARTIAL" "$SIZE" || fail download "the engine could not be downloaded from $URL"
+  fi
+  # from here the bytes are checked: a wrong download goes (with TMPD), it is never continued
+  mv "$PARTIAL" "$TMPD/$FILE"
   fetch "$URL.sig" "$TMPD/$FILE.sig" || fail download "the engine's signature could not be downloaded from $URL.sig"
   ev "\"ev\":\"bytes\",\"step\":\"download\",\"got\":$(wc -c < "$TMPD/$FILE" | tr -d ' '),\"total\":$SIZE"
   step verify
@@ -353,7 +401,7 @@ mv "$HOME_DIR/.active-engine.tmp" "$HOME_DIR/active-engine"
 NEW_ENGINE=0
 REPLACED="$OLD"
 OLD=""
-rm -rf "$KEEP"
+rm -rf "$KEEP" "$HOME_DIR/.resume"
 echo "Precise word timing's helper is installed (engine $VERSION in $HOME_DIR). Sonata notices it in Settings → Precise timing."
 if [ "$PRUNE" = 1 ]; then
   [ -z "$REPLACED" ] || rm -rf "$REPLACED"

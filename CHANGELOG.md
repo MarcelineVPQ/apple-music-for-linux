@@ -7,6 +7,15 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.56-dev.1] — The helper install survives a restart
+
+### Fixed
+
+- **Quitting no longer throws away a helper install.** While Settings → Precise timing installs, updates, repairs or removes the helper, Quit (in the tray), closing the window and Restart now ask first: "The Precise timing helper is still installing (step N of M). Quit anyway? It will continue the next time Sonata starts." Keep installing is the default. An update that is ready waits for the helper before it offers Restart now, and opening Sonata again while it installs shows the progress.
+- **An interrupted install picks up where it stopped.** If Sonata was closed, crashed or the power went while the helper was being set up, the next start says "The helper install was interrupted — continuing…" and carries on by itself (Cancel stops it). If it can't be finished, Settings says why and offers Install or Repair.
+- **Downloads continue instead of starting over.** The helper and its models (the English aligner is 1.26 GB) continue from the last byte that arrived, and every file is checked whole afterwards (size and checksum). Files that are already complete are never downloaded again.
+- **A stopped update leaves the working helper in place.** An update or repair that is cut off midway, even by a crash, keeps the helper that was installed before; the next run tidies up what was left.
+
 ## [0.15.55-dev.1] — Look-ahead play: first plays precise from the start (Linux, experimental)
 
 ### Added

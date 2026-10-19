@@ -231,6 +231,10 @@
     if (s.phase === 'licence') return { text: 'Waiting for you to accept the licence', info: '', level: 'busy' }
     if (job && job.phase === 'running' && (s.phase === 'running' || s.phase === 'licence-fetch')) {
       const p = progressView(job)
+      if (s.resumed) {
+        const what = job.kind === 'remove' ? 'Finishing the interrupted removal…' : 'Continuing the interrupted ' + NOUN[job.kind] + '… step ' + p.stepNo + ' of ' + p.stepCount
+        return { text: what, info: (V ? V.NAME : 'Sonata') + ' was closed while the helper was ' + VERB[job.kind] + '. It continues where it stopped: finished downloads are kept, a download cut short goes on from where it was, and everything is checked again.', level: 'busy' }
+      }
       const what = job.kind === 'remove' ? 'Removing…' : (job.kind === 'update' ? 'Updating' : job.kind === 'repair' ? 'Repairing' : 'Installing') + '… step ' + p.stepNo + ' of ' + p.stepCount
       return { text: what, info: '', level: 'busy' }
     }
@@ -295,7 +299,76 @@
     return { text, info }
   }
 
-  const api = { STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
+  // --- a job a quit, a crash or a power cut stopped (main keeps <userData>/helper-job.json while one runs) ---
+  const JOB_KINDS = ['install', 'update', 'repair', 'remove']
+  // a job that keeps getting stopped (a crash during it, every time) is resumed this often, then left to the user
+  const RESUME_TRIES = 3
+  const VERB = { install: 'installing', update: 'updating', repair: 'repairing', remove: 'being removed' }
+  const KEEP = { install: 'Keep installing', update: 'Keep updating', repair: 'Keep repairing', remove: 'Keep removing' }
+  const NOUN = { install: 'install', update: 'update', repair: 'repair', remove: 'removal' }
+
+  /**
+   * The marker of a running job: what a resume needs to run the same job again. kind; o: the start
+   * options (pinText: the feed's engine, version, licence, backend, rebuild, from, deleteModels); step: the
+   * job's step now; tries: how many times it was resumed already.
+   */
+  function jobMarker(kind, o, step, tries) {
+    const x = o || {}
+    const opts = {}
+    // loop: NOT-WORTH — the 7 option names, once per step change
+    for (const k of ['pinText', 'version', 'from', 'backend']) if (typeof x[k] === 'string' && x[k]) opts[k] = x[k]
+    if (x.rebuild) opts.rebuild = true
+    if (x.deleteModels) opts.deleteModels = true
+    if (x.licence && typeof x.licence === 'object') opts.licence = { version: String(x.licence.version || ''), sha256: String(x.licence.sha256 || '') }
+    return { v: 1, kind: JOB_KINDS.includes(kind) ? kind : 'install', step: String(step || ''), tries: Math.max(0, tries | 0), opts }
+  }
+
+  /** The marker file's text -> the marker, or null for anything else (a damaged or foreign file is ignored). */
+  function parseMarker(text) {
+    let m
+    // error: NOT-WORTH — not JSON: no job to resume (the file is removed by the caller)
+    try { m = JSON.parse(String(text || '')) } catch (e) { return null }
+    if (!m || m.v !== 1 || !JOB_KINDS.includes(m.kind) || typeof m.opts !== 'object' || !m.opts) return null
+    const o = m.opts
+    if (o.pinText !== undefined && (typeof o.pinText !== 'string' || o.pinText.length > 8192)) return null
+    if (o.backend !== undefined && !BACKENDS.includes(o.backend)) return null
+    if (o.from !== undefined && !/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(String(o.from))) return null   // a test feed's loopback only
+    return jobMarker(m.kind, o, m.step, m.tries)
+  }
+
+  /** What to do with a marker found at start: { resume: true } or { resume: false, why: 'tries' } */
+  function resumeDecision(m) {
+    if (!m) return { resume: false, why: 'none' }
+    if (m.tries >= RESUME_TRIES) return { resume: false, why: 'tries' }
+    return { resume: true, why: '' }
+  }
+
+  /**
+   * The question before Sonata quits or restarts while a job runs. action: 'quit' | 'restart'.
+   * -> { message, detail, keep, go }: the buttons are [keep, go], keep first (the default and Escape).
+   */
+  function quitAsk(job, action) {
+    const j = job || {}
+    const kind = JOB_KINDS.includes(j.kind) ? j.kind : 'install'
+    let where = ''
+    if (kind !== 'remove' && j.skipped) { const p = progressView(j); where = ' (step ' + p.stepNo + ' of ' + p.stepCount + ')' }
+    const restart = action === 'restart'
+    return {
+      message: 'The Precise timing helper is still ' + VERB[kind] + where + '.',
+      detail: (restart ? 'Restart anyway? ' : 'Quit anyway? ') + 'It will continue the next time ' + (V ? V.NAME : 'Sonata') + ' starts' + (kind === 'remove' ? '.' : ', and what is downloaded already is kept.'),
+      keep: KEEP[kind],
+      go: restart ? 'Restart anyway' : 'Quit anyway'
+    }
+  }
+
+  /** The notice at start, while a stopped job continues, and when it couldn't be finished. */
+  function resumeNotice(kind, outcome) {
+    const n = NOUN[JOB_KINDS.includes(kind) ? kind : 'install']
+    if (outcome === 'failed') return { kind: 'error', text: 'The interrupted helper ' + n + ' couldn\'t be finished', detail: 'Settings → Precise timing says why and offers Install or Repair.' }
+    return { kind: 'info', text: 'The helper ' + n + ' was interrupted — continuing…', detail: (V ? V.NAME : 'Sonata') + ' was closed while the Precise timing helper was ' + VERB[JOB_KINDS.includes(kind) ? kind : 'install'] + '; it picks up where it stopped. Cancel it in Settings → Precise timing.' }
+  }
+
+  const api = { JOB_KINDS, RESUME_TRIES, jobMarker, parseMarker, resumeDecision, quitAsk, resumeNotice, STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataHelperInstallModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

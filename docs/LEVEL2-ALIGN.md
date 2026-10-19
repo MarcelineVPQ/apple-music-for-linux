@@ -476,6 +476,17 @@ unless the requirements changed. `SONATA_ENGINE_DIR` points Sonata at an unpacke
 checkout instead (engine work only). Sonata's CI never downloads the engine: its tests use the fake helper,
 stand-in engines (test/align-install.test.js) and a fake installer (test/helper-install.test.js).
 
+**Never lost to a quit, a crash or a power cut** (0.15.56). While a job runs, every way out of Sonata asks
+first (`quit-guard.js`: tray Quit, closing the window, Restart now; an update's Restart now waits). Main keeps
+`<userData>/helper-job.json` (kind, step, the engine's pin, licence and build) while the job runs and removes it
+when the job ends by itself; at the next start a marker left behind resumes the job (at most 3 tries). The
+engine's download continues in `<home>/.resume` (curl `-C -`), the models' in `.<file>.part-sonata`
+(`model-fetch.js`: the engine's own model list, HTTP Range with If-Range, then size and SHA-256), and
+`install.sh` holds `<home>/.install.lock` and clears what a killed run left (staging, temporary folders, a venv
+moved aside). Measured 2026-10-19 (CPU build, live feed): killed at 702 MB of the English aligner, the restart
+continued at 701 MB (1 MB back) and fetched only the remaining 561 MB, SHA-256 checked; a Repair killed while
+PyTorch installed left the old venv answering, and the next start finished it.
+
 ## Install footprint
 
 Everything lives under `~/.local/share/sonata-align/` (`SONATA_ALIGN_HOME` overrides it;

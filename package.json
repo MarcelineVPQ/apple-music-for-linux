@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.55-dev.1",
+  "version": "0.15.56-dev.1",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -104,6 +104,8 @@
       "panel-helper.js",
       "helper-install-model.js",
       "helper-installer.js",
+      "model-fetch.js",
+      "quit-guard.js",
       "engine-feed.js",
       "gpu-detect.js",
       "gfx-model.js",
