@@ -52,7 +52,9 @@ test('paths: the user install for python, the pinned engine in it for the server
 
 test('pin: align/engine.json names the engine release Sonata installs', () => {
   const pin = H.enginePin(path.join(__dirname, '..'))
-  assert.match(pin.version, /^\d+\.\d+\.\d+$/)
+  // a development engine (X.Y.Z-dev.N) only in a Development build: a stable Sonata pins a stable engine
+  const devBuild = /-dev\.\d+$/.test(require('../package.json').version)
+  assert.match(pin.version, devBuild ? /^\d+\.\d+\.\d+(-dev\.\d+)?$/ : /^\d+\.\d+\.\d+$/)
   assert.ok(H.PROTOCOLS.includes(pin.protocol))
   assert.match(pin.python, /^3\.\d+$/)   // the venv's Python follows the pin (checkInstall)
   assert.equal(pin.file, 'sonata-engine-' + pin.version + '-linux-x86_64.tar.gz')

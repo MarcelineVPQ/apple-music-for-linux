@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.55-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Look-ahead play (experimental, Linux, Development builds): a song's first play can be heard a few seconds late so its words light up on time from the first line.</p>
+      </description>
+    </release>
     <release version="0.15.54-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Expressive words now appear on your songs: held notes stretch, waver and float as faint ghosts behind the lyrics.</p>
