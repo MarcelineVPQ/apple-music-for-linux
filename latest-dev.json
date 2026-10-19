@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.51-dev.1",
-  "file": "sonata-0.15.51-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.51-dev.1/sonata-0.15.51-dev.1-x86_64.AppImage",
-  "sha512": "10fcb27fe1b3ea0a5f5e726034687e57b7521507d5d6def25a66dd8acd8992e1ea2b88ad52971efa543a1299d10adefcf500beb9f37b1925b1d9b6f7caad1e4c",
-  "size": 127467810,
-  "date": "2026-10-18T23:30:56Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.51-dev.1",
-  "notes": "### Fixed\n\n- **A long word's pop no longer runs into the next word.** In the Studio at a large size, a long word being sung grew into the space beside it, so \"amends, that's right\" read as \"amends,that's\" and \"predictable\" crowded \"it's\". The pop looks and moves exactly as before; a word that would come too close to its neighbour now grows toward the side with room (the start or end of a line grows outward), and only when both sides are tight does it grow a little less, so a clear gap always stays between words. Short words pop exactly as they did. Hyphenated words (\"Yeah-oh\") stay joined, backing vocals follow the same rule, and with reduced motion nothing pops, as before.\n- **The sheet-notes staff keeps a high or low voice readable.** In the Studio's sheet notes, a stretch of the pitch line above the staff was drawn with nothing to read it by, right under the band's buttons (Sabrina Carpenter's \"House Tour\" at 2:29), and anything higher was cut off without a sign. Above or below the staff the line now gets ledger lines, as a note would; past the room the staff has, it runs along the edge, dashed, with a small arrow pointing the way it went. Notes that high or low show the same way. Nothing is drawn into the label row any more.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.51-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.52-dev.1",
+  "file": "sonata-0.15.52-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.52-dev.1/sonata-0.15.52-dev.1-x86_64.AppImage",
+  "sha512": "f7eb2cfccec96f4a601221f5d40eafca201f1d3e7e35a312ca7a2b820389f92b495ba7ffd4bb377a6c06c81389dc03f01d1015a5ffcbb874059ab557302513c8",
+  "size": 127484190,
+  "date": "2026-10-19T12:54:49Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.52-dev.1",
+  "notes": "### Added\n\n- **Expressive words** (Settings → Playback & lyrics; on by default on Development builds, needs Precise word timing). Held notes show how they were sung, on top of the word light and the syllable pop, which stay exactly as they are: while a vowel is held its letter repeats in place (\"take me hoooome tonight\": the rest of the line slides over to make room and glides back when the note ends, never past the edge), the letters waver with the singer's vibrato and a belted word gains ink; lines look as they always did until a hold starts, and a sung word goes back to its spelling. A long held vowel also floats as large, faint letters behind the lyrics beside the sung line, growing with the hold and fading when the voice lets go. On Development builds, *Wordless vocalise ghosts* also shows a faint \"ooo\" where a note is held with no lyric word (an intro's \"ooh\"). Only what Sonata measured with confidence is shown; with reduced motion nothing drifts or waves. Off, it's today's karaoke.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.52-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
