@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.61-dev.1",
+  "version": "0.15.62-dev.1",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -52,6 +52,7 @@
       "lyrics-prefetch.js",
       "recording-id.js",
       "lyrics-timing.js",
+      "song-clock.js",
       "lyrics-view.js",
       "stage-model.js",
       "song-actions.js",
