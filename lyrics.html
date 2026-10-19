@@ -259,6 +259,14 @@
   /* the ⓘ beside #empty's and #lead's text (info-tip.js; the .sn-info look below), its bubble under the text */
   #empty .sn-info, #lead .sn-info { vertical-align: middle; margin: -4px -4px -4px 2px; }
   #empty .sn-tip, #lead .sn-tip { text-align: left; }
+  /* Expressive words' line while it can't draw yet (lyrics-view.js showXNote): a quiet note over the lines like #lead, its ⓘ and one button */
+  #xnote { position: relative; padding: 6px 20px 10px; font-size: 11.5px; font-weight: 600; color: var(--s-soft); text-align: center; }
+  #xnote .sn-info { vertical-align: middle; margin: -4px -4px -4px 2px; }
+  #xnote .sn-tip { text-align: left; }
+  #xnote .xact { min-height: 24px; margin: -4px 0 -4px 6px; padding: 0 9px; border: 1px solid var(--s-edge); border-radius: 6px; background: transparent; color: var(--s-text); font: inherit; font-weight: 600; cursor: pointer; vertical-align: middle; }
+  #xnote .xact:hover { background: var(--s-hover); }
+  #xnote .xact:focus { outline: none; }
+  #xnote .xact:focus-visible { outline: 2px solid var(--s-ring); outline-offset: 1px; }
   [hidden] { display: none !important; }
 
   /* ===== the stage (body.stage): the lyrics window grown into the now-playing screen =====
@@ -287,6 +295,7 @@
   body.stage .line { font-size: 31px; padding: 9px 0; letter-spacing: -0.005em; }
   body.stage #credits { font-size: 13px; text-align: left; }
   body.stage #source { font-size: 12px; text-align: left; }
+  body.stage #xnote { font-size: 12px; text-align: left; padding: 4px 0 10px; }
   body.stage #empty { font-size: 15px; text-align: left; padding: 24px 0; }
   body.stage #empty.instrumental { padding: 48px 0; }
   body.stage #empty.instrumental .say { font-size: 46px; }
@@ -1025,6 +1034,8 @@
     notes: true,
     credits: true,
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
+    // Expressive words' line: Install / Show open Settings → Precise timing (main.js 'expressive')
+    onExpressive: () => ipcRenderer.send('lyrics-command', 'expressive'),
     // the sheet notes "Over the sung line": the room above the sung line, and where it is now
     room: () => (sheetBand && stage.shown ? sheetBand.room : 0),
     onRoom: (el) => placeOver(el),
@@ -1062,6 +1073,7 @@
   ipcRenderer.on('lyrics-aligned', (event, msg) => view.align(msg))
   ipcRenderer.on('lyrics-stream', (event, msg) => view.stream(msg))   // look-ahead play: words committed while the song plays
   ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
+  ipcRenderer.on('lyrics-expr-note', (event, note) => view.exprNote(note))   // Expressive words' line (lyrics-view.js showXNote)
 
   ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying, key) => {
     view.setTime(playbackTime, isPlaying, key)

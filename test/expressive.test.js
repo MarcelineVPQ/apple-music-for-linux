@@ -487,12 +487,12 @@ test('render path: the expressive styles animate nothing themselves and the pop 
 
 // --- main and the helper ---
 
-test('main: expr is sent only when Expressive words is on and kept for these lyrics; the pitch model is never downloaded by its default', () => {
+test('main: expr is sent only when Expressive words is on and kept for these lyrics', () => {
   const src = read('main.js')
   assert.match(src, /function expressiveSetting\(\) \{ return settings\.expressiveWords == null \? expressive\.defaultOn\(app\.getVersion\(\)\) : !!settings\.expressiveWords \}/)
   assert.match(src, /function expressiveOn\(\) \{ return expressiveSetting\(\) && preciseTimingOn\(\) \}/)
   assert.match(src, /const e = on \? getSheetStore\(\)\.get\(title, artist\) : null/)
-  assert.match(src, /if \(!entry\) return undefined/)
+  assert.match(src, /const view = entry \? expressive\.forView\(entry\.expr, true, vocaliseSetting\(\)\) : null/)
   assert.match(src, /if \(expr\) data\.expr = expr\n\s+sendLyrics\('lyrics-data', data\)/)
   assert.match(src, /want: \(\) => \(expressiveOn\(\) \? \['expr'\] : \[\]\)/)
   assert.equal(require('../settings-store').defaults().expressiveWords, null)
@@ -572,11 +572,81 @@ test('main: the expression is kept only when the helper was asked for it, logged
   assert.match(src, /const asked = expressiveOn\(\) && !!alignHelper && alignHelper\.serves\('expr'\)\n\s+if \(asked\) \{\n\s+entry\.expr = expressive\.compact\(result\.notes\.expr, lineOffset\)/)
   assert.match(src, /console\.log\('align: ' \+ expressive\.statusLine\(\{ on, helper, entry, title \}\)\)/)
   assert.match(src, /expressiveFor\(state\.title, state\.artist, plain \? prep\.lines : base, key\)/)
-  // a song whose notes came without expression is asked again (missing) while the engine serves it
-  assert.match(src, /expressiveOn\(\) && alignHelper && alignHelper\.serves\('expr'\) && expressiveMissing\(/)
+  // a song whose notes came without expression is asked again (missing) while the engine serves it, or
+  // before this run's helper answered (a first play after a restart used to be skipped, 0.15.57)
+  assert.match(src, /expressiveOn\(\) && alignHelper && \(!alignHelper\.answered \|\| alignHelper\.serves\('expr'\)\) && expressiveMissing\(title, artist, hash\)/)
 })
 
 test('view: a song whose only expression is wordless vocalise still gets it', () => {
   const src = read('lyrics-view.js')
   assert.match(src, /data\.expr\.words\.length \|\| \(Array\.isArray\(data\.expr\.voc\) && data\.expr\.voc\.length\)/)
+})
+
+// --- the lyrics view's Expressive words line (0.15.57: Sonata said nothing while it couldn't draw) ---
+
+test('noteFor: why Expressive words does not draw yet, in the order a person fixes it, each ≤ 60 characters with its ⓘ', () => {
+  const ready = { on: true, installed: true, precise: true, helper: 'serves', entry: 'missing', job: '' }
+  const at = (o) => X.noteFor(Object.assign({}, ready, o))
+  assert.equal(X.noteFor(null), null)
+  assert.equal(at({ on: false, installed: false }), null, 'off: nothing to say')
+  assert.equal(at({ entry: 'drawn', job: 'measuring' }), null, 'it draws: nothing to say')
+  assert.equal(at({}), null, 'nothing recorded for it (no timed lyrics): nothing to say')
+  const cases = [
+    [{ installed: false, precise: false }, 'Expressive words needs the Precise timing helper', 'install'],
+    [{ installing: true, installed: false }, 'Expressive words: the helper is being installed…', 'show'],
+    [{ update: true, installed: false }, 'Expressive words needs a newer helper', 'show'],
+    [{ precise: false }, 'Expressive words: Precise word timing is off', 'show'],
+    [{ helper: 'lacks' }, 'Expressive words needs a newer helper', 'show'],
+    [{ pitch: 'downloading', job: 'recording' }, 'Expressive words: downloading the pitch model…', ''],
+    [{ pitch: 'failed', pitchWhy: 'offline' }, 'Expressive words: the pitch model didn’t download', ''],
+    [{ entry: 'none', job: 'recording' }, 'Expressive words: nothing held long enough in this song', ''],
+    [{ job: 'measuring' }, 'Expressive words: measuring this song…', ''],
+    [{ job: 'recording' }, 'Expressive words: measured once this song has played through', '']
+  ]
+  for (const [o, text, action] of cases) {   // loop: NOT-WORTH — test cases
+    const n = at(o)
+    assert.equal(n.text, text)
+    assert.equal(n.action, action)
+    assert.ok(n.text.length <= require('../info-tip').TEXT_MAX, n.text)
+    assert.ok(n.info.length > n.text.length, 'the ⓘ explains: ' + n.text)
+  }
+  assert.match(at({ pitch: 'failed', pitchWhy: 'offline' }).info, /^offline\. Turn Expressive words off and on/)
+  assert.equal(at({ paused: true, job: 'recording' }), null, 'a game runs: the timing note says so')
+})
+
+test('main: the Expressive words line is sent on change, its button opens Settings → Precise timing; the pitch model is fetched once a song shows', () => {
+  const src = read('main.js')
+  assert.match(src, /if \(state\.title\) sendExprNote\(key\)/)
+  assert.match(src, /sendLyrics\('lyrics-data', data\)\n\s+exprNoteSent = ''/)
+  assert.match(src, /if \(precise\) ensureNotesModel\(\)/)
+  assert.match(src, /command === 'expressive'\) showPanel\('settings', 'timing'\)/)
+  assert.match(src, /job: alignSession && preciseTimingOn\(\) \? alignSession\.notesState\(key\) : ''/)
+  // a missing pitch model is remembered for Expressive words too, and never marks the song as failed
+  assert.match(src, /if \(code === 'no-model' && notesSwitch\) notesSwitch\.learn\(\{ note_models: \{ rmvpe: false \} \}\)\n\s+if \(!settings\.sungNotesLog && !settings\.sheetNotes\) return/)
+  assert.match(src, /if \(code !== 'paused' && code !== 'no-model'\)/)
+  // the measured song on screen gets its lyrics again, with the expression, in the same play
+  assert.match(src, /if \(entry\.expr && lyricsKey === s\.key\) lyricsKey = null/)
+  const html = read('lyrics.html')
+  assert.match(html, /ipcRenderer\.on\('lyrics-expr-note', \(event, note\) => view\.exprNote\(note\)\)/)
+  assert.match(html, /onExpressive: \(\) => ipcRenderer\.send\('lyrics-command', 'expressive'\)/)
+})
+
+test('lineExpressions: both held "mind," of one line stretch, also when the lyrics\' own word time ends before the sung vowel starts (Marcy, Monday Morning)', () => {
+  const W = (t, end, text) => ({ t, end, text })
+  // Apple's word times lead the singing by ~0.4 s and end early; each "mind," is held ~1 s
+  const words = [W(50, 50.3, 'But'), W(50.3, 50.5, 'I'), W(50.5, 50.8, 'don\'t'), W(50.8, 51.1, 'mind,'), W(52.2, 52.4, 'I'), W(52.4, 52.7, 'don\'t'), W(52.7, 53.0, 'mind,'), W(55.5, 56, 'yeah')]
+  const held = (w, t, e) => ({ l: 4, w, c: 0.8, i0: 1, i1: 2, t, e, x: 'i' })
+  const doc = { format: X.FORMAT, v: 2, words: [held(3, 51.2, 52.1), held(6, 53.4, 54.4)], voc: [] }   // the second vowel starts 0.4 s after its word's end
+  const got = X.lineExpressions(doc, 4, words)
+  assert.deepEqual(got.map((g) => g.i), [3, 6], 'each "mind," gets its own (line, word) expression')
+  assert.ok(got.every((g) => g.m.stretch && g.m.extra > 0 && g.m.ghost), 'both stretch and ghost')
+  // a vowel that starts after the next word started is not this word's
+  assert.equal(X.lineExpressions({ format: X.FORMAT, v: 2, words: [held(3, 52.6, 53.4)], voc: [] }, 4, words).length, 0)
+})
+
+test('view: a stretch lasts while its measured vowel sounds, past the lyrics\' own word end; it starts then too', () => {
+  const src = read('lyrics-view.js')
+  assert.match(src, /const sounding = wt != null && time >= wt && time < m\.ve/)
+  assert.match(src, /\(lit \|\| sounding\) && time <= m\.ve \+ 0\.3/)
+  assert.match(src, /\(!x\.span\.classList\.contains\('now'\) && time > x\.ve\)/)
 })

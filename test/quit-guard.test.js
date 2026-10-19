@@ -80,7 +80,7 @@ test('main: every way out goes through the guard; a quit keeps the marker; the s
   assert.match(src, /'gfx-restart'\) quitGuard\.allow\('restart'\)/)                                   // Restart now (graphics)
   assert.match(src, /'update-restart': if \(!lastPlaying\) quitGuard\.allow\('restart'\)/)             // Restart now (update)
   assert.match(src, /helperBusy: !!\(helperInstaller && helperInstaller\.busy\)/)                       // no restart offered while it runs
-  assert.match(src, /busy\) showPanel\('settings', 'precise'\)/)                                         // a second launch shows the progress
+  assert.match(src, /busy\) showPanel\('settings', 'timing'\)/)                                         // a second launch shows the progress
   assert.match(src, /if \(!shuttingDown\) \{\n\s+clearHelperJob\(\)/)                                   // only a job's own end clears the marker
   assert.match(src, /startupStep\('interrupted helper job', helperResume\)/)
   const pkg = require('../package.json')

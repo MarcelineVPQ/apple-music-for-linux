@@ -650,6 +650,7 @@ function canGiveNotes(raw) {
  * hyphenate: lyrics-syllables hyphenatorFor(lang) (null: whole words).
  * -> time-ordered [{ t, end, text, line, word, syl, nsyl, word_text }]
  */
+const GIVEN_REACH_S = 1.0   // how far a given word's end may reach towards the next word (givenSyllables)
 function givenSyllables(raw, hyphenate) {
   const rows = []
   const r3 = (v) => Math.round(v * 1000) / 1000
@@ -670,7 +671,20 @@ function givenSyllables(raw, hyphenate) {
       })
     })
   }
-  return rows.sort((a, b) => a.t - b.t || a.line - b.line || a.word - b.word || a.syl - b.syl)
+  rows.sort((a, b) => a.t - b.t || a.line - b.line || a.word - b.word || a.syl - b.syl)
+  // a word's last syllable reaches on to the next syllable's start (at most GIVEN_REACH_S more): the lyrics'
+  // own word times (Apple's) often end before the held note does, and the helper gives a note to the syllable
+  // it starts in only up to 0.15 s after that syllable's end, so a held word lost its note (and Expressive
+  // words its stretch) on some plays and not others (Marcy, "I don't mind, I don't mind", 0.15.57)
+  // loop: NOT-WORTH — the song's syllables (hundreds), once per song
+  for (let k = 0; k < rows.length; k++) {
+    const r = rows[k]
+    if (r.syl !== r.nsyl - 1) continue
+    const next = rows[k + 1]
+    const reach = next ? Math.min(next.t, r.end + GIVEN_REACH_S) : r.end
+    if (reach > r.end) r.end = r3(reach)
+  }
+  return rows
 }
 
 // a header, then the PCM as base64 chunks and `end` (stream mode), one chunk encoded at a time
@@ -733,6 +747,11 @@ function createAlignSession(deps) {
   let clock = null
   let expectNext = null
   let jobs = 0
+  // the songs whose notes job (and so Expressive words' measuring) is queued or running, by lyrics key
+  // (main.js expressiveNote: "measuring this song…"); keys only, never the song (its audio buffer)
+  // cache: OK — key=the song's lyrics key; invalidated=its notes job ends (done, failed or skipped); bound=the jobs queued (a few)
+  const noting = new Set()
+  const notesOn = (s, on) => { s.notesQueued = on; if (on) noting.add(s.key); else noting.delete(s.key) }
   let songs = 0
   const paused = deps.paused || (() => false)    // gaming guard (main.js): no recording, no new jobs
   // lifetime: one promise chain of helper jobs (each holds one section's PCM until it is sent)
@@ -848,7 +867,7 @@ function createAlignSession(deps) {
     // sung notes: only on the whole-song job, from the song's start (a one-section song's section is it)
     const whole = !sec || (s.secs.length === 1 && sec === s.secs[0] && req.offset === 0)
     const notes = whole && !!(deps.notes && deps.notes.wanted() && deps.helper.notes)
-    if (notes) s.notesQueued = true
+    if (notes) notesOn(s, true)
     // a plain song (timed for another version): the whole recording as heard, to its end
     const until = s.plain ? s.buf.end : Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
     const spans = s.buf.spans
@@ -907,7 +926,7 @@ function createAlignSession(deps) {
           messages = null
           pcm = null
           s.failed = true
-          if (notes) { s.notesQueued = false; deps.notes.failed(s, new Error('the alignment failed, so no notes')) }
+          if (notes) { notesOn(s, false); deps.notes.failed(s, new Error('the alignment failed, so no notes')) }
           log('alignment failed for "' + s.title + '": ' + (e && e.message))
           if (e && e.code === 'no-model') {
             R.put(deps.store, s.storeKey, { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null }, s.rec)
@@ -967,7 +986,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run).then(() => {
-      s.notesQueued = false
+      notesOn(s, false)
       if (!s.finalQueued && s.kept.size && deps.helper.forget) deps.helper.forget(s.id)
     })
     queue = job.then(() => {}, () => {})
@@ -1013,7 +1032,7 @@ function createAlignSession(deps) {
   // no-stem: the helper restarted). The result goes where an aligned song's notes go (deps.notes.done).
   // error: SHOWN — every failure goes to deps.notes.failed (the band's line, the store's retry count)
   function submitGivenNotes(s) {
-    s.notesQueued = true
+    notesOn(s, true)
     let pcm = s.buf.pcm(Math.min(s.buf.end, s.span.end + TAIL_PAD), 0)
     const nid = 'n' + (++jobs)
     const syl = givenSyllables(s.raw, LS.hyphenatorFor((s.info && s.info.lang) || 'en'))
@@ -1047,7 +1066,7 @@ function createAlignSession(deps) {
           deps.notes.failed(s, e)
         })
     }
-    const job = queue.then(run).then(() => { s.notesQueued = false })
+    const job = queue.then(run).then(() => { notesOn(s, false) })
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1207,6 +1226,12 @@ function createAlignSession(deps) {
      */
     stop(submitIfHeard) { return finish(!!submitIfHeard) },
     get recording() { return !!listener },
+    /** Expressive words' state for the song with this lyrics key: 'measuring' (its notes job is queued or
+     * running), 'recording' (on screen and being recorded for its notes or alignment), else ''. */
+    notesState(key) {
+      if (noting.has(key)) return 'measuring'
+      return song && song.key === key && !song.sent && !song.failed ? 'recording' : ''
+    },
     /** A song on screen still needs alignment work (the gaming guard only polls then). */
     get active() { return !!(song && !song.sent) },
     get bufferBytes() { return song ? song.buf.bytes : 0 },
@@ -1218,7 +1243,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
+  GIVEN_REACH_S, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
   STREAM_HOP, toS16, streamedMessage

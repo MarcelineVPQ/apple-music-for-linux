@@ -10,6 +10,7 @@
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
 //   'lyrics-stream'  -> stream(msg)       look-ahead play: words committed while the song plays, a few at a time
 //   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
+//   'lyrics-expr-note' -> exprNote(n)     Expressive words' line while it can't draw yet (lyrics-expressive.js noteFor), null: none
 //   data.expr (Expressive words, lyrics-expressive.js forView): only when the setting is on and the song's
 //   notes carry the engine's measured expression; without it the view is exactly the plain karaoke.
 // The pure helpers (prepare, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext) are tested
@@ -506,6 +507,8 @@ function createLyricsView(opts) {
   let refined = false       // learned or live-refined word timing in use
   let aligned = false       // word timing aligned to the vocals on this PC (precise word timing)
   let alignState = ''       // e.g. "Precise timing paused while you play" (gaming guard, main.js)
+  let xnote = null          // Expressive words' line: { text, info, action } (main.js expressiveNote), null: none
+  let xnoteEl = null
   let notesEl = null
   let notes = []
   let xdoc = null           // Expressive words: the song's measured expression (data.expr), null: the plain karaoke
@@ -648,6 +651,7 @@ function createLyricsView(opts) {
     shownTime = null
     shownLatest = -1
     notesEl = null
+    xnoteEl = null
     lineEls = []
     interludes = []
     live = new Set()
@@ -725,6 +729,17 @@ function createLyricsView(opts) {
         // Expressive words: the line's measured words (none: the plain karaoke, as before)
         const xl = xdoc && line.t !== null ? X.lineExpressions(xdoc, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
         if (xl.length) entry.x = xl
+        // a held word stays lit while its measured vowel is sung (up to the next word's start): the lyrics' own
+        // word time (Apple's) often ends first, and the stretch, drawn in the lit word, then never showed (0.15.57)
+        // loop: NOT-WORTH — the line's measured words (0-3), once per line laid out
+        for (const x of xl) {
+          const w = line.words[x.i]
+          const next = line.words[x.i + 1]
+          const until = Math.min(x.m.ve, next && next.t != null ? next.t : Infinity)
+          if (!(x.m.stretch || x.m.vb) || !(until > w.end)) continue
+          const syl = Array.isArray(w.syl) && w.syl.length ? w.syl.map((y, k) => (k === w.syl.length - 1 ? Object.assign({}, y, { end: until }) : y)) : w.syl
+          line.words[x.i] = Object.assign({}, w, { end: until }, syl ? { syl } : {})
+        }
         entry.words = wordSpans(main, line.words, line.text, xl.length ? new Map(xl.map((x) => [x.i, x.m])) : null)
         entry.main = main
         ly.appendChild(main)
@@ -792,6 +807,7 @@ function createLyricsView(opts) {
       if (data.source === 'lrclib') notes.push('Lyrics from LRCLIB' + (lines[0].t === null ? ' (not time-synced)' : '') + (data.appleFailed ? ", as Apple Music's didn't load" : ''))
       if (lines.some((l) => l.estimated || l.aligned)) notes.push(null)   // word timing note, see showNotes
       showNotes()
+      showXNote()
     }
     if (clock) render(T.clockTime(clock, performance.now()))
   }
@@ -805,6 +821,42 @@ function createLyricsView(opts) {
       container.appendChild(notesEl)
     }
     notesEl.textContent = text
+  }
+
+  // Expressive words' line over the lyrics: why it doesn't draw yet, its ⓘ, and its one button
+  // (Install / Show: Settings → Precise timing, through opts.onExpressive); nothing while it draws.
+  // Idle cost: none (a text change per state change, a few per song)
+  function showXNote() {
+    if (xnoteEl) { xnoteEl.remove(); xnoteEl = null }
+    if (!opts.notes || !xnote || !xnote.text || !lines.length) return
+    xnoteEl = doc.createElement('div')
+    xnoteEl.id = 'xnote'
+    const span = doc.createElement('span')
+    span.className = 'say'
+    span.textContent = xnote.text
+    xnoteEl.appendChild(span)
+    if (xnote.info) createInfoTip(doc, xnoteEl).set(xnote.info)
+    if (xnote.action && opts.onExpressive) {
+      const b = doc.createElement('button')
+      b.type = 'button'
+      b.className = 'xact'
+      b.textContent = xnote.action === 'install' ? 'Install' : 'Show'
+      // lifetime: OK — released with the line (replaced on each state change and with the song's layout)
+      b.onclick = (e) => { e.stopPropagation(); opts.onExpressive(xnote && xnote.action) }
+      xnoteEl.appendChild(b)
+    }
+    // over the lines (after the version note), where it is seen when the song starts: under them it was
+    // only seen at the song's end (checked on the isolated copy, 2026-10-19)
+    let ref = container.firstChild
+    // loop: NOT-WORTH — skips at most the ghost layer and the version note, per state change
+    while (ref && (ref === ghostLayer || ref.id === 'lead')) ref = ref.nextSibling
+    container.insertBefore(xnoteEl, ref || null)
+  }
+  function setXNote(n) {
+    const next = n && typeof n === 'object' && typeof n.text === 'string' && n.text ? { text: n.text, info: String(n.info || ''), action: String(n.action || '') } : null
+    if (JSON.stringify(next) === JSON.stringify(xnote)) return
+    xnote = next
+    showXNote()
   }
 
   // refine by listening (Settings, experimental): main sends a line's new word timing once the line
@@ -1242,7 +1294,11 @@ function createLyricsView(opts) {
         if (m.i0 < 0) continue
         const span = e.words[it.i]
         const lit = span && span.classList.contains('now')
-        if ((m.stretch || m.vb) && lit && time <= m.ve + 0.3 && !xlive.some((x) => x.it === it && x.kind === 'stretch')) startStretch(e, it, time)
+        // the word lit, or its measured vowel still sounding after the lyrics' own word time ended (Apple's word
+        // times often end before the held note does: the stretch went with the word's end and never grew, 0.15.57)
+        const wt = lines[i] && lines[i].words && lines[i].words[it.i] ? lines[i].words[it.i].t : null
+        const sounding = wt != null && time >= wt && time < m.ve
+        if ((m.stretch || m.vb) && (lit || sounding) && time <= m.ve + 0.3 && !xlive.some((x) => x.it === it && x.kind === 'stretch')) startStretch(e, it, time)
         if (m.ghost && ghostLayer && time >= m.vt - X.GHOST_ENTER && time < m.ve && !xlive.some((x) => x.it === it && x.kind === 'ghost')) startGhost(it, i, time)
       }
     }
@@ -1255,7 +1311,8 @@ function createLyricsView(opts) {
     const keep = []
     // loop: HOT-PATH-OK — the expressions playing (≤ 1-2 stretches + GHOST_MAX ghosts), per render
     for (const x of xlive) {
-      const over = time > x.t1 || time < x.t0 - 1 || (x.kind === 'stretch' && (!live.has(x.line) || !x.span.classList.contains('now')))
+      // a stretch lasts while its word is sung, or while its measured vowel still sounds (x.ve) after the word's own time
+      const over = time > x.t1 || time < x.t0 - 1 || (x.kind === 'stretch' && (!live.has(x.line) || (!x.span.classList.contains('now') && time > x.ve)))
       if (over) { endExpression(x); continue }
       const at = (time - x.t0) * 1000
       // loop: HOT-PATH-OK — one expression's animations (≤ ~14), per render
@@ -1277,7 +1334,7 @@ function createLyricsView(opts) {
     const span = e.words[it.i]
     const lineIndex = lineEls.indexOf(e)
     const tl = X.stretchTimeline(m, lines[lineIndex].words[it.i].t - WORD_LEAD)
-    const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, anims: [], reset: [] }
+    const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, ve: m.ve, anims: [], reset: [] }
     xlive.push(x)
     const fontPx = parseFloat(doc.defaultView.getComputedStyle(span).fontSize) || 16
     // the extra letters that fit in the gap after the popped word (popRoom, once per layout): the rest stay
@@ -1556,6 +1613,7 @@ function createLyricsView(opts) {
     refine,
     align,
     alignState: setAlignState,
+    exprNote: setXNote,
     stream,
     time: () => T.clockTime(clock, performance.now()),
     // the song's timed lines ({ t, text }), for the Studio's ↑/↓ and the seek bar's hover (on demand, not per frame)

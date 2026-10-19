@@ -129,7 +129,7 @@ function vocaliseExpressions(doc, lines) {
  * -> { hold, extra, rep, i0, i1, vt, ve, ink, quiet, vb, env, ct, ghost: { text, tail, letters } | null,
  *      stretch: bool }
  */
-function matchWord(x, word, glued) {
+function matchWord(x, word, glued, nextT) {
   if (!x || !word || typeof word.text !== 'string') return null
   const text = word.text
   const out = { hold: 0, extra: 0, rep: '', i0: -1, i1: -1, vt: null, ve: null, ink: 0, quiet: false, vb: null, env: null, ct: null, ghost: null, stretch: false }
@@ -138,7 +138,10 @@ function matchWord(x, word, glued) {
     const letters = text.slice(x.i0, x.i1)
     const wt = num(word.t)
     const we = num(word.end)
-    const onTime = wt !== null && x.t >= wt - 0.3 && x.t <= (we !== null ? we : wt) + 0.3
+    // on the word's time: from its start to its end, or to the next word's start when the lyrics' own word
+    // time ends before the sung note does (Apple's word times often lead the singing; 0.15.57)
+    const until = Math.max(we !== null ? we : wt, num(nextT) !== null ? nextT : -Infinity)
+    const onTime = wt !== null && x.t >= wt - 0.3 && x.t <= until + 0.3
     if ([...letters].every((c) => LETTER.test(c)) && (x.x == null || x.x === letters) && onTime) {
       out.i0 = x.i0
       out.i1 = x.i1
@@ -195,7 +198,8 @@ function lineExpressions(doc, lineIndex, words, glue) {
   // loop: NOT-WORTH — one line's words, once per line laid out
   words.forEach((w, i) => {
     const x = mine.find((y) => y.w === i)
-    const m = x ? matchWord(x, w, !!(glue && glue[i + 1])) : null
+    const next = words[i + 1]
+    const m = x ? matchWord(x, w, !!(glue && glue[i + 1]), next ? next.t : null) : null
     if (m) out.push({ i, m })
   })
   return out
@@ -492,7 +496,36 @@ function statusLine(state) {
   return 'expressive: none' + what + ' yet (no audio yet: measured from this play once the song is heard to its end, drawn as soon as it is)'
 }
 
+/**
+ * The lyrics view's one line about Expressive words when it is on but can't draw (yet), or null when there is
+ * nothing to say (it draws, it's off, or the song can't have it). Visible text ≤ 60 characters (info-tip.js
+ * TEXT_MAX), the rest behind the ⓘ; action: a button that opens Settings → Precise timing ('install' | 'show').
+ * st: { on (the setting), installed, installing, update (the helper is too old), precise (Precise word timing),
+ *   helper: 'unknown' | 'serves' | 'lacks', pitch: '' | 'downloading' | 'failed', pitchWhy,
+ *   entry: 'drawn' | 'none' | 'missing' (this song's measured expression), job: 'measuring' | 'recording' | '',
+ *   paused (a game runs: the timing note says so) }
+ */
+function noteFor(state) {
+  const st = state || {}
+  if (!st.on || st.entry === 'drawn') return null
+  const say = (text, info, action) => ({ text, info: info || '', action: action || '' })
+  const what = 'Expressive words draws how each word was sung (held notes stretching, wordless vocalise as ghosts) from what the Precise timing helper measures on this PC.'
+  if (st.installing) return say('Expressive words: the helper is being installed…', what + ' It starts once the helper is installed (Settings → Precise timing).', 'show')
+  if (st.update) return say('Expressive words needs a newer helper', what + ' This helper is too old for this Sonata: update it in Settings → Precise timing.', 'show')
+  if (!st.installed) return say('Expressive words needs the Precise timing helper', what + ' Install the helper in Settings → Precise timing (a separate download).', 'install')
+  if (!st.precise) return say('Expressive words: Precise word timing is off', what + ' Turn on Precise word timing in Settings → Precise timing.', 'show')
+  if (st.helper === 'lacks') return say('Expressive words needs a newer helper', what + ' This helper version doesn’t measure it: update it in Settings → Precise timing.', 'show')
+  if (st.pitch === 'downloading') return say('Expressive words: downloading the pitch model…', what + ' It needs the pitch model, downloaded once.')
+  if (st.pitch === 'failed') return say('Expressive words: the pitch model didn’t download', (st.pitchWhy ? st.pitchWhy + '. ' : '') + 'Turn Expressive words off and on in Settings → Playback & lyrics to try again.')
+  if (st.paused) return null
+  if (st.entry === 'none') return say('Expressive words: nothing held long enough in this song', 'The helper measured this song and found no word held long enough, and no wordless singing, to draw with confidence.')
+  if (st.job === 'measuring') return say('Expressive words: measuring this song…', what + ' It draws as soon as the helper is done, during this play.')
+  if (st.job === 'recording') return say('Expressive words: measured once this song has played through', what + ' The helper measures the song from this play once it has been heard to its end; it draws right after.')
+  return null
+}
+
 module.exports = {
+  noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
   compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine

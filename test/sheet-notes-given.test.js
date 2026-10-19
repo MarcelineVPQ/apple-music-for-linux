@@ -32,17 +32,31 @@ test('givenSyllables: Apple\'s own syllables, else the views\' split of the word
   const rows = A.givenSyllables(APPLE, LS.hyphenatorFor('en'))
   const line0 = rows.filter((r) => r.line === 0)
   assert.deepEqual(line0.map((r) => [r.t, r.end, r.text, r.word, r.syl, r.nsyl, r.word_text]),
-    [[10, 10.4, 'fif', 0, 0, 2, 'fifteen'], [10.4, 11, 'teen', 0, 1, 2, 'fifteen'], [11.2, 12.4, 'steps', 1, 0, 1, 'steps']])
-  // the views' estimated split of "stepping" (lyrics-syllables.js): starts at the word, ends at its end
+    [[10, 10.4, 'fif', 0, 0, 2, 'fifteen'], [10.4, 11.2, 'teen', 0, 1, 2, 'fifteen'], [11.2, 13, 'steps', 1, 0, 1, 'steps']])   // a word's end reaches to the next word (GIVEN_REACH_S)
+  // the views' estimated split of "stepping" (lyrics-syllables.js): starts at the word, ends where the next word starts
   const stepping = rows.filter((r) => r.line === 2 && r.word === 0)
   assert.equal(stepping.length, 2)
-  assert.deepEqual([stepping[0].t, stepping[1].end, stepping.map((r) => r.text).join('')], [30, 31.2, 'stepping'])
+  assert.deepEqual([stepping[0].t, stepping[1].end, stepping.map((r) => r.text).join('')], [30, 31.3, 'stepping'])
   assert.ok(!rows.some((r) => r.text === 'ooh'), 'no background vocals')
   assert.deepEqual(rows.map((r) => r.t), rows.map((r) => r.t).slice().sort((a, b) => a - b))
   // no hyphenation patterns: whole words
   assert.equal(A.givenSyllables(APPLE, null).filter((r) => r.line === 2 && r.word === 0).length, 1)
   // a zero-length word is left out
   assert.equal(A.givenSyllables([{ t: 1, text: 'a b', words: [w(1, 1, 'a'), w(1.2, 1.5, 'b')] }], null).length, 1)
+})
+
+test('givenSyllables: a held word whose own time ends before its note reaches to the next word, at most GIVEN_REACH_S ("I don\'t mind, I don\'t mind, yeah": both "mind," keep their notes)', () => {
+  // Apple's word times leading the sung notes: each "mind," ends 0.3 s after it starts, the held note starts
+  // ~0.4 s after the word and lasts ~1 s (the helper gives a note to the syllable it starts in, up to 0.15 s past its end)
+  const line = { t: 50, end: 56, text: 'But I don\'t mind, I don\'t mind, yeah', words: [w(50, 50.3, 'But'), w(50.3, 50.5, 'I'), w(50.5, 50.8, 'don\'t'), w(50.8, 51.1, 'mind,'), w(52.2, 52.4, 'I'), w(52.4, 52.7, 'don\'t'), w(52.7, 53.0, 'mind,'), w(55.5, 56, 'yeah')] }
+  const rows = A.givenSyllables([line], null)
+  const minds = rows.filter((r) => r.word_text === 'mind,')
+  assert.deepEqual(minds.map((r) => [r.word, r.t, r.end]), [[3, 50.8, 52.1], [6, 52.7, 54]])
+  // a note starting 0.5 s into each held "mind," starts inside its syllable now (before: past end + 0.15 s)
+  for (const [m, noteT] of [[minds[0], 51.3], [minds[1], 53.2]]) assert.ok(noteT >= m.t && noteT < m.end + 0.15)   // loop: NOT-WORTH — test
+  assert.ok(51.3 > 51.1 + 0.15 && 53.2 > 53.0 + 0.15, 'with the lyrics\' own ends both notes were dropped')
+  // never past the next word's start
+  assert.equal(rows.find((r) => r.line === 0 && r.word === 2).end, 50.8)
 })
 
 test('messages: a section\'s separate-only job streams its slice; the notes job carries the given syllables', () => {
@@ -97,6 +111,7 @@ function setup(opts = {}) {
     },
     givenNotes: async (id, messages) => {
       const m = [...messages]
+      if (opts.notesGate) await opts.notesGate
       calls.push({ cmd: 'notes', id, song: m[0].song, audio: !!m[0].audio, syllables: m[0].given.syllables.length, lines: m[0].given.lines.length })
       if (opts.noStem && !m[0].audio) throw Object.assign(new Error('not kept'), { code: 'no-stem' })
       return { type: 'result', id, notes: { notes: [{ t: 10, end: 10.4, midi: 60 }], syllables: m[0].given.syllables, pitch: { t0: 0, hop: 0.05, v: [600] } } }
@@ -281,4 +296,25 @@ test('wiring: main loads cached notes for word-timed songs too, and the band no 
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /if \(settings\.sheetNotes && title && timed\) \{/)
   assert.ok(!/No sheet notes for this song yet: it has its own word timing/.test(fs.readFileSync(path.join(__dirname, '..', 'sheet-notes-model.js'), 'utf8')))
+})
+
+test('session: notesState says recording while the song is heard, measuring while its notes job waits or runs, then nothing (Expressive words line)', async () => {
+  let release = null
+  const env = setup({ notesGate: new Promise((r) => { release = r }) })
+  assert.equal(env.s.notesState('Song|A'), '')
+  env.s.setLyrics('Song|A', 'Song', 'A', APPLE, true)
+  assert.equal(env.s.notesState('Song|A'), 'recording')
+  assert.equal(env.s.notesState('Other|B'), '')
+  const secs = A.sections(APPLE)
+  play(env, 0, secs[1].at + 1)
+  await settle()
+  assert.equal(env.s.notesState('Song|A'), 'measuring')
+  // the next song comes on while it measures: the measured one still says so, the new one records
+  env.s.setLyrics('Next|B', 'Next', 'B', APPLE, true)
+  assert.equal(env.s.notesState('Song|A'), 'measuring')
+  assert.equal(env.s.notesState('Next|B'), 'recording')
+  release()
+  await settle()
+  assert.equal(env.s.notesState('Song|A'), '', 'the notes job ended')
+  assert.deepEqual(env.got.done.map((d) => d[0]), ['Song'])
 })

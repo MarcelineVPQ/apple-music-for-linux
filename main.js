@@ -674,9 +674,11 @@ function getAlignSession() {
         // the first play's pitch line: only while the Studio shows its band (nothing for a band nobody sees)
         pitchWanted: () => sheetNotesOn() && getNotesSwitch().wanted() && stageShowing(),
         pitch: sheetPitch,
-        // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song, an engine that serves it)
+        // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song,
+        // an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
+        // every engine this Sonata installs measures it, and a first play after a restart used to be skipped)
         missing: (title, artist, hash) => getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
-          (expressiveOn() && alignHelper && alignHelper.serves('expr') && expressiveMissing(getSheetStore().get(title, artist), hash)))
+          (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)))
       }
     })
   }
@@ -695,9 +697,10 @@ let notesStatusText = ''
 function sungNotesOn() { return !!settings.sungNotesLog && settings.updateChannel === 'dev' && preciseTimingOn() }
 // the notes step runs for the developer log, the Studio's sheet notes or Expressive words (one switch object: one download)
 function notesActive() { return sungNotesOn() || sheetNotesOn() || expressiveOn() }
-// the pitch model is downloaded only for a switch the user turned on: Expressive words on by default (a
-// Development build) uses it when it is there, and never downloads it by itself
-function notesChosen() { return sungNotesOn() || sheetNotesOn() || (settings.expressiveWords === true && preciseTimingOn()) }
+// the pitch model is downloaded when a switch that needs it is on: Expressive words on by default (a
+// Development build) included, since it measures nothing without it (0.15.57: before, it waited for a switch
+// the user turned on, so a fresh helper never drew an expressive word)
+function notesChosen() { return sungNotesOn() || sheetNotesOn() || expressiveOn() }
 function setNotesStatus(text) { notesStatusText = text; pushPanel(); sendSheet() }
 function getNotesSwitch() {
   if (!notesSwitch) notesSwitch = notesLogLib.createNotesSwitch({ on: notesActive, helper: getAlignHelper(), status: setNotesStatus, log: (m) => console.log('align:', m) })
@@ -718,9 +721,11 @@ function sungNotesDone(s, result, lineOffset) {
   }
 }
 function sungNotesFailed(s, e) {
-  if (!settings.sungNotesLog && !settings.sheetNotes) return
   const code = e && e.code
+  // the helper has no pitch model: remembered for every notes switch (Expressive words too), so no song is
+  // recorded for notes in vain; the switch's download fetches it (ensureNotesModel)
   if (code === 'no-model' && notesSwitch) notesSwitch.learn({ note_models: { rmvpe: false } })
+  if (!settings.sungNotesLog && !settings.sheetNotes) return
   const why = code === 'paused' ? 'skipped while a game ran'
     : code === 'no-model' ? 'the pitch model is not downloaded (turn the switch off and on to download it)'
       : code === 'low-vram' ? 'not enough free graphics memory'
@@ -767,14 +772,75 @@ function expressiveFor(title, artist, lines, key) {
     const helper = !alignHelper || !alignHelper.answered ? 'unknown' : alignHelper.serves('expr') ? 'serves' : 'lacks'
     console.log('align: ' + expressive.statusLine({ on, helper, entry, title }))
   }
-  if (!entry) return undefined
-  return expressive.forView(entry.expr, true, vocaliseSetting()) || undefined
+  const view = entry ? expressive.forView(entry.expr, true, vocaliseSetting()) : null
+  exprSong = { key: key || '', entry: view ? 'drawn' : entry && 'expr' in entry ? 'none' : 'missing' }
+  return view || undefined
 }
-// a song whose notes entry was made without asking for its expression (Expressive words was off, or an older engine)
-function expressiveMissing(entry, hash) {
-  if (!entry || entry.lyricsHash !== hash) return true
-  if (entry.failed) return false   // the sheet-notes retry rule decides
-  return !('expr' in entry)
+// the song on screen's measured expression, for the lyrics view's Expressive words line (expressiveNote)
+// cache: OK — key=the song's lyrics key; invalidated=each lyrics send (expressiveFor); bound=one object
+let exprSong = { key: '', entry: 'missing' }
+// The lyrics view's one line about Expressive words while it is on but can't draw (lyrics-expressive.js
+// noteFor): why, in the order a person fixes it (helper, Precise word timing, pitch model), then this song's
+// progress (recorded this play, measuring); null while it draws or has nothing to say. Sent on change only.
+function expressiveNote(key) {
+  const sw = notesSwitch
+  return expressive.noteFor({
+    on: expressiveSetting(),
+    installed: alignInstalled(),
+    installing: !!(helperInstaller && helperInstaller.busy),
+    update: !!(alignHealth && alignHealth.state === 'update'),
+    precise: !!settings.lyricsPreciseTiming,
+    helper: !alignHelper || !alignHelper.answered ? 'unknown' : alignHelper.serves('expr') ? 'serves' : 'lacks',
+    pitch: sw && sw.downloading ? 'downloading' : sw && sw.failure ? 'failed' : '',
+    pitchWhy: sw ? sw.failure : '',
+    entry: exprSong.key === key ? exprSong.entry : 'missing',
+    job: alignSession && preciseTimingOn() ? alignSession.notesState(key) : '',
+    paused: alignPaused()
+  })
+}
+// cache: OK — key=the last line sent (JSON); invalidated=each 'lyrics-data' send (a view lays the song out anew); bound=one string
+let exprNoteSent = ''
+function sendExprNote(key) {
+  const json = JSON.stringify(expressiveNote(key))
+  if (json === exprNoteSent) return
+  exprNoteSent = json
+  sendLyrics('lyrics-expr-note', JSON.parse(json))
+}
+// one log line per song shown: its cached notes and expression and whether this play records it again, and why
+// (Marcy 2026-10-19: "it's like it stopped learning"; nothing is re-run once a song has its notes and expression,
+// except missed lyric lines, filled on at most MAX_FILLS plays)
+// cache: OK — key=the song's lyrics key; invalidated=a new key; bound=one string
+let notesPlanLogged = ''
+function logNotesPlan(key, title, artist, lines) {
+  if (!title || notesPlanLogged === key || (!sheetNotesOn() && !expressiveOn())) return
+  notesPlanLogged = key
+  const hash = alignSessionLib.lyricsHash(lines || [])
+  let e = null
+  // error: NOT-WORTH — a store read that throws: logged as no cached notes
+  try { e = getSheetStore().get(title, artist) } catch (err) {}
+  const valid = sheetModel.entryValid(e, hash)
+  const job = alignSession ? alignSession.notesState(key) : ''
+  const x = valid && e.expr ? expressive.summary(e.expr) : null
+  const have = valid ? 'cached notes (' + (e.notes || []).length + ')' + (x ? ' + expr (' + x.held + ' held, ' + x.ghosts + ' ghosts)' : 'expr' in e ? ' + expr (none measured)' : ', no expr yet') : e && e.failed && e.lyricsHash === hash ? 'no notes (failed: ' + e.failed + ', try ' + (e.tries || 1) + ')' : 'no notes yet'
+  const why = !job ? ' — no re-run' : !valid ? ' — recording this play for its notes' : !('expr' in e) ? ' — recording this play for its expression' : ' — recording this play (missed lines)'
+  console.log('align: "' + title + '": ' + have + why + (valid && e.retry ? ' (a later pass failed ' + e.retry.tries + 'x: ' + e.retry.failed + ')' : ''))
+}
+// the pitch model, once per run while a lyric view shows a song and a notes switch needs it (Expressive words
+// is on by default on Development builds): a fresh helper has none, and without it nothing is measured
+let notesEnsured = false
+function ensureNotesModel() {
+  if (notesEnsured || !notesChosen()) return
+  notesEnsured = true
+  getNotesSwitch().turnedOn()   // error: NOT-WORTH — turnedOn never rejects (its failure is the switch's status and the Expressive words line)
+}
+// a song without its expression: no notes entry for these lyrics, a failed one the retry rule still tries
+// (sheet-notes-store.js missing: before 0.15.57 a failed entry was never tried again for Expressive words
+// alone), or one made without asking for it (Expressive words was off, or an older engine)
+function expressiveMissing(title, artist, hash) {
+  const store = getSheetStore()
+  const entry = store.get(title, artist)
+  if (!entry || entry.lyricsHash !== hash || entry.failed) return store.missing(title, artist, hash)
+  return !('expr' in entry) && store.retryAllowed(title, artist)
 }
 function getSheetStore() {
   if (!sheetStore) sheetStore = sheetStoreLib.createSheetNotesStore({ dir: path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME) })
@@ -840,9 +906,14 @@ function sheetNotesDone(s, result, lineOffset) {
 function sheetNotesFailed(s, e) {
   if (!sheetNotesOn() && !expressiveOn()) return
   const code = (e && e.code) || ''
-  // a game running isn't the song's fault: not counted, tried again on a later play
+  // a game running, or no pitch model yet, isn't the song's fault: not counted, tried again on a later play
   // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
-  if (code !== 'paused') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
+  if (code !== 'paused' && code !== 'no-model') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
+  // the song kept its notes from an earlier play (a later pass failed, sheet-notes-store.js failed): the band keeps them, the log says why
+  // error: NOT-WORTH — a store read that throws: no cached notes, the band's message below says the pass failed
+  let kept = false
+  try { kept = sheetModel.entryValid(getSheetStore().get(s.title, s.artist), s.hash) } catch (err) {}
+  if (kept) { console.log('align: notes of "' + s.title + '": a later pass failed (' + (code || (e && e.message) || 'error') + '); its notes from an earlier play are kept'); return }
   if (sheet && sheet.key === s.key) {
     sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'no-model' ? 'The pitch model is not downloaded: turn Sheet notes off and on to download it'
       : code === 'low-vram' ? 'No notes this time: not enough free graphics memory' : 'No notes this time: ' + ((e && e.message) || 'unknown error')
@@ -1158,8 +1229,12 @@ async function lyricsTick() {
     const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base, key)
     if (expr) data.expr = expr
     sendLyrics('lyrics-data', data)
+    exprNoteSent = ''   // the view laid the song out anew: its Expressive words line again (sendExprNote below)
+    if (precise) ensureNotesModel()
     setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)
+    if (precise) logNotesPlan(key, state.title, state.artist, plain ? prep.lines : base)
   }
+  if (state.title) sendExprNote(key)
   // album art for the lyrics header thumbnail: the mini player's URL (same Chromium cache), sent on change only
   const art = state.artwork || state.artworkLarge || ''
   if (art !== lyricsArt) {
@@ -1735,6 +1810,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
       { label: 'Show Album', click: () => ipcMain.emit('lyrics-command', event, 'show-album') }
     ]).popup({ window: lyricsWindow })
   }
+  else if (command === 'expressive') showPanel('settings', 'timing')   // the Expressive words line's Install / Show
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (mainWindow) {
@@ -2875,7 +2951,7 @@ function noticeAction(id, action) {
     case 'update-details': showPanel('settings', 'updates'); break
     case 'update-install': installUpdate(); break
     case 'update-restart': if (!lastPlaying) quitGuard.allow('restart').then((go) => { if (go) restartIntoUpdate() }); break
-    case 'helper-resume-show': showPanel('settings', 'precise'); break
+    case 'helper-resume-show': showPanel('settings', 'timing'); break
     case 'whatsnew-see': showPanel('about', 'whatsnew'); break
     case 'ask-auto-yes': setSetting('autoInstallUpdates', true); break
     case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
@@ -4635,7 +4711,7 @@ app.on('second-instance', () => {
     mainWindow.focus()
   }
   // the helper installing: the second launch shows its progress (this copy keeps it going)
-  if (helperInstaller && helperInstaller.busy) showPanel('settings', 'precise')
+  if (helperInstaller && helperInstaller.busy) showPanel('settings', 'timing')
 })
 
 // One startup step: a failure is logged and the next step still runs, so a theme, locale or

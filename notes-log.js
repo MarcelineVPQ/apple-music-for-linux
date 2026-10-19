@@ -196,6 +196,8 @@ function writeLog(dir, doc, opts = {}) {
 function createNotesSwitch(deps) {
   let model = null
   let busy = null
+  let downloading = false     // the pitch model's download is running (the lyrics view's Expressive words line)
+  let failure = ''            // why the last download failed ('' none)
   const status = deps.status || (() => {})
   const log = deps.log || (() => {})
   function learn(pong) {
@@ -213,22 +215,27 @@ function createNotesSwitch(deps) {
           if (learn(pong)) { status('Pitch model ready'); return true }
           if (!deps.on()) return model
           status('Downloading the pitch model (' + sizeText(RMVPE.bytes) + ')…')
+          downloading = true
+          failure = ''
           log('sung notes: downloading RMVPE (' + RMVPE.bytes + ' bytes)')
           return deps.helper.prepareNotes().then(() => { model = true; status('Pitch model ready'); return true })
         })
         .catch((e) => {   // error: SHOWN — the status line says why (see above)
           model = false
           const why = e && e.code === 'checksum' ? 'the download was damaged (checksum), nothing kept; turn the switch off and on to try again' : (e && e.message) || 'unknown error'
+          failure = why
           status('Pitch model download failed: ' + why)
           log('sung notes: ' + why)
           return false
         })
-        .finally(() => { busy = null })
+        .finally(() => { busy = null; downloading = false })
       return busy
     },
     learn,
     wanted() { return !!deps.on() && model !== false },
-    get model() { return model }
+    get model() { return model },
+    get downloading() { return downloading },
+    get failure() { return model === false ? failure : '' }
   }
 }
 

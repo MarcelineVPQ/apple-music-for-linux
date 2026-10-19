@@ -68,14 +68,30 @@ function createSheetNotesStore(opts) {
     /** A failed notes step for these lyrics: counted, so the song is tried again at most MAX_TRIES times. */
     failed(title, artist, lyricsHash, code) {
       const old = this.get(title, artist)
+      // a song that has its notes for these lyrics keeps them: a later pass (Expressive words' measuring) that
+      // fails only counts its tries beside them (before 0.15.57 the marker replaced good notes, so the band
+      // fell back to the first play's pitch line and the song was recorded again on every play)
+      if (old && !old.failed && old.lyricsHash === lyricsHash && Array.isArray(old.notes)) {
+        const r = old.retry && typeof old.retry === 'object' ? old.retry : null
+        return this.set(title, artist, Object.assign({}, old, { retry: { failed: String(code || 'error').slice(0, 40), tries: (r && r.tries ? r.tries : 0) + 1 } }))
+      }
       const tries = old && old.failed && old.lyricsHash === lyricsHash ? (old.tries || 1) + 1 : 1
       return this.set(title, artist, { format: 1, lyricsHash, failed: String(code || 'error').slice(0, 40), tries })
+    },
+    /** Whether a later pass on a song that has its notes may run again: no failed retry, or fewer than MAX_TRIES (no pitch model: always). */
+    retryAllowed(title, artist) {
+      const e = this.get(title, artist)
+      const r = e && e.retry
+      return !r || r.failed === 'no-model' || (r.tries || 0) < MAX_TRIES
     },
     /** Whether a song still needs its notes worked out: no entry for these lyrics, or a failure tried fewer than MAX_TRIES times. */
     missing(title, artist, lyricsHash) {
       const e = this.get(title, artist)
       if (!e || e.lyricsHash !== lyricsHash) return true
-      if (e.failed) return (e.tries || 1) < MAX_TRIES && e.failed !== 'no-model'
+      // no pitch model isn't the song's fault (main's notes switch downloads it and keeps notes jobs off until then):
+      // tried again, also for markers written before 0.15.57 (they kept such a song from ever getting its notes)
+      if (e.failed === 'no-model') return true
+      if (e.failed) return (e.tries || 1) < MAX_TRIES
       return false
     }
   }

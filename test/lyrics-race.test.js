@@ -37,6 +37,9 @@ class El {
   }
   has(c) { return this.className.split(/\s+/).includes(c) }
   appendChild(c) { if (c instanceof El) { c.parentElement = this; this.children.push(c) } return c }
+  insertBefore(c, ref) { if (!ref) return this.appendChild(c); c.parentElement = this; this.children.splice(this.children.indexOf(ref), 0, c); return c }
+  get firstChild() { return this.children[0] || null }
+  get nextSibling() { const p = this.parentElement; return p ? p.children[p.children.indexOf(this) + 1] || null : null }
   append(...cs) { for (const c of cs) this.appendChild(c) }
   remove() { const p = this.parentElement; if (p) p.children.splice(p.children.indexOf(this), 1); this.parentElement = null }
   set innerHTML(v) { this.children = []; if (/<i>/.test(v)) for (let i = 0; i < 3; i++) this.appendChild(new El(this.ownerDocument, 'i')) }
@@ -305,5 +308,36 @@ test('version note: untimed lines are never lit and carry the note; placed lines
   nowMs = 30000; view.setTime(0.4, true, base.key + '3')
   for (let k = 0; k < 8; k++) { nowMs = 30500 + k * 500; view.setTime(35 + k * 0.25, true, base.key + '3') }
   assert.equal(lines().filter((e) => e.has('active')).length, 0)
+  doc.visibilityState = 'hidden'; doc.fire('visibilitychange')
+})
+
+test('Expressive words line: shown over the lyrics with its ⓘ and button, kept across a resend of the song, gone when it draws', () => {
+  const doc = makeDoc()
+  const list = new El(doc, 'div')
+  list.isList = true
+  list.scrolls = []
+  const asked = []
+  const view = createLyricsView({ container: list, layout: 'scroll', notes: true, onSeek: () => {}, onExpressive: (a) => asked.push(a) })
+  const xnote = () => list.children.find((e) => e.id === 'xnote') || null
+  view.setData(Object.assign({ key: 'Song|A' }, song('Song', 5, 4, 3, 60)))
+  assert.equal(xnote(), null)
+  view.exprNote({ text: 'Expressive words needs the Precise timing helper', info: 'Install the helper in Settings.', action: 'install' })
+  const el = xnote()
+  assert.ok(el)
+  assert.equal(list.children.indexOf(el), 0, 'over the lines, seen when the song starts')
+  assert.equal(el.children[0].textContent, 'Expressive words needs the Precise timing helper')
+  const button = el.children.find((c) => c.className === 'xact')
+  assert.equal(button.textContent, 'Install')
+  assert.ok(el.children.some((c) => c.className === 'sn-info' && !c.hidden), 'its ⓘ')
+  button.onclick({ stopPropagation() {} })
+  assert.deepEqual(asked, ['install'])
+  // the same song sent again (measured while on screen: lyricsKey reset in main): the line stays until main changes it
+  view.setData(Object.assign({ key: 'Song|A' }, song('Song', 5, 4, 3, 60)))
+  assert.ok(xnote())
+  view.exprNote({ text: 'Expressive words: measuring this song…', info: 'x', action: '' })
+  assert.equal(xnote().children[0].textContent, 'Expressive words: measuring this song…')
+  assert.ok(!xnote().children.some((c) => c.className === 'xact'), 'no button that would do nothing')
+  view.exprNote(null)
+  assert.equal(xnote(), null)
   doc.visibilityState = 'hidden'; doc.fire('visibilitychange')
 })

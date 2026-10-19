@@ -162,16 +162,22 @@ test('switch off: no ping, no download; on: the model is downloaded once, then w
 test('a bad checksum: nothing kept, one status line, not wanted; turning it on again retries', async () => {
   const status = []
   let fail = true
+  let seen = null
   const h = stubHelper(() => ({ note_models: { rmvpe: false } }), () => {
+    seen = sw.downloading
     if (fail) throw Object.assign(new Error('download of rmvpe has the wrong checksum'), { code: 'checksum' })
     return { ready: true }
   })
   const sw = N.createNotesSwitch({ on: () => true, helper: h, status: (t) => status.push(t) })
   assert.equal(await sw.turnedOn(), false)
+  assert.equal(seen, true, 'while it downloads, the lyrics view says so (Expressive words line)')
+  assert.equal(sw.downloading, false)
+  assert.match(sw.failure, /checksum/)
   assert.match(status[status.length - 1], /^Pitch model download failed: the download was damaged \(checksum\)/)
   assert.equal(sw.wanted(), false)
   fail = false
   assert.equal(await sw.turnedOn(), true)
+  assert.equal(sw.failure, '')
   assert.equal(sw.wanted(), true)
   assert.deepEqual(h.calls, ['ping', 'prepare', 'ping', 'prepare'])
 })
@@ -180,10 +186,10 @@ test('main: the download only when Sung notes becomes active; nothing written on
   const src = read('main.js')
   assert.match(src, /function sungNotesOn\(\) \{ return !!settings\.sungNotesLog && settings\.updateChannel === 'dev' && preciseTimingOn\(\) \}/)
   // the notes step serves the developer log, the Studio's sheet notes (sheet-notes.test.js) and Expressive
-  // words (expressive.test.js): one download, and only for a switch the user turned on (Expressive words'
-  // own default on a Development build never downloads)
+  // words (expressive.test.js): one download, for a switch that is on (Expressive words' own default on a
+  // Development build included since 0.15.57: without the model it never measured anything)
   assert.match(src, /function notesActive\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \|\| expressiveOn\(\) \}/)
-  assert.match(src, /function notesChosen\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \|\| \(settings\.expressiveWords === true && preciseTimingOn\(\)\) \}/)
+  assert.match(src, /function notesChosen\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \|\| expressiveOn\(\) \}/)
   assert.match(src, /if \(notesChosen\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
   assert.doesNotMatch(src, /if \(notesActive\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
   assert.match(src, /if \(!sungNotesOn\(\) \|\| !result \|\| !result\.notes\) return/)

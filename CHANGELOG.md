@@ -7,6 +7,21 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.57-dev.1] — Expressive words: works on your songs, and says what it's waiting for
+
+### Fixed
+
+- **Expressive words works on a fresh helper.** It needs a small pitch model (173 MiB), and Sonata only downloaded it when you turned on Sheet notes or the developer log yourself, so with Expressive words on by its own default nothing was ever measured. Sonata now fetches it once, the first time a song shows while Expressive words is on (Precise word timing on).
+- **Every held word stretches, not just one per line.** In a line like "But I don't mind, I don't mind, yeah", only one "mind," stretched (a different one each chorus). With Apple's own word timing the word's time often ends before the singer's held note does: the note then wasn't given to the word, the word's expression wasn't matched when its vowel started after the word's own end, and a stretch stopped when the word's time ended. Now a word keeps its note up to the next word, and the stretch lasts as long as the vowel is sung.
+- **A song's notes never go backwards.** If measuring a song again (for Expressive words) failed, the failure replaced the notes Sonata already had, so the Studio's band fell back to the first play's pitch line and the song was recorded again on every play ("it's like it stopped learning"). The notes from the earlier play now stay, and after two failed tries the song isn't recorded again for it. The log says per song what it uses ("cached notes (351) + expr (46 held, 35 ghosts) — no re-run") or why this play records it.
+- **No song is left out for good.** A song measured while the pitch model was missing was marked as failed and never tried again; those songs (also ones marked by earlier builds) are measured on their next play. A failed song is tried again for Expressive words too, not only for Sheet notes.
+- **The first song after a start is measured too.** Songs with Apple's own word timing, and songs Sonata had already timed, were skipped on the first play after Sonata started, until the helper had answered once.
+- **"The helper install was interrupted" → Show, and starting Sonata again during an install, go to Settings → Precise timing** (they opened Settings without going to the section).
+
+### Added
+
+- **Expressive words says what it's waiting for.** While it's on but can't draw yet, one line over the lyrics says why, with the full story behind the ⓘ: "Expressive words needs the Precise timing helper" (with Install, which opens Settings → Precise timing), "…: Precise word timing is off", "…: downloading the pitch model…", "…: measured once this song has played through", "…: measuring this song…", or "…: nothing held long enough in this song". When the measuring finishes while the song is still on screen, it starts drawing right away, in the same play.
+
 ## [0.15.56-dev.1] — The helper install survives a restart
 
 ### Fixed

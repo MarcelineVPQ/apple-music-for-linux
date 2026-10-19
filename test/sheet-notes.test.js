@@ -320,13 +320,14 @@ test('store: one file per song, read back for the same lyrics only, failures tri
     assert.equal(st.get('Song', 'Artist').notes.length, e.notes.length)
     assert.match(S.fileName('Feel (Stripped)', 'Cortez'), /^Cortez-Feel-Stripped-[0-9a-f]{8}\.json$/)
     assert.notEqual(S.fileName('A/B', 'X'), S.fileName('A B', 'X'))   // same slug, own file
-    // failures: tried again once, then not; no model: not until the switch downloads it
+    // failures: tried again once, then not; no model: always again (main's notes switch keeps the jobs off
+    // until the model is there; a marker used to keep the song from ever getting its notes, 0.15.57)
     st.failed('Other', 'Artist', 'h', 'low-vram')
     assert.ok(st.missing('Other', 'Artist', 'h'))
     st.failed('Other', 'Artist', 'h', 'low-vram')
     assert.ok(!st.missing('Other', 'Artist', 'h'))
     st.failed('Third', 'Artist', 'h', 'no-model')
-    assert.ok(!st.missing('Third', 'Artist', 'h'))
+    assert.ok(st.missing('Third', 'Artist', 'h'))
     st.set('Fourth', 'Artist', { format: 1, lyricsHash: 'h' })
     assert.equal(fs.readdirSync(dir).filter((n) => n.endsWith('.json')).length, 3)
     assert.ok(!fs.readdirSync(dir).some((n) => n.includes('.tmp-')))
@@ -789,4 +790,28 @@ test('the band draws the pitch line through roomRuns and keeps notes in the room
   const ui = require('fs').readFileSync(require('path').join(__dirname, '..', 'sheet-notes-ui.js'), 'utf8')
   assert.match(ui, /const fitted = M\.roomRuns\(runs\)/)
   assert.match(ui, /yOf\(Math\.max\(M\.ROOM\.lo, Math\.min\(M\.ROOM\.hi, n\.pos\)\)\)/)
+})
+
+test('store: a song with its notes keeps them when a later pass fails; repeated plays never regress them and stop asking after MAX_TRIES', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sheet-notes-'))
+  try {
+    const st = S.createSheetNotesStore({ dir })
+    const good = { format: 1, lyricsHash: 'h', notes: [{ t: 1, end: 2, midi: 60 }], created: 'x' }
+    st.set('Monday Morning', 'Fleetwood Mac', good)
+    assert.ok(!st.missing('Monday Morning', 'Fleetwood Mac', 'h'))
+    assert.ok(st.retryAllowed('Monday Morning', 'Fleetwood Mac'))
+    // Expressive words' extra pass fails (a timeout on a CPU helper, say): the notes stay, the try is counted
+    for (let k = 1; k <= S.MAX_TRIES; k++) {   // loop: NOT-WORTH — test, MAX_TRIES plays
+      st.failed('Monday Morning', 'Fleetwood Mac', 'h', 'timeout')
+      const e = st.get('Monday Morning', 'Fleetwood Mac')
+      assert.ok(M.entryValid(e, 'h'), 'still valid notes after failed pass ' + k)
+      assert.deepEqual(e.notes, good.notes)
+      assert.deepEqual(e.retry, { failed: 'timeout', tries: k })
+      assert.ok(!st.missing('Monday Morning', 'Fleetwood Mac', 'h'))
+    }
+    assert.ok(!st.retryAllowed('Monday Morning', 'Fleetwood Mac'), 'not recorded again on every play')
+    // other lyrics: the old notes are not theirs, a plain marker as before
+    st.failed('Monday Morning', 'Fleetwood Mac', 'h2', 'timeout')
+    assert.equal(st.get('Monday Morning', 'Fleetwood Mac').failed, 'timeout')
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })
