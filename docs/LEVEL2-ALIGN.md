@@ -359,8 +359,13 @@ message (nothing to draw) always stays in the band.
 **Honest confidence** (`gate()`): a note's `cents` is how far it sits from the nearest semitone in the
 song's own tuning. Sung melody clusters near the grid; rap and speech spread evenly (median ≈ 25).
 Each lyric line (and the notes between lines) is judged on its notes, pooled with those within 4 s
-when it has fewer than 4: duration-weighted median |cents| ≤ 20 and confidence ≥ 0.6 → notes; else the
-pitch line there (or nothing without one), and the band's label says "pitch line here: notes unsure".
+when it has fewer than 4: duration-weighted median |cents| ≤ 20 and confidence ≥ 0.6 → notes. In a song
+judged sung, a lyric line past 20 cents still shows notes unless it is rapped (faster than 4.4 syllables
+a second) or extreme (past 40 cents: the nearest semitone is a coin flip); notes between lines keep the
+20-cent rule. Else the pitch line there (or nothing without one), and the band's label says "pitch line
+here: notes unsure". Recalibrated 2026-10-19 on 36 learned songs: per line (~10 notes) sung scoops and
+vibrato reach 22–38 cents (Radiohead "15 Step": 2.7–3.2 syllables a second), the same spread as Wilson
+Way's rapped verses (23–40 cents, 4.6–7.5 syllables a second); the delivery is what tells them apart.
 A whole song past 22 cents (or below 0.6) is the pitch line throughout. Measured 2026-10-17 with the
 real helper (Demucs → alignment → RMVPE → note model) on JamendoLyrics songs, and on Marcy's
 developer-log files (notes only):

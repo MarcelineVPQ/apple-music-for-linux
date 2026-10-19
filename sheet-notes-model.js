@@ -40,8 +40,18 @@ const FLAT_POS = { B: 4, E: 7, A: 3, D: 6, G: 2, C: 5, F: 1 }
 // Sung melody clusters near 0 (duration-weighted median 4-19 cents on studio and live-ish vocals);
 // rap and speech have no pitch grid, so the offsets spread evenly (median ≈ 25). Note `conf` is the
 // pitch model's voicing × stability (sung 0.77-0.89).
+// Recalibrated 2026-10-19 on 36 learned songs: per stretch (~10 notes) the spread is noisy, and real
+// sung lines with scoops and vibrato reach 22-38 cents (Radiohead "15 Step": four lines at 22-38 showed
+// the pitch line every play), the same range as rapped lines (Wilson Way's verses: 23-40). What tells
+// them apart is the delivery: those rapped lines run 4.6-7.5 syllables a second, every sung line past
+// 20 cents but two at most 4.0 (15 Step 2.7-3.2). So in a song judged sung, a stretch past gridMax falls
+// back to the line only when it is fast (> rapRate) or extreme (> spreadMax: past 40 cents the nearest
+// semitone is a coin flip between two neighbours; uniform offsets, i.e. no grid at all, give 25).
+// Notes between lines have no syllables to judge their delivery by and keep gridMax.
 const GATE = {
-  spreadMax: 20,      // cents: a stretch whose notes sit further off the grid than this is not shown as notes
+  spreadMax: 40,      // cents: a stretch whose notes sit further off the grid than this is not shown as notes
+  gridMax: 20,        // cents: past this, a stretch shows notes only when it isn't rapped (rapRate)
+  rapRate: 4.4,       // syllables a second: a line past gridMax delivered faster than this is rapped
   confMin: 0.6,       // duration-weighted note confidence below this: not shown as notes
   minNotes: 4,        // fewer notes than this around a stretch: judged with its neighbours (poolS)
   poolS: 4,           // s: a stretch's notes are pooled with those this close (a short line alone is noise)
@@ -285,9 +295,22 @@ function gate(doc, opts = {}) {
   }
   if (last > at + 0.05) cuts.push({ t0: at, t1: last + 0.01, line: null })
   if (!cuts.length && notes.length) cuts.push({ t0: first, t1: last + 0.01, line: null })
-  const verdict = (st, t0, t1) => {
-    if (st.n && st.spread <= g.spreadMax && st.conf >= g.confMin) return { show: 'notes', why: '' }
-    const why = !st.n ? 'no notes' : st.spread > g.spreadMax ? 'off the pitch grid (' + st.spread + ' cents)' : 'unsure pitch (confidence ' + st.conf + ')'
+  // syllables a second over each line's sung span (rapped lines are fast)
+  const rate = new Map()
+  // loop: NOT-WORTH — the song's lines (tens), once per song
+  for (const l of lines) {
+    const n = syl.filter((s) => s.line === l.line).length
+    rate.set(l.line, l.t1 > l.t0 ? round(n / (l.t1 - l.t0), 10) : 0)
+  }
+  // max: the spread allowed (gridMax for the whole song judged at once and for notes between lines,
+  // which have no syllables to tell their delivery by; spreadMax for a line, unless it is rapped)
+  const verdict = (st, t0, t1, line = null) => {
+    const r = line === null ? 0 : rate.get(line) || 0
+    const max = line === null ? g.gridMax : g.spreadMax
+    const rapped = line !== null && st.spread > g.gridMax && r > g.rapRate
+    if (st.n && st.spread <= max && !rapped && st.conf >= g.confMin) return { show: 'notes', why: '' }
+    const why = !st.n ? 'no notes' : st.spread > max ? 'off the pitch grid (' + st.spread + ' cents)'
+      : rapped ? 'rapped (' + r + ' syllables a second, ' + st.spread + ' cents off the grid)' : 'unsure pitch (confidence ' + st.conf + ')'
     return { show: voicedIn(doc.pitch, t0, t1) ? 'line' : 'none', why }
   }
   const songWide = notes.length && (songStats.spread > g.songSpreadMax || songStats.conf < g.confMin)
@@ -297,7 +320,7 @@ function gate(doc, opts = {}) {
     if (songWide) return Object.assign({}, c, verdict(songStats, c.t0, c.t1), { stats: songStats })
     const pool = own.length >= g.minNotes ? own : notes.filter((n) => n.t < c.t1 + g.poolS && n.end > c.t0 - g.poolS)
     const st = stats(pool)
-    return Object.assign({}, c, verdict(st, c.t0, c.t1), { stats: st })
+    return Object.assign({}, c, verdict(st, c.t0, c.t1, c.line), { stats: st })
   })
   return {
     song: !notes.length || songWide ? 'line' : 'notes',

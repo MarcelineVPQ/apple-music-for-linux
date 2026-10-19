@@ -12,6 +12,7 @@ JamendoLyrics test songs, which are Creative Commons:
 | `rxbyn-bad-side.json` | Rxbyn – Bad Side | CC BY | sung, off-key accidentals, 0:34–1:00 |
 | `wilson-way-te-recuerdo.json` | Wilson Way – Te Recuerdo | CC BY-SA | rapped verses, then the sung chorus, 0:12–1:06 |
 | `synthetic-rap.json` | (synthetic, seeded) | – | a rapped stretch: notes off the pitch grid |
+| `radiohead-15-step.json` | Radiohead – 15 Step | – (timing and note numbers only: syllable texts replaced, no audio, no pitch line) | sung lines loose on the grid (22–38 cents), 0:09–1:40; learned by Sonata 2026-10-18 |
 
 The note data are transcriptions of those recordings, kept under the same licences as the songs
 (attribution above; the BY-SA file under BY-SA). No audio is stored here.

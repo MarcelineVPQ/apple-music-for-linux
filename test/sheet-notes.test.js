@@ -187,6 +187,18 @@ test('gate: rap verses and a sung chorus in one song: the pitch line for the ver
   assert.equal(M.labelAt(m, byLine.get(13)), 'Notes · B minor')
 })
 
+test('gate: a sung song keeps its notes through loose lines (Radiohead "15 Step": 22-38 cents, ~3 syllables a second)', () => {
+  const g = M.gate(M.expand(fixture('radiohead-15-step').entry))
+  assert.equal(g.song, 'notes')
+  const sung = g.regions.filter((r) => r.stats.n)
+  assert.ok(sung.filter((r) => r.stats.spread > 20).length >= 4, 'the fixture still holds the loose lines')
+  assert.ok(sung.every((r) => r.show === 'notes'), JSON.stringify(sung.filter((r) => r.show !== 'notes')))
+  // the same lines delivered fast are rapped, and an extreme spread is still the line
+  const fast = M.gate(M.expand(fixture('radiohead-15-step').entry), { rapRate: 2 })
+  assert.ok(fast.regions.some((r) => r.show !== 'notes' && /rapped/.test(r.why)))
+  assert.ok(M.gate(M.expand(fixture('radiohead-15-step').entry), { spreadMax: 25 }).regions.some((r) => /off the pitch grid/.test(r.why)))
+})
+
 test('gate: a few notes are judged with their neighbours; a quiet unsure stretch is not shown as notes', () => {
   const n = (t, cents, conf = 0.9) => ({ t, end: t + 0.3, midi: 60, cents, name: 'C4', conf, syl_index: null, line: null, melisma: false })
   // a 2-note line inside a well-sung stretch passes with its neighbours

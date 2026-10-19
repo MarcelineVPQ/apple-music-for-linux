@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.61-dev.1] — Sheet notes stay notes: the band no longer swaps sung lines for the pitch line
+
+### Fixed
+- **Sung lines keep their notes.** In a song Sonata has learned, a few sung lines showed the pitch line instead of notes, the same ones on every play (Radiohead's "15 Step": four lines in the first verse). Their notes sat a little loose on the pitch grid, as real singing does with scoops and vibrato, and the check for each line was stricter than singing allows. Now a line in a sung song shows its notes unless it is rapped (fast, off the grid) or its pitch is unsure; rapped and spoken songs still show the pitch line.
+
 ## [0.15.60-dev.1] — Lyrics for the next songs are ready before they play
 
 ### Added
