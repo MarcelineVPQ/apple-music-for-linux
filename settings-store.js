@@ -58,6 +58,9 @@ const SCHEMA = {
   expressiveWords: [null, (v) => v === null || typeof v === 'boolean', 'Expressive words'],
   // its sub-switch: a neutral "ooo" ghost where someone holds a note no lyric word covers (null = on on Development builds)
   expressiveVocalise: [null, (v) => v === null || typeof v === 'boolean', 'Wordless vocalise ghosts'],
+  // look-ahead play (lookahead.js; Linux, Development builds, off by default): first plays heard D s late
+  lookahead: [false, bool, 'First play: precise from the start'],
+  lookaheadDelay: ['precise', oneOf('precise', 'quick'), 'Look-ahead delay'],
   updateChannel: ['stable', oneOf('stable', 'dev'), 'Update channel'],
   checkForUpdates: [true, bool, 'Check for updates automatically'],
   autoInstallUpdates: [false, bool, 'Install updates automatically'],

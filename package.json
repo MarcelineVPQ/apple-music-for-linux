@@ -10,7 +10,10 @@
     "gates": "node tools/verdicts.js --check && node tools/hardcodes.js --check && node tools/set-version.js --verify && node tools/doc-gates.js --check",
     "dist": "electron-builder --linux AppImage",
     "dist:appimage": "electron-builder --linux AppImage",
-    "dist:snap": "electron-builder --linux snap"
+    "dist:snap": "electron-builder --linux snap",
+    "build:lookahead": "bash native/lookahead/build.sh",
+    "predist": "bash native/lookahead/build.sh",
+    "predist:appimage": "bash native/lookahead/build.sh"
   },
   "build": {
     "electronVersion": "45.0.0-alpha.14+wvcus",
@@ -134,7 +137,9 @@
       "update-feed.js",
       "version-display.js",
       "sonata.png",
-      "sonata.svg"
+      "sonata.svg",
+      "lookahead.js",
+      "lookahead-page.js"
     ],
     "asarUnpack": [
       "align/install.sh",
@@ -151,7 +156,13 @@
         "entry": {
           "StartupWMClass": "apple-music-for-linux"
         }
-      }
+      },
+      "extraResources": [
+        {
+          "from": "native/lookahead/build/sonata-lookahead",
+          "to": "lookahead/sonata-lookahead"
+        }
+      ]
     },
     "snap": {
       "grade": "stable",

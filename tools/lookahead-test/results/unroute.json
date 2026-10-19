@@ -1,0 +1,42 @@
+{
+ "test": "unroute",
+ "seconds": 11.2,
+ "notes": {
+  "unroute_ms": 6.313977,
+  "follows_default_after_unroute": true,
+  "nodes_after_quit": [],
+  "wireplumber_saved": "[stream-properties]\nAudio/Sink:node.name:speakers={\"mute\":false, \"channelMap\":[\"FL\", \"FR\"], \"channelVolumes\":[1.000000, 1.000000], \"volume\":1.000000}\nAudio/Sink:node.name:speakers2={\"mute\":false, \"channelMap\":[\"FL\", \"FR\"], \"channelVolumes\":[1.000000, 1.000000], \"volume\":1.000000}\nOutput/Audio:applic\u2026",
+  "new_stream_sink_after_off": "speakers"
+ },
+ "heard_frames_with_content": 199424,
+ "heard_frames_not_from_source": 49152,
+ "steady_delay_ms_values": [
+  21.333,
+  3000.0
+ ],
+ "delay_runs_short": 2,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 1
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 524,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "events": [
+  {
+   "event": {
+    "unroute": true
+   },
+   "delays_ms_around": [
+    0.0,
+    21.3,
+    3000.0
+   ]
+  }
+ ]
+}

@@ -7,6 +7,13 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.55-dev.1] — Look-ahead play: first plays precise from the start (Linux, experimental)
+
+### Added
+
+- **First play: precise from the start** (Settings → Playback & lyrics; experimental, Linux, Development builds only, off by default). Until now, the first time a song played, its words lit up on time only a section at a time, as Sonata worked them out. With this switch on, Sonata plays a song it hasn't learned yet a few seconds behind Apple's player (Precise: 3 seconds, Quick: 2 seconds), so the timing helper hears every word before you do and the words light up in time from the very first line. Songs Sonata has already learned, songs with nothing to learn and music videos play with no delay, and moving between them is clean. The lyrics, the Studio, the mini player and the liner notes follow what you hear.
+- **What to expect.** On a song Sonata hasn't learned, playback starts 2–3 seconds after you press play, and after a seek you hear the new place after the same wait; pause stops at once, and nothing plays after it. Apple's own progress bar runs that far ahead of what you hear. A volume change is heard after the delay too. It needs Precise word timing, a graphics card that isn't busy (when it is, or without one, a song plays with no delay and its timing comes in sections, as before) and helper 0.2.5 or newer (it has the streaming this needs; Settings → Precise timing offers the update). While it runs, your sound settings show a "Sonata look-ahead" device; it goes away when Sonata closes or the switch goes off, and if the delay ever stops, your music goes straight back to your speakers. Not on macOS or Windows yet.
+
 ## [0.15.54-dev.1] — Expressive words now appear on your songs
 
 ### Fixed

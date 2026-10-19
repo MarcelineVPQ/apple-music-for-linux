@@ -41,6 +41,7 @@ const SAME_WORDS_SINCE = 2
 const SECTION_LINES = 8        // progressive alignment: lines per section at most
 const SECTION_PRE = 3          // s of audio before a later section's first line sent along (separation context)
 const PLAIN_END_SLACK = 5     // s: a plain song counts as heard to its end this close to it (the track change comes early)
+const STREAM_HOP = 0.25       // s of audio per `chunk` to a look-ahead stream (the engine's hop)
 const FRAME = 0.02             // the aligner's frame hop: section slices start on it, so the helper can stitch
                                // the kept sections into the whole-song pass without moving a frame (0.15.38)
 
@@ -295,6 +296,52 @@ function createSongBuffer(opts = {}) {
     },
     clear() { blocks = new Map(); covered = [] }
   }
+}
+
+// --- look-ahead play: the streamed song (lookahead.js; the helper's `stream` job) ---
+
+/** mid/side floats (audio-listen.js) -> s16le interleaved stereo, as the recording stores them. */
+function toS16(mid, side) {
+  const out = Buffer.alloc(mid.length * FRAME_BYTES)
+  const q = (v) => { const x = Math.round(v * 32768); return x > 32767 ? 32767 : x < -32768 ? -32768 : x }
+  // loop: HOT-PATH-OK — one pass over the chunk's frames (~440 per 20 ms chunk) while a look-ahead song plays
+  for (let i = 0; i < mid.length; i++) {
+    const sd = side ? side[i] : 0
+    out.writeInt16LE(q(mid[i] + sd), i * FRAME_BYTES)
+    out.writeInt16LE(q(mid[i] - sd), i * FRAME_BYTES + 2)
+  }
+  return out
+}
+
+/**
+ * The views' message for a stream's committed words ({ line, words }[] from the helper's 'words'): only
+ * lines whose words match these lyrics' split, word for word (an index the line doesn't have is dropped).
+ * -> { lines: { index: { text, words } } } or null. Words keep `late` (committed after the listener got
+ * there: shown at once, no pop).
+ */
+function streamedMessage(raw, got) {
+  const lines = {}
+  let n = 0
+  // loop: NOT-WORTH — the lines of one 'words' message (one or two per hop)
+  for (const g of got || []) {
+    const i = g && g.line
+    const line = Number.isInteger(i) ? raw[i] : null
+    if (!line || !Array.isArray(g.words)) continue
+    const parts = splitWords(line.text)
+    const words = g.words.map((w, k) => {
+      const t = Number(w && w.t)
+      const end = Number(w && w.end)
+      const at = Number.isInteger(w && w.index) ? w.index : k
+      if (!Number.isFinite(t) || parts[at] !== (w && w.text)) return null
+      const out = { t: Math.round(t * 1000) / 1000, end: Math.round((Number.isFinite(end) && end > t ? end : t + 0.05) * 1000) / 1000, text: w.text, index: at }
+      if (w.late) out.late = true
+      return out
+    }).filter(Boolean)
+    if (!words.length) continue
+    lines[i] = { text: line.text, words }
+    n++
+  }
+  return n ? { lines } : null
 }
 
 // --- the request ---
@@ -700,9 +747,62 @@ function createAlignSession(deps) {
     // a play that only fills gaps records only the spans of the sections it aligns
     if (song.need && !song.need.some((sp) => t0 + mid.length / rate >= sp[0] && t0 <= sp[1])) return
     song.buf.write(t0, mid, side)
+    if (song.stream) feedStream(song, t0, mid, side)
+  }
+
+  // look-ahead: the capture goes to the helper's stream in STREAM_HOP pieces as it comes (a jump in song
+  // time, a seek, starts a new piece: the helper sees the jump in its `t`)
+  function feedStream(s, t0, mid, side) {
+    const st = s.stream
+    const pcm = toS16(mid, side)
+    if (st.parts.length && Math.abs(t0 - st.next) > GAP_TOLERANCE) flushStream(s)
+    if (!st.parts.length) st.t = t0
+    st.parts.push(pcm)
+    st.frames += mid.length
+    st.next = t0 + mid.length / rate
+    if (st.frames >= STREAM_HOP * rate) flushStream(s)
+  }
+  function flushStream(s) {
+    const st = s.stream
+    if (!st || !st.parts.length) return
+    st.job.chunk(st.t, st.parts.length === 1 ? st.parts[0] : Buffer.concat(st.parts))
+    st.parts = []
+    st.frames = 0
+  }
+  // the stream's words, to the views while the song is on screen
+  function onStreamMessage(s, msg) {
+    if (msg.type === 'stream') { s.stream.ready = true; log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
+    if (msg.type !== 'words' || !song || song !== s) return
+    const m = streamedMessage(s.raw, msg.lines)
+    if (m) { s.stream.words += Object.values(m.lines).reduce((a, l) => a + l.words.length, 0); deps.send('lyrics-stream', Object.assign({ key: s.key }, m)) }
+  }
+  function openStream(s) {
+    if (!s.lookahead || s.stream || s.streamFailed || !deps.helper.stream || paused()) return
+    const id = 'l' + (++jobs)
+    const job = deps.helper.stream(id, { song: s.id, lines: requestLines(s.raw), language: s.info && s.info.lang, lead: s.lookahead / 1000, duration: s.info && s.info.duration, rate }, (msg) => onStreamMessage(s, msg))
+    s.stream = { id, job, parts: [], frames: 0, t: 0, next: 0, ready: false, words: 0 }
+    // the helper can't stream (no GPU, a refusal, its exit): this song's sections are aligned as before
+    // error: LOGGED-OK — one log line; the song plays on (delayed) with section timing
+    job.done.then((result) => {
+      const st = (result && result.stats) || {}
+      log('stream of "' + s.title + '" ended: ' + (st.words != null ? st.words : s.stream ? s.stream.words : 0) + ' words' + (st.late_words != null ? ', ' + st.late_words + ' late' : '') + (st.hop_ms_p95 != null ? ', hop p95 ' + st.hop_ms_p95 + ' ms' : ''))
+    }, (e) => {
+      if (e && e.code === 'cancelled') return
+      log('stream of "' + s.title + '" failed (' + ((e && (e.code || e.message)) || '?') + '): its sections are aligned instead')
+      s.streamFailed = (e && e.code) || 'error'
+      s.stream = null
+    })
+  }
+  function closeStream(s, cancel) {
+    const st = s.stream
+    if (!st) return
+    if (cancel) st.job.cancel()
+    else { flushStream(s); st.job.end() }
+    s.stream = null
   }
 
   function startCapture() {
+    if (song && !song.sent) openStream(song)
     if (listener) return
     expectNext = null
     listener = deps.createListener({ sampleRate: rate, onChunk })
@@ -969,6 +1069,15 @@ function createAlignSession(deps) {
       wrapUp(s)
       return null
     }
+    // look-ahead: the stream times the words while the song plays (no section jobs); at the end the
+    // whole song is aligned once, as for any fully heard song (that result is what stays cached)
+    if (s.stream || (s.lookahead && !s.streamFailed && deps.helper.stream)) {
+      if (!final) return null
+      closeStream(s, false)
+      if (s.secs.length && heardWhole(s)) job = submit(s, null)
+      wrapUp(s)
+      return job
+    }
     // loop: HOT-PATH-OK — over the sections not yet handled (≤ ~10 per song) · per tick
     while (s.next < s.secs.length) {
       const sec = s.secs[s.next]
@@ -1004,8 +1113,9 @@ function createAlignSession(deps) {
     const s = song
     song = null
     clock = null
-    if (!s || s.sent) return null
+    if (!s || s.sent) { if (s) closeStream(s, true); return null }
     if (submitIfHeard) return due(s, Infinity, true)
+    closeStream(s, true)
     wrapUp(s)
     return null
   }
@@ -1074,7 +1184,9 @@ function createAlignSession(deps) {
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
       if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
       else if (notesMissing) log('recording "' + title + '" whole this time, for its sheet notes')
-      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song }
+      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song,
+        // look-ahead play: this first play is heard info.lookahead ms late; its words come from a stream
+        lookahead: !have && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '' }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
@@ -1098,6 +1210,8 @@ function createAlignSession(deps) {
     /** A song on screen still needs alignment work (the gaming guard only polls then). */
     get active() { return !!(song && !song.sent) },
     get bufferBytes() { return song ? song.buf.bytes : 0 },
+    /** Look-ahead: the song on screen streams its words ('' none, 'starting', 'streaming', 'failed: code'). */
+    get streamState() { return !song || !song.lookahead ? '' : song.streamFailed ? 'failed: ' + song.streamFailed : song.stream ? (song.stream.ready ? 'streaming' : 'starting') : '' },
     _onChunk: onChunk       // tests
   }
 }
@@ -1106,5 +1220,6 @@ module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
   alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
-  createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession
+  createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
+  STREAM_HOP, toS16, streamedMessage
 }

@@ -345,6 +345,11 @@ function createAlignHelper(opts, deps = {}) {
     if (msg.type === 'pong') {
       const id = pings.shift()
       if (id) done(id, msg)
+    } else if (msg.type === 'stream' || msg.type === 'words') {
+      // look-ahead play's streaming job (stream()): its ready state and its committed words
+      touch(msg.id)
+      const p = pending.get(msg.id)
+      if (p && p.progress) p.progress(msg)
     } else if (msg.type === 'progress') {
       touch(msg.id)
       const p = pending.get(msg.id)
@@ -534,6 +539,34 @@ function createAlignHelper(opts, deps = {}) {
     },
     /** A lyric view opened or the last one closed: the idle limit follows (main.js lyrics feed). */
     viewsChanged() { if (child && !pending.size && quitting !== child) armIdle() },
+    /**
+     * Look-ahead play (lookahead.js, align-session.js lookahead mode): one streaming alignment while the
+     * song plays, the helper hearing it `lead` s before the listener (docs/LEVEL2-ALIGN.md "stream").
+     * head: { song, lines, language?, lead, duration?, rate }. on(msg): the helper's 'stream' (ready) and
+     * 'words' messages. -> { done: Promise<result>, chunk(t, pcm), end(), cancel() }; the helper is spawned
+     * for it like for any job; the job's quiet limit is the song's length (words come only where someone sings).
+     * error: PASSES-ON — `done` rejects on the helper's error (codes no-gpu, plain, busy, no-model) or its exit
+     */
+    stream(id, head, on) {
+      const quietMs = Math.max(jobTimeoutMs, ((Number(head.duration) || 0) + 60) * 1000)
+      const msg = { cmd: 'stream', id, song: head.song, lines: head.lines, lead: head.lead, audio: { format: 's16le', rate: head.rate || 22050, channels: 2 } }
+      if (head.language) msg.language = head.language
+      if (head.duration) msg.duration = head.duration
+      const done = request(id, [msg], quietMs, on)
+      let open = true
+      const send = (m) => {
+        if (!open || !child) return
+        // error: NOT-WORTH — a closed pipe: the helper is gone; `done` rejects through its exit
+        try { child.stdin.write(JSON.stringify(m) + '\n') } catch (e) {}
+      }
+      return {
+        done,
+        /** t: the song time (s) of the chunk's first frame; pcm: s16le stereo at head.rate */
+        chunk(t, pcm) { send({ cmd: 'chunk', id, t: Math.round(t * 1000) / 1000, data: pcm.toString('base64') }) },
+        end() { send({ cmd: 'end', id }); open = false },
+        cancel() { send({ cmd: 'cancel', id }); open = false; fail(id, Object.assign(new Error('cancelled'), { code: 'cancelled' })) }
+      }
+    },
     /** Separate once per song: drop that song's kept sections in the helper (queued behind its jobs; no reply). */
     forget(song) {
       if (!child || quitting === child) return

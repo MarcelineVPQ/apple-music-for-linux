@@ -431,7 +431,7 @@ function createMiniWindow() {
       try {
         const state = await appleWC().executeJavaScript(nowPlayingScript)
         if (!miniWindow || miniWindow.isDestroyed()) return
-        miniWindow.webContents.send('now-playing', Object.assign({}, state, { lyricsOpen: !!lyricsWindow }))
+        miniWindow.webContents.send('now-playing', Object.assign({}, heardState(state), { lyricsOpen: !!lyricsWindow }))   // look-ahead: the heard position
         // refresh the favorite star only when the track changes (avoids an
         // API call every tick)
         const key = state && state.ok && state.title ? state.title + '|' + state.artist : ''
@@ -865,8 +865,26 @@ let gameGuard = null
 let alignNote = ''
 function alignPaused() { return !!(settings.alignGamingPause && gameGuard && gameGuard.paused) }
 function alignNoteNow() {
-  return alignPaused() && preciseTimingOn() && alignSession && alignSession.active ? gameGuardLib.pauseText(gameGuard.state) : ''
+  const paused = alignPaused() && preciseTimingOn() && alignSession && alignSession.active ? gameGuardLib.pauseText(gameGuard.state) : ''
+  return paused || lookaheadNote()
 }
+// Settings' line under the switch: what the song playing now got; a delayed song whose stream the helper
+// refused says its timing comes in sections
+function lookaheadStatusText() {
+  if (!lookahead) return ''
+  const st = alignSession ? alignSession.streamState : ''
+  if (lookahead.phase === 'on' && lookahead.song.ms > 0 && /^failed/.test(st)) return Math.round(lookahead.song.ms / 100) / 10 + ' s behind, but timed in sections: ' + st.replace(/^failed: /, '')
+  return lookahead.status()
+}
+// the views' note while look-ahead delays this song: "Getting ready" while the line fills, then how far behind
+function lookaheadNote() {
+  if (!lookahead || lookahead.phase !== 'on') return ''
+  const sg = lookahead.song
+  if (!(sg.ms > 0)) return ''
+  const secs = Math.round(sg.ms / 100) / 10
+  return lookaheadReady ? 'Look-ahead: ' + secs + ' s behind' : 'Getting ready (look-ahead ' + secs + ' s)'
+}
+let lookaheadReady = true     // the heard clock reached the new audio (false while the line fills: a song's start, a seek)
 function sendAlignNote() {
   const text = alignNoteNow()
   if (text === alignNote) return
@@ -895,6 +913,129 @@ function alignGuardTick() {
   sendAlignNote()
 }
 
+// --- Look-ahead play (Settings → Playback & lyrics → First play: precise from the start; Experimental,
+// Linux, Development builds; lookahead.js, docs/LOOKAHEAD.md). On a song's first play Sonata's own stream
+// is heard D s late (3 s Precise, 2 s Quick), through the native delay helper (native/lookahead/,
+// shipped in the app's resources): the engine hears every word D s early, so its word timing is ready
+// when the word is sung. Learned songs, songs with nothing to learn and music videos get no delay. The
+// lyrics, the Studio, the mini player and the liner notes' sung line run on the heard (delayed) clock;
+// the engine and the recording keep the player's own clock (they hear the stream undelayed).
+// lifetime: OK — one controller for the app's life; its helper child, control socket and `pactl subscribe`
+// run only while the switch is on (stopped when it goes off and on quit); the page scripts are injected
+// per Apple page load while it runs
+// error: SHOWN — the helper failing or dying is the status line under the switch; the stream falls back
+// to the default device by itself (the session manager relinks it) and the clock stops shifting
+const lookaheadLib = require('./lookahead')
+const lookaheadPage = require('./lookahead-page')
+const audioListen = require('./audio-listen')
+let lookahead = null
+let lookaheadPong = null      // the engine's last pong (its stream feature and readiness)
+function lookaheadBinary() {
+  if (process.env.SONATA_LOOKAHEAD_BIN) return process.env.SONATA_LOOKAHEAD_BIN
+  const inApp = process.resourcesPath ? path.join(process.resourcesPath, 'lookahead', 'sonata-lookahead') : ''
+  const dev = path.join(__dirname, 'native', 'lookahead', 'build', 'sonata-lookahead')
+  // error: NOT-WORTH — a missing file is "not shipped here": the switch says so
+  const exists = (f) => { try { fs.accessSync(f, fs.constants.X_OK); return true } catch (e) { return false } }
+  return inApp && exists(inApp) ? inApp : exists(dev) ? dev : ''
+}
+function lookaheadAvail() {
+  return lookaheadLib.availability({ platform: process.platform, devBuild: updateFeed.isDevVersion(app.getVersion()), binary: lookaheadBinary() })
+}
+function lookaheadWanted() { return !!settings.lookahead && lookaheadAvail().ok }
+function lookaheadSocket() {
+  const dir = process.env.XDG_RUNTIME_DIR && fs.existsSync(process.env.XDG_RUNTIME_DIR) ? process.env.XDG_RUNTIME_DIR : os.tmpdir()
+  return path.join(dir, 'sonata-lookahead-' + process.pid + '.sock')
+}
+// Sonata's own sink input, as the engine tap finds it (audio-listen.js), never the helper's output
+function lookaheadStream() {
+  const run = (args) => new Promise((resolve) => {
+    // error: NOT-WORTH — pactl missing or failing: no stream found (nothing is routed; tried again on the next event)
+    // lifetime: OK — one short pactl child per lookup (2 s timeout); only on a play or item event while look-ahead runs
+    execFile('pactl', args, { timeout: 2000, maxBuffer: 4 * 1024 * 1024 }, (err, out) => { try { resolve(err ? null : JSON.parse(String(out))) } catch (e) { resolve(null) } })
+  })
+  return Promise.all([run(['-f', 'json', 'list', 'sink-inputs']), run(['-f', 'json', 'list', 'sinks'])]).then(([inputs, sinks]) => {
+    if (!inputs) return null
+    let pids
+    // error: NOT-WORTH — no process tree: only our own pid
+    try { pids = audioListen.ownProcessTree(process.pid) } catch (e) { pids = new Set([process.pid]) }
+    return lookaheadLib.sonataStream(inputs, sinks, pids, audioListen.pickSinkInput)
+  })
+}
+// the song the page names, against the caches only (no lookup): learned / nothing / first / unknown
+function lookaheadDecide(item) {
+  const store = { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: () => {} }
+  const song = recordingId.songOf({ title: item.title, artist: item.artist, isrc: item.isrc, duration: item.duration })
+  const lyr = lyricsStore && item.title ? recordingId.lookup(store, '', song).entry : null
+  let aligned = null
+  if (lyr && Array.isArray(lyr.lines) && lyr.lines.length) {
+    const found = alignSessionLib.findAligned(store, item.title, item.artist, lyr.lines, { isrc: item.isrc, duration: item.duration })
+    aligned = alignSessionLib.validEntry(found.entry, alignSessionLib.lyricsHash(lyr.lines), lyr.lines)
+  }
+  const learn = lookaheadLib.learnState(lyr, aligned, alignSessionLib.canAlign, lyricsTiming.hasWordTiming)
+  const d = lookaheadLib.decide({
+    on: true, ok: true, video: !!item.video, viewOpen: lyricViews().length > 0, learn,
+    engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused(),
+    ms: lookaheadLib.delayOf(settings.lookaheadDelay)
+  })
+  console.log('look-ahead: "' + item.title + '": ' + (d.ms ? d.ms + ' ms (' + d.why + ')' : 'no delay (' + d.why + ')'))
+  return d
+}
+function lookaheadPlayer(action) {
+  if (!mainAlive()) return
+  const code = action === 'seek0play'
+    ? '(() => { const mk = MusicKit.getInstance(); return Promise.resolve(mk.seekToTime(0)).then(() => mk.play()); })();'
+    : '(() => { MusicKit.getInstance().play(); })();'
+  appleWC().executeJavaScript(code).catch((e) => console.error('look-ahead: player ' + action + ' failed:', e.message))   // error: LOGGED-OK — page mid-load: the player stays as it is; the user's play button works
+}
+function lookaheadHold(on) {
+  if (!mainAlive()) return
+  appleWC().executeJavaScript(lookaheadPage.holdScript(on)).catch((e) => console.error('look-ahead: hold flag failed:', e.message))   // error: LOGGED-OK — page mid-load: no hold at the next item change (its old song's tail is cut instead)
+}
+function getLookahead() {
+  if (!lookahead) {
+    lookahead = lookaheadLib.createLookahead({
+      binary: lookaheadBinary(), socketPath: lookaheadSocket(), spawn, execFile, net: require('net'),
+      findStream: lookaheadStream, decide: lookaheadDecide, player: lookaheadPlayer, setHold: lookaheadHold,
+      onChange: () => { pushPanel(); sendAlignNote() },
+      log: (m) => console.log('look-ahead:', m)
+    })
+  }
+  return lookahead
+}
+function injectLookahead() {
+  if (!mainAlive() || !lookahead || lookahead.phase === 'off') return
+  appleWC().executeJavaScript(lookaheadPage.mainWorldScript())
+    .catch((e) => console.error('look-ahead: page script failed:', e.message))   // error: LOGGED-OK — page mid-load: injected again at its next load; without it songs play with no delay
+  appleWC().executeJavaScriptInIsolatedWorld(999, [{ code: lookaheadPage.isolatedWorldScript() }])
+    .catch((e) => console.error('look-ahead: page events failed:', e.message))   // error: LOGGED-OK — as above
+}
+// the switch, the choice or the build changed: start or stop the helper
+function applyLookahead() {
+  if (lookaheadWanted()) {
+    lookaheadAskEngine()
+    getLookahead().start()
+    injectLookahead()
+  } else if (lookahead) lookahead.stop()
+}
+// whether the engine can stream is in its pong: asked once when look-ahead starts or a lyric view opens
+// (the helper starts then anyway for Precise word timing), never per song
+function lookaheadAskEngine() {
+  if (lookaheadWanted() && preciseTimingOn() && !lookaheadPong && lyricViews().length) askAlignStatus()
+}
+// the views' clock: the heard (delayed) position while look-ahead runs, else the player's own
+function heardState(state) {
+  if (!lookahead || lookahead.phase !== 'on' || !state) return state
+  const c = lookahead.clock(state.playbackTime, state.isPlaying)
+  return Object.assign({}, state, { playbackTime: c.time, isPlaying: c.playing, heardReady: c.ready, playerTime: state.playbackTime })
+}
+// lifetime: OK — registered once at module load
+// error: NOT-WORTH — only from Apple's view, top frame, while look-ahead runs; the fields are checked in lookahead.js cleanEvent
+ipcMain.on('apple:lookahead', (event, msg) => {
+  if (!mainAlive() || event.sender !== appleWC() || !event.senderFrame || event.senderFrame.parent) return
+  if (!lookahead || lookahead.phase !== 'on') return
+  lookahead.pageEvent(msg)
+})
+
 // --- lyrics feed: one now-playing poll for every lyric view (lyrics window, visualizer overlay) ---
 // Both views run the same engine (lyrics-view.js), so they get the same data: 'lyrics-data' (full
 // line/word objects with estimated + learned timing), 'lyrics-time' pushes, 'lyrics-refined' and
@@ -914,6 +1055,7 @@ function startLyricsFeed() {
   // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
   if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
+  lookaheadAskEngine()
 }
 function stopLyricsFeedIfIdle() {
   if (lyricViews().length) return
@@ -987,7 +1129,9 @@ async function lyricsTick() {
     const plain = shorthand || mismatch || (got.source === 'lrclib' && stored && stored.plain ? (stored.mismatch || true) : null) || (untimedLrclib ? { reason: 'untimed' } : null)
     if (mismatch) console.log('lyrics: "' + state.title + '" by ' + state.artist + ': line timing is for another version (' + mismatch.reason + ': lyrics end at ' + mismatch.lyricsEnd + ' s, the recording runs ' + mismatch.duration + ' s, ' + Math.round(mismatch.share * 100) + ' %); ' + (precise ? 'lines placed from the audio' : 'shown untimed (precise timing off)'))
     const lyricLines = plain ? alignSessionLib.untimed(base) : base
-    if (aligner) aligner.setLyrics(key, state.title, state.artist, lyricLines, precise, { album: state.album, duration: state.duration, appleId: state.appleId, isrc: state.isrc, lang: got.lang || '', plain })
+    // look-ahead: this song's delay as decided at its start (0: none); a delayed first play streams its words
+    const lead = lookahead && lookahead.phase === 'on' ? lookahead.song.ms : 0
+    if (aligner) aligner.setLyrics(key, state.title, state.artist, lyricLines, precise, { album: state.album, duration: state.duration, appleId: state.appleId, isrc: state.isrc, lang: got.lang || '', plain, lookahead: lead })
     const prep = alignSessionLib.prepareLines(lyricLines, { estimate: !!settings.estimatedWordTiming, entry: stored, plain: !!plain })
     let lines = prep.lines
     let refined = false
@@ -1031,8 +1175,12 @@ async function lyricsTick() {
   // isPlaying lets the views stop their word-highlight clock right away on pause; key: the song the time
   // is for (the views drop a time for another song, lyrics-view.js setTime). After a slow lookup this
   // tick's time is that old: the next tick (500 ms) sends a fresh one instead.
-  if (Date.now() - sampledAt < 250) sendLyrics('lyrics-time', state.playbackTime, state.isPlaying, key)
-  if (stageShowing()) stageTick(state, key)
+  // look-ahead: the views run on what the listener hears (the player's time minus the helper's delay)
+  const heard = heardState(state)
+  lookaheadReady = heard.heardReady !== false
+  if (Date.now() - sampledAt < 250) sendLyrics('lyrics-time', heard.playbackTime, heard.isPlaying, key)
+  if (stageShowing()) stageTick(heard, key)
+  if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn())
   alignGuardTick()
@@ -1838,6 +1986,7 @@ async function linerTick() {
   let state
   try { state = await appleWC().executeJavaScript(nowPlayingScript) } catch (e) { return }   // error: NOT-WORTH — page mid-load: the next tick asks again
   if (!state || !state.ok || !linerWindow || linerWindow.isDestroyed()) return
+  state = heardState(state)   // look-ahead: the line the listener hears
   linerPlaying(state)
   const key = state.title + '|' + state.artist
   if (!linerSung || linerSung.key !== key) {
@@ -2738,7 +2887,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -2798,6 +2947,7 @@ function setSetting(key, value) {
     showAlignRepair()
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
+  else if (key === 'lookahead') applyLookahead()   // the choice (lookaheadDelay) applies from the next song
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
   if (key === 'expressiveWords' || key === 'expressiveVocalise') lyricsKey = null   // the song again, with or without its expression
   if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel' || key === 'expressiveWords') {
@@ -2882,6 +3032,7 @@ function learnPong(pong) {
   alignGpu = pong.device === 'cuda' || pong.device === 'xpu' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
   alignRunDevice = String(pong.device || '')
   alignRunMessage = typeof pong.message === 'string' ? pong.message.slice(0, 400) : ''
+  lookaheadPong = pong
   if (notesSwitch) notesSwitch.learn(pong)
 }
 // what is in the helper's folder besides a working install (one readdir; at start and after each change)
@@ -3431,6 +3582,11 @@ function panelSnapshot() {
     backConfirm,
     shortcuts: shortcuts ? Object.assign(shortcuts.snapshot(), { error: shortcutError, capture: shortcutCapture }) : null,
     gfx: gfx.snapshot(app.getGPUFeatureStatus()),
+    lookaheadShown: lookaheadAvail().shown,
+    lookaheadOk: lookaheadAvail().ok,
+    lookaheadStatus: settings.lookahead ? lookaheadStatusText() : '',
+    lookaheadPrecise: lookaheadLib.DELAYS.precise / 1000,
+    lookaheadQuick: lookaheadLib.DELAYS.quick / 1000,
     curious: curious ? curious.state() : null
   })
   const shownAbout = settings.panelShown && settings.panelPage === 'about'
@@ -3992,6 +4148,7 @@ function createWindow() {
   // media-controls position script
   appleWC().on('dom-ready', injectFocusStops)
   appleWC().on('dom-ready', injectMediaPosition)
+  appleWC().on('dom-ready', injectLookahead)
 
   appleWC().on('page-title-updated', () => {
     applyCustomCss()
@@ -4018,6 +4175,7 @@ function createWindow() {
     if (listenSession) listenSession.stop()
     if (alignSession) alignSession.stop(false)
     if (alignHelper) alignHelper.stop()
+    if (lookahead) lookahead.stop()   // its stream back on the default device, the helper and its virtual sink gone
     if (helperInstaller) helperInstaller.stop()
     app.exit(0);
  });
@@ -4432,6 +4590,7 @@ app.whenReady().then(async () => {
   startupStep('auto-update question', askAutoUpdate)
   startupStep('precise timing install check', () => alignInstalled(true))
   startupStep('helper update checks', startHelperFeedChecks)
+  startupStep('look-ahead play', applyLookahead)   // the switch on (Linux, Development builds): its helper starts
   if (process.argv.includes('--mini')) {
     toggleMiniPlayer()
   }

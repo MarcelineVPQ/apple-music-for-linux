@@ -1,0 +1,33 @@
+{
+ "test": "crash",
+ "seconds": 13.2,
+ "notes": {
+  "fallback_relinked_ms": 5.926,
+  "nodes_after_kill": [],
+  "player_sink_after_kill": "speakers",
+  "player_sink_after_clear": "speakers"
+ },
+ "heard_frames_with_content": 485760,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  21.333,
+  3000.0
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 1
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 619,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "kill_to_sound_again_ms": 42.7,
+ "delay_after_fallback_ms": [
+  21.33
+ ]
+}

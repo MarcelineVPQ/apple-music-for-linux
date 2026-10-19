@@ -1,0 +1,61 @@
+{
+ "test": "track",
+ "seconds": 20.2,
+ "notes": {
+  "drained_after_ms": 3017.850525
+ },
+ "heard_frames_with_content": 815360,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  42.667,
+  3000.0
+ ],
+ "delay_runs_short": 2,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 2
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 945,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "helper_counters": {
+  "underruns": 2,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 146225,
+  "cycles_in": 942,
+  "cycles_out": 942
+ },
+ "tracks": [
+  {
+   "cmd": "track 3000",
+   "delays_ms_around": [
+    42.7,
+    3000.0
+   ]
+  },
+  {
+   "cmd": "track 0",
+   "delays_ms_around": [
+    25.3,
+    42.7,
+    3000.0
+   ]
+  }
+ ],
+ "track_jumps": [
+  {
+   "last_old": 197023,
+   "first_new": 4995584
+  },
+  {
+   "last_old": 5377183,
+   "first_new": 10177184
+  }
+ ]
+}

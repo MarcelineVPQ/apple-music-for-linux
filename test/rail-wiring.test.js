@@ -44,7 +44,7 @@ test('rail view preload: send / onState / onFocus only, through contextBridge, s
   assert.equal(focused, 1)
 })
 
-test('Apple preload: only "focus the rail" and "wheel notches over the volume", in its isolated world (no contextBridge, no Node)', () => {
+test('Apple preload: only "focus the rail", "wheel notches over the volume" and look-ahead\'s player events, in its isolated world (no contextBridge, no Node)', () => {
   const sent = []
   const fake = { ipcRenderer: { send: (...a) => sent.push(a), on: () => { throw new Error('no listeners expected') } } }
   const before = globalThis.sonataFocusBridge
@@ -52,10 +52,14 @@ test('Apple preload: only "focus the rail" and "wheel notches over the volume", 
     withFakeElectron(fake, () => { delete require.cache[require.resolve('../preload-apple')]; require('../preload-apple') })
     const b = globalThis.sonataFocusBridge
     assert.ok(Object.isFrozen(b))
-    assert.deepEqual(Object.keys(b), ['toRail', 'volume'])
+    assert.deepEqual(Object.keys(b), ['toRail', 'volume', 'lookahead'])
     b.toRail('last'); b.toRail('anything')
     b.volume(3); b.volume(999); b.volume('x'); b.volume(-2.7)
-    assert.deepEqual(sent, [['rail:focus-in', 'last'], ['rail:focus-in', 'first'], ['apple:volume', 3], ['apple:volume', 20], ['apple:volume', 0], ['apple:volume', -2]])
+    // look-ahead: a fresh object of known fields only (strings cut, objects and functions dropped)
+    b.lookahead({ ev: 'pause', t: 1.5, video: false, extra: 'x', title: { toString: () => 'y' }, id: 'z'.repeat(400) })   // (ended is a known field too)
+    b.lookahead(null); b.lookahead('pause')
+    assert.deepEqual(sent, [['rail:focus-in', 'last'], ['rail:focus-in', 'first'], ['apple:volume', 3], ['apple:volume', 20], ['apple:volume', 0], ['apple:volume', -2],
+      ['apple:lookahead', { ev: 'pause', t: 1.5, video: false, id: 'z'.repeat(300) }]])
   } finally { if (before === undefined) delete globalThis.sonataFocusBridge }
   const src = code(read('preload-apple.js'))
   assert.doesNotMatch(src, /contextBridge|exposeInMainWorld|webFrame|executeJavaScript/)

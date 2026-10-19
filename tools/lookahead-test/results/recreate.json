@@ -1,0 +1,44 @@
+{
+ "test": "recreate",
+ "seconds": 11.4,
+ "notes": {
+  "new_stream_sink": "sonata-lookahead",
+  "wireplumber_saved": "[stream-properties]\nAudio/Sink:node.name:speakers={\"volume\":1.000000, \"channelMap\":[\"FL\", \"FR\"], \"mute\":false, \"channelVolumes\":[1.000000, 1.000000]}\nAudio/Sink:node.name:speakers2={\"volume\":1.000000, \"channelMap\":[\"FL\", \"FR\"], \"mute\":false, \"channelVolumes\":[1.000000, 1.000000]}\nOutput/Audio:applic\u2026"
+ },
+ "heard_frames_with_content": 388480,
+ "heard_frames_not_from_source": 14336,
+ "steady_delay_ms_values": [
+  3000.0
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 1
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 536,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 0,
+  "cycles_in": 533,
+  "cycles_out": 533
+ },
+ "events": [
+  {
+   "event": {
+    "recreate": true
+   },
+   "delays_ms_around": [
+    3000.0
+   ]
+  }
+ ]
+}
