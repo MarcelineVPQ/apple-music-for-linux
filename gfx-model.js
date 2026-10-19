@@ -6,10 +6,10 @@
 //                      from the settings file (the flags never travel in argv: appendSwitch doesn't
 //                      touch process.argv, so a relaunch decides them again from the settings)
 //   sentinel*()        the start marker: written before 'ready' when a switch is active, removed once
-//                      the start was healthy for 20 s; still there at the next start = that start never
-//                      got healthy, so its switches go off (covers a crash that takes the whole app down)
-//   crashTurnOff()     a GPU-process crash while running: the riskiest active switch goes off for the
-//                      next start (the DS5 recordGpuCrash rule)
+//                      the start was healthy, marked clean on a quit or restart; two starts in a row that
+//                      died before getting healthy turn their switches off (a crash that takes the app down)
+//   crashTurnOff()     the second GPU-process crash in one run: the riskiest active switch goes off for
+//                      the next start (the DS5 recordGpuCrash rule)
 //   graphicsRows()     About → Graphics, the read-only readout
 ;(function (root) {
   'use strict'
@@ -167,27 +167,51 @@
   }
 
   // --- the start marker (~/.config/apple-music-for-linux/gpu-experiment.json) ---
-  function sentinelText(active, version, now) {
-    return JSON.stringify({ flags: active.slice(), version: String(version || ''), startedAt: new Date(now).toISOString() }) + '\n'
+  // Written before 'ready' while a switch is active; removed once the start is healthy (HEALTHY_MS after its
+  // first page, no graphics crash); marked clean when Sonata quits or restarts itself before that (Quit,
+  // Restart now, an update's restart: never a failure). Still there, not clean, at the next start = that start
+  // died before it got healthy: a strike for each of its switches. STRIKES in a row turn a switch off (one
+  // unlucky start, a logout or a kill keeps them); a clean or healthy start in between ends the row.
+  const STRIKES = 2
+  // a graphics-process crash while running: the second one in one run turns the riskiest switch off (DS5's rule)
+  const CRASHES = 2
+  // o: { strikes: { key: n }, clean: true }
+  function sentinelText(active, version, now, o) {
+    const j = { flags: active.slice(), version: String(version || ''), startedAt: new Date(now).toISOString() }
+    const st = o && o.strikes ? Object.fromEntries(Object.entries(o.strikes).filter(([k, n]) => n > 0 && active.includes(k))) : {}
+    if (Object.keys(st).length) j.strikes = st
+    if (o && o.clean) j.clean = true
+    return JSON.stringify(j) + '\n'
   }
-  // the marker's text (null: no marker) and the stored settings -> { disable: [keys], notice: '' }
-  // An unreadable marker (cut short) counts as naming every switch that is on.
+  // the marker's text (null: no marker) and the stored settings -> { disable: [keys], notice: '', strikes: { key: n } }
+  // strikes: carried into this start's marker. An unreadable marker (cut short) is a strike for every switch on.
   function sentinelAtStart(text, settings) {
-    if (text === null || text === undefined) return { disable: [], notice: '' }
+    if (text === null || text === undefined) return { disable: [], notice: '', strikes: {} }
     const s = settings || {}
-    let named = null
-    try {
-      const j = JSON.parse(text)
-      if (j && Array.isArray(j.flags)) named = j.flags.filter((k) => typeof k === 'string')
-    } catch (e) { named = null }   // error: NOT-WORTH — an unreadable marker: every switch that is on goes off (below)
+    let j = null
+    try { j = JSON.parse(text) } catch (e) { j = null }   // error: NOT-WORTH — an unreadable marker: a strike for every switch that is on (below)
+    const named = j && Array.isArray(j.flags) ? j.flags.filter((k) => typeof k === 'string') : null
+    const before = j && j.strikes && typeof j.strikes === 'object' ? j.strikes : {}
     const on = EXPERIMENTS.filter((e) => e.restart && s[e.key] === true).map((e) => e.key)
-    const disable = named ? on.filter((k) => named.includes(k)) : on
-    if (!disable.length) return { disable, notice: '' }
+    const strikes = {}
+    // loop: NOT-WORTH — ≤ 4 switches, once at start
+    for (const k of on) {
+      const had = Number.isInteger(before[k]) && before[k] > 0 ? before[k] : 0
+      const used = named ? named.includes(k) : true
+      // a clean exit (or a switch the last start didn't use) neither counts nor ends the row
+      strikes[k] = j && j.clean ? had : used ? had + 1 : had
+    }
+    const disable = on.filter((k) => strikes[k] >= STRIKES)
+    // loop: NOT-WORTH — ≤ 4 switches
+    for (const k of disable) delete strikes[k]
+    if (!disable.length) return { disable, notice: '', strikes }
     const names = listWords(disable.map(labelOf))
+    const it = disable.length === 1 ? 'it' : 'them'
     return {
       disable,
-      notice: 'Sonata turned off ' + names + ': the last start with ' + (disable.length === 1 ? 'it' : 'them') +
-        ' on didn\'t finish. You can turn ' + (disable.length === 1 ? 'it' : 'them') + ' back on in Settings → Experimental.'
+      strikes,
+      notice: 'Sonata turned off ' + names + ': the last ' + STRIKES + ' starts with ' + it + ' on ended before Sonata was running ' +
+        'properly (it closed without being quit). Turn ' + it + ' back on in Settings → Experimental.'
     }
   }
   const listWords = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1])
@@ -195,9 +219,11 @@
   // --- a GPU-process crash while running ---
   // details: Electron's child-process-gone details; active: this start's active keys; settings: now.
   // -> { key, notice } (the switch to turn off for the next start) or null (not ours to handle)
+  // A real failure only: a clean exit or a kill (Sonata quitting, the system) never counts.
+  const realCrash = (d) => !!d && d.type === 'GPU' && d.reason !== 'clean-exit' && d.reason !== 'killed'
   function crashTurnOff(details, active, settings) {
     const d = details || {}
-    if (d.type !== 'GPU' || d.reason === 'clean-exit' || d.reason === 'killed') return null
+    if (!realCrash(d)) return null
     const s = settings || {}
     const order = EXPERIMENTS.filter((e) => e.restart && e.crashRank && (active || []).includes(e.key) && s[e.key] === true)
       .sort((a, b) => a.crashRank - b.crashRank)
@@ -205,8 +231,25 @@
     const key = order[0].key
     return {
       key,
-      notice: 'The graphics process stopped (' + d.reason + '), so Sonata turned off ' + labelOf(key) +
-        ' for the next start. You can turn it back on in Settings → Experimental.'
+      notice: 'The graphics process stopped twice in this run (' + d.reason + '), so Sonata turned off ' + labelOf(key) +
+        ' for the next start. Turn it back on in Settings → Experimental.'
+    }
+  }
+
+  // a switch that is on but can't act next to the others that are on (True video colours with Hardware video
+  // decoding): the reason, said next to it, or null. settings: now; ctx: startContext()
+  function settingConflict(key, settings, ctx) {
+    const e = byKey(key)
+    const s = settings || {}
+    if (!e || !e.late || !e.needs || s[key] !== true) return null
+    const others = new Set(EXPERIMENTS.filter((x) => x.restart && !x.late && s[x.key] === true).map((x) => x.key))
+    return e.needs(Object.assign({}, ctx || {}, { active: others }))
+  }
+  // the words next to the switch: off (not used this start either), soon (used now, not from the next start)
+  const CONFLICT_NOTE = {
+    'hw-decode': {
+      off: 'Not used while Hardware video decoding is on: this fix covers software-decoded video only.',
+      soon: 'On now, but not used from the next start while Hardware video decoding is on: this fix covers software-decoded video only.'
     }
   }
 
@@ -258,7 +301,7 @@
   }
   const pct = (x) => (Math.round(x * 10) / 10).toFixed(1) + ' %'
 
-  const api = { EXPERIMENTS, REASONS, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, crashTurnOff, pendingRestart, decodeLabel, graphicsRows }
+  const api = { EXPERIMENTS, REASONS, STRIKES, CRASHES, CONFLICT_NOTE, reasonText, labelOf, startContext, startFlags, mergeFeatures, startLine, sentinelText, sentinelAtStart, realCrash, crashTurnOff, settingConflict, pendingRestart, decodeLabel, graphicsRows }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataGfxModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

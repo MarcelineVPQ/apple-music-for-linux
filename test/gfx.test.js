@@ -59,17 +59,28 @@ test('gfx: --enable-features is one switch: ours join the ones given on the comm
   assert.equal(G.mergeFeatures('', ['X', 'Y', 'X']), 'X,Y')
 }))
 
-test('gfx: start marker: none -> nothing; it names a switch still on -> off, with one notice; unreadable -> all on go off', () => withFake(() => {
-  assert.deepEqual(G.sentinelAtStart(null, { expRiskA: true }), { disable: [], notice: '' })
+test('gfx: start marker: none -> nothing; one start that died -> a strike, kept on; two in a row -> off with one notice; a clean exit never counts', () => withFake(() => {
+  assert.deepEqual(G.sentinelAtStart(null, { expRiskA: true }), { disable: [], notice: '', strikes: {} })
   const text = G.sentinelText(['expRiskA'], '0.15.41-dev.1', Date.UTC(2026, 9, 17, 12))
   assert.deepEqual(JSON.parse(text), { flags: ['expRiskA'], version: '0.15.41-dev.1', startedAt: '2026-10-17T12:00:00.000Z' })
-  const r = G.sentinelAtStart(text, { expRiskA: true, expRiskB: true })
-  assert.deepEqual(r.disable, ['expRiskA'], 'only the switches the failed start used')
-  assert.equal(r.notice, 'Sonata turned off Switch A: the last start with it on didn\'t finish. You can turn it back on in Settings → Experimental.')
+  const on = { expRiskA: true, expRiskB: true }
+  const one = G.sentinelAtStart(text, on)
+  assert.deepEqual(one.disable, [], 'one start that died: kept on')
+  assert.deepEqual(one.strikes, { expRiskA: 1, expRiskB: 0 }, 'a strike only for the switches it used')
+  const twice = G.sentinelAtStart(G.sentinelText(['expRiskA'], 'x', 0, { strikes: one.strikes }), on)
+  assert.deepEqual(twice.disable, ['expRiskA'], 'the second in a row: off')
+  assert.equal(twice.notice, 'Sonata turned off Switch A: the last 2 starts with it on ended before Sonata was running properly (it closed without being quit). Turn it back on in Settings → Experimental.')
+  assert.deepEqual(twice.strikes, { expRiskB: 0 })
+  // a clean exit (Quit, Restart now, an update) before the healthy mark: no strike, the row stays where it was
+  assert.deepEqual(G.sentinelAtStart(G.sentinelText(['expRiskA'], 'x', 0, { clean: true }), on), { disable: [], notice: '', strikes: { expRiskA: 0, expRiskB: 0 } })
+  const cleanAfterOne = G.sentinelAtStart(G.sentinelText(['expRiskA'], 'x', 0, { strikes: { expRiskA: 1 }, clean: true }), on)
+  assert.deepEqual(cleanAfterOne.disable, [], 'a strike, then a clean restart: still on')
   assert.deepEqual(G.sentinelAtStart(text, { expRiskA: false }).disable, [], 'already off: nothing to say')
-  const both = G.sentinelAtStart('{"flags":["expRiskA","expRiskB"', { expRiskA: true, expRiskB: true, expLive: true })
-  assert.deepEqual(both.disable, ['expRiskA', 'expRiskB'], 'a cut-short marker: every restart switch that is on')
-  assert.match(both.notice, /^Sonata turned off Switch A and Switch B: the last start with them on/)
+  const cut = G.sentinelAtStart('{"flags":["expRiskA","expRiskB"', { expRiskA: true, expRiskB: true, expLive: true })
+  assert.deepEqual(cut.disable, [], 'a cut-short marker: one strike for every restart switch that is on')
+  assert.deepEqual(cut.strikes, { expRiskA: 1, expRiskB: 1 })
+  const both = G.sentinelAtStart(G.sentinelText(['expRiskA', 'expRiskB'], 'x', 0, { strikes: { expRiskA: 1, expRiskB: 1 } }), on)
+  assert.match(both.notice, /^Sonata turned off Switch A and Switch B: the last 2 starts with them on/)
 }))
 
 test('gfx: a GPU crash turns off the riskiest active switch first, then the next; clean exits and other processes are ignored', () => withFake(() => {
@@ -82,7 +93,7 @@ test('gfx: a GPU crash turns off the riskiest active switch first, then the next
   assert.equal(G.crashTurnOff({ type: 'GPU', reason: 'clean-exit' }, active, { expRiskA: true }), null)
   assert.equal(G.crashTurnOff({ type: 'GPU', reason: 'killed' }, active, { expRiskA: true }), null)
   assert.equal(G.crashTurnOff({ type: 'Utility', reason: 'crashed' }, active, { expRiskA: true }), null)
-  assert.match(G.crashTurnOff(crash, active, { expRiskA: true }).notice, /^The graphics process stopped \(crashed\), so Sonata turned off Switch A for the next start\./)
+  assert.match(G.crashTurnOff(crash, active, { expRiskA: true }).notice, /^The graphics process stopped twice in this run \(crashed\), so Sonata turned off Switch A for the next start\./)
 }))
 
 test('gfx: "applies at restart" lists the switches the next start changes', () => withFake(() => {
@@ -133,6 +144,7 @@ function runtime(dir, settings, argv) {
     delete require.cache[require.resolve('../gfx-runtime')]
     const gfx = require('../gfx-runtime').createGfx({ app, fs, path, settingsStore, log: (m) => logs.push(m) })
     gfx.beforeReady()
+    gfx.claim()
     return { gfx, app, logs }
   } finally {
     process.argv = saved.argv
@@ -154,16 +166,16 @@ test('gfx runtime: before ready the switches are appended and the marker written
   assert.match(logs[0], /^\[gpu\] experimental: expRiskA/)
   gfx.ready({ settings: () => ({ expRiskA: true }), turnOff: () => assert.fail('nothing to turn off'), notify: () => assert.fail('nothing to say'), changed: () => {} })
   gfx.painted()
-  t.mock.timers.tick(19999)
-  assert.ok(fs.existsSync(marker(d)), 'not healthy before 20 s')
+  t.mock.timers.tick(4999)
+  assert.ok(fs.existsSync(marker(d)), 'not healthy before 5 s')
   t.mock.timers.tick(1)
   assert.equal(fs.existsSync(marker(d)), false, 'healthy: the marker is gone')
   gfx.stop()
 }))
 
-test('gfx runtime: a marker left by a start that never got healthy -> that start uses none of its switches, they go off, one notice', () => withFake(() => {
+test('gfx runtime: two starts in a row that died before healthy -> that start leaves the switch out, it goes off, one notice, shown in Experimental', () => withFake(() => {
   const d = tmp()
-  fs.writeFileSync(marker(d), G.sentinelText(['expRiskA'], '0.15.41-dev.1', 0))
+  fs.writeFileSync(marker(d), G.sentinelText(['expRiskA'], '0.15.41-dev.1', 0, { strikes: { expRiskA: 1 } }))
   const settings = { expRiskA: true, expRiskB: true }
   const { gfx, app } = runtime(d, settings)
   assert.deepEqual(app.switches, [['b-switch', 'on']], 'A left out of this start; B (not in the marker) stays')
@@ -174,7 +186,62 @@ test('gfx runtime: a marker left by a start that never got healthy -> that start
   assert.deepEqual(off, ['expRiskA'])
   assert.equal(said.length, 1)
   assert.equal(said[0][0], 'gfx-start')
+  const snap = gfx.snapshot({ gpu_compositing: 'enabled' })
+  assert.deepEqual(snap.turnedOff, { names: ['Switch A'], text: said[0][1] }, 'Settings → Experimental says what and why')
+  // Turn back on: main sets the keys it returns; the row goes
+  assert.deepEqual(gfx.backOn(), ['expRiskA'])
+  assert.equal(gfx.snapshot({ gpu_compositing: 'enabled' }).turnedOff, null)
+  assert.deepEqual(gfx.backOn(), [], 'once')
   gfx.stop()
+}))
+
+test('gfx runtime: one start that died -> the switch stays on and is used; the strike is carried', () => withFake(() => {
+  const d = tmp()
+  fs.writeFileSync(marker(d), G.sentinelText(['expRiskA'], '0.15.41-dev.1', 0))
+  const settings = { expRiskA: true }
+  const { gfx, app } = runtime(d, settings)
+  assert.deepEqual(app.switches, [['a-switch'], ['enable-features', 'FeatA']])
+  assert.deepEqual(JSON.parse(fs.readFileSync(marker(d), 'utf8')).strikes, { expRiskA: 1 })
+  gfx.ready({ settings: () => settings, turnOff: () => assert.fail('kept on'), notify: () => assert.fail('nothing to say'), changed: () => {} })
+  assert.equal(gfx.snapshot({ gpu_compositing: 'enabled' }).turnedOff, null)
+  gfx.stop()
+}))
+
+test('gfx runtime: Quit, Restart now or an update restart before the healthy mark never turns anything off (the 14 s restart)', (t) => withFake(() => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const d = tmp()
+  const settings = { expRiskA: true, expRiskB: true }
+  // the start, quit or restarted 1 s after its page loaded, again and again
+  // loop: NOT-WORTH — 4 restarts in a test
+  for (let n = 0; n < 4; n++) {
+    const { gfx, app } = runtime(d, settings)
+    assert.deepEqual(app.switches, [['a-switch'], ['b-switch', 'on'], ['enable-features', 'FeatA']], 'start ' + n + ': both used')
+    gfx.ready({ settings: () => settings, turnOff: () => assert.fail('a clean exit never counts'), notify: () => assert.fail('nothing to say'), changed: () => {} })
+    gfx.painted()
+    t.mock.timers.tick(1000)
+    gfx.cleanExit('Restart now')
+    assert.equal(JSON.parse(fs.readFileSync(marker(d), 'utf8')).clean, true)
+    gfx.stop()
+  }
+  // the same through before-quit (stop) without cleanExit
+  const { gfx } = runtime(d, settings)
+  gfx.ready({ settings: () => settings, turnOff: () => assert.fail('kept'), notify: () => assert.fail('kept'), changed: () => {} })
+  gfx.stop()
+  assert.equal(JSON.parse(fs.readFileSync(marker(d), 'utf8')).clean, true)
+  assert.deepEqual(settings, { expRiskA: true, expRiskB: true })
+}))
+
+test('gfx runtime: a second launch that only shows the running copy leaves the marker alone', () => withFake(() => {
+  const d = tmp()
+  fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ expRiskA: true }))
+  const app = fakeApp(d)
+  const saved = { platform: Object.getOwnPropertyDescriptor(process, 'platform') }
+  Object.defineProperty(process, 'platform', { value: 'linux' })
+  try {
+    const gfx = require('../gfx-runtime').createGfx({ app, fs, path, settingsStore, log: () => {} })
+    gfx.beforeReady()   // no claim(): it didn't get the single-instance lock
+    assert.equal(fs.existsSync(marker(d)), false)
+  } finally { Object.defineProperty(process, 'platform', saved.platform) }
 }))
 
 test('gfx runtime: --safe-gpu adds no switch, keeps the settings and the marker as they are', () => withFake(() => {
@@ -189,7 +256,7 @@ test('gfx runtime: --safe-gpu adds no switch, keeps the settings and the marker 
   gfx.stop()
 }))
 
-test('gfx runtime: a GPU crash while running turns one switch off for the next start, says so, and clears the marker', () => withFake(() => {
+test('gfx runtime: one GPU crash keeps the switches; the second in a run turns one off, says so, and clears the marker; clean exits and kills never count', () => withFake(() => {
   const d = tmp()
   const settings = { expRiskA: true, expRiskB: true }
   const { gfx, app } = runtime(d, settings)
@@ -197,14 +264,25 @@ test('gfx runtime: a GPU crash while running turns one switch off for the next s
   let changed = 0
   gfx.ready({ settings: () => settings, turnOff: (k) => { settings[k] = false }, notify: (id, text) => said.push(id), changed: () => changed++ })
   app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'clean-exit' })
+  app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'killed' })
   assert.deepEqual(said, [])
   app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'crashed', exitCode: 11 })
-  assert.deepEqual(settings, { expRiskA: false, expRiskB: true })
+  assert.deepEqual(settings, { expRiskA: true, expRiskB: true }, 'one crash: kept')
+  assert.deepEqual(said, [])
+  app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'crashed', exitCode: 11 })
+  assert.deepEqual(settings, { expRiskA: false, expRiskB: true }, 'the second: the riskiest goes off')
   assert.deepEqual(said, ['gfx-crash'])
   assert.equal(changed, 1)
   assert.equal(fs.existsSync(marker(d)), false)
+  assert.deepEqual(gfx.snapshot({ gpu_compositing: 'enabled' }).turnedOff.names, ['Switch A'])
+  app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'oom', exitCode: 1 })
+  assert.deepEqual(settings, { expRiskA: false, expRiskB: true }, 'the count starts again')
   app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'oom', exitCode: 1 })
   assert.deepEqual(settings, { expRiskA: false, expRiskB: false })
+  assert.deepEqual(gfx.snapshot({ gpu_compositing: 'enabled' }).turnedOff.names, ['Switch A', 'Switch B'])
+  gfx.cleanExit('quit')
+  app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'crashed', exitCode: 11 })
+  assert.equal(said.length, 2, 'quitting: a graphics process that goes down with it is not a failure')
   gfx.stop()
 }))
 
@@ -235,9 +313,16 @@ test('gfx: the panel builds Experimental from the one registry and offers Restar
   assert.match(ui, /experimental: \(\) => \[/)
   assert.match(ui, /G\.EXPERIMENTS\.map\(\(e\) => switchRow\(e\.key, e\.label, e\.desc/)
   assert.match(ui, /action: 'gfx-restart'/)
+  assert.match(ui, /action: 'gfx-back-on'/, 'Turn back on in Experimental')
   assert.match(ui, /graphics: \(\) => \[\s*readoutBlock/)
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /const PANEL_ACTIONS = \[[^\]]*'gfx-restart'/, 'main accepts the action')
+  assert.match(main, /const PANEL_ACTIONS = \[[^\]]*'gfx-back-on'/)
+  // every self-restart marks the start clean before the new copy starts (it reads the marker)
+  assert.match(main, /function restartApp\(\) \{\s*shuttingDown = true\s*gfx\.cleanExit\(/)
+  assert.match(main, /function restartIntoUpdate\(\) \{\s*shuttingDown = true\s*gfx\.cleanExit\(/)
+  assert.match(main, /label: 'Quit', click: \(\) => \{ gfx\.cleanExit\(/)
+  assert.match(main, /\} else gfx\.claim\(\)/, 'only the copy with the lock writes the marker')
   // decided before 'ready': the runtime is created and asked before app.whenReady()
   assert.ok(main.indexOf('gfx.beforeReady()') > 0 && main.indexOf('gfx.beforeReady()') < main.indexOf('app.whenReady()'))
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'panel.html'), 'utf8'), /<script src="gfx-model\.js"><\/script>\s*<script src="markdown-lite\.js">/)
@@ -471,4 +556,35 @@ test('Hardware video decoding: About → Graphics says hardware or software from
     assert.equal(settingsStore.defaults()[e.key], false, e.key + ' off by default')
   }
   assert.deepEqual(G.EXPERIMENTS.map((e) => e.key), ['expTrueVideoColours', 'expGlowDither', 'expHdrOutput', 'expHwVideoDecode'])
+})
+
+test('gfx: True video colours says honestly when Hardware video decoding keeps it from working (not "Turns on at the next start")', () => {
+  const ctx = G.startContext(WAYLAND)
+  assert.equal(G.settingConflict('expTrueVideoColours', { expTrueVideoColours: true, expHwVideoDecode: true }, ctx), 'hw-decode')
+  assert.equal(G.settingConflict('expTrueVideoColours', { expTrueVideoColours: true }, ctx), null)
+  assert.equal(G.settingConflict('expHwVideoDecode', { expTrueVideoColours: true, expHwVideoDecode: true }, ctx), null)
+  const d = tmp()
+  // both turned on in a start that uses neither yet
+  const settings = {}
+  const { gfx } = runtime(d, settings)
+  gfx.ready({ settings: () => settings, turnOff: () => {}, notify: () => {}, changed: () => {} })
+  settings.expTrueVideoColours = true
+  settings.expHwVideoDecode = true
+  let s = gfx.snapshot({ gpu_compositing: 'enabled' })
+  assert.equal(s.note.expTrueVideoColours, 'Not used while Hardware video decoding is on: this fix covers software-decoded video only.')
+  assert.equal(s.note.expHwVideoDecode, 'Turns on at the next start.')
+  gfx.stop()
+  // the 0.15.52 start: both on, decoding active, colours on but not used
+  const { gfx: g2 } = runtime(tmp(), settings)
+  g2.ready({ settings: () => settings, turnOff: () => {}, notify: () => {}, changed: () => {} })
+  s = g2.snapshot({ gpu_compositing: 'enabled' })
+  assert.equal(s.note.expTrueVideoColours, 'Not used while Hardware video decoding is on: this fix covers software-decoded video only.')
+  g2.stop()
+  // colours active now, decoding just turned on: says what the next start does
+  const only = { expTrueVideoColours: true }
+  const { gfx: g3 } = runtime(tmp(), only)
+  g3.ready({ settings: () => only, turnOff: () => {}, notify: () => {}, changed: () => {} })
+  only.expHwVideoDecode = true
+  assert.equal(g3.snapshot({ gpu_compositing: 'enabled' }).note.expTrueVideoColours, 'On now, but not used from the next start while Hardware video decoding is on: this fix covers software-decoded video only.')
+  g3.stop()
 })

@@ -60,8 +60,8 @@ const TITLES = { mini: appName + ' — Mini Player', lyrics: appName + ' — Lyr
 }
 
 // Settings → Experimental (gfx-model.js, gfx-runtime.js): the graphics switches are Chromium flags, so they
-// are decided here, before 'ready', from the settings file; a start marker turns them off again when a
-// start with them never got healthy. --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
+// are decided here, before 'ready', from the settings file; a start marker turns them off again when two
+// starts in a row with them died before they got healthy (a quit or a restart never counts: gfx.cleanExit). --safe-gpu (or SONATA_SAFE_GPU=1) starts without any of them.
 // the one CPU sampler (cpu-sampler.js) for About → Graphics and About → For the Curious: it reads only
 // when one of them asks, while it shows
 const cpuSampler = require('./cpu-sampler').createCpuSampler({ metrics: () => app.getAppMetrics(), now: () => Date.now() })
@@ -2716,6 +2716,7 @@ function noticeAction(id, action) {
     case 'recovered-show-settings': if (recoveredAside.settings) shell.showItemInFolder(recoveredAside.settings); break
     case 'recovered-show-lyrics': if (recoveredAside.lyrics) shell.showItemInFolder(recoveredAside.lyrics); break
     case 'gfx-show': notices.clear(id); showPanel('settings', 'experimental'); break
+    case 'gfx-back-on': gfxBackOn(); break
   }
 }
 
@@ -3130,7 +3131,7 @@ function refreshTrayMenu() {
     { label: 'Check for Updates…', click: () => { showPanel('settings', 'updates'); checkForUpdates(true) } },
     { label: 'Settings…', click: () => showPanel('settings') },
     { label: 'About Sonata', click: () => showPanel('about') },
-    { label: 'Quit', click: () => { stopDesktopScheme(); app.exit(0) } }
+    { label: 'Quit', click: () => { gfx.cleanExit('tray quit'); stopDesktopScheme(); app.exit(0) } }
   ]))
   pushRail()   // Last.fm / Discord connected or not
 }
@@ -3437,11 +3438,20 @@ function startGfx() {
   gfx.ready({
     settings: () => settings,
     turnOff: (key) => { if (settings[key] === true) { settings[key] = false; saveSettings() } },
-    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-show', label: 'Open Experimental' }] }),
+    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-back-on', label: 'Turn back on' }, { id: 'gfx-show', label: 'Open Experimental' }] }),
     changed: () => pushPanel(),
     screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
   })
   watchScreens()
+}
+// Turn back on (Settings → Experimental, or the notice): the switches the guard turned off are on again; a
+// switch off for this start waits for Restart now, as any change does
+function gfxBackOn() {
+  // loop: NOT-WORTH — ≤ 4 switches, on a click
+  for (const k of gfx.backOn()) setSetting(k, true)
+  notices.clear('gfx-start')
+  notices.clear('gfx-crash')
+  pushPanel()
 }
 // About → Graphics' "Video decoding" line, read when the section opens: Apple's page asks MediaCapabilities
 // about Apple's top artwork stream, and the graphics process's /proc maps say which VA-API driver it loaded
@@ -3735,7 +3745,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // The panel's and the toast view's commands, from their own top frames only, each argument checked.
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
-const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'curious-copy',
+const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'gfx-back-on', 'curious-copy',
   'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
@@ -3780,6 +3790,7 @@ function panelAction(name) {
   else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
   else if (name === 'gfx-restart') restartApp()
+  else if (name === 'gfx-back-on') gfxBackOn()
   else if (name === 'curious-copy') curiousCopy()
   else if (name.startsWith('helper-')) helperAction(name)
 }
@@ -3984,6 +3995,7 @@ function createWindow() {
       return
     }
     shuttingDown = true
+    gfx.cleanExit('window closed')
     stopDesktopScheme()
     clearInterval(miniPoll)
     clearInterval(lyricsPoll)
@@ -4195,6 +4207,7 @@ function askAutoUpdate() {
 
 function restartIntoUpdate() {
   shuttingDown = true
+  gfx.cleanExit('update restart')   // before the new copy starts: it reads the marker
   // free the single-instance lock so the replacement can take it immediately
   app.releaseSingleInstanceLock()
   const target = (stablePath && fs.existsSync(stablePath)) ? stablePath : installedPath
@@ -4207,6 +4220,7 @@ function restartIntoUpdate() {
 // are decided again at its start from the settings (gfx-runtime.js). Music stops for the restart.
 function restartApp() {
   shuttingDown = true
+  gfx.cleanExit('Restart now')   // before the new copy starts: it reads the marker
   app.releaseSingleInstanceLock()
   const args = relaunch.relaunchArgs(process.argv).filter((a) => a !== '--safe-gpu')
   startNewCopy(installedPath || process.execPath, args, appImagePath ? '' : process.cwd())
@@ -4303,7 +4317,7 @@ function applyAutostart() {
 // single instance: launching Sonata again just surfaces the running copy
 if (!app.requestSingleInstanceLock()) {
   app.exit(0)
-}
+} else gfx.claim()   // the start marker is this copy's only once it holds the lock (a second launch leaves it alone)
 // Launching Sonata again always shows something: the mini player when it's up, else the main window,
 // made now if there is none (a startup that stopped before it, 0.15.35-dev.1). Before the app is ready
 // the startup below makes it.

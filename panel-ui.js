@@ -511,7 +511,11 @@
       // the switches still being tested (gfx-model.js EXPERIMENTS: names and descriptions in one place); each
       // row says what this start does with it, and a waiting change offers Restart now
       experimental: () => [
-        textBlock('note', () => 'Switches still being tested, all off until you turn them on. If a start with a graphics switch on goes wrong, Sonata turns it off again by itself; About → Graphics shows what this start uses.'),
+        textBlock('note', () => 'Switches still being tested, all off until you turn them on. They stay on when you quit or restart Sonata; only if two starts in a row with one on fail (or the graphics process crashes twice in a run), Sonata turns it off and says so here. About → Graphics shows what this start uses.'),
+        // what the guard turned off (gfx-runtime.js), with why, until Turn back on
+        actionRow('Turned off by Sonata', (v) => (v.gfx && v.gfx.turnedOff ? v.gfx.turnedOff.text : ''),
+          [{ label: 'Turn back on', action: 'gfx-back-on', primary: true, tip: (v) => 'Turn ' + ((v.gfx && v.gfx.turnedOff && v.gfx.turnedOff.names.join(' and ')) || 'it') + ' back on' }],
+          { hidden: (v) => !v.gfx || !v.gfx.turnedOff }),
         ...G.EXPERIMENTS.map((e) => switchRow(e.key, e.label, e.desc, {
           disabled: (v) => !!(v.gfx && v.gfx.blocked[e.key]),
           why: (v) => (v.gfx && v.gfx.blocked[e.key]) || '',

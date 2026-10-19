@@ -7,6 +7,13 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.53-dev.1] — Experimental graphics switches stay on when you restart
+
+### Fixed
+
+- **Settings → Experimental's graphics switches no longer turn themselves off when you restart Sonata.** Quitting or restarting Sonata (Restart now, an update's restart, the tray's Quit) within the first seconds of a start was taken for a start that went wrong, so HDR output, Hardware video decoding and True video colours were switched off on the next start without a word in Settings. A quit or a restart never counts now. Sonata turns a switch off only after a real failure, twice: two starts in a row that ended on their own before Sonata was running, or two graphics-process crashes in one run. When it does, Settings → Experimental says which switch and why, with **Turn back on**. Opening Sonata again while it runs no longer counts either. Switches that were turned off before this update stay off until you turn them back on.
+- **True video colours says when it can't work.** With Hardware video decoding on, it read "Turns on at the next start" although it isn't used then; it now says "Not used while Hardware video decoding is on: this fix covers software-decoded video only."
+
 ## [0.15.52-dev.1] — Expressive words: held notes stretch and ghost behind the lyrics
 
 ### Added

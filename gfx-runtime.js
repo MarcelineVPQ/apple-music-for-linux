@@ -2,14 +2,17 @@
 // start marker, the GPU-crash handler and About → Graphics' readout. The rules are gfx-model.js (pure,
 // tested); this file only does the Electron and file work around them, so main.js calls four things:
 //   const gfx = createGfx({ app, … }); gfx.beforeReady()     at module load, before 'ready'
+//   gfx.claim()                                                once this copy holds the single-instance lock
 //   gfx.ready({ … })                                           in 'ready', after the settings are loaded
 //   gfx.painted()                                              when the main window's first page loaded
+//   gfx.cleanExit(why)                                         on every quit and self-restart (before app.exit)
+//   gfx.backOn()                                               Settings → Experimental → Turn back on
 //   gfx.snapshot() / gfx.readout(open, kindOf)                 the panel's state, About → Graphics
 // Docs: docs/research/hdr-hw-accel-apple-music-2026-10.md section 5.
 const M = require('./gfx-model')
 const H = require('./hdr-screens')
 
-const HEALTHY_MS = 20 * 1000     // a start counts as healthy 20 s after its first page loaded
+const HEALTHY_MS = 5 * 1000      // a start counts as healthy 5 s after its first page loaded, with no graphics crash
 const SAMPLE_MS = 5 * 1000       // About → Graphics: one CPU reading every 5 s while it shows (cpu-sampler.js,
                                  // shared with For the Curious; averaged over its last minute)
 
@@ -23,10 +26,13 @@ function createGfx(o) {
   const cpuSampler = o.cpuSampler || require('./cpu-sampler').createCpuSampler({ metrics: () => app.getAppMetrics(), now: () => Date.now() })
   let start = { safe: false, active: [], inactive: {}, switches: [], line: '' }
   let ctx = M.startContext({ platform: process.platform, argv: process.argv, env: process.env })
-  let atStart = { disable: [], notice: '' }
+  let atStart = { disable: [], notice: '', strikes: {} }
   let sentinelFile = ''
   let hooks = null
-  let crashed = false
+  let crashed = false          // a real graphics crash in this run (gfx-model.js realCrash)
+  let crashes = 0              // real graphics crashes since the last switch this run turned off
+  let turnedOff = null         // { keys, text }: what the guard turned off, shown in Settings → Experimental until Turn back on
+  let exited = false
   let healthTimer = null
   let healthyAt = 0
   let sampleTimer = null
@@ -36,7 +42,7 @@ function createGfx(o) {
   let screensBusy = false
 
   // Before 'ready': read the settings file (read-only: main's loadSettings repairs it later), look for a
-  // start marker left by a start that never got healthy, decide the switches, write the new marker.
+  // start marker left by a start that never got healthy, decide the switches (claim() writes the new marker).
   function beforeReady() {
     const dir = app.getPath('userData')
     sentinelFile = path.join(dir, 'gpu-experiment.json')
@@ -47,7 +53,7 @@ function createGfx(o) {
     let marker = null
     try { marker = fs.readFileSync(sentinelFile, 'utf8') } catch (e) { marker = null }   // error: NOT-WORTH — no marker: the last start was healthy (or had no switch on)
     // --safe-gpu: no switches and no changes to the settings; the marker stays for a normal start to read
-    atStart = ctx.safe ? { disable: [], notice: '' } : M.sentinelAtStart(marker, stored)
+    atStart = ctx.safe ? { disable: [], notice: '', strikes: {} } : M.sentinelAtStart(marker, stored)
     const s = Object.assign({}, stored)
     // loop: NOT-WORTH — ≤ 4 switches, once at start
     for (const k of atStart.disable) s[k] = false
@@ -58,16 +64,19 @@ function createGfx(o) {
       else app.commandLine.appendSwitch(name)
     }
     log(start.line)
-    writeMarker()
     return start
   }
-  // the marker exists exactly while an active switch hasn't had a healthy start yet
-  function writeMarker() {
+  // this copy holds the single-instance lock: the marker is its own (a second launch that only shows the
+  // running copy must not write one, or the next start would read it as a start that died)
+  function claim() { writeMarker() }
+  // the marker exists exactly while an active switch hasn't had a healthy start yet; clean: Sonata is quitting
+  // or restarting itself, which never counts against a switch
+  function writeMarker(clean) {
     if (ctx.safe) return
     try {
       if (start.active.length) {
         fs.mkdirSync(path.dirname(sentinelFile), { recursive: true })
-        fs.writeFileSync(sentinelFile + '.tmp', M.sentinelText(start.active, app.getVersion(), Date.now()))
+        fs.writeFileSync(sentinelFile + '.tmp', M.sentinelText(start.active, app.getVersion(), Date.now(), { strikes: atStart.strikes, clean }))
         fs.renameSync(sentinelFile + '.tmp', sentinelFile)
       } else fs.rmSync(sentinelFile, { force: true })
     } catch (e) { log('[gpu] start marker: ' + e.message) }   // error: LOGGED-OK — no marker means no safety net for this one start; said in the log
@@ -108,23 +117,34 @@ function createGfx(o) {
     if (atStart.disable.length) {
       // loop: NOT-WORTH — ≤ 4 switches, once at start
       for (const k of atStart.disable) hooks.turnOff(k)
+      turnedOff = { keys: atStart.disable.slice(), text: atStart.notice }
       hooks.notify('gfx-start', atStart.notice)
-      log('[gpu] the last start with ' + atStart.disable.join(', ') + ' never got healthy: turned off')
+      log('[gpu] the last ' + M.STRIKES + ' starts with ' + atStart.disable.join(', ') + ' ended before they got healthy, without a quit: turned off')
+    }
+    const struck = Object.keys(atStart.strikes || {}).filter((k) => atStart.strikes[k] > 0)
+    if (struck.length) {
+      log('[gpu] the last start with ' + struck.join(', ') + ' ended before it got healthy, without a quit: kept on (one more turns it off)')
     }
     // lifetime: NOT-WORTH — registered once, for the app's life
     app.on('child-process-gone', (event, details) => {
       if (!details || details.type !== 'GPU') return
       log('[gpu] graphics process gone: ' + details.reason + ' (exit ' + details.exitCode + ')')
+      if (exited || !M.realCrash(details)) return   // quitting, or not a failure
+      crashed = true
+      crashes++
+      if (crashes < M.CRASHES) { log('[gpu] first graphics crash in this run: the switches stay on (a second one turns one off)'); return }
       const off = M.crashTurnOff(details, start.active, hooks.settings())
       if (!off) return
-      crashed = true
+      crashes = 0
       hooks.turnOff(off.key)
+      const keys = turnedOff ? turnedOff.keys.filter((k) => k !== off.key) : []
+      turnedOff = { keys: keys.concat(off.key), text: off.notice }
       hooks.notify('gfx-crash', off.notice)
       clearMarker('handled a graphics crash (' + off.key + ' off for the next start)')
       hooks.changed()
     })
   }
-  // the main window's first page loaded: 20 s later, with no graphics crash, the start was healthy
+  // the main window's first page loaded: 5 s later, with no graphics crash, the start was healthy
   function painted() {
     if (healthTimer || healthyAt) return
     // lifetime: OK — one shot, cleared at quit (stop)
@@ -133,6 +153,23 @@ function createGfx(o) {
       healthyAt = Date.now()
       if (!crashed) clearMarker('healthy for ' + HEALTHY_MS / 1000 + ' s')
     }, HEALTHY_MS)
+  }
+  // Sonata is quitting or restarting itself (Quit, Restart now, an update): a start that ends this way never
+  // counts against its switches, healthy yet or not. Called before app.exit, which skips 'before-quit'.
+  function cleanExit(why) {
+    if (exited) return
+    exited = true
+    clearTimeout(healthTimer); healthTimer = null
+    if (ctx.safe || !start.active.length || healthyAt) return
+    writeMarker(true)
+    log('[gpu] start marker: clean exit (' + (why || 'quit') + ')')
+  }
+  // Settings → Experimental → Turn back on: the switches the guard turned off, on again (main sets them)
+  function backOn() {
+    const keys = turnedOff ? turnedOff.keys.slice() : []
+    turnedOff = null
+    crashes = 0
+    return keys
   }
 
   // what the panel shows: per switch whether it can work here, what the next start changes, the readout
@@ -149,7 +186,9 @@ function createGfx(o) {
       const on = s[e.key] === true
       const used = start.active.includes(e.key)
       const idle = start.inactive[e.key]
-      if (on && used && e.key === 'expHdrOutput' && screens && !screens.some((x) => x.hdr)) note[e.key] = 'On, but no HDR screen found (KDE Plasma: kscreen-doctor).'
+      const conflict = on ? M.settingConflict(e.key, s, ctx) : null
+      if (conflict && M.CONFLICT_NOTE[conflict]) note[e.key] = used ? M.CONFLICT_NOTE[conflict].soon : M.CONFLICT_NOTE[conflict].off
+      else if (on && used && e.key === 'expHdrOutput' && screens && !screens.some((x) => x.hdr)) note[e.key] = 'On, but no HDR screen found (KDE Plasma: kscreen-doctor).'
       else if (on && used) note[e.key] = 'On now.'
       else if (on && idle) note[e.key] = 'Not used this start: ' + M.reasonText(idle).replace(/^Off for this start: /, '') + '.'
       else if (on) note[e.key] = 'Turns on at the next start.'
@@ -160,6 +199,7 @@ function createGfx(o) {
       safe: start.safe,
       active: start.active.slice(),
       pending: M.pendingRestart(s, start),
+      turnedOff: turnedOff ? { names: turnedOff.keys.map(M.labelOf), text: turnedOff.text } : null,
       blocked,
       note,
       rows: readoutOpen ? M.graphicsRows(Object.assign({ gpu: gpuStatus, start, settings: s, cpu, x11: ctx.x11 }, readoutExtra())) : []
@@ -194,10 +234,10 @@ function createGfx(o) {
     for (const k of Object.keys(extra)) if (extra[k].probe) extra[k].probe(() => { if (hooks) hooks.changed() })
   }
   function stop() {
-    clearTimeout(healthTimer); healthTimer = null
+    cleanExit('quit')
     clearInterval(sampleTimer); sampleTimer = null
   }
-  return { beforeReady, ready, painted, snapshot, readout, stop, hdrFor, screensChanged, get hdrActive() { return hdrActive() }, get start() { return start }, get context() { return ctx } }
+  return { beforeReady, claim, ready, painted, cleanExit, backOn, snapshot, readout, stop, hdrFor, screensChanged, get hdrActive() { return hdrActive() }, get start() { return start }, get context() { return ctx } }
 }
 
 module.exports = { createGfx, HEALTHY_MS }
