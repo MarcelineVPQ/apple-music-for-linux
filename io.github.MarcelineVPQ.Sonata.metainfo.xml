@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.53-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Experimental graphics switches stay on when you quit or restart Sonata; only two real failures in a row turn one off, and Settings says so with Turn back on.</p>
+      </description>
+    </release>
     <release version="0.15.52-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Expressive words: held notes stretch and waver in the lyrics and float as faint letters behind them.</p>
