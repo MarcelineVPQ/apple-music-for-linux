@@ -164,6 +164,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .row-label { font-weight: 500; }
 .row-desc { color: var(--s-soft); font-size: 12px; }
 .row-desc:empty { display: none; }
+.row-head { display: block; }
 .action-row { grid-template-columns: minmax(0, 1fr); }
 .action-row .btns { justify-content: flex-start; }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -390,9 +391,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .helper-row { position: relative; }
 .helper-row[data-level="warn"] .helper-state-text { color: var(--s-text); font-weight: 600; }
 .helper-state { display: block; }
-.helper-row .info-btn { display: inline-grid; place-items: center; vertical-align: middle; width: 32px; height: 32px; margin: -10px -6px -8px -2px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--s-soft); font: italic 700 11px/1 Georgia, serif; cursor: help; position: relative; }
-.helper-row .info-btn::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
-.helper-row .info-btn:hover, .helper-row .info-btn.open { color: var(--s-text); background: transparent; }
+.helper-row .info-btn, .inline-info .info-btn { display: inline-grid; place-items: center; vertical-align: middle; width: 32px; height: 32px; margin: -10px -6px -8px -2px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--s-soft); font: italic 700 11px/1 Georgia, serif; cursor: help; position: relative; }
+.helper-row .info-btn::before, .inline-info .info-btn::before { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.helper-row .info-btn:hover, .helper-row .info-btn.open, .inline-info .info-btn:hover, .inline-info .info-btn.open { color: var(--s-text); background: transparent; }
 .info-btn:focus { outline: none; }
 .info-btn:focus-visible { outline: 2px solid var(--s-ring); outline-offset: -2px; }
 .info-text[hidden], .info-tip[hidden] { display: none; }

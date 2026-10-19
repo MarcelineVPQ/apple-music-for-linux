@@ -53,6 +53,9 @@ const SCHEMA = {
   sungNotesLog: [false, bool, 'Sung notes (developer log)'],
   sheetNotes: [false, bool, 'Sheet notes in the Studio'],
   sheetPlace: ['band', oneOf('band', 'over'), 'Sheet notes placement'],
+  // look-ahead play (lookahead.js; Linux, Development builds, off by default): first plays heard D s late
+  lookahead: [false, bool, 'First play: precise from the start'],
+  lookaheadDelay: ['precise', oneOf('precise', 'quick'), 'Look-ahead delay'],
   updateChannel: ['stable', oneOf('stable', 'dev'), 'Update channel'],
   checkForUpdates: [true, bool, 'Check for updates automatically'],
   autoInstallUpdates: [false, bool, 'Install updates automatically'],

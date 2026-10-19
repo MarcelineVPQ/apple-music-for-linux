@@ -108,10 +108,21 @@
     b.dataset.key = key
     // lifetime: OK — one click listener per switch, dropped with its section's body
     b.addEventListener('click', (e) => { if (e.isTrusted && !b.disabled) bridge.send('set', key, b.getAttribute('aria-checked') !== 'true') })
+    // the longer explanation behind an ⓘ beside the switch (opt.info: a string or a function of the snapshot)
+    // (inline after the label, as the helper row's: the switch keeps its place on the right)
+    const info = opt.info ? attachInfo(r, desc, labelText, opt.info) : null
+    // (the label and the ⓘ share a line; the label alone names the switch)
+    if (info) {
+      r.classList.add('inline-info')
+      const head = el('span', 'row-head')
+      label.replaceWith(head)
+      head.append(label, ' ', info.btn)
+    }
     return {
       el: r,
       update(s) {
         const v = s.v || {}
+        if (info) info.update(v)
         setAttr(b, 'aria-checked', v[key] ? 'true' : 'false')
         const off = opt.disabled ? opt.disabled(v) : false
         b.disabled = !!off
@@ -125,7 +136,7 @@
     const opt = o || {}
     const sel = el('select', 'select')
     // loop: NOT-WORTH — ≤ 3 options, once per body build
-    for (const [value, text] of options) { const op = el('option', '', text); op.value = value; sel.appendChild(op) }
+    for (const [value, text] of options) { const op = el('option', '', typeof text === 'function' ? '' : text); op.value = value; sel.appendChild(op) }
     const { r, label, desc } = row(labelText, descText, sel)
     setAttr(sel, 'aria-labelledby', label.id)
     setAttr(sel, 'aria-describedby', desc.id)
@@ -136,6 +147,9 @@
       el: r,
       update(s) {
         const v = s.v || {}
+        // option labels that state a constant's number (a function of the snapshot)
+        // loop: NOT-WORTH — ≤ 3 options per state push
+        options.forEach(([, text], i) => { if (typeof text === 'function') setText(sel.options[i], text(v)) })
         const want = String(opt.value ? opt.value(v) : v[key])
         if (sel.value !== want && doc.activeElement !== sel) sel.value = want
         const off = opt.disabled ? opt.disabled(v) : false
@@ -323,11 +337,11 @@
   // click toggles it (touch), Esc closes it. Screen readers get it as the ⓘ's description (the text is in
   // the page, hidden). Idle cost: none (no timers; six listeners on the button, dropped with the body).
   // infoText: a string, or a function of the snapshot (text that states a constant's number)
-  function infoRow(labelText, shortText, infoText) {
+  // the ⓘ on a row: its button, the hidden full text (the description) and the tip bubble
+  function attachInfo(r, desc, labelText, infoText) {
     const textOf = (v) => (typeof infoText === 'function' ? infoText(v || {}) : infoText)
     const btn = el('button', 'info-btn', 'i')
     btn.type = 'button'
-    const { r, desc } = row(labelText, shortText, btn)
     r.classList.add('has-tip')
     setAttr(btn, 'aria-label', 'More about ' + labelText)
     const full = el('span', 'info-text', typeof infoText === 'function' ? '' : infoText)
@@ -358,7 +372,18 @@
     btn.addEventListener('click', (e) => { if (e.isTrusted) show(tip.hidden) })
     btn.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tip.hidden) { e.preventDefault(); e.stopPropagation(); show(false) } })
     show(false)
-    return { el: r, update(s) { if (typeof infoText !== 'function') return; const t = textOf(s.v); setText(full, t); setText(tip, t) } }
+    return { btn, update(v) { if (typeof infoText !== 'function') return; const t = textOf(v); setText(full, t); setText(tip, t) } }
+  }
+  // a row with its longer explanation behind an ⓘ (the DS5 app's long-text rule, as the sheet-notes band:
+  // sheet-notes-ui.js): the visible line stays short; the ⓘ shows the rest on hover and keyboard focus, a
+  // click toggles it (touch), Esc closes it. Screen readers get it as the ⓘ's description (the text is in
+  // the page, hidden). Idle cost: none (no timers; six listeners on the button, dropped with the body).
+  // infoText: a string, or a function of the snapshot (text that states a constant's number)
+  function infoRow(labelText, shortText, infoText) {
+    const { r, desc } = row(labelText, shortText, null)
+    const info = attachInfo(r, desc, labelText, infoText)
+    r.insertBefore(info.btn, r.children[1] || null)
+    return { el: r, update(s) { info.update(s.v) } }
   }
 
   function textBlock(cls, fn) {
@@ -417,7 +442,20 @@
         switchRow('estimatedWordTiming', 'Estimated word timing', 'When a song has line timing only, spread each line across its words (marked "estimated")'),
         switchRow('lyricsArtSpin', 'Spin album art like a record', 'Turn the round cover in the lyrics window while music plays'),
         selectRow('lyricsArtSpinSpeed', 'Record speed', 'Relaxed feels like a record across the room; True is 33⅓ rpm for albums, 45 for singles and EPs',
-          [['relaxed', 'Relaxed'], ['true', 'True']], { disabled: (v) => !v.lyricsArtSpin, why: 'Needs Spin album art like a record (above) on' })
+          [['relaxed', 'Relaxed'], ['true', 'True']], { disabled: (v) => !v.lyricsArtSpin, why: 'Needs Spin album art like a record (above) on' }),
+        // look-ahead play (lookahead.js): Experimental, Linux, Development builds only (hidden elsewhere)
+        switchRow('lookahead', 'First play: precise from the start (experimental)', 'A first play starts a few seconds late, its words on time',
+          { hidden: (v) => !v.lookaheadShown, disabled: (v) => !v.lookaheadOk, why: 'Not in this build: its delay helper is missing',
+            info: (v) => 'On a song\'s first play, Sonata plays it ' + v.lookaheadPrecise + ' s (Precise) or ' + v.lookaheadQuick + ' s (Quick) behind, so the timing helper hears every word before you do and the words light up on time from the first play. ' +
+              'Playback starts that long after you press play, and after a seek you hear the new place after the same wait. Pause stops at once. ' +
+              'Songs Sonata has learned, songs with nothing to learn and music videos play with no delay. ' +
+              'It needs Precise word timing and a graphics card that isn\'t busy; without them a song plays with no delay and its timing comes in sections, as before. ' +
+              'Apple\'s own progress bar runs ahead by the delay; Sonata\'s lyrics, Studio and mini player follow what you hear. ' +
+              'Linux only: while it runs, your sound settings show a "Sonata look-ahead" device; it goes away when Sonata closes or the switch goes off.' }),
+        selectRow('lookaheadDelay', 'Look-ahead delay', 'Precise times more words right; Quick starts sooner',
+          [['precise', (v) => 'Precise (' + v.lookaheadPrecise + ' s delay)'], ['quick', (v) => 'Quick (' + v.lookaheadQuick + ' s delay)']],
+          { hidden: (v) => !v.lookaheadShown || !v.lookahead }),
+        textBlock('note', (v) => (v.lookaheadShown && v.lookahead ? v.lookaheadStatus || '' : ''))
       ],
       timing: () => [
         switchRow('lyricsListenRefine', 'Refine timing by listening (experimental)', 'Listens to Sonata\'s own audio while a lyric view is open to move estimated words to where they\'re sung. Analysed in memory, never saved or sent.',

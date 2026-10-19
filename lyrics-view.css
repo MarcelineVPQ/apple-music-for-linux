@@ -115,6 +115,9 @@
 .line.active .w.now.hold .s.now { transform: translateY(-0.1em) scale(min(1.05, var(--pop-max, 1.05))); filter: drop-shadow(0 0.08em 0.12em var(--sing)); transition: transform 0.6s ease-out; }
 .line.active .w.now.hold .s.now > .sg { filter: brightness(1.25); transition: filter 0.6s ease-out; }
 .line.active .w.now .s.now { transform: translateY(-0.24em) scale(min(1.12, var(--pop-max, 1.12))); filter: drop-shadow(0 0.1em 0.12em var(--sing)); }
+/* look-ahead play: a word committed after the listener reached it is lit at once, without its pop (the
+   pop is never shown at a wrong time: lookahead.js, docs/LOOKAHEAD.md) */
+.line.active .w.now.late, .line.active .w.now.late .s.now, .line.active .w.now.late.hold { transform: none; filter: none; }
 .line.active .w.now .s.now > .sg { filter: brightness(1.5); }
 .line.active .bgv .w.now .s.now { transform: translateY(-0.16em) scale(min(1.08, var(--pop-max, 1.08))); filter: none; }
 .line.active .bgv .w.now .s.now > .sg { filter: brightness(1.35); }

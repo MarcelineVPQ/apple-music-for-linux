@@ -52,6 +52,9 @@ function pickSinkInput(list, pids, opts = {}) {
   for (const s of list) {
     if (!s || s.index == null) continue
     const p = s.properties || {}
+    // the look-ahead helper's own output (lookahead.js OUT_NODE: a child of Sonata, named Sonata) is the
+    // delayed copy; the tap and the routing want the stream Chromium plays
+    if (p['node.name'] === 'sonata-lookahead-out') continue
     const pid = parseInt(p['application.process.id'], 10)
     const label = [p['application.name'], p['application.process.binary'], p['node.name']].filter(Boolean).join(' ')
     let score = 0

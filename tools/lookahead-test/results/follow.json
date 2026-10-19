@@ -1,0 +1,56 @@
+{
+ "test": "follow",
+ "seconds": 18.1,
+ "notes": {
+  "player_sink_after_default_change": "sonata-lookahead",
+  "helper_out_sink_after": "speakers2",
+  "helper_out_sink_back": "speakers"
+ },
+ "heard_frames_with_content": 724352,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  2978.667,
+  3000.0
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 1
+ },
+ "heard_on_both_devices_frames": 1024,
+ "cycles": 850,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 0,
+  "cycles_in": 847,
+  "cycles_out": 847
+ },
+ "events": [
+  {
+   "event": {
+    "default": "speakers2"
+   },
+   "delays_ms_around": [
+    2978.7,
+    3000.0
+   ]
+  },
+  {
+   "event": {
+    "default": "speakers"
+   },
+   "delays_ms_around": [
+    2978.7,
+    3000.0
+   ]
+  }
+ ]
+}

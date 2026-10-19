@@ -25,7 +25,9 @@ test('one engine: the stage is the lyrics window\'s own page and lyrics-view.js;
 
 test('the queue: read-only from Apple\'s page, read only while the stage shows, at most every 2 s or on a new song', () => {
   const tick = fn(main, 'async function lyricsTick(')
-  assert.match(tick, /if \(stageShowing\(\)\) stageTick\(state, key\)/)
+  // the Studio runs on the heard clock (look-ahead: the player's time minus the delay; the same state otherwise)
+  assert.match(tick, /const heard = heardState\(state\)/)
+  assert.match(tick, /if \(stageShowing\(\)\) stageTick\(heard, key\)/)
   const showing = fn(main, 'function stageShowing(')
   for (const need of ['settings.lyricsStage', 'isVisible()', '!lyricsWindow.isMinimized()']) assert.ok(showing.includes(need), need)
   const st = fn(main, 'async function stageTick(')

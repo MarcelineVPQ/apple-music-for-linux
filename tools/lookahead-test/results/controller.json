@@ -1,0 +1,132 @@
+{
+ "checks": [
+  {
+   "name": "routed: Sonata's stream on the look-ahead sink",
+   "ok": true
+  },
+  {
+   "name": "routed: the helper's own output on the default device",
+   "ok": true,
+   "detail": "speakers"
+  },
+  {
+   "name": "first play: heard ~3 s behind",
+   "ok": true,
+   "detail": {
+    "phase": "on",
+    "delayS": 3,
+    "state": "run"
+   }
+  },
+  {
+   "name": "first play: the clock follows",
+   "ok": true
+  },
+  {
+   "name": "pause: the helper is frozen",
+   "ok": true,
+   "detail": {
+    "phase": "on",
+    "delayS": 3.095,
+    "state": "frozen"
+   }
+  },
+  {
+   "name": "play: running again, ~3 s behind",
+   "ok": true,
+   "detail": {
+    "phase": "on",
+    "delayS": 3.006,
+    "state": "run"
+   }
+  },
+  {
+   "name": "seek: the views hold at the new place while the line refills",
+   "ok": true
+  },
+  {
+   "name": "seek: refilled, ~3 s behind",
+   "ok": true,
+   "detail": {
+    "phase": "on",
+    "delayS": 3,
+    "state": "run"
+   }
+  },
+  {
+   "name": "learned song: no delay (only the graph's ~2 quanta)",
+   "ok": true,
+   "detail": {
+    "phase": "on",
+    "delayS": 0.042666,
+    "state": "run"
+   }
+  },
+  {
+   "name": "music video: no delay",
+   "ok": true,
+   "detail": {
+    "st": {
+     "phase": "on",
+     "delayS": 0.042666,
+     "state": "run"
+    },
+    "song": {
+     "ms": 0,
+     "why": "video",
+     "anchor": 0,
+     "key": "Clip"
+    }
+   }
+  },
+  {
+   "name": "helper killed: Sonata's stream back on the device",
+   "ok": true
+  },
+  {
+   "name": "helper killed: the clock stops shifting",
+   "ok": true
+  },
+  {
+   "name": "helper killed: no look-ahead node left",
+   "ok": true,
+   "detail": [
+    "Dummy-Driver",
+    "speakers",
+    "speakers2",
+    "Sonata"
+   ]
+  },
+  {
+   "name": "helper killed: the status says so",
+   "ok": true,
+   "detail": "Not running: the helper stopped (SIGKILL)"
+  },
+  {
+   "name": "restarted: routed again",
+   "ok": true
+  },
+  {
+   "name": "stop: Sonata's stream follows a new default device (not pinned)",
+   "ok": true,
+   "detail": "speakers2"
+  },
+  {
+   "name": "stop: Sonata's stream has a remembered entry, without a target",
+   "ok": true,
+   "detail": "Output/Audio:application.name:la-test-player={\"channelMap\":[\"FL\", \"FR\"], \"channelVolumes\":[1.000000, 1.000000], \"volume\":1.000000, \"mute\":false}"
+  },
+  {
+   "name": "stop: no helper process left",
+   "ok": true
+  }
+ ],
+ "timings": {
+  "start_to_routed_ms": 25,
+  "kill_to_device_ms": 7,
+  "kill_to_controller_failed_ms": 20,
+  "kill_to_restarted_ms": 5047
+ },
+ "passed": 18,
+ "failed": 0
+}

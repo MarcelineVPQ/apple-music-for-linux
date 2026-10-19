@@ -1,0 +1,59 @@
+{
+ "test": "exact",
+ "seconds": 123.1,
+ "notes": {},
+ "heard_frames_with_content": 5577600,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  500.0,
+  1000.0,
+  2000.0,
+  3000.0
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 4
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 5772,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 0,
+  "cycles_in": 5722,
+  "cycles_out": 5722
+ },
+ "heard_claim_vs_measured": {
+  "n": 1,
+  "max_abs_err_ms": 0.0,
+  "samples": [
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   },
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   }
+  ]
+ },
+ "pwtop_err_max": {
+  "Dummy-Driver": 0,
+  "speakers": 0,
+  "speakers2": 0,
+  "probe": 0,
+  "la-player": 0,
+  "sonata-lookahead": 0,
+  "sonata-lookahead-out": 0
+ }
+}

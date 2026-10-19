@@ -1,0 +1,424 @@
+{
+ "tail": [
+  95.3,
+  92.7,
+  100.7,
+  98.7,
+  95.6,
+  103.5,
+  104.3,
+  100.8,
+  87.6,
+  85.8,
+  103.9,
+  90.5,
+  86.0,
+  98.6,
+  100.1,
+  94.1,
+  74.9
+ ],
+ "lag": [
+  {
+   "lag": 98.4,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 86.1,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.5
+   }
+  },
+  {
+   "lag": 105.5,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.5
+   }
+  },
+  {
+   "lag": 101.8,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 88.9,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.5
+   }
+  },
+  {
+   "lag": 89.9,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 86.1,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 94.2,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 92.5,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 89.0,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 97.2,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.5
+   }
+  },
+  {
+   "lag": 95.3,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 85.7,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 67.8,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 82.6,
+   "ev": {
+    "playing": 0.5,
+    "play": 0.5
+   }
+  },
+  {
+   "lag": 69.4,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  },
+  {
+   "lag": 61.7,
+   "ev": {
+    "playing": 0.4,
+    "play": 0.4
+   }
+  }
+ ],
+ "seek": [
+  {
+   "old_after_ms": 101.4,
+   "first_new_ms": 106.3,
+   "silence_gap_ms": 4.9,
+   "ev": {
+    "canplaythrough": 2.1,
+    "playing": 2.1,
+    "canplay": 2.1,
+    "seeked": 2.1,
+    "waiting": 0.3,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 24513,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 106.2,
+   "first_new_ms": 110.9,
+   "silence_gap_ms": 4.7,
+   "ev": {
+    "canplaythrough": 0.6,
+    "playing": 0.6,
+    "canplay": 0.6,
+    "seeked": 0.6,
+    "waiting": 0.4,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 21638,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 90.0,
+   "first_new_ms": 94.6,
+   "silence_gap_ms": 4.6,
+   "ev": {
+    "canplaythrough": 0.8,
+    "playing": 0.8,
+    "canplay": 0.8,
+    "seeked": 0.7,
+    "waiting": 0.4,
+    "seeking": 0.4
+   },
+   "new_starts_at_frame": 37077,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 95.2,
+   "first_new_ms": 99.7,
+   "silence_gap_ms": 4.4,
+   "ev": {
+    "canplaythrough": 0.6,
+    "playing": 0.6,
+    "canplay": 0.6,
+    "seeked": 0.6,
+    "waiting": 0.4,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 34877,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 100.3,
+   "first_new_ms": 104.5,
+   "silence_gap_ms": 4.3,
+   "ev": {
+    "canplaythrough": 0.7,
+    "playing": 0.7,
+    "canplay": 0.7,
+    "seeked": 0.7,
+    "waiting": 0.4,
+    "seeking": 0.4
+   },
+   "new_starts_at_frame": 15037,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 105.2,
+   "first_new_ms": 109.4,
+   "silence_gap_ms": 4.1,
+   "ev": {
+    "canplaythrough": 0.6,
+    "playing": 0.6,
+    "canplay": 0.6,
+    "seeked": 0.5,
+    "waiting": 0.3,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 19812,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 88.9,
+   "first_new_ms": 93.0,
+   "silence_gap_ms": 4.0,
+   "ev": {
+    "canplaythrough": 0.7,
+    "playing": 0.7,
+    "canplay": 0.7,
+    "seeked": 0.7,
+    "waiting": 0.4,
+    "seeking": 0.4
+   },
+   "new_starts_at_frame": 9467,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 93.7,
+   "first_new_ms": 97.7,
+   "silence_gap_ms": 3.9,
+   "ev": {
+    "canplaythrough": 1.2,
+    "playing": 1.2,
+    "canplay": 1.2,
+    "seeked": 1.2,
+    "waiting": 0.9,
+    "seeking": 0.8
+   },
+   "new_starts_at_frame": 28776,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 98.5,
+   "first_new_ms": 102.4,
+   "silence_gap_ms": 3.8,
+   "ev": {
+    "canplaythrough": 0.7,
+    "playing": 0.7,
+    "canplay": 0.7,
+    "seeked": 0.6,
+    "waiting": 0.3,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 35486,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 103.9,
+   "first_new_ms": 107.7,
+   "silence_gap_ms": 3.7,
+   "ev": {
+    "canplaythrough": 0.7,
+    "playing": 0.7,
+    "canplay": 0.7,
+    "seeked": 0.6,
+    "waiting": 0.3,
+    "seeking": 0.3
+   },
+   "new_starts_at_frame": 29596,
+   "new_cont": false
+  }
+ ],
+ "src": [
+  {
+   "old_after_ms": 0,
+   "first_new_ms": 120.7,
+   "silence_gap_ms": 120.7,
+   "ev": {
+    "canplaythrough": 29.7,
+    "playing": 29.6,
+    "canplay": 29.6,
+    "loadstart": 7.1,
+    "waiting": 7.1,
+    "play": 7.0
+   },
+   "new_starts_at_frame": 240,
+   "new_cont": true
+  },
+  {
+   "old_after_ms": 38.2,
+   "first_new_ms": 83.8,
+   "silence_gap_ms": 45.6,
+   "ev": {
+    "canplaythrough": 5.5,
+    "playing": 5.5,
+    "canplay": 5.5,
+    "loadstart": 3.4,
+    "waiting": 3.4,
+    "play": 3.4,
+    "emptied": 3.0
+   },
+   "new_starts_at_frame": 4829,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 25.0,
+   "first_new_ms": 94.0,
+   "silence_gap_ms": 69.0,
+   "ev": {
+    "canplaythrough": 3.7,
+    "playing": 3.7,
+    "canplay": 3.6,
+    "loadstart": 1.7,
+    "waiting": 1.6,
+    "play": 1.6,
+    "emptied": 1.3
+   },
+   "new_starts_at_frame": 240,
+   "new_cont": true
+  },
+  {
+   "old_after_ms": 33.6,
+   "first_new_ms": 79.2,
+   "silence_gap_ms": 45.6,
+   "ev": {
+    "canplaythrough": 3.6,
+    "playing": 3.6,
+    "canplay": 3.6,
+    "loadstart": 1.6,
+    "waiting": 1.6,
+    "play": 1.6,
+    "emptied": 1.3
+   },
+   "new_starts_at_frame": 4829,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 23.7,
+   "first_new_ms": 92.7,
+   "silence_gap_ms": 69.0,
+   "ev": {
+    "canplaythrough": 3.7,
+    "playing": 3.7,
+    "canplay": 3.7,
+    "loadstart": 1.6,
+    "waiting": 1.6,
+    "play": 1.6,
+    "emptied": 1.3
+   },
+   "new_starts_at_frame": 240,
+   "new_cont": true
+  },
+  {
+   "old_after_ms": 33.0,
+   "first_new_ms": 78.6,
+   "silence_gap_ms": 45.6,
+   "ev": {
+    "canplaythrough": 3.5,
+    "playing": 3.5,
+    "canplay": 3.5,
+    "loadstart": 1.6,
+    "waiting": 1.6,
+    "play": 1.5,
+    "emptied": 1.2
+   },
+   "new_starts_at_frame": 4829,
+   "new_cont": false
+  },
+  {
+   "old_after_ms": 40.8,
+   "first_new_ms": 88.5,
+   "silence_gap_ms": 47.7,
+   "ev": {
+    "canplaythrough": 3.7,
+    "playing": 3.7,
+    "canplay": 3.7,
+    "loadstart": 1.6,
+    "waiting": 1.6,
+    "play": 1.6,
+    "emptied": 1.3
+   },
+   "new_starts_at_frame": 240,
+   "new_cont": true
+  },
+  {
+   "old_after_ms": 16.7,
+   "first_new_ms": 83.6,
+   "silence_gap_ms": 66.9,
+   "ev": {
+    "canplaythrough": 4.0,
+    "playing": 4.0,
+    "canplay": 4.0,
+    "loadstart": 1.6,
+    "waiting": 1.6,
+    "play": 1.6,
+    "emptied": 1.3
+   },
+   "new_starts_at_frame": 4829,
+   "new_cont": false
+  }
+ ],
+ "counter_steps_eq1_share": 0.9997880583400236
+}

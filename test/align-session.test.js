@@ -220,6 +220,7 @@ function setup(helperImpl, extra = {}) {
     },
     forget: (song) => calls.push([{ cmd: 'forget', song }])
   }
+  if (extra.stream) helper.stream = extra.stream
   const s = A.createAlignSession({
     createListener: (opts) => {
       const l = { opts, started: 0, stopped: 0, start() { this.started++ }, stop() { this.stopped++ } }
@@ -747,4 +748,82 @@ test('a held "it" before the line\'s last word: cached entries heal on read, new
   const result = { stats: { aligner: 'en' }, lines: [{ line: 0, aligned: true, confidence: 0.6,
     words: F.words.map((w) => Object.assign({ t: w.t, end: w.end, text: w.text }, w.held ? { held: true, hold_from: w.holdFrom } : {})) }] }
   check(A.entryFromResult(result, raw, null).lines[0].words)
+})
+
+// --- look-ahead play: a delayed first play streams its words (align-session.js lookahead mode) ---
+
+function fakeStream(outcome) {
+  const st = { heads: [], chunks: [], ended: 0, cancelled: 0, on: null }
+  st.fn = (id, head, on) => {
+    st.heads.push(head)
+    st.on = on
+    let settle
+    const done = new Promise((resolve, reject) => { settle = { resolve, reject } })
+    if (outcome === 'no-gpu') setImmediate(() => settle.reject(Object.assign(new Error('streaming needs a GPU'), { code: 'no-gpu' })))
+    return {
+      done,
+      chunk: (t, pcm) => st.chunks.push({ t, bytes: pcm.length }),
+      end: () => { st.ended++; settle.resolve({ type: 'result', stats: { words: 5 } }) },
+      cancel: () => { st.cancelled++; settle.reject(Object.assign(new Error('cancelled'), { code: 'cancelled' })) }
+    }
+  }
+  return st
+}
+
+test('session, look-ahead: the song streams in 0.25 s pieces, no section jobs; its words go to the views; the whole song at the end', async () => {
+  const st = fakeStream()
+  const env = setup(null, { stream: st.fn })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })
+  play(env, 0, 30)
+  assert.equal(st.heads.length, 1)
+  assert.equal(st.heads[0].lead, 3)
+  assert.deepEqual(st.heads[0].lines.map((l) => l.text), RAW.map((l) => l.text))
+  assert.equal(env.s.streamState, 'starting')
+  st.on({ type: 'stream', state: 'ready', device: 'cuda' })
+  assert.equal(env.s.streamState, 'streaming')
+  // 0.1 s capture chunks batched into ≥ 0.25 s pieces, in song time order, from the start
+  assert.ok(st.chunks.length >= 100)
+  assert.ok(st.chunks.every((c) => c.bytes >= 0.25 * 22050 * 4 - 1))
+  assert.ok(st.chunks[0].t < 0.2)
+  assert.ok(st.chunks.every((c, i) => i === 0 || c.t > st.chunks[i - 1].t))
+  assert.equal(env.calls.length, 0, 'no section job while the stream times the words')
+  st.on({ type: 'words', lines: [{ line: 0, words: [{ t: 10.2, end: 10.6, text: 'Hello' }] }] })
+  const msg = env.sent.find((x) => x[0] === 'lyrics-stream')
+  assert.deepEqual(msg[1], { key: 'Song|Artist', lines: { 0: { text: 'Hello there world', words: [{ t: 10.2, end: 10.6, text: 'Hello', index: 0 }] } } })
+  // the next song: the stream ends first, then the whole-song pass (what stays cached for replays)
+  const job = env.s.setLyrics('Next|Artist', 'Next', 'Artist', [], true)
+  assert.equal(job, undefined)
+  assert.equal(st.ended, 1)
+  await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(env.calls.length, 1)
+  assert.equal(env.calls[0][0].cmd, 'align')
+  assert.equal(env.calls[0][0].final, true)
+})
+
+test('session, look-ahead: a stream the helper refuses (no GPU) falls back to section jobs', async () => {
+  const st = fakeStream('no-gpu')
+  const env = setup(null, { stream: st.fn })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })
+  play(env, 0, 1)
+  await new Promise((r) => setImmediate(r))
+  assert.equal(env.s.streamState, 'failed: no-gpu')
+  const job = play(env, 1, 30)
+  assert.ok(job, 'sections aligned as without look-ahead')
+  await job
+  assert.ok(env.calls.length >= 1)
+  assert.ok(env.logs.some((l) => /stream of "Song" failed \(no-gpu\)/.test(l)))
+})
+
+test('session, look-ahead: a learned song or no delay never streams; leaving early cancels the stream', () => {
+  const st = fakeStream()
+  const env = setup(null, { stream: st.fn })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 0 })
+  play(env, 0, 3)
+  assert.equal(st.heads.length, 0)
+  env.s.setLyrics('Two|Artist', 'Two', 'Artist', RAW, true, { duration: 25, lookahead: 2000 })
+  play(env, 0, 3)
+  assert.equal(st.heads.length, 1)
+  env.s.stop(false)
+  assert.equal(st.cancelled, 1)
 })

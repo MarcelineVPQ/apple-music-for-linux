@@ -1,0 +1,94 @@
+{
+ "test": "drift",
+ "seconds": 604.1,
+ "notes": {
+  "tap_proc": "parec --monitor-stream (Sonata's own tap)"
+ },
+ "heard_frames_with_content": 28853120,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  2989.333
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 1
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 56633,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 10.667,
+  "max": 21.333,
+  "min": 10.667
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 0,
+  "cycles_in": 56536,
+  "cycles_out": 56536
+ },
+ "heard_claim_vs_measured": {
+  "n": 60,
+  "max_abs_err_ms": 0.0,
+  "samples": [
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   }
+  ]
+ },
+ "engine_tap": {
+  "reads": 30051,
+  "tap_latency_ms_p50_p95_max": [
+   -5.3,
+   -1.2,
+   11.8
+  ],
+  "lead_before_heard_ms_p5_p50_min": [
+   2990.6,
+   2994.6,
+   2977.6
+  ]
+ },
+ "cpu_pct_of_one_core": {
+  "helper": 0.116,
+  "player": 0.111,
+  "probe": 0.173,
+  "pipewire": 0.263
+ },
+ "cpu_window_s": 601.0,
+ "pwtop_err_max": {
+  "Dummy-Driver": 0,
+  "speakers": 0,
+  "speakers2": 0,
+  "probe": 0,
+  "la-player": 0,
+  "sonata-lookahead": 0,
+  "sonata-lookahead-out": 0,
+  "parec": 0
+ }
+}

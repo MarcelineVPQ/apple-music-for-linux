@@ -229,6 +229,8 @@
   ipcRenderer.on('lyrics-time', (e, t, playing, key) => { lyricsView.setTime(t, playing, key); gate.setPlaying(!!playing) })
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
   ipcRenderer.on('lyrics-aligned', (e, msg) => lyricsView.align(msg))
+  ipcRenderer.on('lyrics-stream', (e, msg) => lyricsView.stream(msg))   // look-ahead play: words committed while the song plays
+  // lifetime: OK — the lyrics feed's listeners, added once at load, released with the window
   ipcRenderer.on('lyrics-align-state', (e, text) => lyricsView.alignState(text))
   // album accent for the sung word's glow (adaptive colour; null resets to white)
   // the sung word in the album's accents, lifted to 4.5:1 on the dark stage (theme.js stageText):

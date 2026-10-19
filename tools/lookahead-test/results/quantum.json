@@ -1,0 +1,100 @@
+{
+ "test": "quantum",
+ "seconds": 48.1,
+ "notes": {},
+ "heard_frames_with_content": 2159488,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  2984.0,
+  2989.333,
+  3000.0,
+  3021.333,
+  3064.0
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 7
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 3897,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 10.667,
+  "max": 42.667,
+  "min": 2.845
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 0,
+  "gate_dropped": 0,
+  "cycles_in": 3892,
+  "cycles_out": 3892
+ },
+ "heard_claim_vs_measured": {
+  "n": 5,
+  "max_abs_err_ms": 42.667,
+  "samples": [
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 3000.0,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2989.333,
+    "offset_ms": 2989.333,
+    "quantum": 512
+   },
+   {
+    "claimed_ms": 2984.0,
+    "offset_ms": 2989.333,
+    "quantum": 256
+   },
+   {
+    "claimed_ms": 3021.333,
+    "offset_ms": 3064.0,
+    "quantum": 2048
+   },
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   }
+  ]
+ },
+ "quantum_segments": [
+  {
+   "quantum": 512,
+   "claimed_ms": 2989.333,
+   "delay_ms_values": [
+    2989.33,
+    3000.0
+   ]
+  },
+  {
+   "quantum": 256,
+   "claimed_ms": 2984.0,
+   "delay_ms_values": [
+    2984.0,
+    3064.0
+   ]
+  },
+  {
+   "quantum": 2048,
+   "claimed_ms": 3021.333,
+   "delay_ms_values": [
+    3000.0,
+    3021.33,
+    3064.0
+   ]
+  },
+  {
+   "quantum": "default(1024)",
+   "claimed_ms": 3000.0,
+   "delay_ms_values": [
+    3000.0
+   ]
+  }
+ ]
+}

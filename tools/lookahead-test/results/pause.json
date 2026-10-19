@@ -1,0 +1,191 @@
+{
+ "test": "pause",
+ "seconds": 112.8,
+ "notes": {},
+ "heard_frames_with_content": 3676544,
+ "heard_frames_not_from_source": 0,
+ "steady_delay_ms_values": [
+  2888.667,
+  2933.667,
+  2956.167,
+  3000.0,
+  3087.417,
+  3120.0,
+  5048.0,
+  5069.333,
+  5090.667,
+  5154.667,
+  5282.667,
+  5293.667,
+  5356.75,
+  5368.0,
+  5432.0,
+  5496.0,
+  5846.0,
+  6020.167
+ ],
+ "delay_runs_short": 1,
+ "heard_counter_steps": {
+  "repeats_or_back": 0,
+  "jumps": 0
+ },
+ "heard_on_both_devices_frames": 0,
+ "cycles": 5288,
+ "cycle_xrun_flags": 0,
+ "cycle_period_ms": {
+  "median": 21.333,
+  "max": 21.333,
+  "min": 21.333
+ },
+ "helper_counters": {
+  "underruns": 1,
+  "overflows": 0,
+  "trimmed": 15716,
+  "gate_dropped": 0,
+  "cycles_in": 5235,
+  "cycles_out": 5235
+ },
+ "heard_claim_vs_measured": {
+  "n": 13,
+  "max_abs_err_ms": 0.001,
+  "samples": [
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   },
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   },
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   },
+   {
+    "claimed_ms": 3120.0,
+    "offset_ms": 3120.0,
+    "quantum": 1024
+   },
+   {
+    "claimed_ms": 3000.0,
+    "offset_ms": 3000.0,
+    "quantum": 1024
+   }
+  ]
+ },
+ "pauses": [
+  {
+   "pause_to_silence_ms": 29.86,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 33.19,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 25.37,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 21.8,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 22.41,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 24.24,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 33.4,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 21.58,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 30.0,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 27.91,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 25.32,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 24.79,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3000.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 30.03,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 48.75,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 2888.67,
+   "delay_before_next_pause_ms": 2888.67
+  },
+  {
+   "pause_to_silence_ms": 26.12,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 207.46,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 2933.67,
+   "delay_before_next_pause_ms": 2933.67
+  },
+  {
+   "pause_to_silence_ms": 36.87,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 175.28,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 2956.17,
+   "delay_before_next_pause_ms": 2956.17
+  },
+  {
+   "pause_to_silence_ms": 35.0,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 38.41,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3087.42,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 35.36,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 36.36,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3120.0,
+   "delay_before_next_pause_ms": 3000.0
+  },
+  {
+   "pause_to_silence_ms": 34.22,
+   "frames_heard_while_paused": 0,
+   "play_to_sound_ms": 26.82,
+   "content_gap_frames_at_resume": 0,
+   "delay_after_resume_ms": 3120.0,
+   "delay_before_next_pause_ms": 3000.0
+  }
+ ],
+ "pause_to_silence_ms": {
+  "min": 22.41,
+  "median": 30.015,
+  "max": 36.87
+ },
+ "pwtop_err_max": {
+  "Dummy-Driver": 0,
+  "speakers": 0,
+  "speakers2": 0,
+  "probe": 0,
+  "la-player": 0,
+  "sonata-lookahead": 0,
+  "sonata-lookahead-out": 0
+ }
+}

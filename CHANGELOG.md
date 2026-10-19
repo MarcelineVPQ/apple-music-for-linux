@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **First play: precise from the start (experimental, Linux, Development builds).** A new switch in Settings → Playback & lyrics, off by default. On a song's first play, Sonata plays it a few seconds behind what Apple's player is doing (Precise: 3 seconds, Quick: 2 seconds), so the timing helper hears every word before you do: the words light up in time the very first time a song plays, instead of a section at a time. Playback starts that long after you press play, and a seek is heard after the same wait; pause stops at once, and nothing plays after it. Songs Sonata has already learned, songs with nothing to learn and music videos play with no delay, and switching between them is clean. The lyrics, the Studio, the mini player and the liner notes follow what you hear. It needs Precise word timing and a free graphics card (when the card is busy, a song plays with no delay and its timing comes in sections, as before), and a helper update with streaming. While it runs, your sound settings show a "Sonata look-ahead" device; it goes away when Sonata closes or the switch goes off, and if the delay ever stops, your music goes straight back to your speakers. Not on macOS or Windows yet.
+
 ## [0.15.51-dev.1] — Long words keep their gap when they pop, and high notes stay on the staff
 
 ### Fixed

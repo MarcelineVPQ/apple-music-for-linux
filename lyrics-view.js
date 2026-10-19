@@ -8,6 +8,7 @@
 //   'lyrics-time'    -> setTime(t, playing)  2 pushes/s; the smooth clock (lyrics-timing syncClock)
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
+//   'lyrics-stream'  -> stream(msg)       look-ahead play: words committed while the song plays, a few at a time
 //   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
 // The pure helpers (prepare, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext) are tested
 // in test/lyrics-view.test.js.
@@ -95,6 +96,55 @@ function alignedLines(lines, msg, key) {
     delete out.estimated
     delete out.repeat
     delete out.repeatOf
+    next[i] = out
+    changed.push(i)
+  }
+  return changed.length ? { lines: next, changed } : null
+}
+
+/**
+ * The lines after a 'lyrics-stream' message (look-ahead play, lookahead.js: the helper hears the song a few
+ * seconds before the listener and commits words as it goes; { key, lines: { index: { text, words: [{ t,
+ * end, text, index, late? }] } } }), or null when it changes nothing. A word takes its committed time where
+ * its line's word at that index has the same text; a committed word never moves again (the pop is
+ * sacred). The line's words still to come keep their estimate, moved to follow the last committed one; a
+ * line whose words are all committed is aligned. `late`: committed after the listener reached it (shown at
+ * once, without its pop). Returns { lines, changed: [index] }.
+ */
+function streamedLines(lines, msg, key) {
+  if (!msg || msg.key !== key || !msg.lines || typeof msg.lines !== 'object') return null
+  const next = lines.slice()
+  const changed = []
+  // loop: NOT-WORTH — the lines of one message (one or two per hop) and their words
+  for (const [k, a] of Object.entries(msg.lines)) {
+    const i = Number(k)
+    const line = next[i]
+    if (!line || line.aligned || !Array.isArray(line.words) || !a || a.text !== line.text || !Array.isArray(a.words)) continue
+    const words = line.words.slice()
+    let last = -1
+    for (const w of a.words) {
+      const j = w && Number.isInteger(w.index) ? w.index : -1
+      if (j < 0 || j >= words.length || !words[j] || words[j].text !== w.text || words[j].streamed) continue
+      const nw = T.copyWord(w)
+      nw.streamed = true
+      if (w.late) nw.late = true
+      words[j] = nw
+      if (j > last) last = j
+    }
+    if (last < 0) continue
+    // the words still to come: after the last committed one, in order
+    let floor = words[last].end
+    // loop: NOT-WORTH — the rest of one line's words, per 'lyrics-stream' message
+    for (let j = last + 1; j < words.length && !words[j].streamed; j++) {
+      if (words[j].t < floor) {
+        const d = floor - words[j].t
+        words[j] = Object.assign({}, words[j], { t: words[j].t + d, end: words[j].end + d })
+        delete words[j].syl   // its syllables are spread again on the new times (lineWithSyllables)
+      }
+      floor = words[j].end
+    }
+    const out = Object.assign({}, line, { words })
+    if (words.every((w) => w.streamed)) { out.aligned = true; delete out.estimated; delete out.repeat; delete out.repeatOf; delete out.streaming } else out.streaming = true
     next[i] = out
     changed.push(i)
   }
@@ -477,6 +527,7 @@ function createLyricsView(opts) {
       if (i && !joined) parent.appendChild(doc.createTextNode(' '))
       const span = doc.createElement('span')
       span.className = 'w'
+      if (w.late) span.classList.add('late')   // look-ahead: committed after it was reached: lit at once, no pop
       // a hyphen piece written straight after the previous one ("Yeah-" "oh,"): the two touch as written
       // (lyrics-view.css .w.gj / .w.gn: no word gap or bold-width slack at the joint)
       if (joined) { span.classList.add('gj'); spans[i - 1].classList.add('gn') }
@@ -712,6 +763,26 @@ function createLyricsView(opts) {
     relearn()
     placeBacking()
     aligned = true
+    if (opts.notes) showNotes()
+    if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
+  }
+
+  // look-ahead play: words committed while the song plays (streamedLines); a late word is lit without its pop
+  function stream(msg) {
+    const got = streamedLines(lines, msg, songKey)
+    if (!got) return
+    lines = got.lines
+    // loop: NOT-WORTH — the changed lines (one or two per message) and their word spans
+    for (const i of got.changed) {
+      lines[i] = S.lineWithSyllables(lines[i], hyphenate)
+      const e = lineEls[i]
+      if (!e) continue
+      e.pos = e.bgKey = null
+      lines[i].words.forEach((w, j) => { if (e.words[j]) e.words[j].classList.toggle('late', !!w.late) })
+    }
+    relearn()
+    placeBacking()
+    if (lines.some((l) => l.aligned)) aligned = true
     if (opts.notes) showNotes()
     if (clock) { render(T.clockTime(clock, performance.now())); updateFrames() }
   }
@@ -1165,6 +1236,7 @@ function createLyricsView(opts) {
     refine,
     align,
     alignState: setAlignState,
+    stream,
     time: () => T.clockTime(clock, performance.now()),
     // the song's timed lines ({ t, text }), for the Studio's ↑/↓ and the seek bar's hover (on demand, not per frame)
     // loop: NOT-WORTH — the song's lines (≤ ~150), once per key press or hover move
@@ -1173,4 +1245,4 @@ function createLyricsView(opts) {
   }
 }
 
-module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, POP, POP_GAP, SYL_OVERSHOOT, popFit, statusText, versionNote, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }
+module.exports = { SUSTAIN_AFTER: T.SUSTAIN_AFTER, WORD_LEAD, POP, POP_GAP, SYL_OVERSHOOT, popFit, statusText, versionNote, prepare, backingAnchor, backingOffset, learnFrom, refinedLine, alignedLines, streamedLines, timingNote, writtenBy, wordState, stageNext, dotKeyframes, slideFrom, createLyricsView }

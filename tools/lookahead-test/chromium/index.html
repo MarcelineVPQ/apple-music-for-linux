@@ -1,0 +1,15 @@
+<!doctype html><html><body><audio id="a" preload="auto"></audio>
+<script>
+const { ipcRenderer } = require('electron')
+const a = document.getElementById('a')
+for (const ev of ['play','playing','pause','seeking','seeked','waiting','ended','emptied','loadstart','canplay','canplaythrough'])
+  a.addEventListener(ev, () => ipcRenderer.send('ev', ev, a.currentTime))
+ipcRenderer.on('cmd', (e, c, v) => {
+  if (c === 'src') { a.src = v; a.play() }
+  else if (c === 'play') a.play()
+  else if (c === 'pause') a.pause()
+  else if (c === 'seek') a.currentTime = v
+  ipcRenderer.send('ack', c, a.currentTime)
+})
+ipcRenderer.send('ready')
+</script></body></html>

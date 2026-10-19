@@ -138,7 +138,7 @@
     const st = s || {}
     if (page === 'settings') {
       switch (id) {
-        case 'playback': return [st.lrclibFallback ? 'LRCLIB on' : 'Apple lyrics only', st.estimatedWordTiming ? 'estimated words' : 'line timing', st.notifications ? 'notifications' : null].filter(Boolean).join(' · ')
+        case 'playback': return [st.lrclibFallback ? 'LRCLIB on' : 'Apple lyrics only', st.estimatedWordTiming ? 'estimated words' : 'line timing', st.lookahead && st.lookaheadShown ? 'look-ahead' : null, st.notifications ? 'notifications' : null].filter(Boolean).join(' · ')
         case 'timing': return [onOff('Listening', !!st.lyricsListenRefine && !!st.estimatedWordTiming), timingHelper(st)].join(' · ')
         case 'appearance': return [{ system: 'System theme', light: 'Light', dark: 'Dark' }[st.theme] || 'System theme', st.adaptiveColor ? 'album colours' : 'no album colours', st.adaptiveColor && st.glass ? 'Glass' : null].filter(Boolean).join(' · ')
         case 'windows': return [st.miniAlwaysOnTop ? 'Mini player on top' : null, st.lyricsAlwaysOnTop ? 'lyrics on top' : null].filter(Boolean).join(' · ') || 'Nothing kept on top'
