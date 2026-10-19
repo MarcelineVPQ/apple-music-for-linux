@@ -491,7 +491,8 @@ test('main: expr is sent only when Expressive words is on and kept for these lyr
   const src = read('main.js')
   assert.match(src, /function expressiveSetting\(\) \{ return settings\.expressiveWords == null \? expressive\.defaultOn\(app\.getVersion\(\)\) : !!settings\.expressiveWords \}/)
   assert.match(src, /function expressiveOn\(\) \{ return expressiveSetting\(\) && preciseTimingOn\(\) \}/)
-  assert.match(src, /if \(!expressiveOn\(\) \|\| !title\) return undefined/)
+  assert.match(src, /const e = on \? getSheetStore\(\)\.get\(title, artist\) : null/)
+  assert.match(src, /if \(!entry\) return undefined/)
   assert.match(src, /if \(expr\) data\.expr = expr\n\s+sendLyrics\('lyrics-data', data\)/)
   assert.match(src, /want: \(\) => \(expressiveOn\(\) \? \['expr'\] : \[\]\)/)
   assert.equal(require('../settings-store').defaults().expressiveWords, null)
@@ -550,4 +551,32 @@ test('helper: nothing wanted (Expressive words off): no ping first, no want', as
   assert.deepEqual(H.wantFor(['expr'], ['notes']), null)
   assert.deepEqual(H.wantFor(['expr'], ['expr', 'notes']), ['expr'])
   assert.equal(H.wantFor(['expr'], null), null)
+})
+
+// --- 0.15.54: Expressive words reach real songs (Marcy on 0.15.52-dev.1 saw not one) ---
+
+test('summary / statusLine: one log line per song says what it shows, or why nothing', () => {
+  const expr = { format: 1, v: 2, words: [{ l: 0, w: 0, c: 0.8, i0: 1, i1: 2, t: 1, e: 1.7 }, { l: 0, w: 1, c: 0.8, i0: 1, i1: 2, t: 3, e: 4.2 }, { l: 1, w: 0, c: 0.8, ld: 0.4 }], voc: [{ t: 9, e: 10.5, c: 0.7 }] }
+  assert.deepEqual(X.summary(expr), { held: 2, ghosts: 2, v: 2 })
+  assert.equal(X.statusLine({ on: true, helper: 'serves', entry: { expr }, title: 'S' }), 'expressive: 2 held notes, 2 ghosts for "S" (expr v2)')
+  assert.match(X.statusLine({ on: false, title: 'S' }), /^expressive: none for "S" \(Expressive words or Precise word timing is off\)/)
+  assert.match(X.statusLine({ on: true, helper: 'lacks', entry: { notes: [] }, title: 'S' }), /does not measure expression/)
+  assert.match(X.statusLine({ on: true, helper: 'unknown', entry: null, title: 'S' }), /has not answered yet/)
+  assert.match(X.statusLine({ on: true, helper: 'serves', entry: { notes: [] }, title: 'S' }), /no audio yet: measured from this play/)
+  assert.match(X.statusLine({ on: true, helper: 'serves', entry: { expr: null }, title: 'S' }), /measured nothing confident/)
+  assert.match(X.statusLine({ on: true, helper: 'serves', entry: { expr: { format: 1, v: 2, words: [{ l: 0, w: 0, t: 1, e: 1.2 }], voc: [] } }, title: 'S' }), /nothing held long enough/)
+})
+
+test('main: the expression is kept only when the helper was asked for it, logged once per song and when measured', () => {
+  const src = read('main.js')
+  assert.match(src, /const asked = expressiveOn\(\) && !!alignHelper && alignHelper\.serves\('expr'\)\n\s+if \(asked\) \{\n\s+entry\.expr = expressive\.compact\(result\.notes\.expr, lineOffset\)/)
+  assert.match(src, /console\.log\('align: ' \+ expressive\.statusLine\(\{ on, helper, entry, title \}\)\)/)
+  assert.match(src, /expressiveFor\(state\.title, state\.artist, plain \? prep\.lines : base, key\)/)
+  // a song whose notes came without expression is asked again (missing) while the engine serves it
+  assert.match(src, /expressiveOn\(\) && alignHelper && alignHelper\.serves\('expr'\) && expressiveMissing\(/)
+})
+
+test('view: a song whose only expression is wordless vocalise still gets it', () => {
+  const src = read('lyrics-view.js')
+  assert.match(src, /data\.expr\.words\.length \|\| \(Array\.isArray\(data\.expr\.voc\) && data\.expr\.voc\.length\)/)
 })

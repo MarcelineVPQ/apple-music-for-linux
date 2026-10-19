@@ -451,8 +451,49 @@ function ghostLetterBirth(born, t0, t1) {
   return [{ offset: 0, opacity: 0 }, { offset: a, opacity: 0 }, { offset: clamp(a + 0.25 / span, a, 1), opacity: 1 }, { offset: 1, opacity: 1 }]
 }
 
+// --- the per-song log line (main.js: one per song shown, and one when a song's expression is measured) ---
+
+/** What a cached expression holds for the eye: { held (vowels held >= HOLD_MIN), ghosts (lyric words held >= GHOST_MIN, plus wordless vocalise), v } */
+function summary(cached) {
+  const c = cached && typeof cached === 'object' ? cached : {}
+  const words = Array.isArray(c.words) ? c.words : []
+  const voc = Array.isArray(c.voc) ? c.voc : []
+  let held = 0
+  let ghosts = 0
+  // loop: NOT-WORTH — the song's expr words (≤ ~600), once per song
+  for (const w of words) {
+    if (num(w.t) === null || num(w.e) === null) continue
+    const hold = w.e - w.t
+    if (hold >= HOLD_MIN) held++
+    if (hold >= GHOST_MIN) ghosts++
+  }
+  // loop: NOT-WORTH — the song's vocalise spans (a few)
+  for (const x of voc) if (num(x.t) !== null && num(x.e) !== null && x.e - x.t >= HOLD_MIN) ghosts++
+  return { held, ghosts, v: c.v || null }
+}
+
+/**
+ * The one log line for a song: why it shows expression or why not. state: { on, helper: 'serves' | 'lacks' |
+ * 'unknown', entry: the song's notes entry for these lyrics or null, title } -> 'expressive: …'
+ */
+function statusLine(state) {
+  const st = state || {}
+  const what = st.title ? ' for "' + st.title + '"' : ''
+  if (!st.on) return 'expressive: none' + what + ' (Expressive words or Precise word timing is off)'
+  const e = st.entry
+  if (e && e.expr) {
+    const n = summary(e.expr)
+    if (!n.held && !n.ghosts) return 'expressive: none' + what + ' (nothing held long enough and measured with confidence, expr v' + (n.v || '?') + ')'
+    return 'expressive: ' + n.held + ' held notes, ' + n.ghosts + ' ghosts' + what + ' (expr v' + (n.v || '?') + ')'
+  }
+  if (e && 'expr' in e) return 'expressive: none' + what + ' (the helper measured nothing confident in it)'
+  if (st.helper === 'lacks') return 'expressive: none' + what + ' (this helper version does not measure expression: update the helper)'
+  if (st.helper === 'unknown') return 'expressive: none' + what + ' yet (the helper has not answered yet)'
+  return 'expressive: none' + what + ' yet (no audio yet: measured from this play once the song is heard to its end, drawn as soon as it is)'
+}
+
 module.exports = {
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
   compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
-  contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01
+  contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

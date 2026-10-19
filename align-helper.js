@@ -553,7 +553,9 @@ function createAlignHelper(opts, deps = {}) {
     },
     get running() { return !!child },
     /** Whether the engine said it serves a feature (its last pong, e.g. 'expr'); false before any pong. */
-    serves(feature) { return !!known && known.includes(feature) }
+    serves(feature) { return !!known && known.includes(feature) },
+    /** Whether any helper process answered a ping yet (serves() is only meaningful then). */
+    get answered() { return !!known }
   }
   return api
 }

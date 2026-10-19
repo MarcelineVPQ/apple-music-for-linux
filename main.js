@@ -754,11 +754,21 @@ function expressiveOn() { return expressiveSetting() && preciseTimingOn() }
 // Wordless vocalise ghosts (its sub-switch): null = this build's default, as Expressive words
 function vocaliseSetting() { return settings.expressiveVocalise == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveVocalise }
 // the song's measured expression for the view, or undefined (the field is left out: today's payload)
-function expressiveFor(title, artist, lines) {
-  if (!expressiveOn() || !title) return undefined
-  const e = getSheetStore().get(title, artist)
-  if (!sheetModel.entryValid(e, alignSessionLib.lyricsHash(lines || []))) return undefined
-  return expressive.forView(e.expr, true, vocaliseSetting()) || undefined
+// cache: OK — key=the song's lyrics key; invalidated=a new key; bound=one string (one log line per song shown)
+let expressiveLogged = ''
+function expressiveFor(title, artist, lines, key) {
+  if (!title) return undefined
+  const on = expressiveOn()
+  const e = on ? getSheetStore().get(title, artist) : null
+  const entry = e && sheetModel.entryValid(e, alignSessionLib.lyricsHash(lines || [])) ? e : null
+  // the one log line per song: what it shows, or why nothing (setting off, helper, not measured yet, nothing confident)
+  if (key && expressiveLogged !== key + (entry && entry.expr ? '+' : '')) {
+    expressiveLogged = key + (entry && entry.expr ? '+' : '')
+    const helper = !alignHelper || !alignHelper.answered ? 'unknown' : alignHelper.serves('expr') ? 'serves' : 'lacks'
+    console.log('align: ' + expressive.statusLine({ on, helper, entry, title }))
+  }
+  if (!entry) return undefined
+  return expressive.forView(entry.expr, true, vocaliseSetting()) || undefined
 }
 // a song whose notes entry was made without asking for its expression (Expressive words was off, or an older engine)
 function expressiveMissing(entry, hash) {
@@ -811,7 +821,13 @@ function sheetNotesDone(s, result, lineOffset) {
   if ((!sheetNotesOn() && !expressiveOn()) || !result || !result.notes) return
   const entry = sheetModel.compact(result.notes, { lineOffset, lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
   // Expressive words: the measured expression rides with the notes (null: asked, none came: not asked again)
-  if (expressiveOn()) entry.expr = expressive.compact(result.notes.expr, lineOffset)
+  // Only when the helper was asked (it serves 'expr'): an engine that wasn't asked leaves the field out, so
+  // the song is asked again once an engine that measures it is installed
+  const asked = expressiveOn() && !!alignHelper && alignHelper.serves('expr')
+  if (asked) {
+    entry.expr = expressive.compact(result.notes.expr, lineOffset)
+    console.log('align: ' + expressive.statusLine({ on: true, helper: 'serves', entry, title: s.title }).replace('expressive: ', 'expressive: measured '))
+  }
   // error: SHOWN — a failed write: the band says the notes couldn't be kept (and the log)
   try { getSheetStore().set(s.title, s.artist, entry) } catch (e) {
     console.log('align: sheet notes not saved: ' + e.message)
@@ -995,7 +1011,7 @@ async function lyricsTick() {
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
     const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
     // Expressive words: the song's measured expression, only when on and kept for these lyrics (else no field)
-    const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base)
+    const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base, key)
     if (expr) data.expr = expr
     sendLyrics('lyrics-data', data)
     setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)

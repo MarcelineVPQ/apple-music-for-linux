@@ -1055,20 +1055,25 @@ function createAlignSession(deps) {
       // a complete entry with missed lines (0.15.39): their sections once more, on at most MAX_FILLS plays
       const refill = refillSections(have, secs)
       const complete = !!(have && !have.partial && !refill.length)
-      // Sheet notes: a complete entry without notes (aligned before the switch was on, or the notes
-      // step was skipped): the song is recorded once more and aligned as a whole, for its notes
-      const notesOnly = complete && !!(deps.notes && deps.notes.missing && deps.notes.missing(title, artist, hash))
+      // Sheet notes / Expressive words: an entry whose sections are all aligned but whose notes (or their
+      // expression) are missing (aligned before the switch was on, or the notes step was skipped): the song
+      // is recorded once more and aligned as a whole, for its notes. With missed lines still to fill, that
+      // play fills them AND runs the whole-song pass (0.15.54: a refill play used to skip the notes step,
+      // so such songs never got their notes or expression on those plays)
+      const notesMissing = !!(have && !have.partial && deps.notes && deps.notes.missing && deps.notes.missing(title, artist, hash))
+      const notesOnly = complete && notesMissing
       if (complete && !notesOnly) return
       // notes only: no section jobs (a one-section song's section is its whole-song job)
       const skip = notesOnly ? new Set(secs.length > 1 ? secs.map((sec) => sec.from) : [])
         : new Set(have ? (have.done || []).filter((from) => !refill.some((sec) => sec.from === from)) : [])
       if (!notesOnly && !secs.some((sec) => !skip.has(sec.from))) return
       const fills = refill.length ? (have.fills || 0) + 1 : (have && have.fills) || 0
-      const wholeDone = !notesOnly && !!(have && have.whole)
+      const wholeDone = !notesMissing && !!(have && have.whole)
       // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
       const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
       if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
+      else if (notesMissing) log('recording "' + title + '" whole this time, for its sheet notes')
       song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song }
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */

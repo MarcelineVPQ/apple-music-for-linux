@@ -608,7 +608,7 @@ function createLyricsView(opts) {
     roving = null
     stopFrames()
     endExpressions()
-    xdoc = data.expr && Array.isArray(data.expr.words) && data.expr.words.length ? data.expr : null
+    xdoc = data.expr && Array.isArray(data.expr.words) && (data.expr.words.length || (Array.isArray(data.expr.voc) && data.expr.voc.length)) ? data.expr : null
     ghostLayer = null
     if (sungEl) { sungEl = null; opts.onSung(null) }   // the old song's word goes with its lines
     if (data.lang) container.lang = data.lang

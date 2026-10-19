@@ -439,6 +439,29 @@ test('session: a song aligned before Sheet notes was on is recorded once more, a
   assert.deepEqual(env.got.done, [['Song', 0]])
 })
 
+test('session: a complete song with missed lines still to fill, whose notes (or expression) are missing: that play fills them AND runs the whole-song pass with notes (0.15.54)', async () => {
+  const lines = VERSES
+  const secs = A.sections(lines)
+  const entry = { version: A.ENTRY_VERSION, lyricsHash: A.lyricsHash(lines), whole: true, done: secs.map((s) => s.from), missed: [secs[0].from], fills: 0, lines: [] }
+  // nothing missing: only the missed line's section is recorded and aligned (no whole pass, no notes), as before
+  const fill = setup({ entry })
+  fill.s.setLyrics('Song|A', 'Song', 'A', lines, true)
+  play(fill, 0, 45)
+  fill.s.stop(true)
+  await settle()
+  assert.deepEqual(fill.calls.filter((c) => c.cmd !== 'pitch').map((c) => [c.cmd, !!c.final]), [['align', false]])
+  // the notes missing (Marcy's "Long Way Down (Live)" on 0.15.52: filling 1 missed line, no notes, no expr)
+  const env = setup({ entry, missing: () => true })
+  env.s.setLyrics('Song|A', 'Song', 'A', lines, true)
+  play(env, 0, 45)
+  env.s.stop(true)
+  await settle()
+  const cmds = env.calls.map((c) => c.cmd + (c.final ? ':final' : '') + (c.notes ? ':notes' : ''))
+  assert.ok(cmds.includes('align:final:notes'), cmds.join(' '))
+  assert.equal(cmds[cmds.length - 1], 'notes')
+  assert.deepEqual(env.got.done, [['Song', 0]])
+})
+
 // --- the wiring ---
 
 test('wiring: the setting, the tile, main\'s state to the lyrics window, the build files', () => {

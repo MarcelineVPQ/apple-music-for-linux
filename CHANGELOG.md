@@ -7,6 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Expressive words now appear on your songs.** In 0.15.52 they drew nothing on real songs: a play that filled in a few missed lyric lines skipped the step that measures the singing, and songs Sonata had learned before Expressive words existed were never measured again. Now every song is measured: a new song on its first full play, and a song learned earlier the next time it plays to the end (the whole song is listened to once more). Held notes then show as soon as the song has been measured, during that play when it's still on screen, otherwise from its next play. How it looks: while a singer holds a note, its vowel letter repeats in place ("take me hoooome tonight") and the rest of the line slides over to make room, then glides back; the letters waver with the singer's vibrato and a belted word gets bolder. A long held note also floats as large, faint letters behind the lyrics, growing with the note and fading when the voice lets go. On Development builds, *Wordless vocalise ghosts* adds a faint "ooo" where someone holds a note with no lyric word, like an intro's "ooh". Only what was measured with confidence is shown, and the word light and syllable pop stay exactly as they are. Settings → Playback & lyrics → Expressive words (on by default on Development builds, needs Precise word timing).
+
 ## [0.15.53-dev.1] — Experimental graphics switches stay on when you restart
 
 ### Fixed
