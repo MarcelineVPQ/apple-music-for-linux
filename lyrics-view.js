@@ -490,6 +490,8 @@ function createLyricsView(opts) {
   let interludes = []       // [{ index, start, end, el, dots: [i], row, anims }]
   let wordTimed = false
   let live = new Set()      // lines currently .active
+  // cache: OK — key=line index of the song on screen; invalidated=setData (a new song or layout) and each line's end (render); bound=the lines lit at once (1–3)
+  let held = new Map()      // new timing for a line that was lit when it came (0.15.59): taken at the line's end, never mid-line
   let shownInterlude = -1
   let shownNext = -1        // stage: line currently .next
   let scrollTarget = null
@@ -655,6 +657,7 @@ function createLyricsView(opts) {
     lineEls = []
     interludes = []
     live = new Set()
+    held = new Map()
     shownInterlude = -1
     shownNext = -1
     scrollTarget = null
@@ -859,15 +862,40 @@ function createLyricsView(opts) {
     showXNote()
   }
 
+  // New timing for line i (aligned, refined, streamed or learned). A line being sung keeps the timing it
+  // started with until it ends (0.15.59): results that arrive late on a processor-only PC re-timed the
+  // line on screen, and its lit words jumped back and forth. -> true when it was taken now
+  function retime(i, line, old) {
+    if (live.has(i)) {
+      held.set(i, line)
+      if (old !== undefined) lines[i] = old
+      return false
+    }
+    held.delete(i)
+    lines[i] = line
+    if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
+    return true
+  }
+  // the held timings of the lines no longer lit (render, after the lit set changed), once the new timing
+  // wouldn't light the line again either (it ends by now, or starts later: a seek back)
+  function takeHeld(time) {
+    // loop: HOT-PATH-OK — the held lines (≤ 3, usually none) per rendered frame while one is held
+    for (const [i, line] of held) {
+      if (live.has(i)) continue
+      if (line.t != null && time >= line.t && time < T.lineEnd(line, lines[i + 1])) continue
+      held.delete(i)
+      lines[i] = line
+      if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
+    }
+  }
+
   // refine by listening (Settings, experimental): main sends a line's new word timing once the line
   // has been sung; only that line's timing changes (same words, so the spans stay)
   function refine(msg) {
     const line = refinedLine(lines, msg, songKey)
     const entry = line && lineEls[msg.lineIndex]
     if (!entry) return
-    lines[msg.lineIndex] = S.lineWithSyllables(line, hyphenate)
-    entry.pos = null
-    entry.bgKey = null
+    retime(msg.lineIndex, S.lineWithSyllables(line, hyphenate))
     relearn()
     placeBacking()
     if (!refined) { refined = true; if (opts.notes) showNotes() }
@@ -887,12 +915,10 @@ function createLyricsView(opts) {
   function align(msg) {
     const got = alignedLines(lines, msg, songKey)
     if (!got) return
+    const old = lines
     lines = got.lines
     // loop: NOT-WORTH — the aligned lines (at most the song's line count) · per 'lyrics-aligned' message
-    for (const i of got.changed) {
-      lines[i] = S.lineWithSyllables(lines[i], hyphenate)
-      if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
-    }
+    for (const i of got.changed) retime(i, S.lineWithSyllables(lines[i], hyphenate), old[i])
     relearn()
     placeBacking()
     aligned = true
@@ -907,10 +933,14 @@ function createLyricsView(opts) {
     lines = got.lines
     // loop: NOT-WORTH — the changed lines (one or two per message) and their word spans
     for (const i of got.changed) {
+      // a streamed line's words are committed as they're heard: the line being sung takes them (a late word
+      // is lit without its pop), its earlier words keep their times (look-ahead streams only forward)
       lines[i] = S.lineWithSyllables(lines[i], hyphenate)
+      held.delete(i)
       const e = lineEls[i]
       if (!e) continue
       e.pos = e.bgKey = null
+      // loop: NOT-WORTH — one streamed line's word spans (~5-12), per 'lyrics-stream' message
       lines[i].words.forEach((w, j) => { if (e.words[j]) e.words[j].classList.toggle('late', !!w.late) })
     }
     relearn()
@@ -928,8 +958,7 @@ function createLyricsView(opts) {
     // loop: NOT-WORTH — one pass over the song's lines · per 'lyrics-refined' / 'lyrics-aligned' message
     for (let i = 0; i < next.length; i++) {
       if (next[i] === lines[i]) continue
-      lines[i] = S.lineWithSyllables(next[i], hyphenate)
-      if (lineEls[i]) lineEls[i].pos = lineEls[i].bgKey = null
+      retime(i, S.lineWithSyllables(next[i], hyphenate), lines[i])
     }
   }
 
@@ -1156,6 +1185,7 @@ function createLyricsView(opts) {
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
     live = next
+    if (held.size) takeHeld(time)
     if (xdoc) syncExpressions(time)
     if (opts.onSung) sungNow(gi >= 0 ? -1 : latest)
     let slides = null
@@ -1537,8 +1567,10 @@ function createLyricsView(opts) {
   // key (since 0.15.42): the song the time is for (main's lyrics key); a push for another song (the
   // previous one's last, or the next one's before its lyrics arrive) is dropped. A new song's first
   // samples that still carry the previous song's position are dropped too (lyrics-timing trackSample).
-  function setTime(playbackTime, isPlaying, key) {
+  // readAt (0.15.59): when Apple's page read the time (epoch ms); the push's age is added (lyrics-timing freshTime)
+  function setTime(playbackTime, isPlaying, key, readAt) {
     if (typeof key === 'string' && key !== songKey) return
+    playbackTime = T.freshTime(playbackTime, isPlaying, readAt, Date.now())
     if (waiting) {
       if (!T.trackSample(waiting, playbackTime, isPlaying, performance.now())) return
       waiting = null

@@ -389,3 +389,42 @@ test('active engine: <home>/active-engine names it; a protocol this client speak
   assert.equal(H.olderEngine('0.2.1-dev.3', '0.2.1'), true)
   assert.equal(H.olderEngine('0.2.10', '0.2.9'), false)
 })
+
+// --- processor only (0.15.59): below playback, cores left free, quits sooner ---
+test('processor only: the helper runs below playback (nice) with its threads capped; a GPU helper only gets the nice', async () => {
+  const set = []
+  const spawned = []
+  const realSpawn = require('child_process').spawn
+  const spy = (cmd, args, o) => { spawned.push(o.env); return realSpawn(cmd, args, o) }
+  const cpu = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {}, cpu: () => true }, { spawn: spy, setPriority: (pid, n) => set.push(n), cpuThreads: () => 3 })
+  try { await cpu.ping() } finally { cpu.stop() }
+  assert.deepEqual(set, [H.HELPER_NICE])
+  assert.equal(spawned[0].OMP_NUM_THREADS, '3')
+  assert.equal(spawned[0].MKL_NUM_THREADS, '3')
+  const gpu = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {}, cpu: () => false }, { spawn: spy, setPriority: (pid, n) => set.push(n), cpuThreads: () => 3 })
+  try { await gpu.ping() } finally { gpu.stop() }
+  assert.deepEqual(set, [H.HELPER_NICE, H.HELPER_NICE])
+  assert.equal(spawned[1].OMP_NUM_THREADS, process.env.OMP_NUM_THREADS)
+})
+
+test('processor only: two physical cores are left free (at least one thread), SMT siblings count once', () => {
+  const smt = (cores) => Array.from({ length: cores * 2 }, (_, i) => ({ cpu: i, core: '0:' + (i % cores) }))
+  assert.equal(H.cpuThreadsFor(smt(4)), 2)          // a 4-core / 8-thread laptop
+  assert.equal(H.cpuThreadsFor(smt(2)), 1)
+  assert.equal(H.cpuThreadsFor(smt(16)), 14)
+  assert.equal(H.cpuThreadsFor([]), 1)
+  const fake = { '/proc/self/status': 'Name:\tx\nCpus_allowed_list:\t0-3,8\n' }
+  const read = (f) => { if (f in fake) return fake[f]; const m = /cpu(\d+)\/topology\/(\w+)$/.exec(f); if (!m) throw new Error('no ' + f); return m[2] === 'core_id' ? String(+m[1] % 4) : '0' }
+  assert.deepEqual(H.allowedCpus(read).map((c) => c.core), ['0:0', '0:1', '0:2', '0:3', '0:0'])
+})
+
+test('processor only: the idle helper (its models: ~3 GB) quits after the short limit even with a view open (fake clock)', async () => {
+  const clock = fakeClock()
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {}, warm: () => true, cpu: () => true },
+    { setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, now: clock.now, setPriority: () => {} })
+  await h.ping()
+  clock.advance(H.IDLE_MS - 1000)
+  assert.equal(h.running, true)
+  clock.advance(2000)
+  await waitFor(() => !h.running, 3000)
+})

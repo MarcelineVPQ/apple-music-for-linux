@@ -374,6 +374,8 @@ const nowPlayingScript = `(() => {
         const t = el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
         return Number.isFinite(t) && t > 0 && Math.abs(t - mkTime) < 1.5 ? t : mkTime;
       })(),
+      /* when that time was read (epoch ms): the views add the push's age (lyrics-timing freshTime) */
+      readAt: Date.now(),
       artworkLarge: attrs && attrs.artwork && attrs.artwork.url
         ? attrs.artwork.url.replace('{w}', 512).replace('{h}', 512)
         : '',
@@ -643,8 +645,15 @@ function getAlignHelper() {
   alignInstalled()
   // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
   // want: a notes job also asks for the measured expression while Expressive words is on (when the helper serves it)
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, want: () => (expressiveOn() ? ['expr'] : []), log: (m) => console.log('align:', m) })
+  // cpu: a processor-only helper runs below playback with cores left free, and quits sooner (align-helper.js HELPER_NICE)
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, cpu: alignCpuOnly, want: () => (expressiveOn() ? ['expr'] : []), log: (m) => console.log('align:', m) })
   return alignHelper
+}
+// Processor only (0.15.59): the helper's last pong ran on the CPU, or (before one) the installed build is the CPU one.
+// Then first plays are timed after the song (align-session.js slow), never section by section during it.
+function alignCpuOnly() {
+  if (alignRunDevice) return alignRunDevice === 'cpu'
+  return !!(helperFiles && helperFiles.backend === 'cpu')
 }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
 // the engine version this Sonata runs (the pin in align/engine.json, ''  with SONATA_ENGINE_DIR): kept in
@@ -666,6 +675,7 @@ function getAlignSession() {
       // a plain song placed from the audio while on screen: the next tick sends its lyrics again
       resend: (key) => { if (lyricsKey === key) lyricsKey = null },
       paused: () => alignPaused(),
+      slow: alignCpuOnly,
       notes: {
         wanted: () => notesActive() && getNotesSwitch().wanted(),
         syl: notesLogLib.syllableSpec,
@@ -727,6 +737,7 @@ function sungNotesFailed(s, e) {
   if (code === 'no-model' && notesSwitch) notesSwitch.learn({ note_models: { rmvpe: false } })
   if (!settings.sungNotesLog && !settings.sheetNotes) return
   const why = code === 'paused' ? 'skipped while a game ran'
+    : code === 'dropped' ? 'it stopped playing before the helper got to it (next time)'
     : code === 'no-model' ? 'the pitch model is not downloaded (turn the switch off and on to download it)'
       : code === 'low-vram' ? 'not enough free graphics memory'
         : code === 'no-stem' ? 'the helper no longer had the song (it was restarted)'
@@ -906,16 +917,17 @@ function sheetNotesDone(s, result, lineOffset) {
 function sheetNotesFailed(s, e) {
   if (!sheetNotesOn() && !expressiveOn()) return
   const code = (e && e.code) || ''
-  // a game running, or no pitch model yet, isn't the song's fault: not counted, tried again on a later play
+  // a game running, no pitch model yet, or a job dropped because its song stopped playing (align-session
+  // prune) isn't the song's fault: not counted, tried again on a later play
   // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
-  if (code !== 'paused' && code !== 'no-model') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
+  if (code !== 'paused' && code !== 'no-model' && code !== 'dropped') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
   // the song kept its notes from an earlier play (a later pass failed, sheet-notes-store.js failed): the band keeps them, the log says why
   // error: NOT-WORTH — a store read that throws: no cached notes, the band's message below says the pass failed
   let kept = false
   try { kept = sheetModel.entryValid(getSheetStore().get(s.title, s.artist), s.hash) } catch (err) {}
   if (kept) { console.log('align: notes of "' + s.title + '": a later pass failed (' + (code || (e && e.message) || 'error') + '); its notes from an earlier play are kept'); return }
   if (sheet && sheet.key === s.key) {
-    sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'no-model' ? 'The pitch model is not downloaded: turn Sheet notes off and on to download it'
+    sheet.error = code === 'paused' ? 'No notes this time: a game was running' : code === 'dropped' ? 'No notes this time: the helper was still busy' : code === 'no-model' ? 'The pitch model is not downloaded: turn Sheet notes off and on to download it'
       : code === 'low-vram' ? 'No notes this time: not enough free graphics memory' : 'No notes this time: ' + ((e && e.message) || 'unknown error')
     sendSheet()
   }
@@ -937,8 +949,10 @@ let alignNote = ''
 function alignPaused() { return !!(settings.alignGamingPause && gameGuard && gameGuard.paused) }
 function alignNoteNow() {
   const paused = alignPaused() && preciseTimingOn() && alignSession && alignSession.active ? gameGuardLib.pauseText(gameGuard.state) : ''
-  return paused || lookaheadNote()
+  return paused || lookaheadNote() || (preciseTimingOn() && alignSession && alignSession.learnsAfter ? LEARNS_AFTER_NOTE : '')
 }
+// processor only (align-session.js slow): the song on screen is timed after it ends, not while it plays
+const LEARNS_AFTER_NOTE = 'Precise timing after this song, to keep playback smooth'
 // Settings' line under the switch: what the song playing now got; a delayed song whose stream the helper
 // refused says its timing comes in sections
 function lookaheadStatusText() {
@@ -1251,9 +1265,12 @@ async function lyricsTick() {
   // is for (the views drop a time for another song, lyrics-view.js setTime). After a slow lookup this
   // tick's time is that old: the next tick (500 ms) sends a fresh one instead.
   // look-ahead: the views run on what the listener hears (the player's time minus the helper's delay)
+  // readAt (0.15.59): when Apple's page read the time; the views add the push's age, so a late push on a busy
+  // PC no longer reads as "the words are ahead" (the words jumped back and forth). Older than 1 s: not sent.
   const heard = heardState(state)
   lookaheadReady = heard.heardReady !== false
-  if (Date.now() - sampledAt < 250) sendLyrics('lyrics-time', heard.playbackTime, heard.isPlaying, key)
+  const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
+  if (Date.now() - readAt < 1000) sendLyrics('lyrics-time', heard.playbackTime, heard.isPlaying, key, readAt)
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine)

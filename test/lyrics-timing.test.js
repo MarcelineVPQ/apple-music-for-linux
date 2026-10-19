@@ -91,8 +91,9 @@ test('clock: counts on between pushes and keeps a consistent fractional time', (
   let c = T.syncClock(null, 10.0, true, 0)
   c = T.syncClock(c, 10.5, true, 500)
   assert.equal(T.clockTime(c, 750), 10.75)
-  c = T.syncClock(c, 11.1, true, 1000)            // 0.1 s off: ease halfway toward it
-  assert.ok(Math.abs(T.clockTime(c, 1000) - 11.05) < 1e-9)
+  c = T.syncClock(c, 11.1, true, 1000)            // 0.1 s off: slewed in (0.15.59), no step
+  assert.ok(Math.abs(T.clockTime(c, 1000) - 11.0) < 1e-9)
+  assert.ok(Math.abs(T.clockTime(c, 1200) - 11.3) < 1e-9)   // 0.2 s on + the 0.1 s taken in
   c = T.syncClock(c, 40.2, true, 1500)            // seek elsewhere: snap
   assert.equal(T.clockTime(c, 1500), 40.2)
 })
@@ -108,6 +109,46 @@ test('clock: whole-second times are kept while inside [v, v+1)', () => {
   assert.equal(T.clockTime(c, 1600), 11.6)
   c = T.syncClock(c, 13, true, 2000)              // ahead of the clock (12): snap
   assert.equal(T.clockTime(c, 2000), 13)
+})
+
+// 0.15.59: on a processor-only PC under load the pushes come late and jittered; the clock (and so a lit
+// word) must never step backwards, and it must still follow the song
+test('clock: late, jittered pushes never move it backwards, and it stays with the song', () => {
+  let seed = 7
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+  let c = T.syncClock(null, 0.01, true, 0)
+  let shown = 0
+  let worst = 0
+  for (let now = 500; now < 300000; now += 100) {
+    if (now % 500 === 0) {
+      const late = rnd() < 0.3 ? 0.15 + rnd() * 0.35 : rnd() * 0.05      // a third of the pushes 0.15–0.5 s late
+      c = T.syncClock(c, now / 1000 - late + 0.0001, true, now)
+    }
+    const t = T.clockTime(c, now)
+    assert.ok(t >= shown - 1e-9, 'stepped back at ' + now + ': ' + shown + ' -> ' + t)
+    shown = t
+    worst = Math.max(worst, Math.abs(t - now / 1000))
+  }
+  assert.ok(worst < 0.6, 'off by ' + worst)
+})
+
+test('clock: a push older than the clock is slewed, a real seek back still jumps', () => {
+  let c = T.syncClock(null, 10.0, true, 0)
+  c = T.syncClock(c, 10.5, true, 500)
+  c = T.syncClock(c, 10.6, true, 1000)            // 0.4 s behind (a late push): no step back
+  assert.ok(T.clockTime(c, 1000) >= 11 - 1e-9)
+  assert.ok(T.clockTime(c, 1100) > T.clockTime(c, 1000))
+  assert.ok(Math.abs(T.clockTime(c, 3000) - 12.6) < 1e-9)  // caught up: the pushed 10.6 plus 2 s
+  c = T.syncClock(c, 2.0, true, 3500)             // the listener went back to the verse: snapped
+  assert.equal(T.clockTime(c, 3500), 2.0)
+})
+
+test('clock: freshTime adds the age of the read while playing (at most 1 s)', () => {
+  assert.equal(T.freshTime(10, true, 1000, 1300), 10.3)
+  assert.equal(T.freshTime(10, false, 1000, 1300), 10)
+  assert.equal(T.freshTime(10, true, 1000, 9000), 11)
+  assert.equal(T.freshTime(10, true, 2000, 1000), 10)
+  assert.equal(T.freshTime(10, true, undefined, 1000), 10)
 })
 
 test('clock: pause by isPlaying or by a time that stops moving', () => {

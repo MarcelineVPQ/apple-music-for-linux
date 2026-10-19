@@ -1075,8 +1075,8 @@
   ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
   ipcRenderer.on('lyrics-expr-note', (event, note) => view.exprNote(note))   // Expressive words' line (lyrics-view.js showXNote)
 
-  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying, key) => {
-    view.setTime(playbackTime, isPlaying, key)
+  ipcRenderer.on('lyrics-time', (event, playbackTime, isPlaying, key, readAt) => {
+    view.setTime(playbackTime, isPlaying, key, readAt)
     updateStill()
     if (document.visibilityState === 'visible') updateRing(view.time())
   })

@@ -12,6 +12,7 @@
 // MAX_CRASHES crashes in one app run it stays off.
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 const { spawn } = require('child_process')
 const V = require('./version-display')   // the engine version as people see it
 
@@ -203,13 +204,18 @@ function repairText(health) {
 }
 
 /** The helper's environment: ours minus anything an AppImage/Electron sets that would break the venv. */
-function helperEnv(env, home) {
+function helperEnv(env, home, threads) {
   const out = Object.assign({}, env)
   // loop: NOT-WORTH — six names, once per helper spawn
   for (const k of ['LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'ELECTRON_RUN_AS_NODE']) delete out[k]
   out.SONATA_ALIGN_HOME = home
   out.PYTHONUNBUFFERED = '1'
   out.PYTHONDONTWRITEBYTECODE = '1'   // the AppImage mount is read-only
+  // a processor-only helper's PyTorch / BLAS threads (cpuThreadsFor): cores stay free for playback
+  if (threads > 0) {
+    // loop: NOT-WORTH — four names, once per helper spawn
+    for (const k of ['OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS']) out[k] = String(threads)
+  }
   return out
 }
 
@@ -241,6 +247,42 @@ process.on('exit', () => { for (const p of live) { try { p.kill('SIGKILL') } cat
  * The wait before an idle helper quits (ms, ≥ 0): the limit for the views' state minus the time it has
  * already been idle. idleFor: ms since the last job ended; warm: a lyric view is open.
  */
+// Processor-only PCs (0.15.59, Marcy's laptop: Sonata at 53 % CPU and 3.5 GiB after an album on repeat,
+// words jumping): the helper runs at a lower priority than playback (HELPER_NICE: the music, Apple's page and
+// the lyric clock always come first) and with CPU_FREE cores left free (its PyTorch threads, OMP_NUM_THREADS);
+// with its models loaded it holds ~3 GB of memory, so it quits after IDLE_MS idle even while a view is open.
+const HELPER_NICE = 10
+const CPU_FREE = 2
+
+/**
+ * The PyTorch threads for a processor-only helper: the physical cores this process may use, CPU_FREE left
+ * free (at least 1). cpus: [{ cpu, core }] (core: a physical core's id, e.g. "package:core").
+ */
+function cpuThreadsFor(cpus) {
+  const cores = new Set((cpus || []).map((c) => c.core))
+  return Math.max(1, cores.size - CPU_FREE)
+}
+
+/** The CPUs this process may run on, with their physical core (Linux sysfs; elsewhere os.cpus(), one core each). */
+function allowedCpus(read = (f) => require('fs').readFileSync(f, 'utf8')) {
+  // error: NOT-WORTH — no /proc or sysfs (another OS, a sandbox): every logical CPU counts as its own core
+  try {
+    const list = /Cpus_allowed_list:\s*(\S+)/.exec(read('/proc/self/status'))[1]
+    const ids = []
+    // loop: NOT-WORTH — a few ranges, once per helper spawn
+    for (const part of list.split(',')) { const [a, b] = part.split('-').map(Number); for (let i = a; i <= (b === undefined ? a : b); i++) ids.push(i) }
+    // loop: NOT-WORTH — the allowed CPUs (≤ a few dozen), once per helper spawn
+    return ids.map((cpu) => {
+      const t = '/sys/devices/system/cpu/cpu' + cpu + '/topology/'
+      let core = String(cpu)
+      try { core = read(t + 'physical_package_id').trim() + ':' + read(t + 'core_id').trim() } catch (e) {}   // error: NOT-WORTH — no topology: its own core
+      return { cpu, core }
+    })
+  } catch (e) {
+    return os.cpus().map((c, i) => ({ cpu: i, core: String(i) }))
+  }
+}
+
 function idleDelay(idleFor, warm, coldMs = IDLE_MS, warmMs = WARM_IDLE_MS) {
   return Math.max(0, (warm ? warmMs : coldMs) - Math.max(0, idleFor || 0))
 }
@@ -283,6 +325,10 @@ function createAlignHelper(opts, deps = {}) {
   const idleMs = opts.idleMs || IDLE_MS
   const warmIdleMs = opts.warmIdleMs || WARM_IDLE_MS
   const warm = opts.warm || (() => false)
+  // processor only (the last pong said cpu, or the installed build is the CPU one): see HELPER_NICE
+  const cpuOnly = opts.cpu || (() => false)
+  const setPriority = deps.setPriority || ((pid, n) => os.setPriority(pid, n))
+  const cpuThreads = deps.cpuThreads || (() => cpuThreadsFor(allowedCpus()))
   const now = deps.now || Date.now
   let idleSince = 0           // when the last job ended (0: busy or not running)
   const jobTimeoutMs = opts.jobTimeoutMs || JOB_TIMEOUT_MS
@@ -334,7 +380,7 @@ function createAlignHelper(opts, deps = {}) {
     if (!child || pending.size) { idleSince = 0; return }
     if (releasing) { releasing = false; quit(); return }
     if (!idleSince) idleSince = now()
-    const wait = idleDelay(now() - idleSince, !!warm(), idleMs, warmIdleMs)
+    const wait = idleDelay(now() - idleSince, !!warm() && !cpuOnly(), idleMs, warmIdleMs)
     if (!wait) { quit(); return }
     // loop: none · one-shot idle timer · re-armed after each job and when the lyric views open/close · fires once: quit the helper
     idle = setT(() => { idle = null; if (!pending.size) quit() }, wait)
@@ -369,7 +415,12 @@ function createAlignHelper(opts, deps = {}) {
     if (crashes >= MAX_CRASHES) throw new Error('helper crashed ' + crashes + ' times, off until restart')
     if (!installedFn()) throw new Error('sonata-align is not installed (Settings → Precise timing → Install)')
     const p = opts.paths
-    const c = doSpawn(p.python, ['-u', p.server], { stdio: ['pipe', 'pipe', 'pipe'], env: helperEnv(opts.env || process.env, p.home) })
+    const cpu = !!cpuOnly()
+    const c = doSpawn(p.python, ['-u', p.server], { stdio: ['pipe', 'pipe', 'pipe'], env: helperEnv(opts.env || process.env, p.home, cpu ? cpuThreads() : 0) })
+    // below playback (HELPER_NICE), set before the helper starts its threads (they inherit it): on a busy
+    // PC the music, Apple's page and the lyric clock always come first
+    // error: LOGGED-OK — no pid (spawn failed: 'error' follows) or not allowed: the helper runs at the normal priority
+    try { if (c && c.pid) setPriority(c.pid, HELPER_NICE) } catch (e) { log('helper priority: ' + e.message) }
     // lifetime: OK — one helper child · ends on quit (idle), stop(), a timeout kill, its own crash, or process exit (live)
     child = c
     releasing = false
@@ -593,4 +644,4 @@ function createAlignHelper(opts, deps = {}) {
   return api
 }
 
-module.exports = { PROTOCOLS, enginePin, activeEngine, olderEngine, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, wantFor, withWant, idleDelay, IDLE_MS, WARM_IDLE_MS }
+module.exports = { PROTOCOLS, enginePin, activeEngine, olderEngine, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, wantFor, withWant, idleDelay, IDLE_MS, WARM_IDLE_MS, HELPER_NICE, CPU_FREE, cpuThreadsFor, allowedCpus }

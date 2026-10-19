@@ -227,7 +227,7 @@ function setup(helperImpl, extra = {}) {
       listeners.push(l)
       return l
     },
-    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused
+    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused, slow: extra.slow
   })
   return { s, listeners, sent, logs, store, calls, setNow: (v) => { nowMs = v } }
 }
@@ -481,6 +481,94 @@ test('session: jobs run one at a time, in order', async () => {
   await env.s.stop(true)
   assert.equal(most, 1)
   assert.deepEqual(order, ['first verse one', 'second verse one', 'first verse one'])   // + the whole song
+})
+
+// --- processor only (0.15.59): timed after the song, and a queue that never outgrows the song on screen ---
+test('session, processor only: no section jobs while the song plays; one whole-song job after it, nothing sent mid-play', async () => {
+  const env = setup(echoHelper, { slow: () => true })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  assert.equal(env.s.learnsAfter, true, 'the view says it is timed after the song')
+  const secs = A.sections(VERSES)
+  assert.equal(play(env, 0, secs[1].end - 1), null, 'nothing handed over while it plays')
+  assert.equal(env.calls.length, 0)
+  play(env, secs[1].end - 1, secs[1].end + 1)
+  env.s.setLyrics('Next|Artist', 'Next', 'Artist', VERSES, true)    // the next song: the first one's job runs now
+  await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(env.calls.length, 1, 'one job: the whole song')
+  assert.equal(env.calls[0][0].lines.length, 4)
+  const e = env.store.get('aligned|Song|Artist')
+  assert.equal(e.partial, false)
+  assert.equal(e.aligned, 4)
+  assert.deepEqual(env.sent, [], 'no words sent for a song no longer on screen')
+})
+
+test('session, processor only: a song left before its end still times the sections it heard', async () => {
+  const env = setup(echoHelper, { slow: () => true })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, secs[0].end + 1)
+  const job = env.s.stop(true)
+  await job
+  assert.equal(env.calls.length, 1)
+  assert.equal(env.calls[0][0].lines.length, 2, 'the first verse only')
+})
+
+test('session: the helper queue holds the song on screen and the one before it, never more', async () => {
+  const gates = []
+  const env = setup((id, msgs) => new Promise((r) => gates.push(() => r(echoHelper(id, msgs)))), { slow: () => true })
+  const secs = A.sections(VERSES)
+  const full = (title) => { env.s.setLyrics(title + '|Artist', title, 'Artist', VERSES, true); env.setNow(0); play(env, 0, secs[1].end + 1) }
+  full('A')
+  full('B')                    // A's whole-song job starts (the helper is busy with it)
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(gates.length, 1)
+  full('C')                    // B's job waits behind A's
+  assert.equal(env.s.waiting, 1)
+  full('D')                    // C's job queued; B is two songs back: its waiting job is dropped
+  assert.equal(env.s.waiting, 1, 'only C waits')
+  assert.ok(env.logs.some((l) => /dropped the waiting work for "B"/.test(l)))
+  while (gates.length) { gates.shift()(); await new Promise((r) => setTimeout(r, 0)) }
+  assert.equal(env.calls.length, 2, 'A and C were timed, B was not')
+  assert.ok(env.store.get('aligned|A|Artist'))
+  assert.equal(env.store.get('aligned|B|Artist'), null)
+  assert.ok(env.store.get('aligned|C|Artist'))
+})
+
+test('session: a last line sung close to the song\'s end still completes the song (sections end by its length)', async () => {
+  const env = setup(echoHelper)
+  const duration = 36.0                  // the last line starts at 33: its estimated end (≈ 37.8) is past the recording
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true, { duration })
+  play(env, 0, duration)
+  env.s.setLyrics('Next|Artist', 'Next', 'Artist', VERSES, true, { duration })
+  // loop: test only
+  for (let k = 0; k < 5; k++) await new Promise((r) => setTimeout(r, 0))
+  assert.equal(env.calls.length, 3, 'both verses and the whole song')
+  assert.equal(env.store.get('aligned|Song|Artist').partial, false)
+  const fit = A.fitToSong(A.lyricSpan(VERSES), A.sections(VERSES), duration)
+  assert.equal(fit.span.end, duration - A.END_SLACK)
+  assert.equal(fit.secs[1].end, duration - A.END_SLACK)
+  assert.deepEqual(A.fitToSong(A.lyricSpan(VERSES), A.sections(VERSES), 0).secs, A.sections(VERSES))
+})
+
+test('session soak: 30 songs on a helper slower than the music: the queue stays at the two newest, no audio kept, the listener stopped', async () => {
+  const gates = []
+  const env = setup((id, msgs) => new Promise((r) => gates.push(() => r(echoHelper(id, msgs)))), { slow: () => true })
+  const secs = A.sections(VERSES)
+  // loop: test only
+  for (let n = 0; n < 30; n++) {
+    env.s.setLyrics('S' + n + '|Artist', 'S' + n, 'Artist', VERSES, true)
+    env.setNow(0)
+    play(env, 0, secs[1].end + 1)
+    assert.ok(env.s.waiting <= 1, 'song ' + n + ': ' + env.s.waiting + ' jobs waiting')
+  }
+  env.s.stop(false)
+  assert.equal(env.s.bufferBytes, 0)
+  assert.ok(env.listeners.every((l) => l.stopped >= l.started))
+  // loop: test only
+  while (gates.length) { gates.shift()(); await new Promise((r) => setTimeout(r, 0)) }
+  assert.ok(env.calls.length <= 3, env.calls.length + ' jobs ran for 30 songs on a busy helper')
+  assert.equal(env.s.waiting, 0)
 })
 
 // --- shared listener ---

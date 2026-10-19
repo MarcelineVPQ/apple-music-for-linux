@@ -297,7 +297,8 @@ function view(expr, reduce, data = {}, rowW = 1000) {
   }
   return { doc, list, v }
 }
-const at = (v, t, playing = true) => { nowMs += 1000; v.setTime(t, playing, 'k1') }
+// each call is a jump to song time t (10 s of wall time later: never inside the clock's slew, lyrics-timing syncClock)
+const at = (v, t, playing = true) => { nowMs += 10000; v.setTime(t, playing, 'k1') }
 
 test('view: without expr (the setting off, or an older engine) the lines are exactly the plain karaoke', () => {
   const a = view(null)
@@ -623,7 +624,7 @@ test('main: the Expressive words line is sent on change, its button opens Settin
   assert.match(src, /job: alignSession && preciseTimingOn\(\) \? alignSession\.notesState\(key\) : ''/)
   // a missing pitch model is remembered for Expressive words too, and never marks the song as failed
   assert.match(src, /if \(code === 'no-model' && notesSwitch\) notesSwitch\.learn\(\{ note_models: \{ rmvpe: false \} \}\)\n\s+if \(!settings\.sungNotesLog && !settings\.sheetNotes\) return/)
-  assert.match(src, /if \(code !== 'paused' && code !== 'no-model'\)/)
+  assert.match(src, /if \(code !== 'paused' && code !== 'no-model' && code !== 'dropped'\)/)
   // the measured song on screen gets its lyrics again, with the expression, in the same play
   assert.match(src, /if \(entry\.expr && lyricsKey === s\.key\) lyricsKey = null/)
   const html = read('lyrics.html')

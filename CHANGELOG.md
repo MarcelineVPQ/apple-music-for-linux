@@ -7,6 +7,17 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.59-dev.1] — Smooth on laptops: Precise timing stays out of playback's way on processor-only PCs
+
+### Fixed
+- **The words no longer jump back and forth.** On a PC without a graphics card for the helper (a laptop with Intel graphics: "Processor only"), timing a new song took longer than the song itself. The lyric clock then stepped backwards whenever a late update arrived, and words timed 20–50 s late re-timed the very line being sung, so a lit word went dark again. Now the clock never moves backwards (it eases small differences in, and takes the update's delay into account), and a line being sung keeps its timing until it ends; the new timing applies from the next line.
+- **Sonata no longer gets slower and bigger the longer an album repeats.** On a processor-only PC the helper fell behind the music and kept every waiting song's audio and work in a queue (Marcy's laptop: 53 % CPU and 3.5 GiB after a long stretch, 3 % and 600 MiB after a restart). The helper now only works on the song playing and the one before it; anything older is dropped (it is timed on a later play).
+- **A song whose last line comes right at its end is timed completely.** Its last section was never counted as heard, so the song was recorded again on every play without ever finishing.
+
+### Changed
+- **Processor only: songs are timed after they play.** Instead of section by section during the song, a new song is timed once, as a whole, when it ends, about half the work. The lyrics say "Precise timing after this song, to keep playback smooth" meanwhile; the next play has the precise words.
+- **The helper runs below the music.** It runs at a lower priority than playback on every PC; on a processor-only PC it also leaves two cores free and quits after 2 minutes idle (its models hold about 3 GB of memory) instead of 10.
+
 ## [0.15.58-dev.1] — Settings, reorganised: Precise timing first, everything in one place
 
 ### Changed

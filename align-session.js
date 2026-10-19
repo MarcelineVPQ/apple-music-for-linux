@@ -147,6 +147,17 @@ function canAlign(raw) {
 
 /** [start, end] of the singing, from the first line's start to the last line's end (s). The
  * song is aligned once TAIL_PAD s past the end, while it still plays, or at the track change. */
+// A last line sung close to the song's end (0.15.59): its estimated end (lyricSpan's allowance) ran past the
+// recording, so its section was never "heard", the song never got its whole-song pass and was recorded
+// again on every play (One Way Street on the album-on-repeat rig). Span and sections end by the song's end.
+const END_SLACK = 1.5         // s before the song's length: the track change can come a tick early
+/** span and sections cut to the song's length (duration s; 0: unknown) -> { span, secs } */
+function fitToSong(span, secs, duration) {
+  const cap = Number(duration) > 0 ? Number(duration) - END_SLACK : Infinity
+  const fit = (x) => (x.end > cap && cap > x.start ? Object.assign({}, x, { end: cap }, x.at != null ? { at: Math.min(x.at, cap + TAIL_PAD) } : {}) : x)
+  return { span: span ? fit(span) : span, secs: secs.map(fit) }
+}
+
 function lyricSpan(lines) {
   const synced = (lines || []).filter((l) => l.t != null)
   if (!synced.length) return null
@@ -754,8 +765,37 @@ function createAlignSession(deps) {
   const notesOn = (s, on) => { s.notesQueued = on; if (on) noting.add(s.key); else noting.delete(s.key) }
   let songs = 0
   const paused = deps.paused || (() => false)    // gaming guard (main.js): no recording, no new jobs
+  // processor only (main.js alignCpuOnly, 0.15.59): a first play is timed after the song, as a whole, never
+  // section by section while it plays (on a laptop each section took 20-50 s: the helper fell behind the
+  // music, its late words re-timed the lines on screen and its queue held every waiting song's audio)
+  const slow = deps.slow || (() => false)
   // lifetime: one promise chain of helper jobs (each holds one section's PCM until it is sent)
   let queue = Promise.resolve()
+  // The queue never grows beyond the song on screen and the one before it (0.15.59): a job not started yet
+  // for an older song is dropped with its audio (that song is timed on a later play). Marcy's laptop had an
+  // album on repeat run ahead of the helper for an hour: 3.5 GiB, 53 % CPU, words of songs long gone.
+  // cache: OK — key=a queued job not started yet; invalidated=its start, or prune() when its song is two songs back; bound=the jobs of two songs
+  const pending = new Set()
+  let lastSong = null      // the song heard before the one on screen (its end-of-song jobs still run)
+  const current = (x) => x === song || x === lastSong
+  // -> start(): true when the job may run now (false: dropped, its audio already freed)
+  function track(x, free) {
+    const j = { s: x, free }
+    pending.add(j)
+    return () => {
+      if (!pending.delete(j)) return false
+      if (current(x)) return true
+      free()
+      return false
+    }
+  }
+  function prune() {
+    const gone = new Set()
+    // loop: NOT-WORTH — the jobs queued (a few; at most two songs' worth) · per song change
+    for (const j of pending) if (!current(j.s)) { pending.delete(j); j.free(); gone.add(j.s.title) }
+    // loop: NOT-WORTH — the songs dropped (one or two) · per song change
+    for (const t of gone) log('dropped the waiting work for "' + t + '": it is no longer playing (timed on a later play)')
+  }
 
   function onChunk(mid, wallMs, side) {
     if (!song || song.sent || !clock || !clock.playing) return
@@ -872,6 +912,7 @@ function createAlignSession(deps) {
     const until = s.plain ? s.buf.end : Math.min(s.buf.end, (sec ? sec.end : s.span.end) + TAIL_PAD)
     const spans = s.buf.spans
     let pcm = s.buf.pcm(until, req.offset)
+    const start = track(s, () => { pcm = null })
     const id = 'a' + (++jobs)
     const lineHeard = (line, next) => {
       const a = line.t
@@ -886,6 +927,7 @@ function createAlignSession(deps) {
     // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
     const fromKept = () => !sec && s.secs.length > 0 && s.secs.every((x) => s.kept.has(x.from))
     const run = () => {
+      if (!start()) return null
       if (s.failed) { pcm = null; return null }
       // gaming guard: a job not started yet is skipped; its lines fill in on a later play
       if (paused()) { pcm = null; log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
@@ -945,6 +987,7 @@ function createAlignSession(deps) {
   // error: SHOWN — a failure is handed to deps.notes.pitch(song, null, error): the band says the line is missing
   function sectionPitch(s, offset, what) {
     if (paused()) { log('skipped the pitch line of ' + what + ' of "' + s.title + '" (paused while gaming)'); return Promise.resolve() }
+    if (!current(s)) return Promise.resolve()
     const qid = 'q' + (++jobs)
     const started = deps.now()
     return Promise.resolve()
@@ -967,7 +1010,12 @@ function createAlignSession(deps) {
   function submitNotes(s, lines, lineOffset) {
     const nid = 'n' + (++jobs)
     const syl = deps.notes.syl(lines, s.info && s.info.lang)
+    const start = track(s, () => {})
     const run = () => {
+      if (!start()) {
+        deps.notes.failed(s, Object.assign(new Error('the song is no longer playing'), { code: 'dropped' }))
+        return null
+      }
       if (paused()) {
         log('skipped the sung notes of "' + s.title + '" (paused while gaming)')
         deps.notes.failed(s, Object.assign(new Error('skipped while a game ran'), { code: 'paused' }))
@@ -1001,9 +1049,11 @@ function createAlignSession(deps) {
     const req = sectionRequest(s.raw, sec, sec === s.secs[0])
     const until = Math.min(s.buf.end, sec.end + TAIL_PAD)
     let pcm = s.buf.pcm(until, req.offset)
+    const start = track(s, () => { pcm = null })
     const id = 'g' + (++jobs)
     const what = 'lines ' + (sec.from + 1) + '–' + (sec.to + 1) + ' of ' + s.raw.length
     const run = () => {
+      if (!start()) return null
       if (s.failed || s.cancelled) { pcm = null; return null }
       if (paused()) { pcm = null; log('skipped separating ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
       const started = deps.now()
@@ -1034,9 +1084,14 @@ function createAlignSession(deps) {
   function submitGivenNotes(s) {
     notesOn(s, true)
     let pcm = s.buf.pcm(Math.min(s.buf.end, s.span.end + TAIL_PAD), 0)
+    const start = track(s, () => { pcm = null })
     const nid = 'n' + (++jobs)
     const syl = givenSyllables(s.raw, LS.hyphenatorFor((s.info && s.info.lang) || 'en'))
     const run = () => {
+      if (!start()) {
+        deps.notes.failed(s, Object.assign(new Error('the song is no longer playing'), { code: 'dropped' }))
+        return null
+      }
       if (s.cancelled) { pcm = null; return null }
       if (paused()) {
         pcm = null
@@ -1097,6 +1152,17 @@ function createAlignSession(deps) {
       wrapUp(s)
       return job
     }
+    // processor only: no section jobs while the song plays; heard to its end, it is timed once as a whole
+    // (one job instead of a section per few lines plus the whole); left before its end, the sections heard
+    if (s.slow && !s.wholeDone && s.secs.length > 1) {
+      if (!final) return null
+      if (heardWhole(s)) {
+        s.next = s.secs.length
+        job = submit(s, null)
+        wrapUp(s)
+        return job
+      }
+    }
     // loop: HOT-PATH-OK — over the sections not yet handled (≤ ~10 per song) · per tick
     while (s.next < s.secs.length) {
       const sec = s.secs[s.next]
@@ -1132,6 +1198,8 @@ function createAlignSession(deps) {
     const s = song
     song = null
     clock = null
+    if (s) lastSong = s
+    prune()
     if (!s || s.sent) { if (s) closeStream(s, true); return null }
     if (submitIfHeard) return due(s, Infinity, true)
     closeStream(s, true)
@@ -1154,10 +1222,11 @@ function createAlignSession(deps) {
       // Sheet notes for lyrics with their own word timing: recorded for the notes only (no alignment)
       if (enabled && canGiveNotes(raw) && deps.notes && deps.notes.missing && deps.helper.separate && deps.helper.givenNotes &&
         deps.notes.wanted() && deps.notes.missing(title, artist, lyricsHash(raw))) {
-        const secs = sections(raw)
+        const fitted = fitToSong(lyricSpan(raw), sections(raw), info && info.duration)
+        const secs = fitted.secs
         if (!secs.length) return
         log('recording "' + title + '" for its sheet notes (its own word timing)')
-        song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: lyricSpan(raw), secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false }
+        song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: fitted.span, secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false }
         return
       }
       // timed for another version (info.plain: recording-id timingMismatch, or true for a song that has a
@@ -1180,7 +1249,8 @@ function createAlignSession(deps) {
       const hash = lyricsHash(raw)
       const found = findAligned(deps.store, title, artist, raw, info)
       const have = validEntry(found.entry, hash, raw)
-      const secs = sections(raw)
+      const fitted = fitToSong(lyricSpan(raw), sections(raw), info && info.duration)
+      const secs = fitted.secs
       // a complete entry with missed lines (0.15.39): their sections once more, on at most MAX_FILLS plays
       const refill = refillSections(have, secs)
       const complete = !!(have && !have.partial && !refill.length)
@@ -1203,9 +1273,10 @@ function createAlignSession(deps) {
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
       if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
       else if (notesMissing) log('recording "' + title + '" whole this time, for its sheet notes')
-      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: lyricSpan(raw), secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song,
+      song = { id: 's' + (++songs), key, title, artist, raw, hash, span: fitted.span, secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song,
         // look-ahead play: this first play is heard info.lookahead ms late; its words come from a stream
         lookahead: !have && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '' }
+      song.slow = !song.lookahead && !!slow()
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
     tick(playbackTime, isPlaying, enabled) {
@@ -1235,6 +1306,10 @@ function createAlignSession(deps) {
     /** A song on screen still needs alignment work (the gaming guard only polls then). */
     get active() { return !!(song && !song.sent) },
     get bufferBytes() { return song ? song.buf.bytes : 0 },
+    /** Processor only: the song on screen is being recorded to be timed after it ends (main.js's view note). */
+    get learnsAfter() { return !!(song && song.slow && !song.sent && !song.failed && !song.wholeDone && song.secs.length > 1) },
+    /** The helper jobs queued and not started (tests, For the Curious). */
+    get waiting() { return pending.size },
     /** Look-ahead: the song on screen streams its words ('' none, 'starting', 'streaming', 'failed: code'). */
     get streamState() { return !song || !song.lookahead ? '' : song.streamFailed ? 'failed: ' + song.streamFailed : song.stream ? (song.stream.ready ? 'streaming' : 'starting') : '' },
     _onChunk: onChunk       // tests
@@ -1243,7 +1318,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  GIVEN_REACH_S, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
+  GIVEN_REACH_S, END_SLACK, fitToSong, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
   STREAM_HOP, toS16, streamedMessage

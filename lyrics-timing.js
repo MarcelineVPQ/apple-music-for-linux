@@ -596,27 +596,41 @@ function reuseRepeats(lines) {
  *   time, which can legitimately repeat twice while playing): freeze at the time;
  * - a whole-second time (MusicKit may round down) is fine while the clock is in [v, v+1);
  * - a fractional time is fine within 0.25 s;
- * - anything else (seek, drift) snaps the clock to the pushed time.
+ * - drift up to SLEW_BACK s behind or SLEW_AHEAD s ahead is slewed (0.15.59): the clock runs up to
+ *   SLEW_RATE slower or faster until it has caught up, so it never steps backwards (a word once lit
+ *   never goes dark again because a push arrived late on a busy, processor-only PC);
+ * - anything else (a seek, a real jump) snaps the clock to the pushed time.
  * For 1.2 s after a seek from the lyrics window, stale pushes from before the seek are ignored.
  */
+const SLEW_BACK = 0.5   // s: a pushed time up to this far behind the clock is slewed, never stepped back
+const SLEW_AHEAD = 0.3  // s: up to this far ahead is slewed too (further: snapped forward, as a seek)
+const SLEW_RATE = 0.5   // s of correction per s: the clock runs at 0.5–1.5× speed while it corrects
 function syncClock(clock, received, isPlaying, nowMs) {
   const prev = clock || {}
   const stalled = prev.last === received && prev.prev === received && (!Number.isInteger(received) || prev.prev2 === received)
   const playing = isPlaying !== false && !stalled
-  const next = { anchor: received, at: nowMs, playing, last: received, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
+  const next = { anchor: received, at: nowMs, corr: 0, playing, last: received, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
+  if (!playing && prev.playing && prev.anchor != null && Number.isFinite(received)) {
+    // paused: freeze where the words are when that's just past the pushed time (no step back at a pause)
+    const shown = clockTime(prev, nowMs)
+    if (shown > received && shown - received <= 0.6) next.anchor = shown
+    return next
+  }
   if (!playing || !prev.playing || prev.anchor == null) return next
   const predicted = clockTime(prev, nowMs)
   const seeking = prev.seekAt != null && nowMs - prev.seekAt < 1200 && Math.abs(predicted - received) > 1.05
+  const slew = (d) => { next.anchor = predicted; next.at = nowMs; next.corr = d; return next }
   if (Number.isInteger(received)) {
-    // coarse whole-second time: keep the smooth clock while it's inside [v, v+1)
-    if (seeking || (predicted >= received - 0.05 && predicted < received + 1.05)) { next.anchor = predicted; next.at = nowMs }
+    // coarse whole-second time: keep the smooth clock while it's inside [v, v+1); a little outside it is slewed
+    if (seeking || (predicted >= received - 0.05 && predicted < received + 1.05)) return slew(0)
+    const d = predicted < received ? received - predicted : received + 1 - predicted
+    if (d >= -SLEW_BACK && d <= SLEW_AHEAD) return slew(d)
     return next
   }
-  // precise media time: ease halfway toward it on every push (smooth, converges in ~1 s);
-  // further off than 0.3 s is a seek or a stall, so snap
+  // precise media time: slewed toward it (never a step back); further off is a seek or a stall, so snap
   const d = received - predicted
-  if (seeking) { next.anchor = predicted; next.at = nowMs }
-  else if (Math.abs(d) <= 0.3) { next.anchor = predicted + d / 2; next.at = nowMs }
+  if (seeking) return slew(0)
+  if (d >= -SLEW_BACK && d <= SLEW_AHEAD) return slew(d)
   return next
 }
 
@@ -658,14 +672,30 @@ function trackSample(gate, t, isPlaying, nowMs) {
 
 function clockTime(clock, nowMs) {
   if (!clock || clock.anchor == null) return 0
-  return clock.playing ? clock.anchor + (nowMs - clock.at) / 1000 : clock.anchor
+  if (!clock.playing) return clock.anchor
+  const e = Math.max(0, (nowMs - clock.at) / 1000)
+  const c = clock.corr || 0
+  // the correction (syncClock's slew) is taken in at SLEW_RATE s per s: the clock moves at 0.5–1.5× speed, never back
+  const took = c >= 0 ? Math.min(c, e * SLEW_RATE) : Math.max(c, -e * SLEW_RATE)
+  return clock.anchor + e + took
+}
+
+/**
+ * A pushed time made fresh (0.15.59): the player's time `t` was read at `readAt` (epoch ms, from Apple's
+ * page) and arrives `now - readAt` later; while playing, the song moved on by that much. A busy PC can
+ * delay a push by a few hundred ms, and the late time read as "the clock is ahead" pulled the words back.
+ * The age taken is at most 1 s (anything older is a stall, not a delay). -> seconds
+ */
+function freshTime(t, isPlaying, readAt, nowEpochMs) {
+  if (!Number.isFinite(t) || isPlaying === false || !Number.isFinite(readAt) || !Number.isFinite(nowEpochMs)) return t
+  return t + Math.min(1, Math.max(0, (nowEpochMs - readAt) / 1000))
 }
 
 module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
   MOVE_HOLD, MOVE_SHORT, reattributeHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime,
+  lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime, freshTime, SLEW_BACK, SLEW_AHEAD, SLEW_RATE,
   PACE, songPace, learnedPace, learnedOnset, robustOnset, shownOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, ONSET_Q, ONSET_STEP, ONSET_LATE_SHARE, ONSET_LATE_MAX, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }
 // the track-change gate (0.15.42), on its own line so it merges beside other branches' exports
