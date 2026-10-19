@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.61-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Sheet notes stay notes: the band no longer swaps sung lines for the pitch line</p>
+      </description>
+    </release>
     <release version="0.15.60-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Lyrics for the next songs in Up Next are looked up before they play.</p>
