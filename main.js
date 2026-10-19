@@ -471,15 +471,15 @@ function createMiniWindow() {
 
 // Fetch Apple's time-synced (TTML) lyrics for the current song through the
 // page's MusicKit API session
-const lyricsFetchScriptFor = (offset) => `(async () => {
+const lyricsFetchScriptFor = (appleId) => `(async () => {
   try {
     const mk = MusicKit.getInstance();
-    const item = ${offset ? `mk.queue && mk.queue.items ? mk.queue.items[mk.queue.position + ${offset}] : null` : 'mk.nowPlayingItem'};
+    ${appleId ? `const id = ${JSON.stringify(String(appleId))};` : `const item = mk.nowPlayingItem;
     if (!item) return { ok: false };
     const attrs = item.attributes || {};
     const pp = attrs.playParams || {};
     const id = pp.catalogId || pp.id || item.id;
-    if (attrs.hasLyrics === false) return { ok: true, ttml: '' };   /* Apple says the song has none: nothing to ask */
+    if (attrs.hasLyrics === false) return { ok: true, ttml: '' };   /* Apple says the song has none: nothing to ask */`}
     // Word timing lives in /syllable-lyrics (what Apple's web player uses);
     // /lyrics has line timing only, so it's the fallback.
     // A 404 (Apple has no such lyrics) is "no lyrics"; any other failure (offline, Apple's API
@@ -506,19 +506,25 @@ const lyricsFetchScriptFor = (offset) => `(async () => {
     return { ok: true, ttml: '', failed: 'no MusicKit' };
   }
 })()`
-const lyricsFetchScript = lyricsFetchScriptFor(0)
+const lyricsFetchScript = lyricsFetchScriptFor('')
 
-// The next song in the play queue (for lyrics prefetch); same fields as nowPlayingScript uses.
-const nextItemScript = `(() => {
+const lyricsPrefetchLib = require('./lyrics-prefetch')
+// The songs after the playing one in Apple's queue (Up Next, for the lyrics prefetch, lyrics-prefetch.js);
+// the same fields as nowPlayingScript, plus Apple's hasLyrics.
+const upNextScript = `(() => {
   try {
     const mk = MusicKit.getInstance();
     const q = mk.queue;
-    const item = q && q.items ? q.items[q.position + 1] : null;
-    const a = item && item.attributes;
-    if (!a || !a.name) return { ok: false };
-    return { ok: true, title: a.name, artist: a.artistName || '', album: a.albumName || '',
-             duration: a.durationInMillis ? a.durationInMillis / 1000 : 0, isrc: String(a.isrc || item.isrc || '') };
-  } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to prefetch */ return { ok: false }; }
+    const items = q && q.items ? q.items.slice(q.position + 1, q.position + 1 + ${lyricsPrefetchLib.PREFETCH_ALBUM_MAX}) : [];
+    /* loop: NOT-WORTH — at most ${lyricsPrefetchLib.PREFETCH_ALBUM_MAX} queue items, once per song while a lyric view is open */
+    return items.map((item) => {
+      const a = (item && item.attributes) || {};
+      const pp = a.playParams || {};
+      return { title: a.name || '', artist: a.artistName || '', album: a.albumName || '',
+               duration: a.durationInMillis ? a.durationInMillis / 1000 : 0, isrc: String(a.isrc || item.isrc || ''),
+               appleId: String(pp.catalogId || pp.id || item.id || ''), hasLyrics: a.hasLyrics !== false };
+    });
+  } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to prefetch */ return []; }
 })()`
 
 // the playing song's album / artist in Apple's page: song-actions.js openPageScript (through a link in the page)
@@ -533,7 +539,9 @@ const lyricsShorthand = require('./lyrics-shorthand')
 let lyricsStore = null
 const getLyrics = lyricsSources.createLyricsResolver({
   fetchApple: async (state) => {
-    const res = await appleWC().executeJavaScript(state.queueOffset ? lyricsFetchScriptFor(state.queueOffset) : lyricsFetchScript)
+    // a song of Up Next (the prefetch) by its catalog id, without playing it; Apple saying it has none: nothing asked
+    if (state.prefetch && !state.hasLyrics) return ''
+    const res = await appleWC().executeJavaScript(state.prefetch ? lyricsFetchScriptFor(state.appleId) : lyricsFetchScript)
     if (res && res.failed) throw new Error('Apple lyrics lookup failed: ' + res.failed)
     return (res && res.ttml) || ''
   },
@@ -546,18 +554,20 @@ const getLyrics = lyricsSources.createLyricsResolver({
   log: (msg) => console.error(msg)
 })
 
-// Prefetch: once the current song's lyrics are in, look up the next queued song's quietly, so a
-// busy lyrics service is usually over before it starts. One lookup per track (in-memory and disk
-// caches make repeats free); never retried here, the normal retry handles that song when it plays.
-// loop: none (one call per track change while the lyrics window is open)
-let prefetchedAfter = ''
-async function prefetchNextLyrics(currentKey) {
-  if (prefetchedAfter === currentKey || !mainAlive()) return
-  prefetchedAfter = currentKey
-  try {
-    const next = await appleWC().executeJavaScript(nextItemScript)
-    if (next && next.ok && next.title) await getLyrics(Object.assign(next, { queueOffset: 1 }))
-  } catch (e) { /* error: NOT-WORTH — prefetch is best effort; the song's own lookup runs when it plays */ }
+// Prefetch (lyrics-prefetch.js): once the playing song's lyrics are in, the next songs of Up Next (3, or the
+// rest of the playing album) are looked up one at a time through the same resolver, so they're on disk
+// before they play. Lyrics text only; paused while LRCLIB fails, offline (net.isOnline) or while gaming.
+// Metered connections aren't detected (Electron doesn't say).
+const lyricsPrefetcher = lyricsPrefetchLib.createPrefetcher({
+  readQueue: async () => (mainAlive() ? (await appleWC().executeJavaScript(upNextScript)) || [] : []),
+  getLyrics: (item) => getLyrics(Object.assign({}, item, { prefetch: true })),
+  isCached: (item) => lyricsPrefetchLib.isStored(lyricsStore, item, !!settings.lrclibFallback),
+  online: () => net.isOnline(),
+  paused: () => alignPaused(),
+  log: (msg) => console.error(msg)
+})
+function prefetchNextLyrics(current) {
+  lyricsPrefetcher.run(current).catch((e) => console.error('lyrics: prefetch stopped:', e.message))   // error: LOGGED-OK — best effort; each song's own lookup runs when it plays
 }
 
 // "Refine timing by listening" (Settings, off by default): listens to Sonata's own stream while
@@ -1189,7 +1199,7 @@ async function lyricsTick() {
     } else {
       lyricsRetry = null
       lyricsTries.delete(key)
-      prefetchNextLyrics(key)
+      prefetchNextLyrics(state)
     }
     // word timing is chosen here, by priority: Apple/LRC word timing (never touched) > aligned on
     // this PC (Level 2) > refined by listening (Level 1) > estimated. Estimation is the same

@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+- **Lyrics for the next songs are ready before they play.** While the lyrics show, Sonata quietly looks up the lyrics of the next three songs in Up Next (the rest of the album when you're playing one), one at a time, and keeps them with the songs you've played. When LRCLIB is busy it waits and tries later; with LRCLIB lyrics off only Apple Music is asked. Lyrics text only: no timing work runs for songs that aren't playing.
+
 ## [0.15.59-dev.1] — Smooth on laptops: Precise timing stays out of playback's way on processor-only PCs
 
 ### Fixed

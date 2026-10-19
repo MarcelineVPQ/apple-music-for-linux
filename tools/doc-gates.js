@@ -35,7 +35,7 @@ const { execFileSync } = require('child_process')
 
 const ROOT = path.join(__dirname, '..')
 const MARKERS = ['internal', 'in testing', 'unannounced']
-const STATUSES = ['Idea', 'Planned', 'Building', 'Done']
+const STATUSES = ['Idea', 'Planned', 'Building', 'Done', 'Decided against']
 
 // ---------- BACKLOG rows ----------
 

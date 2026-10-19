@@ -54,7 +54,8 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   poll only while a lyrics page of the playing song is open in a shown liner notes booklet.
 - **Lyrics engine**: `lyrics-sources.js` resolves Apple TTML (`/syllable-lyrics`, then `/lyrics`, through
   the page's MusicKit) then LRCLIB (Settings), cached on disk by `lyrics-store.js`
-  (`~/.config/apple-music-for-linux/lyrics-cache.json`); `lyrics-timing.js` estimates word timing for
+  (`~/.config/apple-music-for-linux/lyrics-cache.json`; `lyrics-prefetch.js` fills it for the next songs of Up Next);
+  `lyrics-timing.js` estimates word timing for
   line-only lyrics, `lyrics-syllables.js` splits syllables (`hyphen` patterns); `lyrics-view.js` +
   `lyrics-view.css` is the one view engine for the lyrics window and the visualizer overlay. Word timing
   priority: Apple/LRC words > aligned on this PC (Level 2) > refined by listening (Level 1, `listen-session.js`,
@@ -171,7 +172,7 @@ Development first).
 
 ## Backlog: one list
 
-`BACKLOG.md` is the one list (status words **Idea · Planned · Building · Done**). Update the row in the
+`BACKLOG.md` is the one list (status words **Idea · Planned · Building · Done · Decided against**). Update the row in the
 same commit as the work; anything agreed in conversation gets a row the same day. A row whose Notes start
 `Soon: …` or `Soon (Card title): …` is shown in About → Coming soon (`about-data.js`). Every Building or
 Planned row is there unless its Item ends with **(internal)**, **(in testing)** or **(unannounced)**

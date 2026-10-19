@@ -49,6 +49,7 @@
       "rail-ui.js",
       "rail.css",
       "lyrics-sources.js",
+      "lyrics-prefetch.js",
       "recording-id.js",
       "lyrics-timing.js",
       "lyrics-view.js",
