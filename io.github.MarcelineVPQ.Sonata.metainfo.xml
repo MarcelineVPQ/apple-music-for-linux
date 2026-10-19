@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.57-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Expressive words: works on your songs, and says what it's waiting for</p>
+      </description>
+    </release>
     <release version="0.15.56-dev.1" date="2026-10-19" type="development">
       <description>
         <p>The Precise timing helper's install survives a quit, a crash or a power cut: it asks first, continues at the next start and resumes its downloads.</p>
