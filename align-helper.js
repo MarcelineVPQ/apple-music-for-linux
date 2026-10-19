@@ -246,9 +246,32 @@ function idleDelay(idleFor, warm, coldMs = IDLE_MS, warmMs = WARM_IDLE_MS) {
 }
 
 /**
- * createAlignHelper({ paths, env?, log?, idleMs?, warmIdleMs?, warm?, jobTimeoutMs? }, deps?)
+ * The `want` of a notes request: what the caller asks for that this helper says it serves (its pong's
+ * features). want: e.g. ['expr'] (Expressive words); features: the pong's list. -> the list, or null
+ * (nothing to ask: an older engine gets today's request, byte for byte).
+ */
+function wantFor(want, features) {
+  if (!Array.isArray(want) || !Array.isArray(features)) return null
+  const got = want.filter((w) => features.includes(w))
+  return got.length ? got : null
+}
+
+/** messages with `want` on the first one (the job's header), lazily: a generator over a generator. */
+function * withWant(messages, want) {
+  let first = true
+  // loop: SERIAL-REQUIRED — the job's messages in protocol order (passes write()'s pacing through)
+  for (const m of messages) {
+    yield first ? Object.assign({}, m, { want }) : m
+    first = false
+  }
+}
+
+/**
+ * createAlignHelper({ paths, env?, log?, idleMs?, warmIdleMs?, warm?, jobTimeoutMs?, want? }, deps?)
  *   -> { installed(), ping(), align(id, messages), notes, pitch, separate, givenNotes, prepareNotes, viewsChanged(), release(), forget, stop(), running }
  * warm() -> true while a lyric view is open (the longer idle limit applies)
+ * want() -> what a notes job asks for beyond the notes, e.g. ['expr'] (Expressive words); asked of a
+ *   helper only when its pong lists the feature (a ping first when this helper process hasn't answered one)
  * deps (tests): { spawn, setTimeout, clearTimeout, now, isInstalled }
  */
 function createAlignHelper(opts, deps = {}) {
@@ -271,6 +294,10 @@ function createAlignHelper(opts, deps = {}) {
   let quitting = null         // the child we asked to quit
   let releasing = false       // release(): quit as soon as the current job is done (gaming guard)
   let stderrTail = []
+  // cache: OK — key=the running helper process; invalidated=its exit (gone) and every new pong; bound=one list
+  let features = null         // the running helper's pong features (null: none answered since it started)
+  // cache: OK — key=the installed engine; invalidated=every pong (an updated engine answers its own); bound=one list
+  let known = null            // the last pong's features from any helper process (serves(): before this one has answered)
 
   function fail(id, err) {
     const p = pending.get(id)
@@ -375,6 +402,7 @@ function createAlignHelper(opts, deps = {}) {
     }
     const err = new Error('helper exited')
     pings = []
+    features = null
     // loop: NOT-WORTH — the pending jobs (1-2)
     for (const id of [...pending.keys()]) fail(id, err)
   }
@@ -435,8 +463,18 @@ function createAlignHelper(opts, deps = {}) {
     })
   }
 
+  // what this notes job may ask for (opts.want, filtered by the helper's features); a helper that hasn't
+  // answered a ping since it started is asked first (it is running: it keeps the song's stem)
+  // error: NOT-WORTH — a failed ping only means nothing extra is asked: the notes job itself still runs (and reports its own failure)
+  function wanted() {
+    const want = opts.want ? opts.want() : null
+    if (!Array.isArray(want) || !want.length) return Promise.resolve(null)
+    if (features && child) return Promise.resolve(wantFor(want, features))
+    return api.ping().then(() => wantFor(want, features), () => null)
+  }
+
   let pingN = 0
-  return {
+  const api = {
     installed: () => installedFn(),
     /** -> pong { version, device, gpu?, models } */
     ping() {
@@ -444,6 +482,7 @@ function createAlignHelper(opts, deps = {}) {
       pings.push(id)
       // error: PASSES-ON — rethrown to askAlignStatus (main.js), which shows it in Settings
       return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
+        .then((pong) => { features = known = Array.isArray(pong.features) ? pong.features : []; return pong })
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
     align(id, messages) { return request(id, messages, jobTimeoutMs) },
@@ -452,7 +491,9 @@ function createAlignHelper(opts, deps = {}) {
      * whole-song job (align request with notes: true). syl: per request line, per word the syllable
      * texts or null. -> result { notes, stats }; error codes no-stem, no-model, low-vram
      */
-    notes(id, song, syl) { return request(id, [{ cmd: 'notes', id, song, syl }], jobTimeoutMs) },
+    notes(id, song, syl) {
+      return wanted().then((want) => request(id, [Object.assign({ cmd: 'notes', id, song, syl }, want ? { want } : {})], jobTimeoutMs))
+    },
     /**
      * Sheet notes in the Studio, first play: the pitch line of one section the helper kept (the section
      * job's song id and offset). -> result { pitch: { t0, hop, v }, stats }; error codes no-stem, no-model, low-vram
@@ -467,7 +508,7 @@ function createAlignHelper(opts, deps = {}) {
      * The notes of such a song on the times its lyrics carry (align-session.js givenNotesMessages): from
      * the kept sections, or from the streamed song. -> result { notes, stats }; codes no-stem, no-model, low-vram
      */
-    givenNotes(id, messages) { return request(id, messages, jobTimeoutMs) },
+    givenNotes(id, messages) { return wanted().then((want) => request(id, want ? withWant(messages, want) : messages, jobTimeoutMs)) },
     /**
      * Downloads (and loads) the alignment models now: Demucs and the aligner for `language` (Settings →
      * Precise timing's install, its last step, when the install has none). onProgress(msg): the helper's
@@ -510,8 +551,11 @@ function createAlignHelper(opts, deps = {}) {
       // error: NOT-WORTH — a kill that throws means the helper is already gone
       try { c.kill() } catch (e) {}
     },
-    get running() { return !!child }
+    get running() { return !!child },
+    /** Whether the engine said it serves a feature (its last pong, e.g. 'expr'); false before any pong. */
+    serves(feature) { return !!known && known.includes(feature) }
   }
+  return api
 }
 
-module.exports = { PROTOCOLS, enginePin, activeEngine, olderEngine, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, idleDelay, IDLE_MS, WARM_IDLE_MS }
+module.exports = { PROTOCOLS, enginePin, activeEngine, olderEngine, checkProtocol, inAppSandbox, helperPaths, isInstalled, checkInstall, repairText, helperEnv, lineParser, createAlignHelper, wantFor, withWant, idleDelay, IDLE_MS, WARM_IDLE_MS }

@@ -194,6 +194,8 @@
       '--s-text': css(text),
       '--s-soft': css(soft),
       '--s-accent-text': css(accentText),
+      // Expressive words' ghost vocalise (lyrics-view.css .xgw): the sung line's ink, drawn at 7-18 % behind the lines
+      '--s-ghost': css(accentText),
       '--s-accent-2-text': css(accent2Text),
       '--s-accent-mix-text': css(mixText),
       '--s-accent-field-text': css(accentFieldText),

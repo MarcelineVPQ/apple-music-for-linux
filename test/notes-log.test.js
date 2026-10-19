@@ -179,9 +179,13 @@ test('a bad checksum: nothing kept, one status line, not wanted; turning it on a
 test('main: the download only when Sung notes becomes active; nothing written once it is off', () => {
   const src = read('main.js')
   assert.match(src, /function sungNotesOn\(\) \{ return !!settings\.sungNotesLog && settings\.updateChannel === 'dev' && preciseTimingOn\(\) \}/)
-  // the notes step serves the developer log and the Studio's sheet notes (sheet-notes.test.js): one download
-  assert.match(src, /function notesActive\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \}/)
-  assert.match(src, /if \(notesActive\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
+  // the notes step serves the developer log, the Studio's sheet notes (sheet-notes.test.js) and Expressive
+  // words (expressive.test.js): one download, and only for a switch the user turned on (Expressive words'
+  // own default on a Development build never downloads)
+  assert.match(src, /function notesActive\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \|\| expressiveOn\(\) \}/)
+  assert.match(src, /function notesChosen\(\) \{ return sungNotesOn\(\) \|\| sheetNotesOn\(\) \|\| \(settings\.expressiveWords === true && preciseTimingOn\(\)\) \}/)
+  assert.match(src, /if \(notesChosen\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
+  assert.doesNotMatch(src, /if \(notesActive\(\)\) getNotesSwitch\(\)\.turnedOn\(\)/)
   assert.match(src, /if \(!sungNotesOn\(\) \|\| !result \|\| !result\.notes\) return/)
   assert.match(src, /wanted: \(\) => notesActive\(\) && getNotesSwitch\(\)\.wanted\(\)/)
   assert.equal(require('../settings-store').defaults().sungNotesLog, false)
@@ -325,6 +329,7 @@ test('a failed notes step is never silent', async () => {
 
 test('align-helper: notes and prepareNotes are one request each', () => {
   const src = read('align-helper.js')
-  assert.match(src, /notes\(id, song, syl\) \{ return request\(id, \[\{ cmd: 'notes', id, song, syl \}\], jobTimeoutMs\) \}/)
+  // one request (plus a ping first when Expressive words asks for 'expr' and this helper hasn't answered one)
+  assert.match(src, /notes\(id, song, syl\) \{\n\s+return wanted\(\)\.then\(\(want\) => request\(id, \[Object\.assign\(\{ cmd: 'notes', id, song, syl \}, want \? \{ want \} : \{\}\)\], jobTimeoutMs\)\)/)
   assert.match(src, /\{ cmd: 'prepare', id, mode: 'notes' \}/)
 })

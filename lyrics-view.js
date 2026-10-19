@@ -9,6 +9,8 @@
 //   'lyrics-refined' -> refine(msg)       Level 1 refined words for one line
 //   'lyrics-aligned' -> align(msg)        Level 2 aligned words for the song's lines (precise word timing)
 //   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
+//   data.expr (Expressive words, lyrics-expressive.js forView): only when the setting is on and the song's
+//   notes carry the engine's measured expression; without it the view is exactly the plain karaoke.
 // The pure helpers (prepare, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext) are tested
 // in test/lyrics-view.test.js.
 //
@@ -25,6 +27,7 @@
 // closing slides the lines around it with a transform (FLIP), never a height animation.
 const T = require('./lyrics-timing')
 const S = require('./lyrics-syllables')
+const X = require('./lyrics-expressive')
 const { createInfoTip } = require('./info-tip')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
@@ -455,6 +458,10 @@ function createLyricsView(opts) {
   let alignState = ''       // e.g. "Precise timing paused while you play" (gaming guard, main.js)
   let notesEl = null
   let notes = []
+  let xdoc = null           // Expressive words: the song's measured expression (data.expr), null: the plain karaoke
+  let ghostLayer = null     // the ghost vocalise layer behind the lines (only with xdoc and a ghosting word)
+  let xvoc = []             // wordless vocalise the lyrics leave out, ghosted as "ooo" (its own sub-setting; lyrics-expressive.js vocaliseExpressions)
+  let xlive = []            // the expressions playing: [{ kind: 'stretch' | 'ghost', it, line, t0, t1, anims, el? }]
   let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
   // prefers-reduced-motion: no pop, bounce, slide or smooth scroll (lyrics-view.css has the CSS half);
   // read when used, so a change of the desktop setting applies from the next word
@@ -468,7 +475,7 @@ function createLyricsView(opts) {
   // switch is a visibility change, so a word change never lays the line out (lyrics-view.css). With
   // syllables, the bold copy holds them side by side (no spaces) in one row; only it pops them.
   // text: the line's text, so the pieces of a hyphen run ("Hey-", "hey-", "ay") are written together
-  function wordSpans(parent, words, text) {
+  function wordSpans(parent, words, text, xs) {
     const spans = []
     const glue = text != null ? T.wordGlue(text, words) : null
     // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
@@ -481,6 +488,7 @@ function createLyricsView(opts) {
       // (lyrics-view.css .w.gj / .w.gn: no word gap or bold-width slack at the joint)
       if (joined) { span.classList.add('gj'); spans[i - 1].classList.add('gn') }
       span.dataset.text = w.text
+      const xm = xs ? xs.get(i) : null   // Expressive words: this word's measured expression (lyrics-expressive.js matchWord)
       const r = doc.createElement('span')
       r.className = 'r'
       const b = doc.createElement('span')
@@ -492,12 +500,15 @@ function createLyricsView(opts) {
         const row = doc.createElement('span')
         row.className = 'sr'
         // loop: NOT-WORTH — a word's syllables (a handful), once per line per track
-        span.syl = w.syl.map((y) => {
+        const lastFrom = w.text.length - (w.syl[w.syl.length - 1].text || '').length
+        span.syl = w.syl.map((y, k) => {
           const s = doc.createElement('span')
           s.className = 's'
           const g = doc.createElement('span')   // the syllable's brightness layer (filter: brightness only, compositor)
           g.className = 'sg'
-          g.textContent = y.text
+          // the held vowel's syllable (always the last for a stretch, lyrics-expressive.js matchWord) holds its letters
+          if (xm && xm.i0 >= 0 && k === w.syl.length - 1 && xm.i0 >= lastFrom && (xm.stretch || xm.vb)) expressLetters(g, y.text, xm, lastFrom)
+          else g.textContent = y.text
           s.appendChild(g)
           row.appendChild(s)
           return s
@@ -505,13 +516,65 @@ function createLyricsView(opts) {
         b.appendChild(row)
       } else {
         r.textContent = w.text
-        b.textContent = w.text
+        if (xm && xm.i0 >= 0 && (xm.stretch || xm.vb)) expressLetters(b, w.text, xm, 0)
+        else b.textContent = w.text
       }
       span.append(r, b)
+      if (xm) expressWord(span, xm)
       parent.appendChild(span)
       spans.push(span)
     })
     return spans
+  }
+
+  // Expressive words: a word's measured ink (a belted word gains ink, a whispered one reads a shade lighter)
+  // and, for a stretch or a vibrato, its vowel letters as their own boxes (lyrics-view.css .xv / .xe / .xc)
+  function expressWord(span, xm) {
+    span.xm = xm
+    if (xm.ink > 0) { span.classList.add('xi'); span.style.setProperty('--xi', xm.ink.toFixed(2)) }
+    if (xm.quiet) span.classList.add('xq')
+    if (xm.stretch) span.classList.add('xs')
+  }
+  // into `box` (the bold copy, or its held syllable's text): the text before the vowel, each vowel letter (.xv,
+  // the wave), a zero-width anchor (.xa) holding the extra letters out of the flow (.xt > .xe > .xw: born one
+  // by one into the gap after the word; the wave on the inner box), and the coda (.xc, as written, riding
+  // after the newest letter). The word's boxes are exactly the written word's: nothing is reserved in the
+  // line and the pop's origins don't move. from: where `piece` starts in the word's text.
+  function expressLetters(box, piece, xm, from) {
+    const a = xm.i0 - from
+    const b = xm.i1 - from
+    if (a > 0) box.appendChild(doc.createTextNode(piece.slice(0, a)))
+    // loop: NOT-WORTH — a held vowel's letters (1-3), once per line laid out
+    for (const ch of piece.slice(a, b)) {
+      const v = doc.createElement('span')
+      v.className = 'xv'
+      v.textContent = ch
+      box.appendChild(v)
+    }
+    if (!xm.stretch) {
+      if (b < piece.length) box.appendChild(doc.createTextNode(piece.slice(b)))
+      return
+    }
+    const anchor = doc.createElement('span')
+    anchor.className = 'xa'
+    const tail = doc.createElement('span')
+    tail.className = 'xt'
+    // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per line laid out
+    for (let k = 0; k < xm.extra; k++) {
+      const e = doc.createElement('span')
+      e.className = 'xe'
+      const inner = doc.createElement('span')
+      inner.className = 'xw'
+      inner.textContent = xm.rep
+      e.appendChild(inner)
+      tail.appendChild(e)
+    }
+    anchor.appendChild(tail)
+    box.appendChild(anchor)
+    const coda = doc.createElement('span')
+    coda.className = 'xc'
+    if (b < piece.length) coda.appendChild(doc.createTextNode(piece.slice(b)))
+    box.appendChild(coda)
   }
 
   // lifetime: OK — setData replaces the container's children, so old line, word and dot elements and
@@ -544,6 +607,9 @@ function createLyricsView(opts) {
     roomEl = null
     roving = null
     stopFrames()
+    endExpressions()
+    xdoc = data.expr && Array.isArray(data.expr.words) && data.expr.words.length ? data.expr : null
+    ghostLayer = null
     if (sungEl) { sungEl = null; opts.onSung(null) }   // the old song's word goes with its lines
     if (data.lang) container.lang = data.lang
     else container.removeAttribute('lang')
@@ -571,6 +637,9 @@ function createLyricsView(opts) {
     const gaps = prep.gaps
     let g = 0
     container.innerHTML = ''
+    if (xdoc) {
+      container.classList.add('xp')   // its own stacking context: the ghosts go behind the lines, never behind the window
+    } else if (container.classList.contains('xp')) container.classList.remove('xp')
     // lyrics timed for another version, shown untimed (main.js data.version): the note says why, over the lines
     const vnote = opts.notes ? versionNote(data.version) : null
     if (vnote && vnote.text) {
@@ -599,10 +668,14 @@ function createLyricsView(opts) {
       el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
       const ly = doc.createElement('div')   // the line's content (the FLIP slide target in the stage)
       ly.className = 'ly'
-      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null, bgKey: null }
+      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null, bgKey: null, main: null, x: null }
       if (line.words && line.words.length) {
         const main = doc.createElement('div')
-        entry.words = wordSpans(main, line.words, line.text)
+        // Expressive words: the line's measured words (none: the plain karaoke, as before)
+        const xl = xdoc && line.t !== null ? X.lineExpressions(xdoc, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
+        if (xl.length) entry.x = xl
+        entry.words = wordSpans(main, line.words, line.text, xl.length ? new Map(xl.map((x) => [x.i, x.m])) : null)
+        entry.main = main
         ly.appendChild(main)
       }
       else ly.textContent = line.text
@@ -654,6 +727,14 @@ function createLyricsView(opts) {
       container.appendChild(credits)
     }
     if (keys) setRoving(lineEls.find((e, i) => lines[i].t !== null) || null)
+    // the ghost vocalise layer: first in the list, sticky at its top, as tall as the list (lyrics-view.css .xg)
+    xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    if (xvoc.length || lineEls.some((e) => e.x && e.x.some((x) => x.m.ghost))) {
+      ghostLayer = doc.createElement('div')
+      ghostLayer.className = 'xg'
+      ghostLayer.setAttribute('aria-hidden', 'true')
+      container.insertBefore(ghostLayer, container.firstChild)
+    }
     placeBacking()   // the lyrics window's lines are all laid out now; the stage's when they show
     notes = []
     if (opts.notes) {
@@ -758,7 +839,7 @@ function createLyricsView(opts) {
     for (const t of todo) t.e.el.classList.add('bgm')   // loop: NOT-WORTH — the lines to place (above)
     // loop: NOT-WORTH — the lines to place, each its words (~5-12): one layout read for the batch
     const got = todo.map(({ i, e }) => {
-      const main = e.words[0].parentElement
+      const main = e.main || e.words[0].parentElement
       const row = e.bg[0].parentElement
       if (!main.offsetWidth) return null   // not laid out (a hidden window): placed when it is
       const base = xOf(main)
@@ -853,6 +934,7 @@ function createLyricsView(opts) {
       return [bl + (t.left - box.left) * f, bl + (t.right - box.left) * f]
     }
     const oxOf = (origin) => origin.startsWith('0%') ? 0 : origin.startsWith('100%') ? 1 : 0.5
+    const rowW = base.width / ra || row.offsetWidth
     const pct = (ox, y) => +(ox * 100).toFixed(1) + '% ' + y
     const cap = (el, f) => { if (f && f.max) el.style.setProperty('--pop-max', String(f.max)); else el.style.removeProperty('--pop-max') }
     // loop: NOT-WORTH — one line's words (~5-12) and their syllables, once per line per layout
@@ -861,25 +943,42 @@ function createLyricsView(opts) {
       // the neighbours' regular text (what they show); none at a row's edge or a hyphen joint (it touches as written)
       const prev = i > 0 && tops[i - 1] === tops[i] && !sp.classList.contains('gj') ? at(spans[i - 1].children[0])[1] : null
       const next = i + 1 < spans.length && tops[i + 1] === tops[i] && !sp.classList.contains('gn') ? at(spans[i + 1].children[0])[0] : null
+      // Expressive words' stretch (lyrics-expressive.js): how far the popped word's ink may grow to its right and
+      // still keep the gap to the next word (or stay inside the row): the extra letters only use that (free, px)
+      const limit = next != null ? next - gap : rowW
+      // mid-line holds nudge the row (Marcy 2026-10-19): the words after this one on its row may slide right by
+      // up to `slide` px (what's left of the row after its last word), so a held vowel can stretch in place
+      const after = []
+      // loop: NOT-WORTH — the rest of one row's words (~5-12), once per line per layout
+      for (let k = i + 1; k < spans.length && tops[k] === tops[i]; k++) after.push(k)
+      const slide = after.length ? Math.max(0, rowW - at(spans[after[after.length - 1]].children[0])[1] - 2) : 0
+      const freeAfter = (inkR, o, sc) => Math.max(0, limit - (o + sc * (inkR - o)))
       if (!sp.syl) {
         const [inkL, inkR] = bold(sp)
         const [boxL, boxR] = at(sp)
-        const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale: bgRow ? POP.bgWord : POP.word, k: 1, prev, next, gap })
+        const scale = bgRow ? POP.bgWord : POP.word
+        const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale, k: 1, prev, next, gap })
         cap(sp, f)
-        return { word: f ? pct(f.ox, '65%') : edge, syl: null }
+        const o = boxL + (f ? f.ox : oxOf(edge)) * (boxR - boxL)
+        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale, after, slide }
       }
       // syllables: the first and last meet the neighbours; the ones inside a word grow into their own word, as today
       const last = sp.syl.length - 1
-      return {
-        word: edge,
-        syl: sp.syl.map((el, j) => {
-          const own = stage ? '' : sylOrigin(sp, j, edge)
-          const [l, r] = at(el)
-          const f = popFit({ inkL: l, inkR: r, boxL: l, boxW: r - l, ox: oxOf(own), scale: 1 + ((bgRow ? POP.bgSyl : POP.syl) - 1) * SYL_OVERSHOOT, k: SYL_OVERSHOOT, prev: j === 0 ? prev : null, next: j === last ? next : null, gap })
-          cap(el, f)
-          return f ? pct(f.ox, own ? '65%' : '80%') : own
-        })
-      }
+      const out = { word: edge, free: 0, scale: 1, after, slide }
+      out.syl = sp.syl.map((el, j) => {
+        const own = stage ? '' : sylOrigin(sp, j, edge)
+        const [l, r] = at(el)
+        const peak = 1 + ((bgRow ? POP.bgSyl : POP.syl) - 1) * SYL_OVERSHOOT
+        const f = popFit({ inkL: l, inkR: r, boxL: l, boxW: r - l, ox: oxOf(own), scale: peak, k: SYL_OVERSHOOT, prev: j === 0 ? prev : null, next: j === last ? next : null, gap })
+        cap(el, f)
+        if (j === last) {
+          const sc = f && f.max ? 1 + (f.max - 1) * SYL_OVERSHOOT : peak
+          out.free = freeAfter(r, l + (f ? f.ox : oxOf(own)) * (r - l), sc)
+          out.scale = sc
+        }
+        return f ? pct(f.ox, own ? '65%' : '80%') : own
+      })
+      return out
     })
     return spans.fit
   }
@@ -934,6 +1033,7 @@ function createLyricsView(opts) {
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
     live = next
+    if (xdoc) syncExpressions(time)
     if (opts.onSung) sungNow(gi >= 0 ? -1 : latest)
     let slides = null
     if (stage) {
@@ -1051,6 +1151,225 @@ function createLyricsView(opts) {
     g.anims = null
   }
 
+  // --- Expressive words on the compositor (lyrics-expressive.js; lyrics-view.css "Expressive words") ---
+  // Idle cost: nothing at all between held notes (no timer, no rAF, no listener of its own). During a held
+  // vowel: one Web Animation per extra letter (≤ 8) and per vowel letter's wave, plus the coda and its
+  // extender, all transform/opacity on the compositor; a ghost adds ≤ ~12 letters for its life (the hold +
+  // ~2 s). They start, stay in step and end in render() (word changes and the 2/s time pushes), like the
+  // countdown dots: paused with the song and while the window is hidden, cancelled on a new song. On the
+  // CPU fallback the same few small layers are composited in software.
+  const AOPTS = (t0, t1) => ({ duration: Math.max(1, (t1 - t0) * 1000), fill: 'both' })
+  function syncExpressions(time) {
+    const playing = !!clock && clock.playing && doc.visibilityState === 'visible'
+    // start: the live lines' measured words whose moment this is (a seek into a hold starts it there)
+    // loop: HOT-PATH-OK — the live lines (1-3) x their measured words (0-3), per render
+    for (const i of live) {
+      const e = lineEls[i]
+      if (!e || !e.x) continue
+      for (const it of e.x) {
+        const m = it.m
+        if (m.i0 < 0) continue
+        const span = e.words[it.i]
+        const lit = span && span.classList.contains('now')
+        if ((m.stretch || m.vb) && lit && time <= m.ve + 0.3 && !xlive.some((x) => x.it === it && x.kind === 'stretch')) startStretch(e, it, time)
+        if (m.ghost && ghostLayer && time >= m.vt - X.GHOST_ENTER && time < m.ve && !xlive.some((x) => x.it === it && x.kind === 'ghost')) startGhost(it, i, time)
+      }
+    }
+    // wordless vocalise (no lyric line is sung then): beside the last line sung, or in the middle
+    // loop: HOT-PATH-OK — the song's wordless vocalise spans (a few), per render
+    for (const it of xvoc) {
+      if (ghostLayer && time >= it.m.vt - X.GHOST_ENTER && time < it.m.ve && !xlive.some((x) => x.it === it)) startGhost(it, shownLatest, time)
+    }
+    // keep in step, and end what is over (a stretch also ends when its word or line is no longer sung)
+    const keep = []
+    // loop: HOT-PATH-OK — the expressions playing (≤ 1-2 stretches + GHOST_MAX ghosts), per render
+    for (const x of xlive) {
+      const over = time > x.t1 || time < x.t0 - 1 || (x.kind === 'stretch' && (!live.has(x.line) || !x.span.classList.contains('now')))
+      if (over) { endExpression(x); continue }
+      const at = (time - x.t0) * 1000
+      // loop: HOT-PATH-OK — one expression's animations (≤ ~14), per render
+      for (const a of x.anims) {
+        if (Math.abs((a.currentTime || 0) - at) > 60) a.currentTime = at
+        if (playing && a.playState !== 'running') a.play()
+        else if (!playing && a.playState === 'running') a.pause()
+      }
+      keep.push(x)
+    }
+    xlive = keep
+  }
+
+  // a held word's stretch: the extra letters born through the hold, the coda riding after the newest one,
+  // the vowel letters waving at the measured vibrato. One layout read (a letter's width and the type size)
+  // when it starts. Reduced motion: the stretched spelling at once, no wave (.xr).
+  function startStretch(e, it, time) {
+    const m = it.m
+    const span = e.words[it.i]
+    const lineIndex = lineEls.indexOf(e)
+    const tl = X.stretchTimeline(m, lines[lineIndex].words[it.i].t - WORD_LEAD)
+    const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, anims: [], reset: [] }
+    xlive.push(x)
+    const fontPx = parseFloat(doc.defaultView.getComputedStyle(span).fontSize) || 16
+    // the extra letters that fit in the gap after the popped word (popRoom, once per layout): the rest stay
+    // unborn (.xh), so the stretch never comes closer than the pop's gap to the next word
+    const all = m.stretch ? [...span.querySelectorAll('.xe')] : []
+    let extras = []
+    let w = 0
+    let squeeze = 1
+    if (all.length) {
+      const fit = popRoom(e.words, e.side)[it.i]
+      w = all[0].offsetWidth || fontPx * 0.55
+      // as many as the hold asks for, in the gap after the word plus what the rest of its row can slide (not
+      // with reduced motion: then the row stays put); squeezed (down to SQUEEZE_MIN) when even that is short
+      const free = fit.free || 0
+      const plan = X.squeezePlan(all.length, free + (still() ? 0 : fit.slide || 0), w, fit.scale)
+      const n = plan.n
+      squeeze = plan.scale
+      extras = all.slice(0, n)
+      // the row's later words slide right by what the letters need beyond the gap (keeping the pop's gap), once:
+      // a CSS transition of `translate` on their two text layers (lyrics-view.css .xn); back when the hold ends
+      const push = X.nudgePx(n, w, squeeze, fit.scale, free)
+      if (push > 0 && !still()) {
+        const moved = (fit.after || []).map((k) => e.words[k])
+        // the slide keeps pace with the letters: it starts when they reach the gap and ends with the hold (linear)
+        const sl = X.nudgeTiming(m.vt, m.hold, free, push + Math.max(0, free), time)
+        // loop: NOT-WORTH — the rest of one row's words (~5-12), once per held word
+        for (const el of moved) {
+          el.classList.add('xn')
+          el.style.setProperty('--xn-t', sl.duration.toFixed(2) + 's linear ' + sl.delay.toFixed(2) + 's')
+          el.style.setProperty('--xn', push.toFixed(1) + 'px')
+        }
+        // the hold ends: they glide back (0.3 s ease)
+        // loop: NOT-WORTH — the same words
+        x.reset.push(() => { for (const el of moved) { el.style.setProperty('--xn-t', '0.3s ease 0s'); el.style.setProperty('--xn', '0px') } })
+      }
+      // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
+      all.forEach((el, k) => el.classList.toggle('xh', k >= n))
+      x.reset.push(() => { for (const el of all) el.classList.remove('xh') })   // loop: NOT-WORTH — ≤ MAX_EXTRA
+    }
+    if (still()) { if (extras.length) span.classList.add('xr'); x.reset.push(() => span.classList.remove('xr')); return }
+    const o = AOPTS(tl.t0, tl.t1)
+    if (extras.length) {
+      const n = extras.length
+      // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
+      extras.forEach((el, k) => x.anims.push(el.animate(X.letterBirth(k, n, tl.t0, tl.t1, m.vt, m.hold, squeeze, k * w * (1 - squeeze)), o)))
+      const coda = span.querySelector('.xc')
+      if (coda) x.anims.push(coda.animate(X.codaRide(n * w * squeeze, tl.t0, tl.t1, m.vt, m.hold), o))
+    }
+    // the wave: the vowel letters, then the extra letters (each at the height the voice had when it was born)
+    const amp = fontPx * X.WAVE_EM
+    const waving = [...span.querySelectorAll('.xv')]
+    const inner = extras.map((el) => el.firstChild)
+    // loop: NOT-WORTH — the vowel and extra letters (≤ ~11), once per held word
+    waving.concat(inner).forEach((el, j) => {
+      const k = j - waving.length
+      const base = k >= 0 && m.ct ? X.contourPx(m.ct, X.bornAt(k, inner.length, m.vt, m.hold), fontPx) : 0
+      const kf = m.vb ? X.waveKeyframes(m.vb, tl.t0, tl.t1, amp, j * 0.85, base) : null
+      if (kf) x.anims.push(el.animate(kf, o))
+      else if (base) x.anims.push(el.animate(X.heldAt(base), o))   // its height, held for the timeline
+    })
+    syncOne(x, time)
+  }
+
+  // a ghost: the held letters, large and translucent behind the lines, drifting, growing with the hold,
+  // breathing with the loudness and wavering with the vibrato (lyrics-expressive.js ghostPlan)
+  function startGhost(it, lineIndex, time) {
+    const m = it.m
+    if (xlive.filter((x) => x.kind === 'ghost').length >= X.GHOST_MAX) {
+      const oldest = xlive.find((x) => x.kind === 'ghost')
+      endExpression(oldest)
+      xlive = xlive.filter((x) => x !== oldest)
+    }
+    const lineEl = lineIndex >= 0 && lineEls[lineIndex] ? lineEls[lineIndex] : null
+    const ref = lineEl && it.i >= 0 ? lineEl.words[it.i] : (lineEl && lineEl.words[0]) || container
+    const fontPx = parseFloat(doc.defaultView.getComputedStyle(ref).fontSize) || 16
+    const plan = X.ghostPlan(m, '', still(), (container.clientWidth || 0) * 0.06)
+    const el = doc.createElement('span')
+    el.className = 'xgw'
+    el.style.fontSize = (plan.size * fontPx).toFixed(1) + 'px'
+    const o = AOPTS(plan.t0, plan.t1)
+    const x = { kind: 'ghost', it, line: lineIndex, el, t0: plan.t0, t1: plan.t1, anims: [], reset: [] }
+    x.anims.push(el.animate(plan.opacity, o))
+    if (plan.drift) x.anims.push(el.animate(plan.drift, o))
+    const gPx = plan.size * fontPx
+    // loop: NOT-WORTH — a ghost's letters (≤ ~12), once per ghost
+    plan.letters.forEach((l, i) => {
+      const s = doc.createElement('span')
+      s.className = 'xgl'
+      s.textContent = l.ch
+      el.appendChild(s)
+      const birth = X.ghostLetterBirth(l.born, plan.t0, plan.t1)
+      if (birth) x.anims.push(s.animate(birth, o))
+      // each letter keeps the pitch it was born on: the ghost bends along the contour
+      const base = m.ct ? X.contourPx(m.ct, l.born, gPx) * 1.2 : 0
+      const wave = !still() && m.vb ? X.waveKeyframes(m.vb, plan.t0, plan.t1, gPx * 0.025, i * 0.7, base) : null
+      if (wave) x.anims.push(s.animate(wave, o))
+      else if (base) x.anims.push(s.animate(X.heldAt(base), o))
+    })
+    ghostLayer.appendChild(el)
+    placeGhost(el, lineEl, plan.drift ? (container.clientWidth || 0) * 0.06 : 0)
+    xlive.push(x)
+    syncOne(x, time)
+  }
+
+  // a ghost's place (one batch of layout reads per ghost): centred across the lyrics, in the free space of the
+  // lyric area (no line, countdown, note or credit there) nearest the sung line: centred in that space when
+  // it's snug, else just beside the line's side of it; with no free space tall enough it sits centred on
+  // the sung line, far behind it. Never over the source note or the credits.
+  function placeGhost(el, lineEl, drift) {
+    const box = container.getBoundingClientRect()
+    const gw = el.offsetWidth
+    const gh = el.offsetHeight
+    const H = box.height
+    const taken = []
+    const take = (n) => { if (!n) return; const r = n.getBoundingClientRect(); if (r.height && r.bottom > box.top && r.top < box.bottom) taken.push([r.top - box.top, r.bottom - box.top]) }
+    // loop: NOT-WORTH — the song's lines and countdowns (≤ ~150), once per ghost
+    for (const e of lineEls) take(e.el)
+    for (const g of interludes) if (g.el.classList.contains('on')) take(g.el)   // loop: NOT-WORTH — the countdowns (a few), once per ghost
+    take(notesEl)
+    take(container.querySelector('#credits'))
+    take(container.querySelector('#lead'))
+    taken.sort((x, y) => x[0] - y[0])
+    const gaps = []
+    let y = 0
+    // loop: NOT-WORTH — the taken spans just read, once per ghost
+    for (const [t0, t1] of taken) { if (t0 > y) gaps.push([y, t0]); y = Math.max(y, t1) }
+    if (y < H) gaps.push([y, H])
+    const pad = 8
+    let line = null
+    if (lineEl) { const r = lineEl.el.getBoundingClientRect(); line = [r.top - box.top, r.bottom - box.top] }
+    const mid = line ? (line[0] + line[1]) / 2 : H / 2
+    const fits = gaps.filter(([g0, g1]) => g1 - g0 >= gh + 2 * pad)
+    let top
+    if (fits.length) {
+      const dist = ([g0, g1]) => (mid < g0 ? g0 - mid : mid > g1 ? mid - g1 : 0)
+      const [g0, g1] = fits.reduce((best, g) => (dist(g) < dist(best) ? g : best))
+      if (g1 - g0 <= 2.5 * gh) top = (g0 + g1 - gh) / 2
+      else top = mid <= g0 ? g0 + pad : mid >= g1 ? g1 - pad - gh : (g0 + g1 - gh) / 2
+    } else top = mid - gh / 2
+    // in the layer's own coordinates (it is stuck to the list's visible top, padding and all)
+    const layer = ghostLayer.getBoundingClientRect()
+    el.style.left = (Math.max(0, (box.width - gw - drift) / 2) + box.left - layer.left).toFixed(0) + 'px'
+    el.style.top = (Math.max(0, Math.min(top, H - gh)) + box.top - layer.top).toFixed(0) + 'px'
+  }
+
+  function syncOne(x, time) {
+    const playing = !!clock && clock.playing && doc.visibilityState === 'visible'
+    const at = (time - x.t0) * 1000
+    // loop: NOT-WORTH — one expression's animations (≤ ~14), once when it starts
+    for (const a of x.anims) { a.currentTime = at; if (playing) a.play(); else a.pause() }
+  }
+  function endExpression(x) {
+    for (const a of x.anims) a.cancel()   // loop: NOT-WORTH — one expression's animations (≤ ~14)
+    for (const f of x.reset) f()   // loop: NOT-WORTH — a few style resets
+    if (x.el) x.el.remove()
+  }
+  // lifetime: OK — every expression's animations are cancelled and its ghost removed here (new song, setData)
+  // or when it ends (syncExpressions); none outlives its song
+  function endExpressions() {
+    for (const x of xlive) endExpression(x)   // loop: NOT-WORTH — the expressions playing (≤ ~5), per song
+    xlive = []
+  }
+
   // loop: HOT-PATH-OK — lyrics word/line changes · requestAnimationFrame, woken by a setTimeout at the next word/line
   // change (never every frame: the countdown dots run as compositor animations, syncDots) · runs only
   // while this window is visible, the song is playing and the lyrics have word timing (or a countdown is
@@ -1100,6 +1419,7 @@ function createLyricsView(opts) {
     if (doc.visibilityState !== 'visible') {
       stopFrames()
       if (shownInterlude >= 0) syncDots(interludes[shownInterlude], T.clockTime(clock, performance.now()))   // pauses them
+      if (xlive.length) syncExpressions(T.clockTime(clock, performance.now()))   // pauses them too
       return
     }
     render(T.clockTime(clock, performance.now()))
