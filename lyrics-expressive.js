@@ -258,6 +258,28 @@ function squeezePlan(extra, freePx, letterPx, popScale = 1) {
   return { n: Math.min(extra, Math.floor(freePx / (unit * SQUEEZE_MIN))), scale: SQUEEZE_MIN }
 }
 
+/**
+ * How far the rest of a row slides (px) for n extra letters of letterPx at `squeeze` of their width, popped
+ * at popScale, beyond the freePx gap the pop already leaves (0: they fit without moving anything).
+ */
+function nudgePx(n, letterPx, squeeze, popScale, freePx) {
+  if (!(n > 0)) return 0
+  return Math.max(0, Math.ceil(n * letterPx * squeeze * Math.max(1, popScale) - Math.max(0, freePx || 0)))
+}
+
+/**
+ * When the row's slide runs (s): the letters grow linearly through the hold (from vt, for `hold` s) to
+ * totalPx; the row moves only once they pass the free gap, and arrives with the hold's end. now: the song
+ * time it starts at (a seek into the hold: what's left). -> { delay, duration }
+ */
+function nudgeTiming(vt, hold, freePx, totalPx, now) {
+  const share = totalPx > 0 ? clamp(Math.max(0, freePx) / totalPx, 0, 1) : 0
+  const from = vt + hold * share
+  const to = vt + hold
+  const start = Math.max(from, now)
+  return { delay: Math.max(0, from - now), duration: Math.max(0.05, to - start) }
+}
+
 /** How many extra letters show: as many as fit freePx after the popped word (letters scale with the pop). */
 function visibleExtras(extra, freePx, letterPx, scale = 1) {
   if (!(extra > 0) || !(freePx > 0) || !(letterPx > 0)) return 0
@@ -431,6 +453,6 @@ function ghostLetterBirth(born, t0, t1) {
 
 module.exports = {
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01
 }

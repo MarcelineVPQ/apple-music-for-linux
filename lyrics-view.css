@@ -163,6 +163,11 @@
 .w .xe { display: inline-block; transform-origin: 0% 50%; opacity: 0; }
 .w .xe.xh { display: none; }
 .w.xr .xe { opacity: 1; }
+/* mid-line holds nudge the row (Marcy 2026-10-19): the words after a stretching word on its row slide right
+   by --xn while the note is held and glide back when it ends. `translate` (its own property, composited)
+   on the two text layers, so the word box, the line's layout and the pop's own transform are untouched */
+/* (--xn-t: the slide keeps pace with the letters while they grow, linear; 0.3 s ease when it glides back) */
+.w.xn > .r, .w.xn > .b { translate: var(--xn, 0px) 0; transition: translate var(--xn-t, 0.3s ease); }
 /* loudness: a belted word gains ink (a wider stroke: the letters' advances never change), a soft one
    reads a shade lighter; only on the word being sung (its bold copy) */
 .line.active .w.now.xi > .b { -webkit-text-stroke-width: calc(0.024em + var(--xi, 0) * 0.045em); }
@@ -180,6 +185,7 @@
    (lyrics-view.js dotKeyframes still) and nothing slides or scrolls smoothly (lyrics-view.js still()).
    Same selectors as above, so these win by coming later. */
 @media (prefers-reduced-motion: reduce) {
+  .w.xn > .r, .w.xn > .b { transition: none; }
   .w { transition: opacity 0.25s ease; }
   .w .s { transition: none; }
   .line.active .w.now,

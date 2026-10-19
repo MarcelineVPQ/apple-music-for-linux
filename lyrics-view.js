@@ -946,6 +946,12 @@ function createLyricsView(opts) {
       // Expressive words' stretch (lyrics-expressive.js): how far the popped word's ink may grow to its right and
       // still keep the gap to the next word (or stay inside the row): the extra letters only use that (free, px)
       const limit = next != null ? next - gap : rowW
+      // mid-line holds nudge the row (Marcy 2026-10-19): the words after this one on its row may slide right by
+      // up to `slide` px (what's left of the row after its last word), so a held vowel can stretch in place
+      const after = []
+      // loop: NOT-WORTH — the rest of one row's words (~5-12), once per line per layout
+      for (let k = i + 1; k < spans.length && tops[k] === tops[i]; k++) after.push(k)
+      const slide = after.length ? Math.max(0, rowW - at(spans[after[after.length - 1]].children[0])[1] - 2) : 0
       const freeAfter = (inkR, o, sc) => Math.max(0, limit - (o + sc * (inkR - o)))
       if (!sp.syl) {
         const [inkL, inkR] = bold(sp)
@@ -954,11 +960,11 @@ function createLyricsView(opts) {
         const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale, k: 1, prev, next, gap })
         cap(sp, f)
         const o = boxL + (f ? f.ox : oxOf(edge)) * (boxR - boxL)
-        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale }
+        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale, after, slide }
       }
       // syllables: the first and last meet the neighbours; the ones inside a word grow into their own word, as today
       const last = sp.syl.length - 1
-      const out = { word: edge, free: 0, scale: 1 }
+      const out = { word: edge, free: 0, scale: 1, after, slide }
       out.syl = sp.syl.map((el, j) => {
         const own = stage ? '' : sylOrigin(sp, j, edge)
         const [l, r] = at(el)
@@ -1212,11 +1218,30 @@ function createLyricsView(opts) {
     if (all.length) {
       const fit = popRoom(e.words, e.side)[it.i]
       w = all[0].offsetWidth || fontPx * 0.55
-      // as many as the hold asks for, squeezed (down to SQUEEZE_MIN of their width) to fit the gap; fewer when even that won't
-      const plan = X.squeezePlan(all.length, fit.free, w, fit.scale)
+      // as many as the hold asks for, in the gap after the word plus what the rest of its row can slide (not
+      // with reduced motion: then the row stays put); squeezed (down to SQUEEZE_MIN) when even that is short
+      const free = fit.free || 0
+      const plan = X.squeezePlan(all.length, free + (still() ? 0 : fit.slide || 0), w, fit.scale)
       const n = plan.n
       squeeze = plan.scale
       extras = all.slice(0, n)
+      // the row's later words slide right by what the letters need beyond the gap (keeping the pop's gap), once:
+      // a CSS transition of `translate` on their two text layers (lyrics-view.css .xn); back when the hold ends
+      const push = X.nudgePx(n, w, squeeze, fit.scale, free)
+      if (push > 0 && !still()) {
+        const moved = (fit.after || []).map((k) => e.words[k])
+        // the slide keeps pace with the letters: it starts when they reach the gap and ends with the hold (linear)
+        const sl = X.nudgeTiming(m.vt, m.hold, free, push + Math.max(0, free), time)
+        // loop: NOT-WORTH — the rest of one row's words (~5-12), once per held word
+        for (const el of moved) {
+          el.classList.add('xn')
+          el.style.setProperty('--xn-t', sl.duration.toFixed(2) + 's linear ' + sl.delay.toFixed(2) + 's')
+          el.style.setProperty('--xn', push.toFixed(1) + 'px')
+        }
+        // the hold ends: they glide back (0.3 s ease)
+        // loop: NOT-WORTH — the same words
+        x.reset.push(() => { for (const el of moved) { el.style.setProperty('--xn-t', '0.3s ease 0s'); el.style.setProperty('--xn', '0px') } })
+      }
       // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
       all.forEach((el, k) => el.classList.toggle('xh', k >= n))
       x.reset.push(() => { for (const el of all) el.classList.remove('xh') })   // loop: NOT-WORTH — ≤ MAX_EXTRA

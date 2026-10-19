@@ -14,7 +14,8 @@ const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
 const styles = (html) => [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n')
 const SOURCES = () => ({ 'lyrics-view.css': read('lyrics-view.css'), 'lyrics.html': styles(read('lyrics.html')), 'visualizer.html': styles(read('visualizer.html')), 'liner-notes.html': styles(read('liner-notes.html')) })
 
-const COMPOSITED = new Set(['transform', 'opacity', 'filter', 'none'])
+// translate: the individual transform property (Expressive words' row nudge), composited like transform
+const COMPOSITED = new Set(['transform', 'translate', 'opacity', 'filter', 'none'])
 // filter functions that don't move pixels: Chromium runs their animations on the compositor
 const NON_MOVING = /^(none|(\s*(brightness|contrast|saturate|grayscale|sepia|invert|opacity|hue-rotate)\([^()]*\)\s*)+)$/
 

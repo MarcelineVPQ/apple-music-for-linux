@@ -179,7 +179,7 @@ class El {
     const self = this
     // every style write is recorded (a property set, or a custom property through setProperty)
     this.style = new Proxy({ transformOrigin: '' }, {
-      get(o, k) { if (k === 'setProperty') return (n) => self.styleSets.push(n); if (k === 'removeProperty') return () => {}; return o[k] },
+      get(o, k) { if (k === 'setProperty') return (n, v) => { self.styleSets.push(n); o[n] = v }; if (k === 'removeProperty') return () => {}; return o[k] },
       set(o, k, v) { o[k] = v; self.styleSets.push(k); return true }
     })
     this.attrs = {}
@@ -268,7 +268,7 @@ test.after(() => Object.defineProperty(globalThis, 'performance', { value: realP
 const { createLyricsView } = require('../lyrics-view')
 
 const HELD = [
-  { t: 1.0, end: 3.2, text: 'take me home', words: [{ text: 'take', t: 1.0, end: 1.3 }, { text: 'me', t: 1.3, end: 1.55 }, { text: 'home', t: 1.6, end: 3.2 }], aligned: true },
+  { t: 1.0, end: 3.9, text: 'take me home tonight', words: [{ text: 'take', t: 1.0, end: 1.3 }, { text: 'me', t: 1.3, end: 1.55 }, { text: 'home', t: 1.6, end: 3.2 }, { text: 'tonight', t: 3.25, end: 3.9 }], aligned: true },
   { t: 4.0, end: 5.5, text: 'oh', words: [{ text: 'oh', t: 4.0, end: 5.5 }], aligned: true }
 ]
 const EXPR = { version: 2, words: [
@@ -292,6 +292,8 @@ function view(expr, reduce, data = {}, rowW = 1000) {
     row._w = rowW
     w._x = row.els().filter((e) => e.has('w')).indexOf(w) * 60
     w._w = 40
+    // its text layers (no offset parents here: they carry the word's place themselves)
+    for (const c of w.els()) { c._x = w._x; c._w = 40 }   // loop: test only
   }
   return { doc, list, v }
 }
@@ -331,23 +333,60 @@ test('view: nothing is reserved in the line: a held word looks as today until it
   assert.equal(list.firstChild.getAttribute('aria-hidden'), 'true')
 })
 
-test('view: the stretch grows only into the gap the pop leaves; already-sung words are back to their spelling', () => {
-  // plenty of room after "home": all its extra letters; a tight row: all of them squeezed into the gap (38 px for
-  // 5 popped letters of 11 px: 0.69 of their width); tighter: as many as fit at the narrowest squeeze; none: none
-  for (const [rowW, want, squeezed] of [[1000, X.MAX_EXTRA, false], [200, X.MAX_EXTRA, true], [175, 2, true], [165, 0, false]]) {
-    const { list, v } = view(X.forView(X.compact(EXPR), true), false, {}, rowW)
-    at(v, 1.8)
-    const xe = list.all().find((e) => e.has('xs')).all().filter((e) => e.has('xe'))
-    const shown = xe.filter((e) => !e.has('xh'))
-    assert.equal(shown.length, want, 'row ' + rowW)
-    const last = shown.length ? shown[shown.length - 1].anims[0].keyframes.slice(-1)[0].transform : ''
-    assert.equal(/scaleX\(0\.|scaleX\(0\.4\)/.test(last), squeezed, 'row ' + rowW + ': ' + last)
-    at(v, 3.5)
-    assert.ok(xe.every((e) => !e.has('xh') && !e.anims.some((a) => !a.cancelled)), 'after the hold: as written')
-  }
-  assert.deepEqual(X.squeezePlan(5, 38, 10, 1.1), { n: 5, scale: 0.69 })
-  assert.deepEqual(X.squeezePlan(5, 13, 10, 1.1), { n: 2, scale: 0.4 })
-  assert.deepEqual(X.squeezePlan(5, 100, 10, 1.1), { n: 5, scale: 1 })
+// the words sit 60 px apart, 40 px wide: "home" 120-160, "tonight" 180-220; popped (1.1 about 140) "home" ends at
+// 162; the gap rule (0.28 em of 20 px) leaves 180 - 5.6 - 162 = 12.4 px free; a popped extra letter is 11 px
+const popRight = 162
+const nextLeft = 180
+const GAP = 0.28 * 20
+test('view: a mid-line hold stretches in place and the rest of its row slides right, keeping the gap', () => {
+  const { list, v } = view(X.forView(X.compact(EXPR), true), false, {}, 1000)
+  at(v, 1.8)
+  const home = list.all().find((e) => e.dataset.text === 'home')
+  const tonight = list.all().find((e) => e.dataset.text === 'tonight')
+  const shown = home.all().filter((e) => e.has('xe') && !e.has('xh'))
+  assert.equal(shown.length, X.MAX_EXTRA, 'the whole stretch, at full width')
+  assert.ok(tonight.has('xn'))
+  const push = parseFloat(tonight.style['--xn'])
+  assert.equal(push, Math.ceil(X.MAX_EXTRA * 11 - (nextLeft - GAP - popRight)))
+  assert.ok(nextLeft + push - (popRight + X.MAX_EXTRA * 11) >= GAP - 1e-9, 'the pop gap stays clear')
+  assert.ok(!list.all().some((e) => e.dataset.text === 'take' && e.has('xn')), 'only the words after it move')
+  // the hold ends: the sung word is back to its spelling and the row glides back
+  at(v, 3.5)
+  assert.equal(tonight.style['--xn'], '0px')
+  assert.ok(shown.every((e) => !e.anims.some((a) => !a.cancelled)))
+  const css = read('lyrics-view.css')
+  assert.match(css, /\.w\.xn > \.r, \.w\.xn > \.b \{ translate: var\(--xn, 0px\) 0; transition: translate var\(--xn-t, 0\.3s ease\); \}/)
+  assert.equal(tonight.style['--xn-t'], '0.3s ease 0s', 'glides back over 0.3 s')
+  // the slide keeps pace with the letters: from when they reach the gap to the hold's end, linear
+  const t = X.nudgeTiming(1.66, 1.44, 12.4, 55, 1.8)
+  assert.ok(Math.abs(t.delay - (1.66 + 1.44 * 12.4 / 55 - 1.8)) < 1e-9)
+  assert.ok(Math.abs(t.duration - 1.44 * (1 - 12.4 / 55)) < 1e-9)
+  assert.equal(X.nudgeTiming(1.66, 1.44, 12.4, 55, 3.0).delay, 0, 'a seek into the hold: what is left')
+})
+
+test('view: the slide is capped at the row\'s edge (nothing overflows or wraps); a line-end word stretches outward', () => {
+  // the row ends 18 px after "tonight": the letters get the gap + 18 px, squeezed, and the row slides at most 18 px
+  const { list, v } = view(X.forView(X.compact(EXPR), true), false, {}, 240)
+  at(v, 1.8)
+  const tonight = list.all().find((e) => e.dataset.text === 'tonight')
+  const push = parseFloat(tonight.style['--xn'] || '0')
+  assert.ok(push <= 240 - 220 - 2 + 1e-9, 'the row\'s last word stays inside: ' + push)
+  const home = list.all().find((e) => e.dataset.text === 'home')
+  assert.ok(home.all().filter((e) => e.has('xe') && !e.has('xh')).length >= 1)
+  // the row already ends at its last word: no slide; only what fits the gap the pop leaves (12.4 px: 2 squeezed)
+  const tight = view(X.forView(X.compact(EXPR), true), false, {}, 222)
+  at(tight.v, 1.8)
+  assert.ok(!tight.list.all().some((e) => e.has('xn')))
+  assert.equal(tight.list.all().find((e) => e.dataset.text === 'home').all().filter((e) => e.has('xe') && !e.has('xh')).length, 2)
+  // "oh", alone on its row: nothing to slide, it stretches outward into the row
+  const end = view(X.forView(X.compact(EXPR), true), false, {}, 1000)
+  at(end.v, 4.3)
+  const oh = end.list.all().find((e) => e.dataset.text === 'oh')
+  assert.ok(oh.all().filter((e) => e.has('xe') && !e.has('xh')).length > 0)
+  assert.ok(!end.list.all().some((e) => e.has('xn') && e.style['--xn'] !== '0px' && e.dataset.text !== 'tonight'))
+  assert.deepEqual(X.squeezePlan(5, 30, 10, 1.1), { n: 5, scale: 0.545 })
+  assert.equal(X.nudgePx(5, 10, 1, 1.1, 12.4), 43)
+  assert.equal(X.nudgePx(0, 10, 1, 1.1, 12.4), 0)
 })
 
 test('view: the stretch and the ghost play in step with the song, pause with it and while hidden, and end', () => {
@@ -384,15 +423,16 @@ test('view: the stretch and the ghost play in step with the song, pause with it 
   assert.ok(doc.anims.every((a) => a.cancelled), 'a new song cancels whatever plays')
 })
 
-test('view: never a style write on the line while playing (the ghost places only itself)', () => {
+test('view: never a style write on the line while playing but the nudge (the ghost places only itself)', () => {
   const { list, v } = view(X.forView(X.compact(EXPR), true))
   const before = new Map(list.all().map((e) => [e, e.styleSets.length]))
   at(v, 1.8)
   at(v, 2.5)
   // the karaoke's own writes (paintWords' origin, popRoom's cap) are allowed; Expressive words adds none to the line
   const OWN = new Set(['transformOrigin', '--pop-max'])
-  const wrote = list.all().filter((e) => before.has(e)).flatMap((e) => e.styleSets.slice(before.get(e)).filter((k) => !OWN.has(k)).map((k) => [e.className, k]))
-  assert.deepEqual(wrote, [])
+  const wrote = list.all().filter((e) => before.has(e)).flatMap((e) => e.styleSets.slice(before.get(e)).filter((k) => !OWN.has(k)).map((k) => [e.dataset.text || e.className, k]))
+  // the one write Expressive words makes on the line: the row's later word's nudge, once at the hold's start
+  assert.deepEqual(wrote, [['tonight', '--xn-t'], ['tonight', '--xn']])
 })
 
 test('view: the ghost sits in the free space beside the sung line, large and far back', () => {
@@ -424,6 +464,7 @@ test('view: reduced motion: no drift, no wave, no growth: the stretched spelling
   at(v, 1.8)
   const word = list.all().find((e) => e.has('xs'))
   assert.ok(word.has('xr'), 'the stretched spelling, still')
+  assert.ok(!list.all().some((e) => e.has('xn')), 'reduced motion: the row doesn\'t move')
   const live = doc.anims.filter((a) => !a.cancelled)
   const still = (a) => new Set(a.keyframes.map((f) => f.transform)).size <= 1
   assert.ok(live.length && live.every((a) => (a.el.has('xgw') || a.el.has('xgl')) && still(a)), 'only the ghost\'s fade: ' + live.map((a) => a.el.className))
@@ -436,7 +477,7 @@ test('render path: the expressive styles animate nothing themselves and the pop 
   const css = read('lyrics-view.css')
   const part = css.slice(css.indexOf('/* Expressive words'), css.indexOf('/* prefers-reduced-motion'))
   assert.ok(part.length > 200)
-  assert.doesNotMatch(part, /transition|animation|@keyframes/)
+  assert.doesNotMatch(part.replace(/transition: translate var\(--xn-t, 0\.3s ease\);/, ''), /transition|animation|@keyframes/, 'only the row nudge\'s translate transition')
   assert.doesNotMatch(part, /\.s\.now|\.w\.now \{|scale\(/, 'the pop is not restyled')
   assert.match(css, /\.line\.active \.w\.now \{\n  opacity: 1;\n  color: var\(--sing\);\n  transform: scale\(min\(1\.1, var\(--pop-max, 1\.1\)\)\);/)
   assert.match(css, /\.line\.active \.w\.now \.s\.now \{ transform: translateY\(-0\.24em\) scale\(min\(1\.12, var\(--pop-max, 1\.12\)\)\);/)
