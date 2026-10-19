@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.58-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Settings, reorganised: Precise timing first, everything in one place</p>
+      </description>
+    </release>
     <release version="0.15.57-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Expressive words: works on your songs, and says what it's waiting for</p>
