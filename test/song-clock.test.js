@@ -282,3 +282,35 @@ test('a new song\'s first push 227 ms off (or paused, then playing): no visible 
     assert.ok(!lines.some((l) => /jump/.test(l)), lines.join(' | '))   // loop: NOT-WORTH — a test
   }
 })
+
+// QC 2026-10 #1: the same song starting again (Previous more than ~3 s in, a scrub to 0:00, repeat-one)
+// never waits BOUNDARY_WAIT for a song change that won't come
+test('the same song restarting is a clean epoch at once; only a drop near the song\'s end holds', () => {
+  const run = (upTo, info) => {
+    let now = 0
+    const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+    clock.setSong('s', 240)
+    let st
+    // loop: NOT-WORTH — a test's few hundred pushes
+    for (let k = 0; k <= upTo * 2; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now, info) }
+    const e = st.epoch
+    now += 500
+    const got = clock.push(0.1, true, 's', now, info)
+    return { got, e, clock }
+  }
+  const mid = run(60)                                   // Previous at 1:00, or a scrub back to the start
+  assert.ok(mid.got && mid.got.epoch > mid.e, 'snapped at once')
+  assert.ok(Math.abs(mid.clock.time() - 0.1) < 0.05)
+  assert.equal(mid.clock.holding, false)
+  const one = run(236, { repeatOne: true })              // repeat-one at the song's end
+  assert.ok(one.got && one.got.epoch > one.e, 'repeat-one: at once')
+  const end = run(236)                                  // a natural end: the next song's time before its name
+  assert.equal(end.got, null, 'held for the song change')
+  assert.equal(end.clock.holding, true, 'the recorder and the refiner wait while held')
+})
+
+test('main: the recorder and the refiner wait while the clock holds a drop for its song change', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(src, /songClock\.holding \? null : songClock\.snapshot\(\)/)
+  assert.match(src, /repeatOne: state\.repeat === 1/)
+})

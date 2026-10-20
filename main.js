@@ -1465,7 +1465,7 @@ async function lyricsTick() {
   const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
   // the one song clock: its snapshot is the only time the views get (song-clock.js; they interpolate it)
   songClock.setSong(key, state.duration)
-  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt) : null
+  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1 }) : null
   if (clockNow) sendLyrics('lyrics-time', clockNow)
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
@@ -1473,7 +1473,9 @@ async function lyricsTick() {
   // performance.now() base) unless look-ahead runs, when the clock is the heard time and they keep the player's
   // (a new song's first ticks: the clock waits for the song's own time, and so do they: the previous
   // song's position at a track change is never recorded as this song's opening)
-  const master = heard.playerTime ? null : songClock.snapshot()
+  // (a drop to the start held for its song change (songClock.holding): the snapshot is still the old song's, so
+  // they wait too: the new song's opening is never recorded at the old position)
+  const master = heard.playerTime || songClock.holding ? null : songClock.snapshot()
   const playerClock = heard.playerTime ? null : master ? require('./song-clock').localize(master, Date.now(), performance.now()) : { anchor: null, playing: false }
   if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine, playerClock)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn(), playerClock)
