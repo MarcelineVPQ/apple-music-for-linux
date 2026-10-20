@@ -105,7 +105,7 @@ test('offers: newer only; Back to stable: any other stable version, older includ
   assert.equal(U.updatedSince('0.15.32', '0.15.32'), null)
 })
 
-test('notices: available (Update + Details), progress, installed: Restart now only while nothing plays', () => {
+test('notices: available (Update + Details), progress, installed: Restart now greyed while music plays', () => {
   const a = U.updateNotice({ phase: 'available', version: '0.16.0', size: 130e6 }, {})
   assert.match(a.text, /Sonata 0\.16\.0 is available \(124 MB\)/)
   assert.deepEqual(a.actions.map((x) => x.id), ['update-details', 'update-install'])
@@ -113,11 +113,15 @@ test('notices: available (Update + Details), progress, installed: Restart now on
   const d = U.updateNotice({ phase: 'downloading', version: '0.16.0', got: 52428800, total: 104857600 }, {})
   assert.equal(d.progress, 50)
   assert.equal(d.closable, false)
+  // never interrupts playback: while music plays Restart now is there but greyed, saying why (Marcy 2026-10-20)
   const playing = U.updateNotice({ phase: 'ready', version: '0.16.0' }, { playing: true })
-  assert.deepEqual(playing.actions, [], 'never interrupts playback')
-  assert.match(playing.text, /next time you open Sonata/)
+  assert.deepEqual(playing.actions.map((x) => [x.id, x.label, x.disabled, x.tip]), [['update-restart', 'Restart now', true, 'Pause the music to restart']])
+  assert.match(playing.text, /next time you open Sonata\. Pause the music to restart now\.$/)
+  const busy = U.updateNotice({ phase: 'ready', version: '0.16.0' }, { playing: false, helperBusy: true })
+  assert.equal(busy.actions[0].disabled, true)
+  assert.match(busy.text, /wait for the Precise timing helper to finish/)
   const paused = U.updateNotice({ phase: 'ready', version: '0.16.0' }, { playing: false })
-  assert.deepEqual(paused.actions.map((x) => x.id), ['update-restart'])
+  assert.deepEqual(paused.actions.map((x) => [x.id, x.disabled]), [['update-restart', false]])
   assert.equal(U.updateNotice({ phase: 'failed', during: 'check', detail: 'offline' }, {}), null, 'a scheduled check that fails stays quiet')
   assert.equal(U.updateNotice({ phase: 'failed', during: 'check', detail: 'offline', shown: true }, {}).kind, 'error')
   assert.match(U.updateNotice({ phase: 'failed', during: 'install', detail: 'bad sha' }, {}).text, /didn't install: bad sha Your current version is untouched/)

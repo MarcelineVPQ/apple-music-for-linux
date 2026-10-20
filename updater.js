@@ -4,8 +4,8 @@
 // this adds the DS5 app's update UX (electron/main/updater.ts there):
 //
 //   check -> "Sonata X is available" [Update] [Details] -> downloading (progress) -> installing ->
-//   ready: "Sonata X is installed. It starts the next time you open Sonata." [Restart now: only while
-//   nothing plays] -> next start: "Updated to X · See what's new"
+//   ready: "Sonata X is installed. It starts the next time you open Sonata." [Restart now: greyed while
+//   music plays] -> next start: "Updated to X · See what's new"
 //
 // Rules:
 // - Nothing installs before the feed's signature checks out, then the download's size and SHA-512
@@ -14,7 +14,7 @@
 //   is offered even when it is older than this build (explicit, the panel confirms it first). The
 //   offer stays until it's installed or Development is picked again, so a routine check can't take it back.
 // - Never interrupts playback: an update installs beside the running AppImage and starts next time;
-//   Restart now is offered only while nothing plays (main.js).
+//   Restart now works only while nothing plays (greyed, with why, while music plays; main.js refuses it too).
 // - Linux AppImage: the new file is written as <name>.part beside the running one, verified, renamed
 //   to its versioned name, and the Sonata.AppImage symlink is repointed (main.js integrateAppImage).
 //   The running AppImage is never overwritten or deleted (it is FUSE-mounted: SIGBUS); older ones are
@@ -68,9 +68,11 @@ function updateNotice(st, ctx) {
     case 'ready':
       return {
         id: 'update', kind: 'info', task: true, dismissKey: 'update:ready:' + st.version,   // hardcode: OK — the notice's key (raw version), never shown
-        // a Precise timing helper job running: no restart until it has finished (helperBusy)
-        text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.helperBusy ? ' (Restart now shows when the Precise timing helper has finished).' : c.playing ? ' (Restart now shows when the music is paused).' : ', or restart now.'),
-        actions: c.playing || c.helperBusy ? [] : [{ id: 'update-restart', label: 'Restart now', primary: true }]
+        // a Precise timing helper job running: no restart until it has finished (helperBusy). While music plays or the
+        // helper works, Restart now is shown greyed with why (Marcy 2026-10-20: "gray it out with a little 'pause audio
+        // to restart'" instead of hiding it)
+        text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.helperBusy ? '. To restart now, wait for the Precise timing helper to finish.' : c.playing ? '. Pause the music to restart now.' : ', or restart now.'),
+        actions: [{ id: 'update-restart', label: 'Restart now', primary: true, disabled: !!(c.playing || c.helperBusy), tip: c.helperBusy ? 'Waits for the Precise timing helper to finish' : c.playing ? 'Pause the music to restart' : '' }]
       }
     case 'failed':
       return st.during === 'install' || st.shown
