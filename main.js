@@ -4326,12 +4326,12 @@ function curiousCopy() {
 // sends the panel's state if it changed; one JSON compare otherwise
 function pushPanel() {
   if (!panelAlive() || !panelMounted) return
+  aboutSync()
   // out of sight (the panel hidden, or the window in the tray or minimized): one snapshot says so, then nothing is
   // built until it shows again (QC 2026-10 LOOP L2: the 5 s loop rebuilt it forever, ~0.4 MB of strings each time)
   const seen = !!(settings.panelShown && mainAlive() && mainWindow.isVisible() && !mainWindow.isMinimized())
   if (!seen && panelSentHidden) { panelStale = true; return }
   panelStale = false
-  aboutSync()
   const s = panelSnapshot()
   const json = JSON.stringify(s)
   if (json === panelSent) return
