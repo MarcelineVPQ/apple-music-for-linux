@@ -159,3 +159,56 @@ test('every clocked consumer is on the song clock: no 60 ms snap-back left in th
   }
   assert.match(fs.readFileSync(require.resolve('../main.js'), 'utf8'), /sendLyrics\('lyrics-time', clockNow\)/)
 })
+
+// 0.15.64: a house clock / PLL (Marcy: the band's speed wavered to meet the words)
+test('jittered pushes (+/-60 ms, now and then 300 ms late): rate 1 +/- 0.005, phase < 20 ms, never backwards, one epoch', () => {
+  let now = 0
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+  let seed = 11
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 }
+  let last = -Infinity
+  const epochs = new Set()
+  let st
+  const errs = []
+  // loop: NOT-WORTH — a test's pushes
+  for (let k = 0; k < 240; k++) {
+    now += 500
+    const truth = 30 + now / 1000
+    const late = rnd() < 0.08 ? 0.3 : 0
+    const told = truth - late + (rnd() * 2 - 1) * 0.06   // a late push reads an old time, unaged
+    st = clock.push(told, true, 'k', undefined)
+    if (k > 5) epochs.add(st.epoch)   // a late first push can start it 300 ms off: one agreed step fixes that
+    if (k > 4) {
+      const r = C.rateAt(st, now)
+      assert.ok(Math.abs(r - 1) <= C.PLL_SLEW + 1e-9, 'rate ' + r)
+    }
+    // loop: NOT-WORTH — a test's frames
+    for (let f = 0; f < 5; f++) {
+      const t = C.timeAt(st, now + f * 100)
+      assert.ok(t >= last - 1e-9, 'never backwards')
+      last = t
+    }
+    if (k > 40) errs.push(Math.abs(C.timeAt(st, now) - truth))
+  }
+  assert.equal(epochs.size, 1, 'no discontinuity from jitter')
+  errs.sort((x, y) => x - y)
+  assert.ok(errs[errs.length >> 1] < 0.02, 'phase converged: median ' + errs[errs.length >> 1])
+  assert.ok(errs[Math.floor(errs.length * 0.95)] < 0.04, 'phase stays close')
+  // the band at constant speed: its follow rate is the clock's own
+  const fit = M.followRate(C.timeAt(st, now) - 0.01, C.timeAt(st, now), C.rateAt(st, now), false)
+  assert.ok(Math.abs(fit.rate - 1) <= C.PLL_SLEW + 0.001)
+})
+
+test('a real 2 s seek in the player: one discontinuity, then steady', () => {
+  let now = 0
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+  let st
+  // loop: NOT-WORTH — a test's pushes
+  for (; now <= 5000; now += 500) st = clock.push(now / 1000, true, 'k', now)
+  const e0 = st.epoch
+  // loop: NOT-WORTH — a test's pushes
+  for (; now <= 10000; now += 500) st = clock.push(now / 1000 + 2, true, 'k', now)
+  assert.equal(st.epoch, e0 + 1)
+  assert.ok(Math.abs(C.timeAt(st, now - 500) - ((now - 500) / 1000 + 2)) < 0.02)
+  assert.ok(Math.abs(C.rateAt(st, now) - 1) <= C.PLL_SLEW)
+})

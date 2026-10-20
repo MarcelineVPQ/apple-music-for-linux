@@ -7,6 +7,16 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.64-dev.1] — The sheet-notes band scrolls at a steady speed
+
+### Fixed
+
+- The sheet-notes band, the interlude dots and Expressive effects no longer speed up and slow down a
+  little to meet the words. The song clock now runs like a studio's house clock: at exactly 1x, its
+  phase taken from the median of Apple's time pushes over the last 3 s (a late or stray push is
+  outvoted) and trimmed by at most 0.5 % speed, which nobody can see. Only an error over 250 ms, a seek
+  or a new song moves it in one clean step; it still never runs backwards.
+
 ## [0.15.63-dev.1] — Songs with a gap in their notes re-learn themselves
 
 ### Fixed

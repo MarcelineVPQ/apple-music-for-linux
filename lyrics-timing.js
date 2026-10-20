@@ -677,7 +677,9 @@ function clockTime(clock, nowMs) {
   const c = clock.corr || 0
   // the correction (syncClock's slew) is taken in at SLEW_RATE s per s: the clock moves at 0.5–1.5× speed, never back
   const took = c >= 0 ? Math.min(c, e * SLEW_RATE) : Math.max(c, -e * SLEW_RATE)
-  return clock.anchor + e + took
+  // the song clock (0.15.64) runs at its own steady rate (1 +/- 0.005, a house clock's phase slew), corr 0
+  const r = Number.isFinite(clock.rate) ? clock.rate : 1
+  return clock.anchor + e * r + took
 }
 
 /**

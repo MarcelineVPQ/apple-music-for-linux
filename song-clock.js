@@ -10,15 +10,34 @@
 // pushes the snapshot { anchor, at, corr, playing, key, epoch }; the views take it to their own time
 // base once (localize) and interpolate with timeAt / rateAt, so every consumer shows the same instant
 // with no per-frame IPC. Electron-free (tests: test/song-clock.test.js).
+// 0.15.64, a house clock / PLL (Marcy: no jumps any more, but the band's speed wavered "a little
+// faster, a little slower to meet the timing of the words"): the clock no longer eases each push's
+// error in at 0.5-1.5x. It runs at exactly 1x; the phase error is the median of the pushes' offsets
+// over the last PLL_WINDOW ms (late or stray pushes are outvoted) and is trimmed by a slew of at most
+// PLL_SLEW (0.5 %, inaudible, invisible). Only an error over PLL_SNAP (or one push over PLL_JUMP: a
+// seek), a pause, a stall or a new song is a clean discontinuity (epoch bump).
 'use strict'
 const T = require('./lyrics-timing')
 
 /** Song time (s) at nowMs from a snapshot (the same math every consumer uses). */
 function timeAt(st, nowMs) { return T.clockTime(st, nowMs) }
 
-/** The clock's speed at nowMs: 0 paused, 1 in step, 1 +/- SLEW_RATE while it eases a correction in. */
+const PLL_WINDOW = 3000   // ms of pushes the phase estimate is the median of
+const PLL_SLEW = 0.005    // the most the clock's rate leaves 1 to trim its phase
+const PLL_TAU = 2         // s: the phase error is trimmed at err / PLL_TAU per s (capped at PLL_SLEW)
+const PLL_SNAP = 0.25     // s: an estimated error over this (3+ pushes agreeing) is a discontinuity
+const PLL_JUMP = 1        // s: one push this far off is a seek: a discontinuity at once
+
+function median(xs) {
+  const a = xs.slice().sort((x, y) => x - y)   // loop: HOT-PATH-OK — one sort a push (2/s), N <= 8
+  const m = a.length >> 1
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+}
+
+/** The clock's speed at nowMs: 0 paused, its steady rate (1 +/- PLL_SLEW) while playing. */
 function rateAt(st, nowMs) {
   if (!st || !st.playing || st.anchor == null) return 0
+  if (Number.isFinite(st.rate)) return st.rate
   const c = st.corr || 0
   const e = Math.max(0, (nowMs - st.at) / 1000)
   return Math.abs(c) - e * T.SLEW_RATE > 0 ? 1 + Math.sign(c) * T.SLEW_RATE : 1
@@ -46,18 +65,33 @@ function createSongClock(opts = {}) {
   let epoch = 0
   let gateDone = false   // this push is a new song's first
   const log = opts.log || null
+  let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
+  let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
   let loggedAt = -Infinity   // cache: OK — key=the last correction logged; invalidated=each logged line; bound=one number
 
   function snapshot() {
     if (!clock) return null
-    return { anchor: clock.anchor, at: clock.at, corr: clock.corr || 0, playing: !!clock.playing, key, epoch }
+    return { anchor: clock.anchor, at: clock.at, corr: clock.corr || 0, rate: Number.isFinite(clock.rate) ? clock.rate : 1, playing: !!clock.playing, key, epoch }
   }
   function setSong(k, duration) {
     if (k === key) return
     gate = T.trackGate(clock, duration, now())
     key = k
     clock = null
+    samples = []
     epoch++
+  }
+  // the phase detector: this push's offset from the shown time (null: no information), as syncClock reads it
+  function offset(fresh, shown, n) {
+    if (!Number.isFinite(fresh)) return null
+    let d
+    if (Number.isInteger(fresh)) {
+      // a whole-second time (MusicKit may round down): the clock inside [v, v+1) is in step
+      if (shown >= fresh - 0.05 && shown < fresh + 1.05) return 0
+      d = shown < fresh ? fresh - shown : fresh + 1 - shown
+    } else d = fresh - shown
+    if (clock.seekAt != null && n - clock.seekAt < 1200 && Math.abs(d) > 1.05) return null   // a push from before a seek
+    return d
   }
   return {
     setSong,
@@ -71,7 +105,24 @@ function createSongClock(opts = {}) {
       }
       const fresh = T.freshTime(t, isPlaying, readAt, epochNow())
       const shown = clock ? T.clockTime(clock, n) : null
-      const next = T.syncClock(clock, fresh, isPlaying, n)
+      let next = T.syncClock(clock, fresh, isPlaying, n)   // pause, stall, resume and the first time
+      if (clock && clock.playing && next.playing && clock.anchor != null) {
+        cum += ((Number.isFinite(clock.rate) ? clock.rate : 1) - 1) * Math.max(0, n - clock.at) / 1000
+        const d = offset(fresh, shown, n)
+        const keep = { last: next.last, prev: next.prev, prev2: next.prev2, seekAt: next.seekAt, playing: true, corr: 0 }
+        if (d != null && Math.abs(d) > PLL_JUMP) {
+          next = Object.assign(keep, { anchor: fresh, at: n, rate: 1 })   // a seek: snapped
+          samples = []
+        } else {
+          if (d != null) samples.push({ t: n, off: d, cum })
+          samples = samples.filter((x) => n - x.t <= PLL_WINDOW).slice(-8)   // loop: HOT-PATH-OK — once a push (2/s), N <= 8
+          const err = samples.length ? median(samples.map((x) => x.off - (cum - x.cum))) : 0   // loop: HOT-PATH-OK — N <= 8, 2/s
+          if (samples.length >= 3 && Math.abs(err) > PLL_SNAP) {
+            next = Object.assign(keep, { anchor: shown + err, at: n, rate: 1 })   // far off and agreed on: one clean step
+            samples = []
+          } else next = Object.assign(keep, { anchor: shown, at: n, rate: 1 + Math.max(-PLL_SLEW, Math.min(PLL_SLEW, err / PLL_TAU)) })
+        }
+      } else samples = []
       const stepped = shown != null && Math.abs(T.clockTime(next, n) - shown) > jump
       if (shown == null || stepped) epoch++
       // a correction over 100 ms: one debug line a minute at most, with its size and cause (Marcy's log
@@ -88,6 +139,7 @@ function createSongClock(opts = {}) {
     /** A seek from a view: shown at once, stale pushes from before it are ignored (seekClock). */
     seek(t) {
       clock = T.seekClock(clock, t, now())
+      samples = []
       epoch++
       return snapshot()
     },
@@ -107,12 +159,18 @@ function createSongClock(opts = {}) {
 const FOLLOW_SNAP = 1
 const FOLLOW_MIN = 0.5
 const FOLLOW_MAX = 1.5
+const FOLLOW_DEAD = 0.03   // s of drift a clocked animation lets be (its rate stays the clock's)
+const FOLLOW_TRIM = 0.02   // the most a small drift moves its rate
 function followRate(cur, want, clockRate, jumpNow) {
   const base = Number.isFinite(clockRate) && clockRate > 0 ? clockRate : 1
   const d = want - cur
-  if (jumpNow || !Number.isFinite(d) || Math.abs(d) > FOLLOW_SNAP) return { snap: true, rate: Math.round(base * 100) / 100 }
-  const r = Math.min(FOLLOW_MAX, Math.max(FOLLOW_MIN, base + d))
-  return { snap: false, rate: Math.round(r * 100) / 100 }
+  const round = (r) => Math.round(r * 1000) / 1000
+  if (jumpNow || !Number.isFinite(d) || Math.abs(d) > FOLLOW_SNAP) return { snap: true, rate: round(base) }
+  // 0.15.64: in step (within FOLLOW_DEAD) it runs at the clock's own rate, a small drift is trimmed by at
+  // most FOLLOW_TRIM (invisible), only a big one (a hidden window, a stall) is eased in faster
+  if (Math.abs(d) <= FOLLOW_DEAD) return { snap: false, rate: round(base) }
+  if (Math.abs(d) <= 0.25) return { snap: false, rate: round(base + Math.max(-FOLLOW_TRIM, Math.min(FOLLOW_TRIM, d))) }
+  return { snap: false, rate: round(Math.min(FOLLOW_MAX, Math.max(FOLLOW_MIN, base + d))) }
 }
 
 /**
@@ -127,4 +185,4 @@ function follow(a, wantMs, clockRate, epoch, paused) {
   if (a.playbackRate !== fit.rate) a.playbackRate = fit.rate
 }
 
-module.exports = { createSongClock, timeAt, rateAt, localize, followRate, follow, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX }
+module.exports = { createSongClock, timeAt, rateAt, localize, followRate, follow, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX, PLL_SLEW, PLL_SNAP }
