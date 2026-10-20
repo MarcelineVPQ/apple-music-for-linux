@@ -1390,7 +1390,12 @@ function createAlignSession(deps) {
       const now = deps.now()
       // songClock: main's one song clock in deps.now()'s base (song-clock.js localize); without it, the raw push smoothed here
       clock = songClock || T.syncClock(clock, playbackTime, isPlaying, now)
-      if (!clock.playing) { stopCapture(); expectNext = null; return null }
+      if (!clock.playing) {
+        stopCapture(); expectNext = null
+        // paused: the stream stays open (it resumes where the audio does); its quiet limit isn't a hang meanwhile
+        if (song.stream && song.stream.job.alive) song.stream.job.alive()
+        return null
+      }
       // gaming guard: nothing is recorded while a game runs, so the sections it covers are not
       // heard (skipped) and fill in on a later play (a partial entry); recording resumes after
       if (paused()) { stopCapture(); expectNext = null; return null }

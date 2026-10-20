@@ -377,6 +377,10 @@ function createAlignHelper(opts, deps = {}) {
     // loop: none · one-shot job timeout, re-armed on every message for the job
     // error: a helper silent for the timeout is treated as hung: the job fails and the helper is killed
     p.timer = setT(() => {
+      // a job queued behind a look-ahead stream waits for it in the helper (one job at a time): it isn't hung, and
+      // killing the helper for it ended the stream too (QC 2026-10, a pause: "stream … failed (helper exited)")
+      // loop: NOT-WORTH — the pending jobs (1-3), once per quiet timeout
+      if (!p.stream && [...pending.values()].some((q) => q.stream)) { touch(id); return }
       fail(id, new Error('helper timed out'))
       kill()
     }, p.ms)
@@ -520,14 +524,14 @@ function createAlignHelper(opts, deps = {}) {
     }
   }
 
-  function request(id, messages, ms, progress) {
+  function request(id, messages, ms, progress, isStream) {
     return new Promise((resolve, reject) => {
       let c
       // error: PASSES-ON — not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it)
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
       idleSince = 0
-      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null })
+      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null, stream: !!isStream })
       touch(id)
       write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
     })
@@ -632,7 +636,7 @@ function createAlignHelper(opts, deps = {}) {
       if (head.duration) msg.duration = head.duration
       // first play: each line's notes (and Expressive words) ride with its words (engine feature "stream-notes")
       if (head.notes && features && features.includes('stream-notes')) msg.want = ['notes'].concat(wantFor(opts.want ? opts.want() : [], features) || [])
-      const done = request(id, [msg], quietMs, on)
+      const done = request(id, [msg], quietMs, on, true)
       let open = true
       const send = (m) => {
         if (!open || !child) return
@@ -644,6 +648,8 @@ function createAlignHelper(opts, deps = {}) {
         /** t: the song time (s) of the chunk's first frame; pcm: s16le stereo at head.rate */
         chunk(t, pcm) { send({ cmd: 'chunk', id, t: Math.round(t * 1000) / 1000, data: pcm.toString('base64') }) },
         end() { send({ cmd: 'end', id }); open = false },
+        /** The song is paused, not gone: no audio and no words come, and that is no hang (its quiet limit restarts). */
+        alive() { if (open) touch(id) },
         cancel() { send({ cmd: 'cancel', id }); open = false; fail(id, Object.assign(new Error('cancelled'), { code: 'cancelled' })) }
       }
     },

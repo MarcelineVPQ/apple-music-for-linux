@@ -8,6 +8,7 @@ See docs/RELEASING.md.
 ## [Unreleased]
 
 ### Fixed
+- **Look-ahead survives a pause.** Pausing a song while look-ahead streamed it could end the timing helper a couple of minutes later (another part's job, waiting its turn behind the stream, was taken for a hung helper), so the song fell back to section timing with a mismatched notes band. Waiting jobs now wait, and a paused stream stays open.
 - **Look-ahead: the heard delay no longer drops out after a slow moment.** When the timing helper answered a command late (Sonata busy for over 2 s), every later answer was taken as the reply to the command after its own, so the lyrics and the notes band jumped by the delay and back at each pause, seek or skip until the helper restarted. A late answer is now dropped; the same for the Precise timing helper's status answers.
 - **A song starting again starts its lyrics at once.** Previous more than a few seconds in, a scrub back to 0:00 or Repeat one made the lyrics, the notes band and the Expressive effects run on from the old position for 1.5 s before jumping to the start, and Precise timing could record the song's opening at the old position. Only a jump to the start in a song's last seconds (the next song coming) still waits for the song change, and nothing is recorded meanwhile.
 - **A stalled song holds its lyrics still.** When Apple's player froze while still saying it plays (buffering, the last second of a song), the lit words ran ahead and went dark again every second or so; the clock now sees the frozen time and waits.
