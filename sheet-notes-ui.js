@@ -312,7 +312,8 @@ function createSheetBand(opts) {
     // pitch-line clause only with a run in view; its ⓘ explains the quiet one (the mode's own ⓘ comes first)
     const seen = spans ? M.seenIn(spans, windowAt(t)) : null
     const lab = M.labelAt(m, M.regionAt(gated && gated.regions, t), seen)
-    if (label.textContent !== lab) {
+    // (first play's notes: "Listening and learning" keeps the label while the part at the playhead has none yet)
+    if (!live && label.textContent !== lab) {
       label.textContent = lab
       label.hidden = !lab
       info.set(m.info || (seen && !seen.sung ? M.QUIET.info : ''))
