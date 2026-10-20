@@ -400,3 +400,30 @@ test('look-ahead with whole-second player times: no back-and-forth steps (info.c
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /songClock\.push\(heard\.playbackTime, [^\n]*coarse: Number\.isInteger\(state\.playbackTime\)/, 'main says when the player\'s own time is whole seconds')
 })
+
+// 0.15.77 (Marcy 2026-10-19: the words up to ~1 s late, "corrected ~979 ms (player ahead: eased)"): whole-second
+// times kept any clock inside [v, v+1) as in step, so one seeded at v stayed almost a second behind. Pushes 470 ms
+// apart (main.js LYRICS_TICK_MS) land all over the second; their spans overlap to the true phase.
+test('whole-second player times: the clock locks onto the true phase, not up to a second behind', () => {
+  for (const frac of [0.1, 0.45, 0.7, 0.95]) {
+    let now = 1000000
+    const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+    clock.setSong('k', 300)
+    let steps = 0; let prev = null; let worst = 0
+    // loop: NOT-WORTH — a test's minute of pushes
+    for (let i = 0; i < 130; i++) {
+      const dt = 470 + (i % 3) * 3
+      now += dt
+      const truth = (now - 1000000) / 1000 + 5 + frac
+      clock.push(Math.floor(truth), true, 'k', now, { coarse: true })
+      const shown = clock.time()
+      if (i > 20) worst = Math.max(worst, Math.abs(shown - truth))
+      if (prev != null && i > 20 && Math.abs(shown - prev - dt / 1000) > 0.1) steps++
+      prev = shown
+    }
+    assert.ok(worst < 0.15, frac + ': within 0.15 s of the song after the first seconds, worst ' + worst.toFixed(3))
+    assert.equal(steps, 0, frac + ': once locked, no steps')
+  }
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /const LYRICS_TICK_MS = 470\b/, 'the lyrics tick walks through the second')
+})

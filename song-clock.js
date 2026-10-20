@@ -42,6 +42,32 @@ const BOUNDARY_WAIT = 1500
 const BOUNDARY_END = 10
 const SEED_PUSHES = 3
 
+// 0.15.77, whole-second times (Marcy 2026-10-19: the words up to ~1 s late, "corrected ~979 ms (player ahead:
+// eased)"): MusicKit's time is often whole seconds, and any clock inside [v, v+1) read as in step, so a clock
+// seeded at v could sit almost a second behind for good. Each such push still says the song is in [v, v+1) at
+// its moment; those spans, kept in the clock's frame like the offsets, overlap to the true phase (the pushes
+// come every 470 ms, main.js lyricsTick, so they land all over the second). Once the overlap is narrower than
+// COARSE_LOCK s the clock aims at its middle; until then (or when the spans disagree: a seek) only at its edge.
+const COARSE_TOL = 0.05   // s of slack on each side of a whole-second span (the read moment's jitter)
+const COARSE_LOCK = 0.35  // s: an overlap this narrow or narrower is locked on (its middle)
+
+// the overlap of the samples' spans, each moved by the phase trimmed since (cum): { lo, hi } or null (they disagree)
+function overlap(samples, cum) {
+  let lo = -Infinity
+  let hi = Infinity
+  // loop: HOT-PATH-OK — N <= 8, once a push (2/s)
+  for (const x of samples) { lo = Math.max(lo, x.lo - (cum - x.cum)); hi = Math.min(hi, x.hi - (cum - x.cum)) }
+  return lo <= hi ? { lo, hi } : null
+}
+
+// the phase error to trim from whole-second samples: the overlap's middle once narrow, else its nearest edge (0 inside)
+function coarseError(samples, cum) {
+  const o = overlap(samples, cum)
+  if (!o) return null
+  if (samples.length >= 3 && o.hi - o.lo <= COARSE_LOCK) return (o.lo + o.hi) / 2
+  return o.lo > 0 ? o.lo : o.hi < 0 ? o.hi : 0
+}
+
 function median(xs) {
   const a = xs.slice().sort((x, y) => x - y)   // loop: HOT-PATH-OK — one sort a push (2/s), N <= 8
   const m = a.length >> 1
@@ -186,9 +212,16 @@ function createSongClock(opts = {}) {
           next = Object.assign(keep, { anchor: fresh, at: n, rate: 1 })   // a seek: snapped
           samples = []
         } else {
-          if (d != null) samples.push({ t: n, off: d, cum })
+          // a whole-second sample keeps its span [v, v+1) as an offset span; a fine one is a point (lo = hi)
+          const span = coarse && Number.isFinite(fresh) ? { lo: fresh - shown - COARSE_TOL, hi: fresh + 1 - shown + COARSE_TOL } : { lo: d, hi: d }
+          if (d != null) samples.push({ t: n, off: d, cum, coarse, lo: span.lo, hi: span.hi })
           samples = samples.filter((x) => n - x.t <= PLL_WINDOW).slice(-8)   // loop: HOT-PATH-OK — once a push (2/s), N <= 8
-          const err = samples.length ? median(samples.map((x) => x.off - (cum - x.cum))) : 0   // loop: HOT-PATH-OK — N <= 8, 2/s
+          // whole seconds: their spans' overlap (spans that disagree: a seek or a stall, so only this push's span counts)
+          let err = 0
+          if (samples.length && samples.every((x) => x.coarse)) {   // loop: HOT-PATH-OK — N <= 8, 2/s
+            err = coarseError(samples, cum)
+            if (err == null) { samples = samples.slice(-1); err = coarseError(samples, cum) }
+          } else if (samples.length) err = median(samples.map((x) => x.off - (cum - x.cum)))   // loop: HOT-PATH-OK — N <= 8, 2/s
           if (samples.length >= 3 && Math.abs(err) > PLL_SNAP && !seeding) {
             next = Object.assign(keep, { anchor: shown + err, at: n, rate: 1 })   // far off and agreed on: one clean step
             samples = []

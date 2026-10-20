@@ -113,6 +113,7 @@ let miniPoll = null
 let lyricsWindow = null
 // cache: NOT-WORTH — key=none (the poll handle); invalidated=cleared when the last view closes; bound=one
 let lyricsPoll = null
+const LYRICS_TICK_MS = 470   // the lyrics feed's tick (startLyricsFeed)
 let lyricsKey = ''
 let lyricsRetry = null  // { key, tries, at } after a failed lyrics lookup
 // failed lookups per song this session (lyrics-sources retryPlan caps them); bounded, oldest dropped
@@ -1511,8 +1512,10 @@ function startLyricsFeed() {
   lyricsKey = null
   lyricsArt = null
   vizArt = null
-  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused), or while look-ahead runs (0.15.70: it learns songs with no view open; nothing is sent then) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
-  if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
+  // loop: HOT-PATH-OK — lyrics now-playing poll · 470 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused), or while look-ahead runs (0.15.70: it learns songs with no view open; nothing is sent then) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
+  // 470 ms, not 500 (0.15.77): MusicKit's time is often whole seconds, and pushes 500 ms apart land on the same two
+  // places in each second; 470 ms walks them through it, so the song clock's spans overlap to the true phase (song-clock.js)
+  if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, LYRICS_TICK_MS)
   if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
   lookaheadAskEngine()
 }
