@@ -219,6 +219,64 @@ function expand(entry) {
   }
 }
 
+// --- every sung syllable represented (0.15.71) ---
+// Marcy 2026-10-19 (Chappell Roan "After Midnight": "we know the 'I' is here but it's not represented"): the note
+// model gives a note to a syllable only where it hears a note start, so a short syllable ("I", "you") or one sung on
+// the same pitch as the one before (one held note over two syllables) gets no note and no label. fillNotes() uses
+// the word timing as candidate note boundaries, after the fact, on the entry's own data:
+//   split  a measured note that runs on over the next syllable's onset, at the same pitch, is cut there into two
+//          notes (re-articulation); the second one belongs to that syllable, at most FILL.confMax confident
+//   pitch  a syllable still without a note whose span is voiced (≥ FILL.minVoiced of its pitch-line values, at least
+//          FILL.minFrames) gets a note at the median of those values; its confidence is the voiced share times how
+//          steady the pitch is, at most FILL.confMax (below the gate's confMin). Both kinds are drawn faded and never counted by the gate
+// A syllable with no voiced pitch stays without a note (nothing was heard there). The gate (gate()) and the refine
+// coverage (notes-refine.js) count measured notes only. Measured on the bench: docs/LEVEL2-ALIGN.md "Refinement".
+const FILL = { minFrames: 2, minVoiced: 0.5, confMax: 0.5, splitMin: 0.08, splitCents: 60, steadySt: 1.0 }
+function fillNotes(doc) {
+  if (!doc || !Array.isArray(doc.syllables) || !doc.syllables.length) return doc
+  const notes = doc.notes.map((n) => Object.assign({}, n))
+  const has = new Set(notes.filter((n) => n.syl_index !== null).map((n) => n.syl_index))
+  const p = doc.pitch && Array.isArray(doc.pitch.v) && doc.pitch.hop > 0 ? doc.pitch : null
+  const values = (t0, t1) => {
+    if (!p) return { v: [], frames: 0 }
+    const a = Math.max(0, Math.round((t0 - p.t0) / p.hop)); const b = Math.min(p.v.length, Math.round((t1 - p.t0) / p.hop))
+    return { v: p.v.slice(a, Math.max(a, b)).filter((x) => x > 0), frames: Math.max(0, b - a) }
+  }
+  const med = (xs) => { const s = xs.slice().sort((x, y) => x - y); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2 }
+  const added = []
+  // loop: NOT-WORTH — the song's syllables (hundreds), once per entry shown (a new song or new notes)
+  doc.syllables.forEach((s, i) => {
+    if (has.has(i) || s.line === null || !(s.end > s.t)) return
+    const next = doc.syllables[i + 1]
+    const end = next && next.line === s.line && next.t > s.t ? Math.min(s.end, next.t) : s.end
+    const pv = values(s.t, end)
+    // split: a measured note held over this onset, at this syllable's pitch (or no pitch to say otherwise)
+    const host = notes.find((n) => !n.fill && n.t < s.t - FILL.splitMin * 0.5 && n.end > s.t + FILL.splitMin && n.syl_index !== i)
+    if (host && (!pv.v.length || Math.abs(med(pv.v) / 10 - (host.midi + host.cents / 100)) * 100 <= FILL.splitCents)) {
+      // its own onset is the word timing's, not heard: less sure than the note it came from (bench: 57 % of splits
+      // land within 50 ms / 50 cents of a reference note, measured notes 82 %), so it is drawn faded too
+      const tail = Object.assign({}, host, { t: s.t, syl_index: i, line: s.line, melisma: false, conf: round(Math.min(host.conf, FILL.confMax)), fill: 'split' })
+      host.end = s.t
+      added.push(tail); has.add(i)
+      return
+    }
+    if (pv.v.length < FILL.minFrames || pv.v.length < FILL.minVoiced * pv.frames) return
+    // never over a measured note: after the one still sounding at the onset, before the next one
+    // loop: NOT-WORTH — the song's notes (hundreds), per syllable without a note (tens), once per entry shown
+    const t0 = notes.reduce((x, n) => (n.t < s.t && n.end > x ? n.end : x), s.t)
+    const t1 = notes.reduce((x, n) => (n.t > t0 && n.t < x ? n.t : x), Math.max(end, s.t + 0.05))
+    if (t1 - t0 < 0.05) return
+    const m10 = med(pv.v) / 10
+    const midi = Math.round(m10)
+    const dev = med(pv.v.map((x) => Math.abs(x / 10 - m10)))
+    const conf = Math.min(FILL.confMax, (pv.v.length / Math.max(1, pv.frames)) * Math.max(0, 1 - dev / FILL.steadySt) * FILL.confMax)
+    added.push({ t: round(t0), end: round(t1), midi, cents: Math.round((m10 - midi) * 100), name: '', conf: round(conf), syl_index: i, line: s.line, melisma: false, fill: 'pitch' })
+    has.add(i)
+  })
+  if (!added.length) return doc
+  return Object.assign({}, doc, { notes: notes.concat(added).sort((a, b) => a.t - b.t || (a.fill ? 1 : 0) - (b.fill ? 1 : 0)) })
+}
+
 // --- a gap in the notes (0.15.63) ---
 // A song whose saved notes have a clear gap where the lyrics say someone sings (the recording missed it:
 // before 0.15.62 the recorder's clock could be off at a track change, so a song's first ~20 s weren't
@@ -326,7 +384,8 @@ function voicedIn(pitch, t0, t1) {
  */
 function gate(doc, opts = {}) {
   const g = Object.assign({}, GATE, opts)
-  const notes = (doc && doc.notes) || []
+  // measured notes only: the ones fillNotes() adds never change what a stretch shows
+  const notes = ((doc && doc.notes) || []).filter((n) => !n.fill)
   const syl = (doc && doc.syllables) || []
   const songStats = stats(notes)
   // the lines' spans from their syllables
@@ -438,7 +497,9 @@ function mode(st) {
   if (s.partial && s.doc && s.doc.notes && s.doc.notes.length) return Object.assign(say('notes', 'First play · notes', s.error || ''), { live: !s.error && !s.paused, first: true })
   if (s.doc && s.doc.notes && s.doc.notes.length && (s.aligned || s.wordSynced)) {
     const g = s.gate || gate(s.doc)
-    return say('notes', 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), g.song === 'line' ? 'Pitch line only' : '', g.song === 'line' ? 'Pitch line only: ' + g.why : '')
+    // refining or settled (notes-refine.js statusText, main's refineStatus): coverage, said only where notes show
+    const r = g.song !== 'line' && s.refine && s.refine.text ? s.refine : null
+    return say('notes', 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), g.song === 'line' ? 'Pitch line only' : r ? r.text : '', g.song === 'line' ? 'Pitch line only: ' + g.why : r ? r.info : '')
   }
   if (!s.timed) return say('message', '', 'Sheet notes need lyrics with line timing')
   if (s.paused) return say((s.pitch && s.pitch.length) ? 'line' : 'message', 'First play · pitch line', 'Paused while a game runs')
@@ -593,7 +654,7 @@ function layout(doc, g) {
         lastSyl = n.syl_index
       } else ext = true
     }
-    return { t: n.t, end: n.end, pos, letter: sp.letter, octave: sp.octave, acc: accidental(sp, ka), ledgers: ledgers(pos), syl, ext, loose: n.syl_index === null || n.syl_index === undefined, show: r ? r.show : 'notes' }
+    return { t: n.t, end: n.end, pos, letter: sp.letter, octave: sp.octave, acc: accidental(sp, ka), ledgers: ledgers(pos), syl, ext, loose: n.syl_index === null || n.syl_index === undefined, fill: !!n.fill, show: r ? r.show : 'notes' }
   })
   return { clef, fifths, key: keySignature(fifths, clef), notes, bars: (d.bars || []).slice(), lowest: lo, highest: hi }
 }
@@ -908,7 +969,7 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, partialEntry, partSpans, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, mergeSections, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
+  compact, partialEntry, partSpans, expand, fillNotes, FILL, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, mergeSections, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }
 // the band follows the song clock the way every clocked animation does (song-clock.js followRate)

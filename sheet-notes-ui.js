@@ -20,7 +20,8 @@ const H = 6                    // half a staff space, px (a staff space is 12 px
 const BASE = 92                // y of the staff's bottom line in the band's staff box, px
 const SYL_Y = 120              // the syllables' baseline (lyrics.html .sn-syls .s: top 108 px, 12 px type)
 const PLACES = [['band', 'Band on top', 'The staff in a band above the lyrics'], ['over', 'Over the sung line', 'The staff rides just above the line being sung']]
-const SYL_EM = 6.6             // px per letter of a syllable (12 px semibold), to keep syllables apart
+const SYL_EM = 7.4             // px per letter of a syllable (12 px semibold) where no canvas can measure it
+const SYL_GAP = 6              // px at least between two syllables
 const STAFF_H = 132            // the staff box's height (the 18 px label row is above it; the band is 150 px)
 // px per second: the staff; the first play's wider view of what was heard (its pitch line); the first play's notes
 // (0.15.70: at the staff's 110 px/s with the playhead at 30 % a part that arrived after it was sung was already
@@ -124,6 +125,20 @@ function createSheetBand(opts) {
   let gated = null          // gate(doc2)
   let lay = null            // layout(doc2, gated)
   let m = { band: 'off' }   // mode()
+  // a syllable label's width in its font (12 px semibold, the page's family), from one canvas kept for the band's life
+  let measure = null
+  function sylWidth(text) {
+    if (measure === null) {
+      // error: NOT-WORTH — no canvas (a test page): the per-letter estimate keeps the labels apart
+      try {
+        const c = doc.createElement('canvas').getContext('2d')
+        const fam = doc.defaultView && doc.body ? doc.defaultView.getComputedStyle(doc.body).fontFamily : ''
+        c.font = '600 12px ' + (fam || 'sans-serif')
+        measure = c && typeof c.measureText === 'function' ? c : false
+      } catch (e) { measure = false }
+    }
+    return measure ? Math.max(measure.measureText(text).width, 1) : text.length * SYL_EM
+  }
   let built = ''            // what the strip holds ('notes:<key>' | 'line:<n>')
   let gutter = 60
   let anim = null           // the strip's Web Animation
@@ -188,7 +203,8 @@ function createSheetBand(opts) {
     // loop: NOT-WORTH — the song's notes (hundreds), once per build (a new song, new notes, a form change)
     lay.notes.forEach((n, i) => {
       if (n.show !== 'notes' || gated.song === 'line') return
-      const g = sv(doc, 'g', { class: 'n' + (n.loose ? ' loose' : '') }, svg)
+      // fill: a note the word timing placed (M.fillNotes), not heard as a note start: drawn faded (lyrics.html .n.fill)
+      const g = sv(doc, 'g', { class: 'n' + (n.loose ? ' loose' : '') + (n.fill ? ' fill' : '') }, svg)
       const x0 = x(n.t)
       const x1 = Math.max(x0 + 2 * H, x(n.end))
       // a note beyond the box's room sits on its edge, marked (as the pitch line: M.roomRuns), its ledgers up to there
@@ -204,11 +220,13 @@ function createSheetBand(opts) {
       if (n.syl) {
         // under its note; a syllable sung right after the last one moves along so the two don't touch
         // (widths estimated from the letters: no layout read while building)
-        const sx = Math.max(x0 - 4, sylRight + 5)
+        // (widths measured on a canvas in the label's font, no layout read; the estimate was ~15 % short on wide
+        // letters, so "maybe" and "the" ran together: Marcy 2026-10-19, "maybethe")
+        const sx = Math.max(x0 - 4, sylRight + SYL_GAP)
         syl = el(doc, 'span', 's', syls)
         syl.textContent = n.syl
         syl.style.transform = 'translateX(' + r1(sx) + 'px)'
-        sylRight = sx + n.syl.length * SYL_EM
+        sylRight = sx + sylWidth(n.syl)
       } else if (n.ext && x1 - 2 > sylRight + 3) sv(doc, 'line', { x1: Math.max(x0 - 8, sylRight + 3), x2: x1, y1: SYL_Y + 3, y2: SYL_Y + 3, class: 'ext' }, svg)
       items.push({ g, syl, i, cls: g.getAttribute('class') })
     })
@@ -368,7 +386,8 @@ function createSheetBand(opts) {
     if (s.key !== st.key) { nowIdx = -2 }
     st = s
     duration = Number(opts.duration ? opts.duration() : 0) || 0
-    doc2 = entry ? M.expand(entry) : null
+    // every timed sung syllable represented where its pitch was heard (M.fillNotes: split / pitch notes, drawn faded)
+    doc2 = entry ? M.fillNotes(M.expand(entry)) : null
     gated = doc2 ? M.gate(doc2) : null
     lay = doc2 ? M.layout(doc2, gated) : null
     m = M.mode(Object.assign({}, s, { doc: doc2, gate: gated, pitch: pieces }))

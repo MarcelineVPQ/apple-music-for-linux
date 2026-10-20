@@ -65,7 +65,7 @@ test('at most RELEARN_MAX re-learns: then the song keeps what it has', () => {
 
 test('main asks for a re-learn through the notes "missing" check and counts it on the new result', () => {
   const src = require('fs').readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
-  assert.match(src, /notesRelearn\(title, artist, hash\)\)\)/)
+  assert.match(src, /notesRelearn\(title, artist, hash\) \|\| notesRefineDue\(title, artist, hash\)\)\)\)/)
   assert.match(src, /re-learning this play \('/)
   assert.match(src, /entry\.relearns = n/)
 })

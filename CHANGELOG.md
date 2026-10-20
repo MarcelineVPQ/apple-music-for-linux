@@ -7,6 +7,15 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.71-dev.1] — Songs keep refining their notes and expressions until they're complete
+
+### Added
+- **Songs keep refining their notes and expressions until they're complete.** A song whose sung lines still miss notes is measured again on its next plays, and each line keeps the better of its results, never a worse one: notes, pitch line and Expressive words alike. It stops once every line has notes for at least 80 % of its syllables, or once a play improves nothing (three plays at most). The lyrics view and the Studio's band say "Refining this song: 7 lines to go", then how many sung syllables have notes once it has settled. It runs only when the timing helper has nothing else waiting.
+- **Every sung syllable gets its note where its pitch was heard.** A short word like "I" or "you", or a syllable sung on the same pitch as the one before, used to have no note and no label on the band; now it gets one from the word timing and the pitch line, drawn faded because it is less certain. Across 48 learned songs, 80 % of sung syllables now have a note, up from 69 %.
+
+### Fixed
+- **Syllables under the notes no longer run together** ("maybethe"): their widths are measured in their font.
+
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 
 ### Fixed

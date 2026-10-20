@@ -16,6 +16,7 @@ const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
 const notesLogLib = require('./notes-log')
 const sheetModel = require('./sheet-notes-model')
+const notesRefine = require('./notes-refine')
 const lyricsTiming = require('./lyrics-timing')
 const sheetStoreLib = require('./sheet-notes-store')
 const expressive = require('./lyrics-expressive')
@@ -727,7 +728,7 @@ function getAlignSession() {
 function notesMissing(title, artist, hash) {
   return getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
     (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)) ||
-    ((sheetNotesOn() || expressiveOn()) && notesRelearn(title, artist, hash)))
+    ((sheetNotesOn() || expressiveOn()) && (notesRelearn(title, artist, hash) || notesRefineDue(title, artist, hash))))
 }
 
 // "Sung notes (developer log)" (Settings → Precise timing; Development channel only, off by default;
@@ -832,7 +833,7 @@ let exprSong = { key: '', entry: 'missing' }
 // progress (recorded this play, measuring); null while it draws or has nothing to say. Sent on change only.
 function expressiveNote(key) {
   const sw = notesSwitch
-  return expressive.noteFor({
+  const x = expressive.noteFor({
     on: expressiveSetting(),
     installed: alignInstalled(),
     installing: !!(helperInstaller && helperInstaller.busy),
@@ -845,6 +846,9 @@ function expressiveNote(key) {
     job: alignSession && preciseTimingOn() ? alignSession.notesState(key) : '',
     paused: alignPaused()
   })
+  // nothing else to say: a song being refined this play says so (notes-refine.js statusText; the Studio's band says it too)
+  if (x || !refining || !refining.status || !sheet || sheet.key !== key || refining.id !== sheet.title + '|' + sheet.artist) return x
+  return Object.assign({ action: '' }, refining.status)
 }
 // cache: OK — key=the last line sent (JSON); invalidated=each 'lyrics-data' send (a view lays the song out anew); bound=one string
 let exprNoteSent = ''
@@ -870,8 +874,9 @@ function logNotesPlan(key, title, artist, lines) {
   const job = alignSession ? alignSession.notesState(key) : ''
   const x = valid && e.expr ? expressive.summary(e.expr) : null
   const have = valid ? 'cached notes (' + (e.notes || []).length + (e.partial ? ', partial' : '') + ')' + (x ? ' + expr (' + x.held + ' held, ' + x.ghosts + ' ghosts)' : 'expr' in e ? ' + expr (none measured)' : ', no expr yet') : e && e.failed && e.lyricsHash === hash ? 'no notes (failed: ' + e.failed + ', try ' + (e.tries || 1) + ')' : 'no notes yet'
-  const why = !job ? ' — no re-run' : !valid ? ' — recording this play for its notes' : !('expr' in e) ? ' — recording this play for its expression' : ' — recording this play (missed lines)'
-  console.log('align: "' + title + '": ' + have + why + (valid && e.retry ? ' (a later pass failed ' + e.retry.tries + 'x: ' + e.retry.failed + ')' : ''))
+  const why = !job ? ' — no re-run' : !valid ? ' — recording this play for its notes' : !('expr' in e) ? ' — recording this play for its expression' : refining && refining.id === title + '|' + artist ? ' — refining this play' : ' — recording this play (missed lines)'
+  const rq = valid && e.refine ? ' (refine: ' + Math.round((e.refine.coverage || 0) * 100) + ' % of sung syllables have notes, ' + e.refine.plays + ' play(s)' + (e.refine.settled ? ', settled' : '') + ')' : ''
+  console.log('align: "' + title + '": ' + have + why + rq + (valid && e.retry ? ' (a later pass failed ' + e.retry.tries + 'x: ' + e.retry.failed + ')' : ''))
 }
 // the pitch model, once per run while a lyric view shows a song and a notes switch needs it (Expressive words
 // is on by default on Development builds): a fresh helper has none, and without it nothing is measured
@@ -909,6 +914,34 @@ function notesRelearn(title, artist, hash) {
   }
   return true
 }
+// a learned song with sung lines still below notes-refine.js TARGET (0.15.71, Marcy 2026-10-19: "the learning of each song
+// should stay on until it's perfectly refined"): recorded again on this play like a first one, and the new pass is merged
+// line by line (sheetNotesDone: never a worse line), until it settles. Only when the helper has no other song's work
+// waiting (a first learning always goes first), and not while a failing later pass is out of tries. Processor-only PCs
+// keep their after-song scheduling (align-session.js slow): the refine pass is queued like any other.
+// cache: OK — key=the song and its refine play; invalidated=another song or play asked about; bound=one string
+let refineLogged = ''
+// cache: OK — key=the song (title|artist) being refined this play; invalidated=its pass merged, another song's due check; bound=one record
+let refining = null
+function notesRefineDue(title, artist, hash) {
+  const store = getSheetStore()
+  const e = store.get(title, artist)
+  if (!sheetModel.entryValid(e, hash) || e.partial || !store.retryAllowed(title, artist)) return false
+  const due = notesRefine.refineDue(e)
+  if (!due || (alignSession && alignSession.waiting)) return false
+  refining = { id: title + '|' + artist, below: due.below.length, status: notesRefine.statusText(notesRefine.quality(e), true) }
+  const id = refining.id + '|' + due.play
+  if (refineLogged !== id) { refineLogged = id; console.log('align: ' + notesRefine.logStart(title, due)) }
+  return true
+}
+// the status line of a song's notes (lyric views' note, the Studio's band): refining or settled, coverage (not accuracy)
+// cache: OK — key=the entry object (a new pass is a new object); invalidated=another entry; bound=one result
+let refineQ = { entry: null, q: null }
+function refineStatus(title, artist, entry) {
+  if (refineQ.entry !== entry) refineQ = { entry, q: entry && !entry.partial ? notesRefine.quality(entry) : null }
+  const q = refineQ.q
+  return notesRefine.statusText(q, !!(refining && refining.id === title + '|' + artist && q && q.below))
+}
 function getSheetStore() {
   if (!sheetStore) sheetStore = sheetStoreLib.createSheetNotesStore({ dir: path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME) })
   return sheetStore
@@ -943,7 +976,8 @@ function sendSheet() {
   const st = on && sheet ? {
     on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, instrumental: sheet.instrumental, aligned: sheet.aligned,
     paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length, end: sheet.end,
-    entryAt: sheet.entry ? sheet.entry.created || '1' : '', partial: !!(sheet.entry && sheet.entry.partial), place: settings.sheetPlace
+    entryAt: sheet.entry ? sheet.entry.created || '1' : '', partial: !!(sheet.entry && sheet.entry.partial), place: settings.sheetPlace,
+    refine: refineStatus(sheet.title, sheet.artist, sheet.entry)
   } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
   const json = JSON.stringify(st)
   if (json === sheetSent) return
@@ -957,7 +991,7 @@ function sendSheet() {
 }
 function sheetNotesDone(s, result, lineOffset) {
   if ((!sheetNotesOn() && !expressiveOn()) || !result || !result.notes) return
-  const entry = sheetModel.compact(result.notes, { lineOffset, lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
+  let entry = sheetModel.compact(result.notes, { lineOffset, lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
   // Expressive words: the measured expression rides with the notes (null: asked, none came: not asked again)
   // Only when the helper was asked (it serves 'expr'): an engine that wasn't asked leaves the field out, so
   // the song is asked again once an engine that measures it is installed
@@ -971,10 +1005,16 @@ function sheetNotesDone(s, result, lineOffset) {
   // error: NOT-WORTH — a store read that throws: no old entry, nothing to count or keep
   let old = null
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
+  let merged = null
   if (sheetModel.entryValid(old, s.hash) && !old.partial) {
     const n = sheetModel.relearnDue(old) ? (old.relearns || 0) + 1 : old.relearns || 0
-    if (n) entry.relearns = n
     if (!('expr' in entry) && 'expr' in old) entry.expr = old.expr
+    // a learned song measured again (a re-learn or a refine play): merged line by line, the better line kept (notes-refine.js)
+    merged = notesRefine.merge(old, entry, { at: entry.created, version: app.getVersion() })
+    entry = merged.entry
+    if (n) entry.relearns = n
+    console.log('align: ' + notesRefine.logDone(s.title, merged))
+    if (refining && refining.id === s.title + '|' + s.artist) refining = null
   }
   // error: SHOWN — a failed write: the band says the notes couldn't be kept (and the log)
   try { getSheetStore().set(s.title, s.artist, entry) } catch (e) {
@@ -990,7 +1030,7 @@ function sheetNotesDone(s, result, lineOffset) {
     const view = expressive.forView(entry.expr, true, vocaliseSetting())
     exprSong = { key: s.key, entry: view ? 'drawn' : 'expr' in entry ? 'none' : 'missing' }
     sendLyrics('lyrics-expr', { key: s.key, expr: view || { v: 2, words: [], voc: [] }, final: true })
-  } else if (entry.expr && lyricsKey === s.key) lyricsKey = null
+  } else if (entry.expr && lyricsKey === s.key && (!merged || merged.improved.length)) lyricsKey = null
 }
 function sheetNotesFailed(s, e) {
   if (!sheetNotesOn() && !expressiveOn()) return
@@ -1029,8 +1069,10 @@ function firstPlaySection(s, part, sec) {
   if (!firstPlay || firstPlay.key !== s.key) firstPlay = firstPlayFor(s)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
-  // Expressive words: the section's expression, merged (each line comes from one section)
-  if (expressiveOn() && alignHelper && alignHelper.serves('expr')) {
+  // Expressive words: the section's expression, merged (each line comes from one section); a refine play of a learned
+  // song keeps drawing its learned expression (the refined lines arrive with the merge, sheetNotesDone)
+  const learned = !!(refining && refining.id === s.title + '|' + s.artist)
+  if (!learned && expressiveOn() && alignHelper && alignHelper.serves('expr')) {
     const add = expressive.compact(part.expr, 0)
     if (add) {
       const old = firstPlay.expr || { format: add.format, v: add.v, words: [], voc: [] }
@@ -1079,7 +1121,18 @@ function firstPlayUnfinished(s) {
   let old = null
   // error: NOT-WORTH — a store read that throws: no old entry to keep
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
-  if (sheetModel.entryValid(old, s.hash) && !old.partial) return   // learned notes are never replaced by a partial set
+  if (sheetModel.entryValid(old, s.hash) && !old.partial) {
+    // learned notes are never replaced by a partial set; a refine play left early merges the parts it heard, line by line
+    if (!refining || refining.id !== s.title + '|' + s.artist) return
+    refining = null
+    const heard = sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: s.hash })
+    if (firstPlay.expr) heard.expr = firstPlay.expr
+    const merged = notesRefine.merge(old, heard, { at: new Date().toISOString(), version: app.getVersion() })
+    // error: LOGGED-OK — a failed write keeps the learned notes as they were; the next play refines again
+    try { getSheetStore().set(s.title, s.artist, merged.entry) } catch (e) { console.log('align: refined notes not saved: ' + e.message); return }
+    console.log('align: ' + notesRefine.logDone(s.title, merged) + ' (from the parts heard before the song was left)')
+    return
+  }
   const entry = sheetModel.partialEntry([...firstPlay.parts.entries()], firstPlay.expr, { lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
   // error: LOGGED-OK — a failed write only loses the head start: the next play records the song as a first play
   try { getSheetStore().set(s.title, s.artist, entry) } catch (e) { console.log('align: partial notes not saved: ' + e.message); return }

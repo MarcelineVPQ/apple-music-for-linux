@@ -402,6 +402,122 @@ Apple's own word timing get notes only when they are heard to the end in one pla
 are Apple's own only where Apple timed syllables (else the views' estimated split of each word); the
 first play's line trails a section behind.
 
+## Refinement (0.15.71): songs keep refining until they're complete
+
+Marcy 2026-10-19: "the learning of each song should stay on until it's perfectly refined", and "we need
+scientific methodologies here, we need to be exact". Before 0.15.71 a song was learned once (its whole-song
+pass), and 0.15.63's re-learn ran only on a stretch of sung lines with no voice at all (at most twice).
+
+### The case that started it: "expectations" (Olivia Rodrigo & Chappell Roan), 3:01
+
+Her cached entry (4th play, engine 0.2.7) has 251 notes for 490 timed syllables: **43 % of sung syllables
+have a note**. At 3:01 ("She's got big expectations / She's got real big expectations", lines 45-48) the
+gate shows those lines as *notes* (confidence 0.88-0.95, 1-9 cents off the grid): **the notes are missing,
+the gate hides nothing**. The pitch line itself is unvoiced there (3 %, 3 %, 3 % and 0 % of its values), so the
+pitch tracker heard no steady voice over the chant, and no later step can put notes there from this measurement.
+0.15.63's gap rule didn't fire: it needs the rest of the song ≥ 40 % voiced, and this song is quiet throughout.
+
+### Metrics (exact)
+
+Per **sung line**: a lyric line with timed syllables, not rapped (≤ 4.4 syllables a second, the gate's
+`rapRate`), in a song the gate doesn't show as a pitch line throughout (rap, speech). Instrumentals have no lines.
+
+- **coverage** = syllables with at least one *measured* note linked to them (the engine's `syl_index`) / the
+  line's syllables. A song's coverage weighs lines by syllables.
+- **note confidence** = the line's measured notes' duration-weighted confidence (the engine's note `conf`).
+- **expression coverage** = words with a measured vowel (Expressive words) / words whose notes hold ≥ 0.6 s.
+- **note accuracy** (only where ground truth exists, the bench): `mir_eval.transcription` COnP F1 (onset
+  ± 50 ms, pitch ± 50 cents) and COnPOff F1 (offset within max(50 ms, 20 %)), against vocadito's annotator 1.
+
+### The rule (`notes-refine.js`)
+
+A learned song with a sung line below **TARGET = 80 %** coverage is recorded again on its next play (when the
+helper has no other song's work waiting; processor-only PCs keep their after-song scheduling) and the new pass
+is **merged line by line**: a line takes the new notes, pitch line and expression only when it has more covered
+syllables, or as many at ≥ 0.02 more confidence; every other line keeps what it had. A refine play left early
+merges the parts it heard. The song **settles** when every sung line is complete, after **STILL_MAX = 1** play
+that improved no line, or after **MAX_PLAYS = 3** refine plays. The entry keeps its `refine` record
+(`plays`, `still`, `coverage`, `settled`, per-play `history`). Log: `align: "<song>": refining 7 lines (coverage
+42 %) — play 2`, then `… refined 3 lines (42 % → 55 %)` or `… no line improved this play (1/1) — settled: 55 % of
+sung syllables have notes`. Status (lyric views' note and the Studio's band): "Refining this song: 7 lines to go",
+then "Notes for 96 % of sung syllables · settled".
+
+### Every sung syllable represented (`sheet-notes-model.js` `fillNotes`)
+
+Marcy 2026-10-19 (Chappell Roan "After Midnight": "we know the 'I' is here but it's not represented"): the note
+model gives a syllable a note only where it hears a note start. When the band is drawn, the word timing is used
+as candidate note boundaries: a measured note held over the next syllable's onset at the same pitch is split
+there (re-articulation), and a syllable still without a note whose span is voiced gets a note at the median of
+its pitch-line values. Both are drawn faded (confidence ≤ 0.5), get their syllable label, and are never counted
+by the gate or the refine coverage. A syllable with no voiced pitch stays empty. Syllable labels are measured in
+their font (a canvas), 6 px apart at least ("maybethe" ran together with the old per-letter estimate).
+
+### The bench, and how the numbers were chosen
+
+There is no ground truth for her songs. A standard singing-transcription set with note annotations that may be
+used: **vocadito** (40 solo-singing excerpts, CC BY 4.0, Zenodo 5578807); MIR-ST500's audio is YouTube-only and
+MedleyDB isn't cached. To make it a *song* (the engine separates vocals from a mix), each excerpt is mixed with the
+accompaniment of a MUSDB18 song (mixture − vocals, research use) at 0 dB vocal-to-accompaniment ratio. Lines =
+runs of reference notes split at rests > 0.3 s; syllables = the reference notes with N(0, 40 ms) timing error
+(the bench's measured word-timing median error is 37 ms). Pipeline = the engine's: htdemucs (shifts 0) → RMVPE →
+`sung_notes` (stem profile, loud gate). Play 1 = the whole clip; a refine play measures each line below target
+again as a section (line ± 3 s, the app's section pad) from a capture up to 100 ms later. CPU only. Human
+ceiling (annotator 2 vs 1): F1 0.740.
+
+Refine loop, every line below 100 % re-measured each play (merged by the app's rule; F1 over line-linked notes):
+
+| play | coverage | note F1 (COnP) | F1 (COnPOff) | oracle F1 (best line by ground truth) | lines replaced | replaced: F1 up / down |
+|---|---|---|---|---|---|---|
+| 1 | 0.725 | 0.737 | 0.626 | 0.737 | – | – |
+| 2 | 0.747 | 0.743 | 0.634 | 0.762 | 109 | 37 / 29 |
+| 3 | 0.754 | 0.745 | 0.632 | 0.779 | 59 | 15 / 12 |
+| 4 | 0.759 | 0.748 | 0.634 | 0.786 | 46 | 9 / 11 |
+| 5 | 0.764 | 0.748 | 0.631 | 0.792 | 31 | 10 / 6 |
+
+Line coverage at play 1 against line note F1 (221 lines; the TARGET; correlation 0.69):
+
+| coverage | lines | mean F1 | F1 ≥ 0.5 |
+|---|---|---|---|
+| 0-0.4 | 5 | 0.14 | 0 % |
+| 0.4-0.6 | 24 | 0.561 | 75 % |
+| 0.6-0.7 | 56 | 0.693 | 91 % |
+| 0.7-0.8 | 56 | 0.733 | 95 % |
+| 0.8-0.9 | 48 | 0.817 | 98 % |
+| 0.9-1.0 | 32 | 0.930 | 100 % |
+
+Target and stop rule swept with the app's rule (line-weighted F1 at play 5 / mean refine plays per song): T 0.8,
+N 1: 0.743 / 2.25; N 2: 0.744 / 3.33; N 3: 0.745 / 3.90; T 0.9 or 1.0 with N 3: 0.745 / 4.0; T 0.6: 0.739.
+
+Every sung syllable represented (play 1, 40 songs):
+
+| notes | syllable coverage | precision | recall | F1 (COnP) | F1 (COnPOff) |
+|---|---|---|---|---|---|
+| measured | 0.725 | 0.824 | 0.702 | 0.755 | 0.639 |
+| + split at syllable onsets | 0.860 | 0.754 | 0.744 | 0.746 | 0.620 |
+| + split + pitch notes | 0.871 | 0.752 | 0.749 | 0.748 | 0.621 |
+
+(296 split notes, 57 % within 50 ms / 50 cents of a reference note; 27 pitch notes, 63 %.) On her 48 cached songs
+with notes, coverage goes from 68.5 % to 80.1 % ("expectations" 43 % → 46 %: its missing stretch is unvoiced).
+
+**What this says, plainly.** Re-measuring the same recording with the same models converges fast and gains
+little: +1.1 points of note F1 over four refine plays, most of it in the first; after that each play adds ≤ 0.2
+points and a replaced line is about as likely to get worse as better by ground truth (the coverage signal picks
+the truly better line only 58 % of the time, while the oracle shows +5.5 points were there to take). So the loop
+is kept short (one play without a better line settles a song, three at most). Filling syllables from the word
+timing raises coverage by 15 points at about the same F1 (−0.7: recall up 4.7, precision down 7.2), which is why
+those notes are drawn faded. What would measurably improve accuracy: a *different* measurement on the refine play
+rather than the same one again (the other separator, MelBand-RoFormer on the graphics card, against htdemucs; a
+lower voicing threshold only on the lines below target), and choosing between them with a signal that tracks
+accuracy better than coverage (agreement between the two passes). Both are engine work for its next version.
+
+**No accuracy number is shown.** A per-song estimate was tried both ways: word timing (P(onset within 0.3 s) from
+the word and line confidence, fitted on JamendoLyrics' dev fold) passes on its test fold (ECE 0.005-0.007, song
+MAE 1.8 points) but fails on held-out MUSDB (ECE 0.044, song MAE 9.7 points, +9 points overconfident, up to 78
+points off on a song aligned wrongly with confidence); notes (line F1 from coverage, dev = odd songs) misses by
+11.5 points per line and 7.5 per song (up to 21). Both are too far off to call accuracy, so the status says
+coverage, and its ⓘ says why. The per-song record (`refine.coverage`, `history`) is the basis a later calibrated
+estimate can build on.
+
 ## Install
 
 **From Settings.** Settings → Precise timing has a *Helper* row: its state in a few words

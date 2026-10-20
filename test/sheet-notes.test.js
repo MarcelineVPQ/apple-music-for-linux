@@ -946,6 +946,6 @@ test('main (0.15.70): a first play left early is kept and carried on; the pieces
   const main = read('main.js')
   assert.match(main, /unfinished: firstPlayUnfinished,/)
   assert.match(main, /firstPlay = firstPlayFor\(s\)/)
-  assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) return   \/\/ learned notes are never replaced/)
+  assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) \{\n    \/\/ learned notes are never replaced by a partial set; a refine play left early merges the parts it heard/)
   assert.match(main, /pitch: sheet && sheet\.key === key \? sheet\.pitch : \[\]/)
 })

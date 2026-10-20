@@ -725,7 +725,7 @@ test('main: the Expressive words line is sent on change, its button opens Settin
   assert.match(src, /if \(code === 'no-model' && notesSwitch\) notesSwitch\.learn\(\{ note_models: \{ rmvpe: false \} \}\)\n\s+if \(!settings\.sungNotesLog && !settings\.sheetNotes\) return/)
   assert.match(src, /if \(code !== 'paused' && code !== 'no-model' && code !== 'dropped'\)/)
   // the measured song on screen gets its lyrics again, with the expression, in the same play
-  assert.match(src, /if \(entry\.expr && lyricsKey === s\.key\) lyricsKey = null/)
+  assert.match(src, /if \(entry\.expr && lyricsKey === s\.key && \(!merged \|\| merged\.improved\.length\)\) lyricsKey = null/)
   const html = read('lyrics.html')
   assert.match(html, /ipcRenderer\.on\('lyrics-expr-note', \(event, note\) => view\.exprNote\(note\)\)/)
   assert.match(html, /onExpressive: \(\) => ipcRenderer\.send\('lyrics-command', 'expressive'\)/)
