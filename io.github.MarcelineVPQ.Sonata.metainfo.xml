@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.74-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Forget this song: the next play is a first play again</p>
+      </description>
+    </release>
     <release version="0.15.73-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Song reports: each song logs how well it was learned and shown</p>
