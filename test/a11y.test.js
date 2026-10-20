@@ -112,11 +112,10 @@ test('no colour-only signals: the mini player\'s on toggles get a dot as well as
   const r = rules(styles(read('miniplayer.html')))
   const dot = r.find((x) => x.selectors.includes('button.small.active:not(#fav)::after'))
   assert.ok(dot && dot.decls.content === "''" && dot.decls.background === 'currentColor')
-  // the duet singers differ by side as well as colour (lyrics-view.css)
+  // the duet singers differ by colour only (Marcy 2026-10-19: no side or other
+  // per-singer difference by default; test/duet-lanes.test.js). The lyrics stay readable by their text.
   const lv = rules(read('lyrics-view.css'))
-  assert.ok(lv.some((x) => x.selectors.includes('.line.left') && x.decls['text-align'] === 'left'))
-  assert.ok(lv.some((x) => x.selectors.includes('.line.right') && x.decls['text-align'] === 'right'))
-  assert.ok(lv.some((x) => x.selectors.includes('.line.center') && x.decls['text-align'] === 'center'))
+  assert.ok(!lv.some((x) => /\.line\.(left|right|center)\b/.test(x.selectors)))
 })
 
 test('liner notes: reduced motion stops the disc and the pulse; the sung line is marked by a dot as well as the colour', () => {

@@ -205,6 +205,8 @@
   .line:hover:not(.active) > .ly-hov,
   .line.active > .ly-main { opacity: 1; z-index: 0; transition: none; }
   .line.plain { color: var(--s-text); cursor: default; }
+  /* a singer's name tag (lyrics-lanes.js, lanes on only): the soft text (4.5:1) */
+  .line { --tag: var(--s-soft); }
   /* the sung line's words not reached yet (0.15.37): the theme's faded colour, >= 4.5:1 on the card in
      every theme, album colour and Glass (theme.js --s-upcoming), instead of lyrics-view.css's opacity
      0.4, which left them 1.7-3:1 (near-white on the light card). Sung words take the singer's colour.

@@ -92,10 +92,12 @@
     text-shadow: 0 0 0.5em var(--sing), 0 0 0.15em var(--sing), 0 0.05em 0.45em var(--s-stage-shade-soft);
   }
   #lyrics .dots { --dot: clamp(12px, 1.05vw, 42px); --dot-gap: calc(var(--dot) * 0.8); --dots-h: calc(var(--dot) * 3.6); }
-  /* the stage is centred: the countdown dots too, for one singer and for either side of a duet
-     (lyrics-view.css puts them at the line's side, right for the lyrics window's list) */
-  #lyrics .dots, #lyrics .dots.left, #lyrics .dots.right, #lyrics .dots.plainside { justify-content: center; }
-  #lyrics .dots .row, #lyrics .dots.right .row { transform-origin: 50% 50%; }
+  /* the stage is centred: the countdown dots too, for every singer (lyrics-view.css starts them at the
+     line's start in the lyrics window's list) */
+  #lyrics .dots, #lyrics .dots.plainside { justify-content: center; }
+  #lyrics .dots .row { transform-origin: 50% 50%; }
+  /* a singer's name tag (lyrics-lanes.js, lanes on only): the stage's quiet text */
+  #lyrics .line { --tag: var(--s-stage-text-quiet); }
   #lyrics .dots i { box-shadow: 0 0 0.6em var(--s-stage-shade-soft); }
   @keyframes lv-in { from { opacity: 0; transform: translateY(0.25em); } }
   @keyframes lv-next { from { opacity: 0; } }

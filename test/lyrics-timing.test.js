@@ -76,11 +76,6 @@ test('liveLines: latest line as before plus overlapping earlier lines', () => {
   assert.equal(T.latestLine(lines, 0.8), 0)                                  // 0.2 s lead
 })
 
-test('lineSides: one singer unchanged, duet left/right, together centered', () => {
-  assert.deepEqual(T.lineSides([{ agent: 'v1' }, { agent: 'v1' }, {}]), ['', '', ''])
-  assert.deepEqual(T.lineSides([{ agent: 'v2' }, { agent: 'v1' }, { agent: 'group' }, { agent: 'v10' }]), ['right', 'left', 'center', 'left'])
-})
-
 test('hasWordTiming', () => {
   assert.equal(T.hasWordTiming([{ t: 1, text: 'a' }]), false)
   assert.equal(T.hasWordTiming([{ t: 1, text: 'a', words: [{ t: 1, end: 2, text: 'a' }] }]), true)

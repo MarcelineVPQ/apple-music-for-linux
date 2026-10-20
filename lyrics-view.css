@@ -2,17 +2,38 @@
    line's font size, so each page only sets its own line sizes. Pages define --active. Dot size knobs:
    --dot (diameter), --dot-gap, --dots-h (height of the dots row when shown). */
 
-/* duets: singer 1 left, singer 2 right, together centered (one singer: page default). Each singer
-   sings in their own colour (0.15.33): --sing is the page's --active for singer 1 (and every line of
-   a one-singer song), --active-2 for singer 2, --active-mix for lines sung together. Pages set those
-   (theme.js fits each to >= 4.5:1); the sides stay, so colour is never the only cue. Background
-   vocals (.bgv) sit inside their line and take its singer's colour, in their dimmer style. */
+/* more than one singer (lyrics-lanes.js, 0.15.68): one column, every singer with the same alignment, size and
+   place (the page's own, as for one singer); the only difference is the sung colour: --sing is the page's
+   --active for singer 1 (and every line of a one-singer song), --active-2 for singer 2, --active-mix (the
+   shared blend) for lines sung together. Pages set those (theme.js fits each to >= 4.5:1). These rules set
+   --sing and nothing else (test/duet-lanes.test.js). Background vocals (.bgv) sit inside their line and
+   take its singer's colour, in their dimmer style. */
 .line, .dots { --sing: var(--active); }
-.line.right, .dots.right { --sing: var(--active-2, var(--active)); }
-.line.center, .dots.center { --sing: var(--active-mix, var(--active)); }
-.line.left { text-align: left; padding-right: 16%; }
-.line.right { text-align: right; padding-left: 16%; }
-.line.center { text-align: center; }
+.line.singer-2, .dots.singer-2 { --sing: var(--active-2, var(--active)); }
+.line.singer-group, .dots.singer-group { --sing: var(--active-mix, var(--active)); }
+/* singer lanes (built, off: lyrics-lanes.js LANES): the list holds --lanes columns; a singer's line (.lane)
+   sits in its column (--lane), start-aligned, lines sung together span them all. The row is clipped to its
+   lane sideways (Expressive's room rules, 0.15.67, then apply per lane: sung words slide off the lane's own
+   edge, never into the other singer's column); the glow keeps a margin. .lane-one: too narrow, one column.
+   A name tag (.tagged, data-singer) opens each singer's turn: small and quiet (--tag: the page's soft text). */
+.lanes:not(.lane-one) .line, .lanes:not(.lane-one) .dots { text-align: start; }
+.lanes:not(.lane-one) .line.lane, .lanes:not(.lane-one) .dots.lane {
+  padding-inline-start: calc(var(--lane, 0) * 100% / var(--lanes));
+  padding-inline-end: calc((var(--lanes) - 1 - var(--lane, 0)) * 100% / var(--lanes));
+}
+.lanes:not(.lane-one) .line.lane > .ly { overflow-x: clip; overflow-clip-margin: 0.35em; }
+.line.tagged::before {
+  content: attr(data-singer);
+  display: block;
+  grid-area: 1 / 1;
+  font-size: 0.55em;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--tag, currentColor);
+}
+.line.tagged > .ly { grid-area: 2 / 1; }
 
 /* karaoke words: each word reserves its bold width (hidden ::after copy), so the pop never moves
    the line. The sung word shows its stacked bold copy (.b) in place of its regular text (.r): a
@@ -137,12 +158,8 @@
   transition: opacity 0.3s ease;
 }
 .dots.on { height: var(--dots-h); opacity: 1; overflow: visible; }
-.dots.left, .dots.plainside { justify-content: flex-start; }
-.dots.right { justify-content: flex-end; }
-.dots.center { justify-content: center; }
+.dots.plainside { justify-content: flex-start; }
 .dots .row { display: flex; gap: var(--dot-gap); align-items: center; transform-origin: calc(var(--dot) * 1.8) 50%; }
-.dots.right .row { transform-origin: calc(100% - var(--dot) * 1.8) 50%; }
-.dots.center .row { transform-origin: 50% 50%; }
 .dots i {
   display: block;
   width: var(--dot);
