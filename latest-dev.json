@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.68-dev.1",
-  "file": "sonata-0.15.68-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.68-dev.1/sonata-0.15.68-dev.1-x86_64.AppImage",
-  "sha512": "70af7252ae3531dda8d89d2f5ad809e68c486f2a2bbef63f4157f3df86c3c444ddb4bb2f955904fdcc2e089c1c6450e740b07afe7a326a67942b570e5349cac1",
-  "size": 127578552,
-  "date": "2026-10-20T01:12:45Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.68-dev.1",
-  "notes": "### Added\n- **First play: notes and Expressive words appear as the song plays.** A new song no longer has to be heard twice: on its first play each part's notes (the Studio's band) and Expressive words (held vowels stretching, vibrato, belted and soft words, wordless vocalise) appear about one part behind the singing, and from the first lines with look-ahead play on. They change only between lines, never the line being sung. The whole song is still measured once more at its end and its result replaces them without a visible jump. The lyrics view says \"Expressive words: measuring as it plays\" meanwhile. Needs engine 0.2.7 (installed with this build) and a graphics card (on the processor alone songs still learn after they end, to keep playback smooth, unless the helper keeps up with the music, as on Intel graphics).\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.68-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.69-dev.1",
+  "file": "sonata-0.15.69-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.69-dev.1/sonata-0.15.69-dev.1-x86_64.AppImage",
+  "sha512": "3676929d7670372302f5d2ae05b64d267c2e78600b88122b73fe6ae70b7fd9706bd1a5860d097fda14de1737b5a417119c14d4626f8b125494f483270ccb8d64",
+  "size": 127578441,
+  "date": "2026-10-20T01:29:56Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.69-dev.1",
+  "notes": "### Fixed\n- **Sonata starts again.** 0.15.68 quit right after starting (a startup step ran before the part it needs was loaded), so Restart after the update seemed to do nothing. A new check now stops a build like that from shipping.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.69-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
