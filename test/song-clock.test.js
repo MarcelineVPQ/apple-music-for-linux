@@ -314,3 +314,24 @@ test('main: the recorder and the refiner wait while the clock holds a drop for i
   assert.match(src, /songClock\.holding \? null : songClock\.snapshot\(\)/)
   assert.match(src, /repeatOne: state\.repeat === 1/)
 })
+
+// QC 2026-10 #5: freshTime ages each push by its own (jittering) age, so a frozen time never compared equal
+test('a player frozen while it says playing holds the clock, no saw-tooth', () => {
+  let now = 0
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+  let st
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 20; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now - 30) }
+  const frozen = 10
+  const epochs = new Set()
+  const times = []
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 1; k <= 12; k++) {
+    now += 500
+    st = clock.push(frozen, true, 's', now - 30 - (k % 3) * 7) || st   // the same time, ages jittering by ms
+    if (k >= 4) { epochs.add(st.epoch); times.push(clock.time()) }
+  }
+  assert.equal(st.playing, false, 'a stall is detected')
+  assert.equal(epochs.size, 1, 'held: no epoch bump per push')
+  assert.ok(Math.max(...times) - Math.min(...times) < 0.01, 'the clock stands still: ' + times.join(','))
+})

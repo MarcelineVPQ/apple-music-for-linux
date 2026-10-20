@@ -83,6 +83,8 @@ function createSongClock(opts = {}) {
   let boundaryAt = null  // when a drop to a song's start began waiting for its song change (BOUNDARY_WAIT)
   let seedLeft = 0       // the new song's pushes still seeding its phase quietly
   let duration = 0       // this song's length (s; 0 unknown): only a drop near its end can be a song change
+  let lastRaw = null     // the last push's raw player time and its aged value: a repeated raw time keeps that value,
+  let lastFresh = null   // so a frozen player (a stall while it says playing) reads as a stall, not as time running on
   const log = opts.log || null
   let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
   let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
@@ -99,6 +101,7 @@ function createSongClock(opts = {}) {
     key = k
     clock = null
     samples = []
+    lastRaw = lastFresh = null
     boundaryAt = null
     seedLeft = 0
   }
@@ -124,7 +127,11 @@ function createSongClock(opts = {}) {
         gate = null
         gateDone = true
       }
-      const fresh = T.freshTime(t, isPlaying, readAt, epochNow())
+      // QC 2026-10 #5: the same raw time again is the same instant (its age jitters by ms, so equal times never
+      // compared equal and a stall ran on in a saw-tooth): syncClock then sees the repeat and holds
+      const fresh = Number.isFinite(t) && t === lastRaw && isPlaying !== false ? lastFresh : T.freshTime(t, isPlaying, readAt, epochNow())
+      lastRaw = t
+      lastFresh = fresh
       const shown = clock ? T.clockTime(clock, n) : null
       // a drop to the start of a song: the song change it most likely is comes first (BOUNDARY_WAIT)
       const recentSeek = clock && clock.seekAt != null && n - clock.seekAt < 1200
