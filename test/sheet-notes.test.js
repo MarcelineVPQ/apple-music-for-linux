@@ -1048,3 +1048,38 @@ test('main sheetNotesFailed: a failed whole-song pass keeps the first play\'s pa
   api.sheetNotesFailed(brother, Object.assign(new Error('x'), { code: 'error' }))
   assert.equal(store.get(brother.title, brother.artist).notes.length, 1)
 })
+
+// Marcy's Alice in Chains log (2026-10-19, 0.15.71): "Rooster (Live)"'s look-ahead stream failed after line 13, so
+// its sections were timed instead (lines 2–6 … 15–19). The band must draw each section's notes once they arrive, at
+// the playhead inside them, with "Listening and learning" off there (the sections path: no streamed pitch pieces).
+test('main firstPlaySection: after a failed stream, arrived section notes are drawn at the playhead, Listening off', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
+  let sent = 0
+  const env = { firstPlay: null, firstPlayWaiting: null, lyricsKey: 'k', alignHelper: null, expressiveOn: () => false, refining: null,
+    getSheetStore: () => ({ get: () => null }), sheetModel: M, firstPlayUnfinished: () => {}, app: { getVersion: () => '0.15.72-dev.1' },
+    sheet: { key: 'k', pitch: [], entry: null, sung: [], end: 300 }, sendSheet: () => { sent++ }, console: { log () {} } }
+  const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func
+  const s = { key: 'k', id: 's1', hash: 'h', title: 'Rooster (Live)', artist: 'Alice in Chains' }
+  // a part of lines from..to, one note a line, line k sung at 10 + 10k s
+  const part = (from, to) => {
+    const syl = []; const notes = []
+    // loop: NOT-WORTH — a test's few lines
+    for (let k = from; k <= to; k++) { syl.push({ t: 10 + 10 * k, end: 10.4 + 10 * k, text: 'la', line: k, syl: 0, nsyl: 1 }); notes.push({ t: 10 + 10 * k, end: 10.4 + 10 * k, midi: 62, cents: 0, conf: 0.9, syl_index: syl.length - 1 }) }
+    return { section: { offset: 9 + 10 * from, span: [10 + 10 * from, 18 + 10 * to] }, tuning: { cents: 0 }, syllables: syl, notes, pitch: { t0: 10 + 10 * from, hop: 0.05, v: [620, 620] }, expr: { words: [] } }
+  }
+  // loop: NOT-WORTH — a test's 13 streamed lines
+  for (let k = 0; k <= 12; k++) run(s, part(k, k), { from: k, to: k, stream: true })
+  // loop: NOT-WORTH — a test's five sections
+  for (const [a, b] of [[1, 5], [6, 9], [10, 12], [13, 13], [14, 18]]) run(s, part(a, b), { from: a, to: b })
+  const t = 10 + 10 * 16 + 0.2                          // the playhead on line 17, inside the last section that came
+  const entry = env.sheet.entry
+  assert.ok(entry && entry.partial && sent > 0, 'the band got the provisional entry')
+  assert.ok(entry.covered.some((c) => t >= c[0] && t < c[1]), 'the playhead is inside what came: ' + JSON.stringify(entry.covered))
+  const doc = M.expand(entry)
+  assert.ok(doc.notes.some((n) => Math.abs(n.t - (t - 0.2)) < 0.01), 'the note at the playhead is in the entry')
+  const md = M.mode({ on: true, installed: true, precise: true, timed: true, wordSynced: true, partial: true, doc })
+  assert.equal(md.band, 'notes')
+  assert.equal(M.listening(md, env.sheet.pitch, t, 300, entry.covered), null, '"Listening and learning" is off where notes came')
+  assert.equal(M.listening(md, env.sheet.pitch, 10 + 10 * 25, 300, entry.covered), M.LISTENING, 'on past them')
+})
