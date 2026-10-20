@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.66-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>No silence and no jump at the start of a song</p>
+      </description>
+    </release>
     <release version="0.15.65-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Precise timing runs on Intel graphics through OpenVINO on Intel laptops</p>
