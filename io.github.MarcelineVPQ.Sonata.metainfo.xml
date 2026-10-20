@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.75-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Fixed: an error window when a photo or info source sent unusual characters</p>
+      </description>
+    </release>
     <release version="0.15.74-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Forget this song: the next play is a first play again</p>
