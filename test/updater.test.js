@@ -258,3 +258,29 @@ test('from source (no AppImage): manual, nothing online', async () => {
   assert.equal((await up.check()).phase, 'manual')
   assert.equal(fetched, 0)
 })
+
+// Marcy 2026-10-19: "Check for updates" said up to date minutes after a release: raw.githubusercontent.com's CDN
+// served the feed for 5 minutes (max-age=300, x-cache HIT) and ignores query strings
+test('a check the user asked for reads the feed fresh (GitHub\'s contents API), automatic ones the CDN; same signature check', async () => {
+  assert.equal(F.freshUrl('https://raw.githubusercontent.com/MarcelineVPQ/sonata-releases/main/latest-dev.json'),
+    'https://api.github.com/repos/MarcelineVPQ/sonata-releases/contents/latest-dev.json?ref=main')
+  assert.equal(F.freshUrl('https://raw.githubusercontent.com/MarcelineVPQ/sonata-releases/main/latest-dev.json.sig'),
+    'https://api.github.com/repos/MarcelineVPQ/sonata-releases/contents/latest-dev.json.sig?ref=main')
+  assert.equal(F.freshUrl('https://example.com/x'), 'https://example.com/x')
+  const asked = []
+  const fetchText = async (u, o) => { asked.push([u, !!(o && o.fresh)]); throw new Error('offline') }
+  await assert.rejects(F.fetchUpdate({ channel: 'dev', fetchText, fresh: true }))
+  assert.deepEqual(asked.map(([u, f]) => [u.split('/')[2], f]).sort(), [['api.github.com', true], ['api.github.com', true], ['raw.githubusercontent.com', false], ['raw.githubusercontent.com', false]], 'the API, then the CDN as the fallback')
+  asked.length = 0
+  await assert.rejects(F.fetchUpdate({ channel: 'dev', fetchText }))
+  assert.ok(asked.every(([u, f]) => u.startsWith('https://raw.githubusercontent.com/') && !f), 'automatic: the CDN only')
+  // the updater asks fresh only for an interactive check
+  const seen = []
+  const up = U.createUpdater({ version: '0.15.32', channel: () => 'stable', fetchUpdate: async (c, o) => { seen.push(o && o.fresh); return { version: '0.15.32' } }, blocker: () => null, emit: () => {}, now: () => 0, log: () => {} })
+  await up.check({ interactive: true })
+  await up.check({})
+  assert.deepEqual(seen, [true, false])
+  const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /if \(o && o\.fresh\) \{ req\.setHeader\('Accept', 'application\/vnd\.github\.raw'\); req\.setHeader\('Cache-Control', 'no-cache'\) \}/)
+  assert.match(main, /fresh: !!\(o && o\.fresh\)/)
+})

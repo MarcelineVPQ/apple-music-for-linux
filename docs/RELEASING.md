@@ -9,6 +9,10 @@ Sonata updates itself from a **signed feed**, the same design as the DS5 app:
 
 The app reads them from `https://raw.githubusercontent.com/MarcelineVPQ/sonata-releases/main/latest(-dev).json`
 plus `.sig` (builds up to 0.15.18 / 0.15.44-dev.1: this repository's `master`, see [Releases repository](#releases-repository)), every 2 hours, at start (after 20 s), on *Check for Updates…* and on a channel switch.
+A check the user asks for (Check for updates) reads the same two files through GitHub's contents API
+(`api.github.com/repos/MarcelineVPQ/sonata-releases/contents/latest(-dev).json?ref=main`, raw bytes, `Cache-Control: no-cache`),
+because raw.githubusercontent.com's CDN keeps them up to 5 minutes and ignores query strings; if the API refuses
+(60 unauthenticated requests an hour) it falls back to the CDN. The signature check is the same (`update-feed.js` `freshUrl`).
 
 Feed format (`tools/feed-lib.js`):
 

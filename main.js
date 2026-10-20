@@ -4822,16 +4822,18 @@ function integrateAppImage() {
   } catch (e) { console.error('menu integration failed:', e.message) }   // error: LOGGED-OK — no menu entry or icon this run; Sonata itself runs
 }
 
-function fetchText(url) {
+function fetchText(url, o) {
   return new Promise((resolve, reject) => {
     // lifetime: OK — one request per feed fetch; its listeners go with it at end or error
     const req = net.request(url)
+    // a fresh read (a check the user asked for): GitHub's contents API as raw bytes, past Chromium's own cache
+    if (o && o.fresh) { req.setHeader('Accept', 'application/vnd.github.raw'); req.setHeader('Cache-Control', 'no-cache') }
     req.on('response', (res) => {
       if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return }
       let body = ''
       res.on('data', (chunk) => { body += chunk })
       res.on('end', () => resolve(body))
-      res.on('error', reject)
+      res.on('error', reject)   // lifetime: OK — the response's listeners go with it
     })
     req.on('error', reject)   // lifetime: OK — goes with the request
     req.end()
@@ -4870,7 +4872,7 @@ let updateNotified = ''          // the version a desktop notification was shown
 const updater = updaterLib.createUpdater({
   version: app.getVersion(),
   channel: () => settings.updateChannel,
-  fetchUpdate: (channel) => updateFeed.fetchUpdate({ channel, fetchText, test: testFeed, log: (m) => console.log(m) }),
+  fetchUpdate: (channel, o) => updateFeed.fetchUpdate({ channel, fetchText, test: testFeed, fresh: !!(o && o.fresh), log: (m) => console.log(m) }),
   download: downloadFile,
   verify: (file, feed) => updateFeed.verifyDownload(file, feed),
   fs,

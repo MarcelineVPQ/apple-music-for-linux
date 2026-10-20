@@ -111,7 +111,7 @@ function updateNotification(st) {
     : { title: V.full(st.version) + ' is available', body: 'Open Settings → Updates to install it.' }
 }
 
-// deps: { version, channel(), fetchUpdate(channel), download(url, dest, onProgress(got, total)),
+// deps: { version, channel(), fetchUpdate(channel, { fresh }), download(url, dest, onProgress(got, total)),
 //   verify(file, feed), fs, installedPath(), blocker() (why this copy can't update itself, or null),
 //   onInstalled(newPath), emit(state), now(), log }
 function createUpdater(deps) {
@@ -134,7 +134,8 @@ function createUpdater(deps) {
     set({ phase: 'checking' })
     let next
     try {
-      const f = await d.fetchUpdate(returningToStable ? 'stable' : d.channel())
+      // a check the user asked for reads the feed fresh (update-feed.js freshUrl), an automatic one may be cached
+      const f = await d.fetchUpdate(returningToStable ? 'stable' : d.channel(), { fresh: !!o.interactive })
       feed = f
       next = !offers(f.version, d.version, returningToStable)
         ? { phase: 'up-to-date', version: d.version, at: d.now() }
