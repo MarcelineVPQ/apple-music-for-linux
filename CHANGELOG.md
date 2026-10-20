@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.73-dev.1] — Song reports: each song logs how well it was learned and shown
+
 ### Added
 - **Song reports: each song logs how well it was learned and shown.** At the end of each song shown in a lyric view, Sonata writes one entry to its log: how far ahead of the singing each line's words, notes and expression arrived, on how many sung lines the Studio's band drew notes, how many measured held words were drawn (and why the rest weren't: the line was already sung, too short to show, a different repeat, other words, no vowel measured), the song clock's corrections, any helper failures, and whether it was a first, learned or refine play. With the developer log on (Sung notes, Development builds) each line lit gets its own line too.
 
