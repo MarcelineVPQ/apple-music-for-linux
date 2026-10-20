@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.71-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Songs keep refining their notes and expressions until they're complete</p>
+      </description>
+    </release>
     <release version="0.15.70-dev.1" date="2026-10-19" type="development">
       <description>
         <p>First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive.</p>

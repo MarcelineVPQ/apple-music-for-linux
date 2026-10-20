@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.70-dev.1",
+  "version": "0.15.71-dev.1",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -87,6 +87,7 @@
       "game-guard.js",
       "notes-log.js",
       "sheet-notes-model.js",
+      "notes-refine.js",
       "sheet-notes-store.js",
       "sheet-notes-ui.js",
       "info-tip.js",
