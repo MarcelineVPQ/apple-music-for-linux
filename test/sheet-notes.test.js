@@ -992,3 +992,21 @@ test('main sendSheet: the same song\'s new pitch pieces go as a delta; a new son
   const ui = require('fs').readFileSync(require('path').join(__dirname, '..', 'sheet-notes-ui.js'), 'utf8')
   assert.match(ui, /else if \(Array\.isArray\(s\.pitchAdd\) && s\.key === st\.key && s\.pitchFrom === pieces\.length\) pieces = pieces\.concat\(s\.pitchAdd\)/)
 })
+
+// Marcy 2026-10-19: after a look-ahead stream failed, the stream's line notes and the sections' notes both drew
+test('main firstPlaySection: a section\'s part replaces the streamed lines it covers; a later streamed line it covers is skipped', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
+  const env = { firstPlay: null, sheet: null, lyricsKey: '', alignHelper: null, expressiveOn: () => false,
+    getSheetStore: () => ({ get: () => null }), sheetModel: { entryValid: () => false }, firstPlayUnfinished: () => {}, console: { log () {} } }
+  const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func
+  const s = { key: 'k', id: 's1', hash: 'h', title: 'T', artist: 'A' }
+  const p = (tag) => ({ notes: [{ t: 1, end: 2, midi: 60 }], tag })
+  run(s, p('stream 4'), { from: 4, to: 4, stream: true })
+  run(s, p('stream 5'), { from: 5, to: 5, stream: true })
+  run(s, p('stream 9'), { from: 9, to: 9, stream: true })
+  run(s, p('section 4-7'), { from: 4, to: 7 })        // the stream failed: its sections come instead
+  assert.deepEqual([...env.firstPlay.parts.entries()].map(([k, v]) => [k, v.tag]), [[4, 'section 4-7'], [9, 'stream 9']])
+  run(s, p('stream 6'), { from: 6, to: 6, stream: true })   // a late streamed line the section has
+  assert.equal(env.firstPlay.parts.has(6), false)
+})

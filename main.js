@@ -1045,7 +1045,7 @@ function sheetNotesFailed(s, e) {
 // express). The whole-song pass after the song still runs (sheetNotesDone) and replaces it all, the views'
 // copy swapped line by line off screen ('lyrics-expr' final).
 // cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
-let firstPlay = null      // { key, play (the align session's song id: one play), title, artist, hash, parts: Map(from -> part), expr, n }
+let firstPlay = null      // { key, play (the align session's song id: one play), title, artist, hash, parts: Map(from -> part), streamed: Set(from), covers: Map(from -> to) of section parts, expr, n }
 // the first play under way for this song and these lyrics (QC 2026-10 #7: lyrics from another source have other line indexes)
 function firstPlayOf(key, hash) { return firstPlay && firstPlay.key === key && firstPlay.hash === hash ? firstPlay : null }
 function sectionNotesWanted() {
@@ -1059,6 +1059,16 @@ function firstPlaySection(s, part, sec) {
   // one play's state: a replay starts again from what the store kept (firstPlayFor), never from an earlier play's
   // memory (QC 2026-10 #7: its vocalise was appended again, doubled ghosts)
   if (!firstPlay || firstPlay.key !== s.key || firstPlay.play !== s.id || firstPlay.hash !== s.hash) firstPlay = firstPlayFor(s)
+  // one set of notes per line (Marcy 2026-10-19: after a stream failed, its line notes and the sections' disagreed on
+  // the band): a section's part replaces the streamed lines it covers, and a streamed line a section has is skipped
+  const to = Number.isInteger(sec.to) ? sec.to : sec.from
+  if (sec.stream && firstPlaySectionHas(sec.from)) return
+  if (!sec.stream) {
+    // loop: NOT-WORTH — the parts so far (≤ ~60), once per section part
+    for (const [from] of [...firstPlay.parts]) if (from > sec.from && from <= to && firstPlay.streamed.has(from)) { firstPlay.parts.delete(from); firstPlay.streamed.delete(from) }
+    firstPlay.covers.set(sec.from, to)
+  }
+  if (sec.stream) firstPlay.streamed.add(sec.from); else firstPlay.streamed.delete(sec.from)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
   // Expressive words: the section's expression, merged (each line comes from one section)
@@ -1085,10 +1095,16 @@ function firstPlaySection(s, part, sec) {
   // a section that finished after its song was left: kept with the others
   if (firstPlay.unfinished) firstPlayUnfinished(s)
 }
+// a section's part (not a streamed line's) already covers this line
+function firstPlaySectionHas(line) {
+  // loop: NOT-WORTH — the section parts so far (≤ ~20), once per streamed line
+  for (const [from, to] of firstPlay.covers) if (line >= from && line <= to) return true
+  return false
+}
 // the first play's state for a song: a new one, or one carried on from the partial entry an earlier play left
 // (0.15.70, Marcy: "I don't get expression until the third playthrough": a play left before its end kept nothing)
 function firstPlayFor(s) {
-  const fp = { key: s.key, play: s.id, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  const fp = { key: s.key, play: s.id, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), streamed: new Set(), covers: new Map(), expr: null, n: 0 }
   let old = null
   // error: NOT-WORTH — a store read that throws: a first play from scratch
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
