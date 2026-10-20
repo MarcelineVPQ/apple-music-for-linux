@@ -122,8 +122,8 @@ test('commandsFor: pause freezes, play resumes, a seek flushes and the player op
   assert.deepEqual(LA.commandsFor({ ev: 'playing' }, Object.assign({}, st, { gated: true })).cmds, ['open'])
   // no gate open: nothing to open
   assert.deepEqual(LA.commandsFor({ ev: 'playing' }, st).cmds, [])
-  // a song with no delay: a seek still flushes to 0 (the old audio never plays after the jump)
-  assert.deepEqual(LA.commandsFor({ ev: 'seeking', t: 5 }, { ms: 0 }).cmds, ['flush 0'])
+  // a song with no delay: nothing buffered, so no flush and no gate (0.15.65: a gate there silenced verses)
+  assert.deepEqual(LA.commandsFor({ ev: 'seeking', t: 5 }, { ms: 0 }).cmds, [])
 })
 
 test('commandsFor: a song playing to its end is not a pause: its delayed tail plays out', () => {
@@ -139,7 +139,8 @@ test('commandsFor: while an item change holds the player, its own pause/play are
 
 test('commandsFor: songs with and without delay switch cleanly', () => {
   // a skip (not natural): the old song is cut, the new one starts with its own delay
-  assert.deepEqual(LA.commandsFor({ ev: 'item', natural: false }, { ms: MS, nextMs: 0 }), { cmds: ['flush 0'], hold: null, anchor: 0 })
+  assert.deepEqual(LA.commandsFor({ ev: 'item', natural: false }, { ms: MS, nextMs: 0 }), { cmds: ['setd 0'], hold: null, anchor: 0 })
+  assert.deepEqual(LA.commandsFor({ ev: 'item', natural: false }, { ms: 0, nextMs: 0 }), { cmds: [], hold: null, anchor: 0 })
   assert.deepEqual(LA.commandsFor({ ev: 'item', natural: false }, { ms: 0, nextMs: MS }), { cmds: ['flush ' + MS], hold: null, anchor: 0 })
   // natural end, into a delayed song: no cut, silence added (a gap of at most D)
   assert.deepEqual(LA.commandsFor({ ev: 'item', natural: true }, { ms: 0, nextMs: MS }), { cmds: ['track ' + MS], hold: null, anchor: 0 })
@@ -267,6 +268,7 @@ function fakeWorld(opts = {}) {
     }),
     findStream: () => Promise.resolve(stream),
     decide: opts.decide || (() => ({ ms: MS, why: 'first' })),
+    now: opts.now,
     player: (a) => player.push(a),
     setHold: (on) => holds.push(on),
     log: (m) => log.push(m)
@@ -335,7 +337,7 @@ test('controller: a music video gets no delay (and no hold)', async () => {
   w.la.start()
   await settle()
   w.la.pageEvent({ ev: 'item', natural: false, kind: 'musicVideos', title: 'Clip' })
-  assert.deepEqual(w.sent, ['flush 0'])
+  assert.deepEqual(w.sent, [])
   assert.deepEqual(w.holds, [false])
   assert.equal(w.la.song.ms, 0)
   assert.equal(w.la.status(), 'No delay: music videos are never delayed')
@@ -445,4 +447,66 @@ test('session: the helper\'s committed words become the views\' message, word fo
   // the capture as the helper wants it: s16le stereo from mid/side
   const pcm = AS.toS16(new Float32Array([0.5, -1]), new Float32Array([0.25, 0]))
   assert.deepEqual([pcm.readInt16LE(0), pcm.readInt16LE(2), pcm.readInt16LE(4), pcm.readInt16LE(6)], [24576, 8192, -32768, -32768])
+})
+
+// 0.15.65: Marcy "didn't get audio for the first verse": the helper ran with the switch shown off, and a song
+// change read as a seek gated Sonata's audio until the helper's 3 s timeout
+test('wanted: the helper runs only with the switch on, available, and Precise word timing on', () => {
+  const ok = { ok: true }
+  assert.equal(LA.wanted({ lookahead: true }, ok, true), true)
+  assert.equal(LA.wanted({ lookahead: true }, ok, false), false, 'Precise timing off: the switch is disabled')
+  assert.equal(LA.wanted({ lookahead: true }, { ok: false }, true), false)
+  assert.equal(LA.wanted({ lookahead: false }, ok, true), false)
+  assert.equal(LA.wanted({}, ok, true), false)
+})
+
+test('controller: a gate the player never confirms is opened after 100 ms, not 3 s', async () => {
+  const w = fakeWorld()
+  w.la.start()
+  await settle()
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'S' })    // a skip into a delayed song: gated
+  assert.deepEqual(w.sent.slice(-1), ['flush ' + MS])
+  await new Promise((r) => setTimeout(r, 130))
+  assert.deepEqual(w.sent.slice(-1), ['open'])
+  assert.ok(w.log.some((l) => /did not confirm/.test(l)))
+  // a confirmed one is not opened twice
+  w.la.pageEvent({ ev: 'seeking', t: 90 })
+  w.la.pageEvent({ ev: 'seeked' })
+  await new Promise((r) => setTimeout(r, 130))
+  assert.equal(w.sent.filter((c) => c === 'open').length, 2)   // loop: NOT-WORTH — a test
+  w.la.stop()
+})
+
+test('controller: a jump to the start just before the item change is the song changing, never a seek', async () => {
+  let t = 1000000
+  const w = fakeWorld({ now: () => t })
+  w.la.start()
+  await settle()
+  w.la.pageEvent({ ev: 'item', natural: true, title: 'A' })        // a delayed song plays
+  w.sent.length = 0
+  t += 180000                                                       // ... to its end
+  // the next song: its position resets to 0 a moment before its item event
+  w.la.pageEvent({ ev: 'seeking', t: 0 })
+  w.la.pageEvent({ ev: 'item', natural: true, title: 'B' })
+  await new Promise((r) => setTimeout(r, 350))
+  assert.ok(!w.sent.some((c) => c.startsWith('flush')), 'no flush, no gate: ' + w.sent.join(','))   // loop: NOT-WORTH — a test
+  w.la.stop()
+})
+
+test('controller: a song with no delay is never gated (a seek, a skip)', async () => {
+  const w = fakeWorld({ decide: () => ({ ms: 0, why: 'learned' }) })
+  w.la.start()
+  await settle()
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'L' })
+  w.la.pageEvent({ ev: 'seeking', t: 40 })
+  w.la.pageEvent({ ev: 'seeking', t: 0 })
+  await new Promise((r) => setTimeout(r, 350))
+  assert.ok(!w.sent.some((c) => c.startsWith('flush')), w.sent.join(','))   // loop: NOT-WORTH — a test
+  w.la.stop()
+})
+
+test('the helper\'s own gate timeout is a backstop of at most 300 ms (never a silent verse)', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'native', 'lookahead', 'sonata-lookahead.c'), 'utf8')
+  const ms = Number((/#define GATE_TIMEOUT_MS (\d+)/.exec(src) || [])[1])
+  assert.ok(ms > 0 && ms <= 300, String(ms))
 })

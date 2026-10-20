@@ -212,3 +212,73 @@ test('a real 2 s seek in the player: one discontinuity, then steady', () => {
   assert.ok(Math.abs(C.timeAt(st, now - 500) - ((now - 500) / 1000 + 2)) < 0.02)
   assert.ok(Math.abs(C.rateAt(st, now) - 1) <= C.PLL_SLEW)
 })
+
+// 0.15.65: Marcy's journal at each song change: "corrected -187497 ms (jump: a seek or a stall, snapped)"
+// (the player's time for the NEW song came before its name), then "corrected 227 ms (jump…)"
+test('a song boundary: the new song\'s time before its name never snaps the old song to 0:00', () => {
+  let now = 0
+  const lines = []
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
+  const a = consumer(0)
+  const seen = []
+  const take = (st) => { if (st) { a.take(st, now); seen.push(st) } }
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 374; k++) { now = k * 500; take(clock.push(k * 0.5, true, 'old', now)) }   // the old song to 187 s
+  const oldEpoch = a.epoch
+  let last = a.at(now)
+  // the new song's time (0.1, 0.6) arrives under the old song's name, then the name changes
+  now += 500; take(clock.push(0.1, true, 'old', now))
+  assert.ok(a.at(now) >= last, 'the old song never goes back'); last = a.at(now)
+  now += 500; take(clock.push(0.6, true, 'old', now))
+  assert.ok(a.at(now) >= last, 'the old song never goes back')
+  assert.equal(a.epoch, oldEpoch, 'held: no epoch for the old song')
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k < 12; k++) { now += 500; take(clock.push(1.1 + k * 0.5, true, 'new', now)) }
+  const newEpochs = new Set(seen.filter((s) => s.key === 'new').map((s) => s.epoch))   // loop: NOT-WORTH — a test
+  assert.equal(newEpochs.size, 1, 'exactly one epoch into the new song')
+  assert.ok(seen.every((s) => s.key === 'old' ? s.epoch === oldEpoch : s.epoch > oldEpoch))   // loop: NOT-WORTH — a test
+  assert.ok(!lines.some((l) => /snapped/.test(l)), 'no snap logged: ' + lines.join(' | '))   // loop: NOT-WORTH — a test
+  assert.ok(Math.abs(a.at(now) - (1.1 + 11 * 0.5)) < 0.05, 'on the new song')
+})
+
+test('a drop to the start with no song change is a seek after BOUNDARY_WAIT (repeat one)', () => {
+  let now = 0
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+  let st
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 40; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now) }
+  const e = st.epoch
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k < 5; k++) { now += 500; st = clock.push(0.2 + k * 0.5, true, 's', now) || st }
+  assert.ok(st.epoch > e, 'snapped once the wait ran out')
+  assert.ok(Math.abs(clock.time() - 2.2) < 0.05)
+})
+
+test('a new song\'s first push 227 ms off (or paused, then playing): no visible jump', () => {
+  // loop: NOT-WORTH — two cases
+  for (const pausedFirst of [false, true]) {
+    let now = 0
+    const lines = []
+    const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
+    const a = consumer(0)
+    now = 1000; a.take(clock.push(0, !pausedFirst, 'n', now), now)
+    const e = a.epoch
+    let last = a.at(now)
+    let lastAt = now
+    // loop: NOT-WORTH — a test's few pushes
+    for (let k = 1; k <= 20; k++) {
+      now = 1000 + k * 500
+      const st = clock.push((pausedFirst ? k - 1 : k) * 0.5 + 0.227, true, 'n', now)   // paused first: it starts at the 2nd push
+      if (st) a.take(st, now)
+      assert.equal(a.epoch, e, 'no discontinuity')
+      // loop: NOT-WORTH — a test's few frames
+      for (let f = 0; f < 5; f++) {
+        const t = a.at(now + f * 100)
+        assert.ok(t >= last - 1e-9 && t - last <= (now + f * 100 - lastAt) / 1000 * 1.01 + 0.05, 'smooth: ' + (t - last))
+        last = t
+        lastAt = now + f * 100
+      }
+    }
+    assert.ok(!lines.some((l) => /jump/.test(l)), lines.join(' | '))   // loop: NOT-WORTH — a test
+  }
+})

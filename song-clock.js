@@ -27,6 +27,16 @@ const PLL_SLEW = 0.005    // the most the clock's rate leaves 1 to trim its phas
 const PLL_TAU = 2         // s: the phase error is trimmed at err / PLL_TAU per s (capped at PLL_SLEW)
 const PLL_SNAP = 0.25     // s: an estimated error over this (3+ pushes agreeing) is a discontinuity
 const PLL_JUMP = 1        // s: one push this far off is a seek: a discontinuity at once
+// 0.15.65, song boundaries (Marcy: "a weird jump at the beginning of the song"): Apple's player resets its time
+// to the new song's start ~a tick before it names the new song, so that push read as a seek in the OLD song
+// (snapped back to 0:00, the old words and band flashed), then the song changed. A drop from over
+// BOUNDARY_FROM s to under BOUNDARY_TO s now waits up to BOUNDARY_WAIT ms for the song change (no push: the
+// views run on); only if none comes is it a seek. A new song's first SEED_PUSHES pushes seed its phase quietly:
+// a resume or a small offset (< PLL_JUMP) is slewed in, never a step.
+const BOUNDARY_TO = 2
+const BOUNDARY_FROM = 5
+const BOUNDARY_WAIT = 1500
+const SEED_PUSHES = 3
 
 function median(xs) {
   const a = xs.slice().sort((x, y) => x - y)   // loop: HOT-PATH-OK — one sort a push (2/s), N <= 8
@@ -64,6 +74,8 @@ function createSongClock(opts = {}) {
   let gate = null
   let epoch = 0
   let gateDone = false   // this push is a new song's first
+  let boundaryAt = null  // when a drop to a song's start began waiting for its song change (BOUNDARY_WAIT)
+  let seedLeft = 0       // the new song's pushes still seeding its phase quietly
   const log = opts.log || null
   let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
   let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
@@ -79,7 +91,8 @@ function createSongClock(opts = {}) {
     key = k
     clock = null
     samples = []
-    epoch++
+    boundaryAt = null
+    seedLeft = 0
   }
   // the phase detector: this push's offset from the shown time (null: no information), as syncClock reads it
   function offset(fresh, shown, n) {
@@ -105,19 +118,33 @@ function createSongClock(opts = {}) {
       }
       const fresh = T.freshTime(t, isPlaying, readAt, epochNow())
       const shown = clock ? T.clockTime(clock, n) : null
+      // a drop to the start of a song: the song change it most likely is comes first (BOUNDARY_WAIT)
+      const recentSeek = clock && clock.seekAt != null && n - clock.seekAt < 1200
+      if (clock && clock.playing && !recentSeek && Number.isFinite(fresh) && fresh < BOUNDARY_TO && shown > BOUNDARY_FROM) {
+        if (boundaryAt == null) boundaryAt = n
+        if (n - boundaryAt < BOUNDARY_WAIT) return null   // held: the views run on, the old song never shows 0:00
+      }
+      boundaryAt = null   // no drop, or none came in BOUNDARY_WAIT: a seek to the start after all
       let next = T.syncClock(clock, fresh, isPlaying, n)   // pause, stall, resume and the first time
+      const seeding = seedLeft > 0 && clock && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
+      if (seedLeft > 0) seedLeft--
+      if (seeding && next.playing && !clock.playing) {
+        // the new song's player said "paused" at its first push and plays now: on from where it is, the
+        // offset slewed in by the PLL below (Marcy's log: "corrected 227 ms (jump…)" at a song's start)
+        clock = Object.assign({}, clock, { playing: true, at: n, rate: 1 })
+      }
       if (clock && clock.playing && next.playing && clock.anchor != null) {
         cum += ((Number.isFinite(clock.rate) ? clock.rate : 1) - 1) * Math.max(0, n - clock.at) / 1000
         const d = offset(fresh, shown, n)
         const keep = { last: next.last, prev: next.prev, prev2: next.prev2, seekAt: next.seekAt, playing: true, corr: 0 }
-        if (d != null && Math.abs(d) > PLL_JUMP) {
+        if (d != null && Math.abs(d) > PLL_JUMP && !seeding) {
           next = Object.assign(keep, { anchor: fresh, at: n, rate: 1 })   // a seek: snapped
           samples = []
         } else {
           if (d != null) samples.push({ t: n, off: d, cum })
           samples = samples.filter((x) => n - x.t <= PLL_WINDOW).slice(-8)   // loop: HOT-PATH-OK — once a push (2/s), N <= 8
           const err = samples.length ? median(samples.map((x) => x.off - (cum - x.cum))) : 0   // loop: HOT-PATH-OK — N <= 8, 2/s
-          if (samples.length >= 3 && Math.abs(err) > PLL_SNAP) {
+          if (samples.length >= 3 && Math.abs(err) > PLL_SNAP && !seeding) {
             next = Object.assign(keep, { anchor: shown + err, at: n, rate: 1 })   // far off and agreed on: one clean step
             samples = []
           } else next = Object.assign(keep, { anchor: shown, at: n, rate: 1 + Math.max(-PLL_SLEW, Math.min(PLL_SLEW, err / PLL_TAU)) })
@@ -125,6 +152,7 @@ function createSongClock(opts = {}) {
       } else samples = []
       const stepped = shown != null && Math.abs(T.clockTime(next, n) - shown) > jump
       if (shown == null || stepped) epoch++
+      if (shown == null) seedLeft = SEED_PUSHES
       // a correction over 100 ms: one debug line a minute at most, with its size and cause (Marcy's log
       // then shows it if anything still jumps)
       const off = shown == null || !next.playing ? 0 : fresh - shown

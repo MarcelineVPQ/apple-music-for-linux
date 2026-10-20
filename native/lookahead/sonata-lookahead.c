@@ -75,7 +75,7 @@
 #define MAX_SECONDS 12          // ring capacity: D (≤ 10 s) + pause tail + surplus
 #define TAIL_MS 250             // at most this much pause tail is kept (Chromium's: 75–104 ms, measured)
 #define RESUME_DROP_SECONDS 2.0 // leading silence dropped at most this long after play/open
-#define GATE_TIMEOUT_MS 3000    // a gate the player never opens opens by itself (never stuck silent)
+#define GATE_TIMEOUT_MS 300     // a gate the player never opens opens by itself (never a silent verse; Sonata opens it at 100 ms)
 #define OPEN_BREAK_FRAMES 120   // after `open`: the new audio starts after a silence this long (2.5 ms at 48 kHz)
 #define OPEN_MAX_MS 250         // ... or this long after `open`, whichever first
 #define BOUNDARY_SILENCE_MS 3   // a track boundary is placed in the first silence this long after `track`

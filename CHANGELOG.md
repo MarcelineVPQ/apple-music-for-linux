@@ -7,6 +7,20 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.66-dev.1] — No silence and no jump at the start of a song
+
+### Fixed
+
+- No more silence at the start of songs: look-ahead stays out of the audio path when it's off. Its
+  helper ran, with Sonata's sound routed through it, whenever the switch had once been turned on, even
+  while the switch was off for want of Precise word timing; now it runs only while the switch is on and
+  working. When it does run, a song change is never taken for a seek, a song with no delay is never
+  gated, and a seek the player doesn't confirm lets the sound through after 100 ms (it was 3 s, which
+  cost the first verse).
+- No jump at the start of a song: the clock waits for the song change. Apple's player gives the new
+  song's time a moment before it names the new song; that time was read as a seek in the old song, so
+  the old words and the sheet-notes band flashed back to 0:00. A drop to a song's start now waits up to
+  1.5 s for the song change, and a new song's first moments settle in smoothly instead of in a step.
 ## [0.15.65-dev.1] — Intel laptops: Precise timing runs on Intel graphics (OpenVINO)
 
 ### Added

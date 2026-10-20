@@ -27,6 +27,8 @@ const DRAIN_SLACK_MS = 1500    // a drain waits D + this for "drained", then the
 const ROUTE_DEBOUNCE_MS = 50
 const LOAD_SEEK_MS = 2000      // a seek to the start this soon after an item change is the new song loading
 const LOAD_SEEK_S = 0.5
+const CONFIRM_MS = 100         // a gate the player hasn't confirmed this soon is opened anyway (never a silent verse)
+const BOUNDARY_SEEK_MS = 300   // a jump to a song's start waits this long for an item change (a song boundary is no seek)
 
 // --- what a song gets ---
 
@@ -43,6 +45,12 @@ function availability(env) {
   if (!env.devBuild) return { shown: false, ok: false, why: 'stable' }
   if (!env.binary) return { shown: true, ok: false, why: 'no-helper' }
   return { shown: true, ok: true, why: '' }
+}
+
+/** Whether the helper runs at all: the switch on, available here, and Precise word timing on (the
+ * switch's own condition). Off: no helper, and Sonata's stream stays on the user's own device. */
+function wanted(settings, avail, preciseOn) {
+  return !!(settings && settings.lookahead === true && avail && avail.ok && preciseOn)
 }
 
 /**
@@ -148,14 +156,17 @@ function commandsFor(ev, st) {
     // a song playing to its end pauses its element too (before 'ended'): the delayed tail must play out
     case 'pause': return { cmds: st.holding || ev.ended ? [] : ['pause'], hold: null }
     case 'play': return { cmds: st.holding ? [] : ['play'], hold: null }
-    case 'seeking': return { cmds: ['flush ' + st.ms], hold: null, anchor: Number.isFinite(ev.t) ? ev.t : null }
+    // 0.15.65: with no delay nothing is buffered, so a seek needs no flush and no gate (a gate there
+    // only ever dropped the player's own audio: silence at a song's start)
+    case 'seeking': return { cmds: st.ms > 0 ? ['flush ' + st.ms] : [], hold: null, anchor: Number.isFinite(ev.t) ? ev.t : null }
     // the player's events come ~100 ms before its audio changes: `open` arms the gate, which opens at
     // the break before the new audio (the helper sees it)
     case 'seeked': case 'playing': return { cmds: st.gated ? ['open'] : [], hold: null }
     case 'item': {
       const next = st.nextMs
       // a skip, a click on another song, the end of the queue: the old song is cut, the new one's delay starts now
-      if (!ev.natural) return { cmds: ['flush ' + next], hold: null, anchor: 0 }
+      // (into no delay: the old tail is dropped with no gate; from no delay into none: nothing to do)
+      if (!ev.natural) return { cmds: next > 0 ? ['flush ' + next] : st.ms > 0 ? ['setd 0'] : [], hold: null, anchor: 0 }
       // the old song ended by itself: no cut. Into an equal or longer delay the new song follows on;
       // into a shorter one the old song's last seconds play out first, the player held at the new song
       if (next >= st.ms) return { cmds: ['track ' + next], hold: ev.held ? 'resume' : null, anchor: 0 }
@@ -303,6 +314,8 @@ function createLookahead(deps) {
   let holding = false        // an item change held the player (drain or resume pending)
   let drainTimer = null
   let gated = false
+  let confirmTimer = null    // the gate's CONFIRM_MS fallback
+  let boundaryTimer = null   // a jump to the start waiting for its item change
   let heardUs = 0            // the helper's last heard delay (µs)
   let itemAt = -Infinity     // when the last item change came (a load's own seek is not the user's)
   const now = deps.now || Date.now
@@ -471,16 +484,38 @@ function createLookahead(deps) {
     if (e.name === 'drained' && holding) {
       holding = false
       if (drainTimer) { clearTimeout(drainTimer); drainTimer = null }
-      gated = true
+      gated = true; armConfirm()
       deps.player('seek0play')
     } else if (e.name === 'auto-resume') log('the player played on after a pause Sonata missed: resumed')
     else if (e.name === 'gate-timeout') { gated = false; log('the player never confirmed a seek: the gate opened after its timeout') }
   }
 
   // --- the player ---
-  function pageEvent(raw) {
+  // a gate the player doesn't confirm within CONFIRM_MS is opened from here (the helper then opens at the
+  // next break, at most its OPEN_MAX_MS later): the old 3 s timeout silenced a verse at each song start
+  function armConfirm() {
+    if (confirmTimer) clearTimeout(confirmTimer)
+    // lifetime: OK — one-shot; cleared by the player's own confirm, the next gate or stop()
+    confirmTimer = setTimeout(() => {
+      confirmTimer = null
+      if (!gated || holding || phase !== 'on') return
+      gated = false
+      send('open')
+      log('the player did not confirm a seek within ' + CONFIRM_MS + ' ms: audio passed through')
+    }, CONFIRM_MS)
+  }
+  function pageEvent(raw, late) {
     const ev = cleanEvent(raw)
     if (!ev || phase !== 'on') return
+    // a jump to a song's start that comes just before its item change is the song changing, not a seek:
+    // held BOUNDARY_SEEK_MS for the item; only then is it a seek (a flush and its gate)
+    if (ev.ev === 'seeking' && !(ev.t >= LOAD_SEEK_S) && !late && song.ms > 0 && now() - itemAt >= LOAD_SEEK_MS) {
+      if (boundaryTimer) clearTimeout(boundaryTimer)
+      // lifetime: OK — one-shot; cleared by the item change, the next such seek or stop()
+      boundaryTimer = setTimeout(() => { boundaryTimer = null; pageEvent(raw, true) }, BOUNDARY_SEEK_MS)
+      return
+    }
+    if (ev.ev === 'item' && boundaryTimer) { clearTimeout(boundaryTimer); boundaryTimer = null }
     // the new song's player may set its position to the start while it loads: that is no seek (a flush
     // there would cut the old song's delayed tail)
     if (ev.ev === 'seeking' && now() - itemAt < LOAD_SEEK_MS && !(ev.t >= LOAD_SEEK_S)) return
@@ -497,8 +532,11 @@ function createLookahead(deps) {
     }
     const r = commandsFor(ev, { ms: oldMs, holding, gated, nextMs })
     if (r.anchor !== undefined) song.anchor = r.anchor
-    if (ev.ev === 'seeking' || (ev.ev === 'item' && !ev.natural)) gated = true
-    else if ((ev.ev === 'seeked' || ev.ev === 'playing') && r.cmds.includes('open')) gated = false
+    if (r.cmds.some((c) => c.startsWith('flush '))) { gated = true; armConfirm() }   // loop: NOT-WORTH — N <= 1, per page event
+    else if ((ev.ev === 'seeked' || ev.ev === 'playing') && r.cmds.includes('open')) {
+      gated = false
+      if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null }
+    }
     // loop: SERIAL-REQUIRED — the helper applies its commands in the order sent
     for (const c of r.cmds) send(c)
     if (ev.ev !== 'item' || !ev.held) return
@@ -512,7 +550,7 @@ function createLookahead(deps) {
       drainTimer = null
       if (!holding) return
       holding = false
-      gated = true
+      gated = true; armConfirm()
       deps.player('seek0play')
     }, oldMs + DRAIN_SLACK_MS)
   }
@@ -539,6 +577,8 @@ function createLookahead(deps) {
     if (restartTimer) { clearTimeout(restartTimer); restartTimer = null }
     if (routeTimer) { clearTimeout(routeTimer); routeTimer = null }
     if (drainTimer) { clearTimeout(drainTimer); drainTimer = null }
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null }
+    if (boundaryTimer) { clearTimeout(boundaryTimer); boundaryTimer = null }
     if (holding) { holding = false; deps.player('resume') }
     unroute()
     deps.setHold(false)
@@ -591,7 +631,7 @@ function sonataStream(list, sinks, pids, pick) {
   return { index: s.index, objectId: s.properties ? s.properties['object.id'] : null, sink: sink ? sink.name : '' }
 }
 
-module.exports = {
+module.exports = { wanted,
   DELAYS, SINK, OUT_NODE, MAX_RESTARTS,
   delayOf, availability, learnState, decide, engineState, statusText, exitText, heardClock, commandsFor, parseLine, cleanEvent,
   sonataStream, createDelayLine, createLookahead

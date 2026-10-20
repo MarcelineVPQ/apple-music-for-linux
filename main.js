@@ -1074,7 +1074,10 @@ function lookaheadBinary() {
 function lookaheadAvail() {
   return lookaheadLib.availability({ platform: process.platform, devBuild: updateFeed.isDevVersion(app.getVersion()), binary: lookaheadBinary() })
 }
-function lookaheadWanted() { return !!settings.lookahead && lookaheadAvail().ok }
+// 0.15.65: the switch as the panel shows it working: on, in this build, AND with Precise word timing on (the
+// switch is disabled without it). A stored "on" under a disabled or hidden switch kept the helper in Sonata's
+// audio path at every start (lookaheadLib.wanted)
+function lookaheadWanted() { return lookaheadLib.wanted(settings, lookaheadAvail(), preciseTimingOn()) }
 function lookaheadSocket() {
   const dir = process.env.XDG_RUNTIME_DIR && fs.existsSync(process.env.XDG_RUNTIME_DIR) ? process.env.XDG_RUNTIME_DIR : os.tmpdir()
   return path.join(dir, 'sonata-lookahead-' + process.pid + '.sock')
@@ -3097,6 +3100,7 @@ function setSetting(key, value) {
       alignStatusText = ''
     } else askAlignStatus()
     showAlignRepair()
+    applyLookahead()   // look-ahead needs Precise word timing: off with it (its helper out of the audio path)
   }
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'lookahead') applyLookahead()   // the choice (lookaheadDelay) applies from the next song
