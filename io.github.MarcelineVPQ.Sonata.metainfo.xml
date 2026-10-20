@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.77-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Fixed: lyrics up to a second late on some songs</p>
+      </description>
+    </release>
     <release version="0.15.76-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Fixed: Expressive words on a first play's held last words, and refrains labelled as verses</p>

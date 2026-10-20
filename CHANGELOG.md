@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.77-dev.1] — Fixed: lyrics up to a second late on some songs
+
+### Fixed
+- **Lyrics up to a second late on some songs.** When Apple Music reports a song's position only to the whole second, the words, notes and Expressive words could run up to a second behind the singing for the whole song. Sonata now works out the exact position from those reports within the first seconds and stays on it.
+
 ## [0.15.76-dev.1] — Fixed: Expressive words on a first play's held last words, and refrains labelled as verses
 
 ### Fixed
