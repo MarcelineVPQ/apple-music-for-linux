@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.77-dev.1",
-  "file": "sonata-0.15.77-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.77-dev.1/sonata-0.15.77-dev.1-x86_64.AppImage",
-  "sha512": "57fbbad5ca2afd4eb6be2fa6a6f341e2b95c891fd47be98d8c7ec2aac80fc5ce947cf9816ba233971c737f7ee6ace4ed53316bc614ffccf9f8765658dcdf6b7d",
-  "size": 127652178,
-  "date": "2026-10-20T05:24:12Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.77-dev.1",
-  "notes": "### Fixed\n- **Lyrics up to a second late on some songs.** When Apple Music reports a song's position only to the whole second, the words, notes and Expressive words could run up to a second behind the singing for the whole song. Sonata now works out the exact position from those reports within the first seconds and stays on it.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.77-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.78-dev.1",
+  "file": "sonata-0.15.78-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.78-dev.1/sonata-0.15.78-dev.1-x86_64.AppImage",
+  "sha512": "9e08453acba3b93fe8e8d5ad74a74d8a10ab384db048d4c45ac3a71fd2710fed632ab2e00be688c4d594d73ac5a7b9fd671f9fca1d3a52e686e4f861409681c0",
+  "size": 127652239,
+  "date": "2026-10-20T05:53:25Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.78-dev.1",
+  "notes": "### Fixed\n- **Sheet notes in each singer's colour.** In a song with more than one singer, the note being sung and its syllable in the Studio's sheet-notes band now light in the same colour as that singer's lyrics, instead of always the first singer's.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.78-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
