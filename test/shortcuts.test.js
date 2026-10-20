@@ -35,6 +35,7 @@ function fakePortal(o = {}) {
     if (m.member === 'Get') { if (!o.version) throw new Error('org.freedesktop.DBus.Error.InvalidArgs: No such interface'); return [o.version] }
     const tok = m.member === 'CreateSession' ? m.body[0].handle_token[1] : m.member === 'BindShortcuts' ? m.body[3].handle_token[1] : ''
     const path = P.requestPath(conn.uniqueName, tok)
+    if (m.member === 'CreateSession' && o.createCode) { respond(path, o.createCode, {}); return [path] }
     if (m.member === 'CreateSession') { conn.session = '/org/freedesktop/portal/desktop/session/1_7/' + m.body[0].session_handle_token[1]; respond(path, 0, { session_handle: conn.session }) }
     if (m.member === 'BindShortcuts') {
       conn.bound = m.body[1]
@@ -231,4 +232,20 @@ test('wiring: main acts on the four ids, checks the panel\'s arguments, stops on
   const files = require('../package.json').build.files
   for (const f of ['shortcuts.js', 'shortcuts-model.js', 'portal-shortcuts.js', 'dbus-wire.js']) assert.ok(files.includes(f), f)
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'panel.html'), 'utf8'), /<script src="shortcuts-model\.js"><\/script>\s*<script src="panel-model\.js">/)
+})
+
+// QC 2026-10 ERROR_PASS E6: a refused CreateSession closed its connection ('close': a retry) and the catch retried again
+test('Wayland: one failed session start is one retry, not two', async () => {
+  const o = { env: WAYLAND, portal: { version: 2, createCode: 2 } }
+  const { sc, timers } = setup(o)
+  await sc.probe()
+  sc.apply(true, {})
+  await settle()
+  assert.equal(sc.snapshot().phase, 'error')
+  assert.equal(timers.filter((t) => t.fn).length, 1, 'one pending retry')
+  assert.match(sc.snapshot().message, /tries again/)
+  timers[0].fn()                                      // that retry fails the same way
+  await settle()
+  assert.equal(timers.filter((t) => t.fn).length, 2, 'the next one, once')
+  assert.equal(timers.length, 2)
 })

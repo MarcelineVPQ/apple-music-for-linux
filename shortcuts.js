@@ -138,6 +138,9 @@ function createShortcuts(d) {
   }
   // up to RETRIES tries in a row (a working session resets the count), then the user's Ask again
   function retryLater(my) {
+    // one failure, one try: a failed session start closes its connection, whose 'close' (lost) already asked for the
+    // retry before the catch does (QC 2026-10 ERROR_PASS E6: two of the three tries per failure, an orphaned timer)
+    if (retryTimer) { if (!/tries again/.test(message)) message += ' Sonata tries again in a few seconds.'; return }
     if (retries >= RETRIES || !enabled) { message += ' Ask again to reconnect.'; return }
     retries++
     message += ' Sonata tries again in a few seconds.'
