@@ -215,6 +215,7 @@ function createStage(opts) {
   }
   function creditsText() {
     const rows = credits && credits.key === songKey() ? credits.rows : []
+    // loop: NOT-WORTH — the song's credit rows (a few), when the credits open
     return rows.length ? 'Credits. ' + rows.map((r) => r.role + ': ' + r.names + (r.album ? ' (album credit)' : '')).join('. ') : 'Credits: none known for this song yet'
   }
   function drawCreditsInto(dl, chipsBox, c) {

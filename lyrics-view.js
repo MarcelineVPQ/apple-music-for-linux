@@ -99,7 +99,9 @@ function alignedLines(lines, msg, key) {
     const line = next[i]
     const words = a && a.words
     if (!line || line.aligned || !line.words || !Array.isArray(words) || a.text !== line.text ||
+        // loop: NOT-WORTH — one line's words (~5-12) per message line, per 'lyrics-aligned' message (a few per song)
         words.length !== line.words.length || words.some((w, j) => !w || w.text !== line.words[j].text)) continue
+    // loop: NOT-WORTH — one line's words (~5-12) per message line, per 'lyrics-aligned' message (a few per song)
     const out = Object.assign({}, line, { words: words.map((w) => T.copyWord(w)), aligned: true })
     delete out.estimated
     delete out.repeat
@@ -152,6 +154,7 @@ function streamedLines(lines, msg, key) {
       floor = words[j].end
     }
     const out = Object.assign({}, line, { words })
+    // loop: HOT-PATH-OK — one streamed line's words (~5-12), per 'lyrics-stream' message (look-ahead hops)
     if (words.every((w) => w.streamed)) { out.aligned = true; delete out.estimated; delete out.repeat; delete out.repeatOf; delete out.streaming } else out.streaming = true
     next[i] = out
     changed.push(i)
@@ -311,7 +314,9 @@ const bgNorm = (t) => String(t || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, 
 function backingAnchor(words, bg) {
   if (!Array.isArray(words) || !words.length || !Array.isArray(bg) || !bg.length) return null
   const start = bg[0] && typeof bg[0].t === 'number' ? bg[0].t : null
+  // loop: NOT-WORTH — one line's backing words (~2-8), once per line placed (load, resize frame, stage line shown)
   const B = bg.map((w) => bgNorm(w && w.text))
+  // loop: NOT-WORTH — one line's main words (~5-12), once per line placed (load, resize frame, stage line shown)
   const M = words.map((w) => bgNorm(w && w.text))
   let best = null
   // loop: NOT-WORTH — main words x backing words (a line's, ~5-12 each), once per line laid out
@@ -422,6 +427,7 @@ function dotKeyframes(g, still) {
   const at = (t) => Math.min(1, Math.max(0, (t - g.start) / duration))
   const dot = (fill) => ({ opacity: +(0.25 + 0.75 * fill).toFixed(4), transform: 'scale(' + (still ? 1 : 0.8 + 0.2 * fill).toFixed(4) + ')' })
   const span = Math.max(0.001, end - g.start - 0.6)
+  // loop: NOT-WORTH — 3 dots x 4 keyframes, once per interlude shown (g.anims made once)
   const dots = [0, 1, 2].map((d) => [
     Object.assign({ offset: 0 }, dot(0)),
     Object.assign({ offset: at(g.start + span * d / 3) }, dot(0)),
@@ -487,10 +493,13 @@ function createLyricsView(opts) {
   // window: the middle; its stage form, lyrics.html body.stage: a third of the way down). A number or a
   // function read at each scroll, so the page can change it with its layout.
   const anchor = () => { const a = typeof opts.anchor === 'function' ? opts.anchor() : opts.anchor; return Number.isFinite(a) ? a : 0.5 }
+  // cache: OK — key=line index; invalidated=replaced on setData/refine/align/stream; bound=the song's lines (≤ ~150)
   let lines = []
+  // cache: OK — key=line index; invalidated=reset in setData (new song or layout); bound=the song's lines
   let lineEls = []          // per line: { el, side, words: [span], bg: [span], pos, bgPos, bgKey }; a word span
                             // with syllables has span.syl = [syllable span]; bgKey: the layout the backing
                             // row was placed for (placeBacking), null when it needs placing
+  // cache: OK — key=countdown order; invalidated=reset in setData; bound=the song's interludes (a few)
   let interludes = []       // [{ index, start, end, el, dots: [i], row, anims }]
   let wordTimed = false
   let live = new Set()      // lines currently .active
@@ -524,6 +533,7 @@ function createLyricsView(opts) {
   let xvoc = []             // wordless vocalise the lyrics leave out, ghosted as "ooo" (its own sub-setting; lyrics-expressive.js vocaliseExpressions)
   let xlive = []            // the expressions playing: [{ kind: 'stretch' | 'ghost', it, line, t0, t1, anims, el? }]
   let xpend = null          // first play: { expr, final } waiting for a line boundary (express)
+  // loop: NOT-WORTH — a line's measured words (0-3), per line laid out or per applyExpr pass (line boundaries)
   const xKey = (xl) => (xl.length ? JSON.stringify(xl.map((x) => [x.i, x.m])) : '')   // a line's expression, compared on a swap
   let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
   // prefers-reduced-motion: no pop, bounce, slide or smooth scroll (lyrics-view.css has the CSS half);
@@ -539,6 +549,7 @@ function createLyricsView(opts) {
   // syllables, the bold copy holds them side by side (no spaces) in one row; only it pops them.
   // text: the line's text, so the pieces of a hyphen run ("Hey-", "hey-", "ay") are written together
   function wordSpans(parent, words, text, xs) {
+    // cache: NOT-WORTH — key=word index; invalidated=new array per line laid out, .fit dropped on resize; bound=its words
     const spans = []
     const glue = text != null ? T.wordGlue(text, words) : null
     // loop: NOT-WORTH — one line's words (and their syllables), once per line per track in setData
@@ -823,9 +834,11 @@ function createLyricsView(opts) {
       const next = line.words[x.i + 1]
       const until = Math.min(x.m.ve, next && next.t != null ? next.t : Infinity)
       if (!(x.m.stretch || x.m.vb) || !(until > w.end)) continue
+      // loop: NOT-WORTH — a held word's syllables (a handful), once per line laid out or swapped
       const syl = Array.isArray(w.syl) && w.syl.length ? w.syl.map((y, k) => (k === w.syl.length - 1 ? Object.assign({}, y, { end: until }) : y)) : w.syl
       line.words[x.i] = Object.assign({}, w, { end: until }, syl ? { syl } : {})
     }
+    // loop: NOT-WORTH — a line's measured words (0-3), once per line laid out or swapped
     entry.words = wordSpans(main, line.words, line.text, xl.length ? new Map(xl.map((x) => [x.i, x.m])) : null)
     entry.main = main
     return main
@@ -868,7 +881,9 @@ function createLyricsView(opts) {
     xdoc = d
     if (xdoc) container.classList.add('xp')
     // wordless vocalise: kept while one ghosts (its expression object stays the one playing)
+    // loop: NOT-WORTH — xlive (≤ ~5) and the song's vocalise (a few), once per applyExpr (line boundary while one waits)
     if (!xlive.some((x) => x.it && x.it.i === -1)) xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    // loop: NOT-WORTH — the song's lines x their measured words (0-3), once per applyExpr, only until the layer exists
     if (!ghostLayer && (xvoc.length || lineEls.some((e) => e && e.x && e.x.some((x) => x.m.ghost)))) {
       ghostLayer = doc.createElement('div')
       ghostLayer.className = 'xg'
@@ -1108,7 +1123,9 @@ function createLyricsView(opts) {
   function edgeOrigin(spans, i, side) {
     if (side === 'center') return ''
     if (!spans.origins) {
+      // loop: NOT-WORTH — one line's words (~5-12), once per line per layout (cached in spans.origins)
       const tops = spans.map((s) => s.offsetTop)
+      // loop: NOT-WORTH — one line's words (~5-12), once per line per layout (cached in spans.origins)
       spans.origins = tops.map((top, k) => side === 'right'
         ? (k === tops.length - 1 || tops[k + 1] !== top ? '100% 65%' : '')
         : (k === 0 || tops[k - 1] !== top ? '0% 65%' : ''))
@@ -1146,6 +1163,7 @@ function createLyricsView(opts) {
     if (!row.offsetWidth) return spans.map((sp, i) => { const edge = stage ? '' : edgeOrigin(spans, i, side); return { word: edge, syl: sp.syl ? sp.syl.map((_, j) => stage ? '' : sylOrigin(sp, j, edge)) : null } })
     const bgRow = row.classList.contains('bgv')
     const gap = POP_GAP * (parseFloat(doc.defaultView.getComputedStyle(row).fontSize) || 0)
+    // loop: NOT-WORTH — one line's words (~5-12), once per line per layout (cached in spans.fit)
     const tops = spans.map((sp) => sp.offsetTop)
     // an element's [left, right] in px from the row's left edge, in layout px: from its rect (sub-pixel; whole-pixel
     // offsets put the gaps 1-2 px off) unless something scales it now (a pop, a held note), then from its offsets
@@ -1270,6 +1288,7 @@ function createLyricsView(opts) {
     shownLatest = latest
     // during an interlude nobody sings: the dots take the next line's place. A `quiet` line (its place from
     // the audio not found, align-session plainTimed) is never lit: un-highlighted rather than guessed
+    // loop: HOT-PATH-OK — the live lines (1-3), per render (word changes + 2/s time pushes); one small Set
     const next = new Set(gi >= 0 ? [] : liveNow.filter((i) => !lines[i].quiet))
     // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
     for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current') }
@@ -1303,10 +1322,12 @@ function createLyricsView(opts) {
       // the dots row opens/closes at once (no height animation: that laid out every frame); what it
       // moves slides from where it was, on the compositor (FLIP), as the height transition looked
       const around = slideTargets(gi >= 0 ? interludes[gi] : interludes[shownInterlude])
+      // loop: NOT-WORTH — the elements around a countdown (≤ the window's lines), per dots open/close only
       const before = around.map((a) => rect(a.measure))
       if (shownInterlude >= 0) closeDots(interludes[shownInterlude])
       if (gi >= 0) interludes[gi].el.classList.add('on')
       shownInterlude = gi
+      // loop: NOT-WORTH — the elements around a countdown (≤ the window's lines), per dots open/close only
       slides = slideFrom(before, around.map((a) => rect(a.measure)), around.map((a) => a.centre)).map((s) => ({ el: around[s.i].move, dy: s.dy }))
     }
     if (gi >= 0) syncDots(interludes[gi], time)
@@ -1351,11 +1372,13 @@ function createLyricsView(opts) {
   // lines in view slide (FLIP, slideFrom) instead of jumping; -> the slides (render plays them)
   function moveRoom(el, px) {
     const around = still() ? [] : slideTargets(null)
+    // loop: NOT-WORTH — the lines in view, per room move (a sung-line change with sheet notes over the line)
     const before = around.map((a) => rect(a.measure))
     if (roomEl && roomEl !== el) roomEl.classList.remove('room')
     if (el) { el.style.setProperty('--room', px + 'px'); el.classList.add('room') }
     roomEl = el
     roomPx = px
+    // loop: NOT-WORTH — the lines in view, per room move (a sung-line change with sheet notes over the line)
     const out = slideFrom(before, around.map((a) => rect(a.measure)), null).map((s) => ({ el: around[s.i].move, dy: s.dy }))
     if (opts.onRoom) opts.onRoom(el)
     return out
@@ -1386,6 +1409,7 @@ function createLyricsView(opts) {
     if (!g.anims) {
       const k = dotKeyframes(g, still())
       const opts = { duration: k.duration * 1000, fill: 'both' }
+      // loop: NOT-WORTH — 3 dots, once per interlude shown (only while g.anims is null)
       g.anims = g.dots.map((d, i) => d.animate(k.dots[i], opts)).concat([g.row.animate(k.row, opts)])
     }
     const at = (time - g.start) * 1000
@@ -1427,7 +1451,9 @@ function createLyricsView(opts) {
         // times often end before the held note does: the stretch went with the word's end and never grew, 0.15.57)
         const wt = lines[i] && lines[i].words && lines[i].words[it.i] ? lines[i].words[it.i].t : null
         const sounding = wt != null && time >= wt && time < m.ve
+        // loop: HOT-PATH-OK — xlive (≤ ~5) per measured word (0-3) of the live lines (1-3), per render
         if ((m.stretch || m.vb) && (lit || sounding) && time <= m.ve + 0.3 && !xlive.some((x) => x.it === it && x.kind === 'stretch')) startStretch(e, it, time)
+        // loop: HOT-PATH-OK — xlive (≤ ~5) per measured word (0-3) of the live lines (1-3), per render
         if (m.ghost && ghostLayer && time >= m.vt - X.GHOST_ENTER && time < m.ve && !xlive.some((x) => x.it === it && x.kind === 'ghost')) startGhost(it, i, time)
       }
     }
@@ -1494,6 +1520,7 @@ function createLyricsView(opts) {
         if (!px || still()) return
         // the slide keeps pace with the letters: it starts when they reach its share and ends with it (linear)
         const sl = X.nudgeTiming(m.vt, m.hold, from, total, time, to)
+        // loop: NOT-WORTH — one row's words (~5-12), once per held word (startStretch)
         const moved = words.map((k) => e.words[k])
         // loop: NOT-WORTH — one row's words (~5-12), once per held word
         for (const el of moved) {
@@ -1528,6 +1555,7 @@ function createLyricsView(opts) {
     // the wave: the vowel letters, then the extra letters (each at the height the voice had when it was born)
     const amp = fontPx * X.WAVE_EM
     const waving = [...span.querySelectorAll('.xv')]
+    // loop: NOT-WORTH — the extra letters (≤ 5), once per held word (startStretch)
     const inner = extras.map((el) => el.firstChild)
     // loop: NOT-WORTH — the vowel and extra letters (≤ ~11), once per held word
     waving.concat(inner).forEach((el, j) => {
@@ -1544,9 +1572,12 @@ function createLyricsView(opts) {
   // breathing with the loudness and wavering with the vibrato (lyrics-expressive.js ghostPlan)
   function startGhost(it, lineIndex, time) {
     const m = it.m
+    // loop: NOT-WORTH — xlive (≤ ~5), once per ghost started
     if (xlive.filter((x) => x.kind === 'ghost').length >= X.GHOST_MAX) {
+      // loop: NOT-WORTH — xlive (≤ ~5), once per ghost started while GHOST_MAX are shown
       const oldest = xlive.find((x) => x.kind === 'ghost')
       endExpression(oldest)
+      // loop: NOT-WORTH — xlive (≤ ~5), once per ghost started while GHOST_MAX are shown
       xlive = xlive.filter((x) => x !== oldest)
     }
     const lineEl = lineIndex >= 0 && lineEls[lineIndex] ? lineEls[lineIndex] : null
@@ -1558,6 +1589,7 @@ function createLyricsView(opts) {
     el.style.fontSize = (plan.size * fontPx).toFixed(1) + 'px'
     const o = AOPTS(plan.t0, plan.t1)
     const x = { kind: 'ghost', it, line: lineIndex, el, t0: plan.t0, t1: plan.t1, anims: [], reset: [] }
+    // lifetime: OK — the ghost's animations (≤ ~14) are cancelled in endExpression, its node removed (song end, setData)
     x.anims.push(el.animate(plan.opacity, o))
     if (plan.drift) x.anims.push(el.animate(plan.drift, o))
     const gPx = plan.size * fontPx
@@ -1572,6 +1604,7 @@ function createLyricsView(opts) {
       // each letter keeps the pitch it was born on: the ghost bends along the contour
       const base = m.ct ? X.contourPx(m.ct, l.born, gPx) * 1.2 : 0
       const wave = !still() && m.vb ? X.waveKeyframes(m.vb, plan.t0, plan.t1, gPx * 0.025, i * 0.7, base) : null
+      // lifetime: OK — cancelled with the ghost in endExpression (see above)
       if (wave) x.anims.push(s.animate(wave, o))
       else if (base) x.anims.push(s.animate(X.heldAt(base), o))
     })
@@ -1598,6 +1631,7 @@ function createLyricsView(opts) {
     take(notesEl)
     take(container.querySelector('#credits'))
     take(container.querySelector('#lead'))
+    // loop: NOT-WORTH — the taken spans in view (≤ ~30), once per ghost placed
     taken.sort((x, y) => x[0] - y[0])
     const gaps = []
     let y = 0
@@ -1608,10 +1642,12 @@ function createLyricsView(opts) {
     let line = null
     if (lineEl) { const r = lineEl.el.getBoundingClientRect(); line = [r.top - box.top, r.bottom - box.top] }
     const mid = line ? (line[0] + line[1]) / 2 : H / 2
+    // loop: NOT-WORTH — the free gaps (a few), once per ghost placed
     const fits = gaps.filter(([g0, g1]) => g1 - g0 >= gh + 2 * pad)
     let top
     if (fits.length) {
       const dist = ([g0, g1]) => (mid < g0 ? g0 - mid : mid > g1 ? mid - g1 : 0)
+      // loop: NOT-WORTH — the free gaps (a few), once per ghost placed
       const [g0, g1] = fits.reduce((best, g) => (dist(g) < dist(best) ? g : best))
       if (g1 - g0 <= 2.5 * gh) top = (g0 + g1 - gh) / 2
       else top = mid <= g0 ? g0 + pad : mid >= g1 ? g1 - pad - gh : (g0 + g1 - gh) / 2

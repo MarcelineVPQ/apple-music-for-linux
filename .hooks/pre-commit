@@ -7,8 +7,11 @@
 #                                constant-backed number typed outside its one source
 #                                (version-display.js and the modules' constants)
 #   tools/verdicts.js --check    every loop / lifetime / error candidate carries a verdict
+#   tools/passes.js --check      every hot array callback, floating promise, unguarded JSON.parse and
+#                                kept-state (cache) row carries a verdict (the AST passes)
 # The full set (set-version --verify, the doc gates) stays in `npm run gates` and CI.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 node tools/hardcodes.js --check
 node tools/verdicts.js --check >/dev/null
+node tools/passes.js --check >/dev/null

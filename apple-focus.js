@@ -72,6 +72,7 @@
   // whole document: a non-passive document wheel listener would make every scroll of Apple's page wait.
   // If Apple renames the control (class "chrome-volume"), the wheel there simply scrolls again.
   const W = globalThis.SonataWheelVolume
+  // cache: OK — key=Apple's volume control element; invalidated=GC'd with the element (WeakSet); bound=live controls (1–2)
   const hooked = new WeakSet()
   const steps = W ? W.createWheelSteps() : null
   function onVolumeWheel(e) {

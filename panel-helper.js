@@ -207,6 +207,7 @@
       if (!had) return
       const a = doc.activeElement
       if (a && box.contains(a) && !a.closest('[hidden]') && !a.disabled) return
+      // loop: HOT-PATH-OK — per state push (≤ 4/s during an install) only when focus was in the block and lost, N ≤ 6 buttons
       const next = !lic.hidden ? licBody : [...btns.children].find((b) => !b.hidden && !b.disabled)
       if (next) next.focus({ focusVisible: true })
     }
@@ -214,6 +215,7 @@
       if (!had) return
       const a = doc.activeElement
       if (a && dangerBox.contains(a) && !a.closest('[hidden]') && !a.disabled) return
+      // loop: HOT-PATH-OK — per state push only when focus was in the danger zone and lost, N ≤ 6 buttons
       const next = !conf.hidden ? (keepRow.hidden ? removeBtn : keep) : !drow.hidden ? removeAsk : [...btns.children].find((b) => !b.hidden && !b.disabled)
       if (next) next.focus({ focusVisible: true })
     }

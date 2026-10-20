@@ -82,6 +82,7 @@ function ttmlSyllables(inner) {
     if (/\/\s*$/.test(rest)) continue      // <span/>: nothing to show
     const a = tagAttrs(rest)
     const isBg = a['ttm:role'] === 'x-bg'
+    // loop: NOT-WORTH — open span stack (depth ≤ 3), per span while parsing TTML, once per song lookup
     const inBg = isBg || stack.some((s) => s.bg)
     const timed = !isBg && a.begin !== undefined
     stack.push({ bg: isBg, timed })
@@ -118,8 +119,10 @@ function mergeSyllables(syllables, everySpan) {
     if (words[i].end === null) words[i].end = i + 1 < words.length ? words[i + 1].t : words[i].t + 1
     const p = parts[i]
     if (p.length < 2) continue
+    // loop: NOT-WORTH — one multi-span word's syllables (≤ ~6), per word of a line, once per song lookup
     const syl = p.map((s, j) => ({ t: s.t, end: s.end !== null ? s.end : j + 1 < p.length ? p[j + 1].t : words[i].end, text: s.text.trim() }))
     // only when the syllables spell the word exactly (no inner spaces), so the view can't drift
+    // loop: NOT-WORTH — same syllables joined once per multi-span word, once per song lookup
     if (syl.map((x) => x.text).join('') === words[i].text) words[i].syl = syl
   }
   return words
@@ -152,6 +155,7 @@ function parseTtml(ttml) {
     const words = mergeSyllables(syl.main, everySpan)
     const bg = mergeSyllables(syl.bg, everySpan)
     let text
+    // loop: NOT-WORTH — one line's words (≤ ~15), per line, once per song lookup
     if (words.length) text = words.map((w) => w.text).join(' ')
     else {
       text = decodeEntities(inner.replace(/></g, '> <').replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
@@ -209,6 +213,7 @@ function parseLrc(lrc) {
       if (!text) { entries.push({ t, gap: true }); continue }
       const line = { t, text }
       const shift = t - first
+      // loop: NOT-WORTH — one line's words per repeated stamp, once per LRC parse (per lookup)
       if (words) line.words = words.map((w) => ({ t: w.t + shift, end: w.end === null ? null : w.end + shift, text: w.text }))
       entries.push(line)
     }
@@ -242,6 +247,7 @@ function lrclibLines(hit) {
     if (lines.length) return lines
   }
   if (hit.plainLyrics) {
+    // loop: NOT-WORTH — plain lyrics' lines (≤ ~150), once per LRCLIB hit parsed (per lookup)
     return hit.plainLyrics.split(/\r?\n/).map((t) => t.trim()).filter(Boolean).map((text) => ({ t: null, text }))
   }
   return []
@@ -474,7 +480,9 @@ function createLyricsResolver(deps) {
   // lifetime: bounded — at most 50 entries (oldest evicted), empty results removed; in-flight lookups
   // are shared, so lyrics + visualizer windows trigger one fetch per track. Only used while lyrics or
   // the visualizer is open. loop: none.
+  // cache: OK — key=trackKey (recording); invalidated=failures dropped, none-both after NONE_TTL_MS; bound=50 (FIFO), ≤ ~50 KB each
   const cache = new Map()
+  // cache: OK — key=trackKey; invalidated=TTL on next lookup, deleted with its cache entry on eviction; bound=≤ 50 like cache
   const noneAt = new Map()     // key -> when a definitive "no lyrics" came (only those stay in `cache` empty)
   const now = deps.now || Date.now
   return async function getLyrics(state) {

@@ -36,12 +36,13 @@ function hslToRgb(h, s, l) {
   return [r * 255, g * 255, b * 255]
 }
 
+// loop: NOT-WORTH — 3 channels, a few colours per palette, once per track change (not per poll tick)
 const toHex = (rgb) => '#' + rgb.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
 
 const FALLBACK = { accent: '#e0219a', bg: '#241019', bg2: '#33172440'.slice(0, 7) }
 
 // data: raw pixel buffer. opts.bgra reads B,G,R order (Electron nativeImage).
-// lifetime: pure function over a 32×32 bitmap (4 KB) once per track change; keeps nothing
+// lifetime: NOT-WORTH — pure function over a 32×32 bitmap (4 KB) once per track change; keeps nothing
 function extractPalette(data, opts) {
   const bgra = opts && opts.bgra
   const bins = new Float64Array(36)

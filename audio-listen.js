@@ -64,6 +64,7 @@ function pickSinkInput(list, pids, opts = {}) {
     } else if (name ? label.includes(name) : OWN_NAME.test(label)) score = 1
     if (score) scored.push({ s, score })
   }
+  // loop: NOT-WORTH — sort of the desktop's matching sink inputs (a handful), once per stream search or stall
   scored.sort((a, b) => b.score - a.score || (a.s.corked ? 1 : 0) - (b.s.corked ? 1 : 0) || b.s.index - a.s.index)
   return scored.length ? scored[0].s : null
 }
@@ -143,6 +144,7 @@ function ownProcessTree(rootPid) {
 // crash or app.exit() never leaves one behind (one 'exit' listener on process, added at module load)
 // loop: NOT-WORTH — at most one or two live parecs
 // error: NOT-WORTH — a kill at exit of a process already gone has nothing left to do
+// cache: OK — key=parec child; invalidated=deleted on child 'exit' or watchdog switch; bound=≤ 2 live parecs
 const liveProcs = new Set()
 process.on('exit', () => { for (const p of liveProcs) { try { p.kill('SIGKILL') } catch (e) {} } })
 
@@ -320,6 +322,7 @@ function createListener(opts, deps = {}) {
  */
 function shareListener(create) {
   let real = null
+  // cache: OK — key=handle object; invalidated=stop() deletes it (each startListening makes a new one); bound=≤ 3 users
   const users = new Set()
   function dispatch(mid, wallMs, side) {
     // loop: HOT-PATH-OK — one call per started handle (at most 3: visualizer, refine, align) per chunk

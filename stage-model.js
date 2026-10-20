@@ -36,6 +36,7 @@ function clock(s) {
 function cleanQueue(raw) {
   const r = raw && typeof raw === 'object' ? raw : {}
   const list = Array.isArray(r.items) ? r.items.slice(0, QUEUE_MAX) : []
+  // loop: NOT-WORTH — the queue (≤ QUEUE_MAX 1000), only when its signature changes, read ≤ every 2 s
   const items = list.map((it, index) => {
     const x = it && typeof it === 'object' ? it : {}
     return {
@@ -64,7 +65,9 @@ function cleanQueue(raw) {
  */
 function trackOf(q, shuffled) {
   if (!q || !Array.isArray(q.items) || q.position < 0) return null
+  // loop: NOT-WORTH — the queue (≤ 1000), per now-playing change or queue push, not per frame
   const listed = q.items.filter((it) => !it.autoplay)
+  // loop: NOT-WORTH — the queue (≤ 1000), per now-playing change or queue push, not per frame
   const at = listed.findIndex((it) => it.index === q.position)
   if (at < 0 || listed.length < 2) return null
   const n = at + 1
@@ -155,6 +158,7 @@ function liveChip(album, recorded) {
  * -> the time to seek to, or null (no timed lines, or nothing that way).
  */
 function lineStep(lines, time, dir) {
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per ↑/↓ key press
   const ts = (Array.isArray(lines) ? lines : []).map((l) => l && l.t).filter((t) => Number.isFinite(t))
   if (!ts.length) return null
   const now = num(time)

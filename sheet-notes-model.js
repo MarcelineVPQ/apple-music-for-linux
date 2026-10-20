@@ -107,7 +107,9 @@ function keyAccidentals(fifths) {
 function keySignature(fifths, clef) {
   const f = Math.max(-7, Math.min(7, Math.round(num(fifths))))
   const low = clef === 'bass' ? -2 : 0
+  // loop: NOT-WORTH — per staff build / layout (state push), ≤ 7 signs
   if (f > 0) return SHARP_ORDER.slice(0, f).map((l) => ({ pos: SHARP_POS[l] + low, glyph: SHARP }))
+  // loop: NOT-WORTH — per staff build / layout (state push), ≤ 7 signs
   return FLAT_ORDER.slice(0, -f).map((l) => ({ pos: FLAT_POS[l] + low, glyph: FLAT }))
 }
 
@@ -173,6 +175,7 @@ function compact(part, meta = {}) {
   const off = meta.lineOffset || 0
   const key = p.key || {}
   const syl = (p.syllables || []).map((s) => [round(num(s.t)), round(num(s.end)), String(s.text == null ? '' : s.text).slice(0, 40), s.line == null ? -1 : s.line + off, num(s.syl), Math.max(1, num(s.nsyl, 1))])
+  // loop: NOT-WORTH — per song change or new first-play section, N = notes (hundreds)
   const notes = (p.notes || []).filter((n) => Number.isFinite(n.t) && n.end > n.t && Number.isInteger(n.midi))
     .map((n) => [round(n.t), round(n.end), n.midi, Math.round(num(n.cents)), String(n.name || ''), Math.round(num(n.conf) * 1000), Number.isInteger(n.syl_index) ? n.syl_index : -1, n.melisma ? 1 : 0])
   const pitch = p.pitch && Array.isArray(p.pitch.v) ? { t0: num(p.pitch.t0), hop: num(p.pitch.hop, PITCH_HOP), v: p.pitch.v.map((x) => Math.max(0, Math.min(1270, Math.round(num(x))))) } : null
@@ -185,6 +188,7 @@ function compact(part, meta = {}) {
     key: { name: String(key.name || ''), fifths: Math.max(-7, Math.min(7, Math.round(num(key.fifths)))), mode: key.mode === 'minor' ? 'minor' : 'major' },
     tuning: { cents: num((p.tuning || {}).cents), strength: num((p.tuning || {}).strength) },
     confidence: { overall: num((p.confidence || {}).overall) },
+    // loop: NOT-WORTH — per song change or new first-play section, N = bars (≤ ~150)
     bars: Array.isArray(p.bars) ? p.bars.filter((b) => Number.isFinite(b)).map((b) => round(b)) : [],
     duration: round(num(p.duration_s)),
     syl,
@@ -197,7 +201,9 @@ function compact(part, meta = {}) {
 function expand(entry) {
   const e = entry && typeof entry === 'object' ? entry : null
   if (!e || e.format !== FORMAT || !Array.isArray(e.notes) || !Array.isArray(e.syl)) return null
+  // loop: NOT-WORTH — expand per song (relearnDue) and per sheet state push, N = syllables (hundreds)
   const syllables = e.syl.filter((s) => Array.isArray(s) && s.length >= 6).map((s) => ({ t: num(s[0]), end: num(s[1]), text: String(s[2]), line: s[3] < 0 ? null : s[3], syl: num(s[4]), nsyl: Math.max(1, num(s[5], 1)) }))
+  // loop: NOT-WORTH — per song and per sheet state push, N = notes (hundreds)
   const notes = e.notes.filter((n) => Array.isArray(n) && n.length >= 8 && Number.isFinite(n[0]) && n[1] > n[0] && Number.isInteger(n[2]))
     .map((n) => {
       const si = Number.isInteger(n[6]) && n[6] >= 0 && n[6] < syllables.length ? n[6] : null
@@ -209,6 +215,7 @@ function expand(entry) {
     key: { name: String(key.name || ''), fifths: Math.max(-7, Math.min(7, Math.round(num(key.fifths)))) },
     tuning: e.tuning || { cents: 0, strength: 0 },
     confidence: e.confidence || { overall: 0 },
+    // loop: NOT-WORTH — per song and per sheet state push, N = bars (≤ ~150)
     bars: Array.isArray(e.bars) ? e.bars.filter((b) => Number.isFinite(b)) : [],
     duration: num(e.duration),
     notes,
@@ -245,6 +252,7 @@ function notesGap(entry, opts = {}) {
     l.t0 = Math.min(l.t0, s.t); l.t1 = Math.max(l.t1, s.end); l.n++
     by.set(s.line, l)
   }
+  // loop: NOT-WORTH — notesGap once per learned song started, N = lyric lines (tens)
   const lines = [...by.values()].sort((a, b) => a.t0 - b.t0)
   // loop: NOT-WORTH — the song's lines (tens), once per song shown
   for (const l of lines) {
@@ -259,9 +267,12 @@ function notesGap(entry, opts = {}) {
     if (!l.rap && l.frac < o.voicedMax) { if (!run) runs.push(run = []); run.push(l) } else run = null
   }
   const secs = (r) => r[r.length - 1].t1 - r[0].t0
+  // loop: NOT-WORTH — once per learned song started, N = silent runs (a few)
   const found = runs.find((r) => (r.length >= o.minLines && secs(r) >= o.minRunSecs) || secs(r) >= o.minSecs)
   if (!found) return null
+  // loop: NOT-WORTH — once per learned song started, N = lines (tens) × found run (a few)
   const rest = lines.filter((l) => !l.rap && !found.includes(l))
+  // loop: NOT-WORTH — once per learned song started, N = lines (tens)
   const covered = rest.length ? rest.reduce((a, l) => a + l.frac, 0) / rest.length : 0
   // the rest of the song well covered, and most of it: a song barely voiced anywhere isn't a recording gap
   if (covered < o.restMin || rest.length < found.length) return null
@@ -283,7 +294,9 @@ function entryValid(entry, lyricsHash) {
 
 const wmedian = (xs) => {
   // xs: [[value, weight]]
+  // loop: NOT-WORTH — gate per sheet state push (not per frame), sort of one stretch's notes (tens) per region
   const s = xs.slice().sort((a, b) => a[0] - b[0])
+  // loop: NOT-WORTH — per region per state push, N = a stretch's notes (tens)
   const total = s.reduce((a, x) => a + x[1], 0)
   let acc = 0
   // loop: NOT-WORTH — a stretch's notes (tens)
@@ -293,13 +306,18 @@ const wmedian = (xs) => {
 
 /** How a set of notes sits: { n, spread (cents, duration-weighted median |cents|), conf (duration-weighted) }. */
 function stats(notes) {
+  // loop: NOT-WORTH — stats per region per sheet state push, N = a stretch's notes (tens; the song's once)
   const ns = notes.filter((n) => n.end > n.t)
   if (!ns.length) return { n: 0, spread: 50, conf: 0 }
+  // loop: NOT-WORTH — per region per state push, N = a stretch's notes (tens)
   const w = ns.map((n) => n.end - n.t)
+  // loop: NOT-WORTH — per region per state push, N = a stretch's notes (tens)
   const total = w.reduce((a, b) => a + b, 0)
   return {
     n: ns.length,
+    // loop: NOT-WORTH — per region per state push, N = a stretch's notes (tens)
     spread: wmedian(ns.map((n, i) => [Math.abs(n.cents), w[i]])),
+    // loop: NOT-WORTH — per region per state push, N = a stretch's notes (tens)
     conf: round(ns.reduce((a, n, i) => a + n.conf * w[i], 0) / Math.max(1e-9, total))
   }
 }
@@ -336,6 +354,7 @@ function gate(doc, opts = {}) {
     sp.t0 = Math.min(sp.t0, s.t); sp.t1 = Math.max(sp.t1, s.end)
     spans.set(s.line, sp)
   }
+  // loop: NOT-WORTH — gate per sheet state push or song (rAF relayout doesn't reach it), N = lines (tens)
   const lines = [...spans.values()].sort((a, b) => a.t0 - b.t0)
   // stretches: each line, and the gaps between lines that hold notes
   const cuts = []
@@ -371,6 +390,7 @@ function gate(doc, opts = {}) {
     return { show: voicedIn(doc.pitch, t0, t1) ? 'line' : 'none', why }
   }
   const songWide = notes.length && (songStats.spread > g.songSpreadMax || songStats.conf < g.confMin)
+  // loop: NOT-WORTH — per sheet state push, regions (tens) × notes filter (hundreds) ≈ 25k compares
   const regions = cuts.filter((c) => c.t1 > c.t0).map((c) => {
     const own = notes.filter((n) => n.t < c.t1 && n.end > c.t0)
     if (!own.length) return Object.assign({}, c, { show: voicedIn(doc.pitch, c.t0, c.t1) ? 'line' : 'none', why: 'no notes', stats: stats([]) })
@@ -464,10 +484,13 @@ function placement(st, band, stage) {
 
 /** First-play pitch pieces merged into one line (where two overlap, the later one wins where it heard a voice). */
 function mergePitch(pieces) {
+  // loop: NOT-WORTH — mergePitch per song change / new first-play piece, N = pieces (≤ ~60)
   const ps = (pieces || []).filter((p) => p && Array.isArray(p.v) && p.hop > 0)
   if (!ps.length) return null
   const hop = ps[0].hop
+  // loop: NOT-WORTH — per song change / new piece, N = pieces (≤ ~60)
   const t0 = Math.min(...ps.map((p) => p.t0))
+  // loop: NOT-WORTH — per song change / new piece, N = pieces (≤ ~60)
   const t1 = Math.max(...ps.map((p) => p.t0 + p.v.length * p.hop))
   const v = new Array(Math.max(0, Math.round((t1 - t0) / hop))).fill(0)
   // loop: NOT-WORTH — the song's sections (≤ ~12) × their values (≤ ~800), once per new piece
@@ -487,6 +510,7 @@ function mergePitch(pieces) {
  * tuning weighted by each part's notes. The whole-song pass after the song replaces it.
  */
 function mergeSections(parts) {
+  // loop: NOT-WORTH — mergeSections per song change / new first-play section, N = parts (≤ ~60)
   const ps = (parts || []).filter((p) => p && Array.isArray(p.notes) && Array.isArray(p.syllables))
     .slice().sort((a, b) => ((a.section && a.section.offset) || 0) - ((b.section && b.section.offset) || 0))
   const syllables = []
@@ -503,6 +527,7 @@ function mergeSections(parts) {
     if (tc !== null && p.notes.length) { cents += tc * p.notes.length; weight += p.notes.length }
   }
   // (each part's notes start inside its own span, so the merged list is in time order once sorted)
+  // loop: NOT-WORTH — per song change / new section, sort of the merged notes (hundreds)
   const order = notes.map((n, i) => i).sort((a, b) => notes[a].t - notes[b].t || a - b)
   const last = ps[ps.length - 1] || {}
   return {
@@ -513,7 +538,9 @@ function mergeSections(parts) {
     bars: [],
     duration_s: 0,
     syllables,
+    // loop: NOT-WORTH — per song change / new section, N = notes (hundreds)
     notes: order.map((i) => notes[i]),
+    // loop: NOT-WORTH — per song change / new section, N = parts (≤ ~60)
     pitch: mergePitch(ps.map((p) => p.pitch))
   }
 }
@@ -591,6 +618,7 @@ function cleanPitch(pitch) {
     // loop: NOT-WORTH — the window around one value (≤ 11)
     for (let k = Math.max(0, i - w); k <= Math.min(n - 1, i + w); k++) if (src[k] > 0) near.push(src[k])
     if (near.length < 3) continue
+    // loop: NOT-WORTH — cleanPitch once per build / new piece, one ≤ 11-value sort per voiced value (a few thousand)
     near.sort((a, b) => a - b)
     const off = src[i] - near[near.length >> 1]
     if (Math.abs(off) >= LINE.octaveLo && Math.abs(off) <= LINE.octaveHi) v[i] = src[i] - Math.sign(off) * 120
@@ -675,6 +703,7 @@ function roomRuns(runs, room = ROOM) {
   const out = { runs: [], ledgers: [], marks: [] }
   const side = (p) => (p > room.hi ? 1 : p < room.lo ? -1 : 0)
   const edge = (p) => Math.max(room.lo, Math.min(room.hi, p))
+  // cache: NOT-WORTH — key=ledger pos; invalidated=cleared per run, local to one roomRuns call; bound=a few ledger positions
   const open = new Map()   // ledger pos -> the stretch being drawn
   const ledgerAt = (t, p) => {
     // loop: NOT-WORTH — the ledger positions a point needs (a few)
@@ -702,6 +731,7 @@ function roomRuns(runs, room = ROOM) {
     }
     open.clear()
   }
+  // loop: NOT-WORTH — roomRuns once per build / new piece, N = runs (hundreds)
   out.runs = out.runs.filter((r) => r.pts.length > 1)
   // loop: NOT-WORTH — the ledger stretches, once per build
   out.ledgers = out.ledgers.map(({ pos, t0, t1 }) => ({ pos, t0, t1 }))
@@ -741,6 +771,7 @@ function listening(m, pieces, t, end) {
  * syllables ({ t, end }). -> { sung, notes, line }: sung is any of the three (someone sings there).
  */
 function spansOf(list) {
+  // loop: NOT-WORTH — spansOf per build / respan, N = notes, runs or syllables (hundreds)
   const xs = list.filter((x) => x[1] > x[0]).sort((p, q) => p[0] - q[0])
   const out = []
   // loop: NOT-WORTH — the song's notes, runs or syllables (hundreds), once per build
@@ -755,8 +786,10 @@ function spansOf(list) {
 // (one the aligner didn't trust has no syllables here) still counts as sung
 function staffSpans(notes, runs, syllables, lyrics) {
   const n = (notes || []).map((x) => [x.t, x.end])
+  // loop: NOT-WORTH — per build / respan, N = pitch runs (hundreds)
   const l = (runs || []).filter((r) => r.length).map((r) => [r[0][0], r[r.length - 1][0]])
   const y = (syllables || []).map((x) => [x.t, x.end])
+  // loop: NOT-WORTH — per build / respan, N = lyric lines (tens)
   const ly = (lyrics || []).filter((x) => Array.isArray(x)).map((x) => [Number(x[0]), Number(x[1])])
   return { notes: spansOf(n), line: spansOf(l), sung: spansOf(n.concat(l, y, ly)) }
 }
@@ -767,6 +800,7 @@ function staffSpans(notes, runs, syllables, lyrics) {
  * singing here" and the dots agree. lineEnd(line, next) -> s.
  */
 function lyricSpans(lines, lineEnd) {
+  // loop: NOT-WORTH — lyricSpans once per song change (setSheetSong), N = lines (tens)
   const timed = (lines || []).filter((l) => l && l.t != null && Number.isFinite(Number(l.t)))
   const r2 = (x) => Math.round(x * 100) / 100
   // loop: NOT-WORTH — the song's lines (tens), once per track change
@@ -785,6 +819,7 @@ function viewWindow(t, v) {
   return { a, b: a + span }
 }
 
+// loop: HOT-PATH-OK — per note change (≈ 2-4/s, playing and shown), 3 × merged spans (tens-hundreds), no allocation
 const touches = (spans, a, b) => (spans || []).some((x) => x[0] < b && x[1] > a)
 /** What the window [a, b) has on the staff: { sung, notes, line } (booleans). */
 function seenIn(sp, w) {

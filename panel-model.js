@@ -76,6 +76,7 @@
     }
   }
   const PAGE_IDS = Object.keys(PAGES)
+  // loop: HOT-PATH-OK — per state push (accState in renderSections and renderMenu), N ≤ 8 sections
   const sectionIds = (page) => (PAGES[page] ? PAGES[page].sections.map((s) => s.id) : [])
   // a section merged into another keeps its id as a link to where it went (Startup -> Windows & startup)
   const SECTION_MOVED = { settings: { startup: 'windows' } }
@@ -87,6 +88,7 @@
     const s = stored || {}
     return {
       open: typeof s.open === 'string' && ids.includes(sectionId(page, s.open)) ? sectionId(page, s.open) : null,
+      // loop: HOT-PATH-OK — per state push, N ≤ 8 pins (includes/indexOf O(n²) with n ≤ 8)
       pins: Array.isArray(s.pins) ? s.pins.map((p) => sectionId(page, p)).filter((p, i, a) => ids.includes(p) && a.indexOf(p) === i) : []
     }
   }
@@ -101,9 +103,11 @@
     const id = a.id
     switch (a.type) {
       case 'toggle':
+        // loop: NOT-WORTH — per header click, N ≤ 8 pins
         if (st.pins.includes(id)) return { open: st.open === id ? null : st.open, pins: st.pins.filter((p) => p !== id) }
         return { open: st.open === id ? null : id, pins: st.pins }
       case 'pin':
+        // loop: NOT-WORTH — per pin click, N ≤ 8 pins
         if (st.pins.includes(id)) return { open: id, pins: st.pins.filter((p) => p !== id) }
         return { open: st.open === id ? null : st.open, pins: st.pins.concat([id]) }
       case 'reveal':
@@ -146,6 +150,7 @@
         case 'timing': return timingHelper(st)
         case 'playback': return [st.lrclibFallback ? 'Apple + LRCLIB' : 'Apple lyrics only', st.expressiveWords && preciseReady(st) ? 'expressive' : null, st.sheetNotes && preciseReady(st) ? 'sheet notes' : null].filter(Boolean).join(' · ')
         case 'appearance': return [{ system: 'System theme', light: 'Light', dark: 'Dark' }[st.theme] || 'System theme', st.adaptiveColor ? 'album colours' : 'no album colours', st.adaptiveColor && st.glass ? 'Glass' : null, st.lyricsArtSpin ? 'spinning art' : null].filter(Boolean).join(' · ')
+        // loop: HOT-PATH-OK — per state push, N = 6 window options
         case 'windows': return [st.notifications ? 'Notifications' : null, st.miniAlwaysOnTop ? 'mini player on top' : null, st.lyricsAlwaysOnTop ? 'lyrics on top' : null, st.closeToTray ? 'close to tray' : null, st.launchAtLogin ? 'launch at login' : null, st.startMinimized ? 'start minimized' : null]
           .filter(Boolean).map((t, i) => (i ? t : t[0].toUpperCase() + t.slice(1))).join(' · ') || 'All off'
         case 'shortcuts': return K.statusLine(st.shortcuts)
@@ -179,6 +184,7 @@
   function experimentalStatus(st) {
     const g = st.gfx
     if (!g) return ''
+    // loop: HOT-PATH-OK — per state push, N = gfx keys (4)
     const n = (g.keys || []).filter((k) => st[k] === true).length
     return [n ? n + ' on' : 'All off', g.safe ? 'safe start' : null, g.pending && g.pending.length ? 'restart to apply' : null].filter(Boolean).join(' · ')
   }

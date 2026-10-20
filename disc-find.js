@@ -95,6 +95,7 @@ function findDisc(img) {
     }
   }
   const bg = [0, 1, 2].map((c) => {
+    // loop: NOT-WORTH — once per disc scan (result cached), 3 channels × border pixels (≤ ~1200) sorted
     const v = border.map((i) => px[i * ch + c]).sort((p, q) => p - q)
     return v[v.length >> 1]
   })
@@ -183,9 +184,12 @@ function findDisc(img) {
     for (let pass = 0; pass < 3; pass++) {
       c = circleFit(xs, ys, idx)
       if (!c) return null
+      // loop: NOT-WORTH — once per scan, 3 refits × outline points (≤ ~1500), ≤ 5 thresholds
       const res = xs.map((x, i) => Math.abs(Math.hypot(x - c.cx, ys[i] - c.cy) - c.r))
+      // loop: NOT-WORTH — once per scan, 3 refits × kept outline points sorted (≤ ~1500)
       const med = idx.map((i) => res[i]).sort((p, q) => p - q)[idx.length >> 1]
       const tol = Math.max(1.5, 2.5 * med)
+      // loop: NOT-WORTH — once per scan, 3 refits × outline points (≤ ~1500)
       const kept = idx.filter((i) => res[i] <= tol)
       if (kept.length < 24) return null
       idx = kept

@@ -136,6 +136,7 @@ function agentOrder(a, b) {
  * together (agent 'group') or without a singer mark.
  */
 function lineSides(lines) {
+  // loop: NOT-WORTH — the song's lines (≤ ~150) + sort of ≤ a few singers, once per 'lyrics-data' (per song) in the view
   const singers = [...new Set(lines.map((l) => l.agent).filter((a) => a && a !== 'group'))].sort(agentOrder)
   if (singers.length < 2) return lines.map(() => '')
   return lines.map((l) => {
@@ -145,6 +146,7 @@ function lineSides(lines) {
 }
 
 function hasWordTiming(lines) {
+  // loop: NOT-WORTH — the song's lines (≤ ~150), stops at the first word-timed one; per song / per estimate
   return !!lines && lines.some((l) => (l.words && l.words.length) || (l.bg && l.bg.length))
 }
 
@@ -233,6 +235,7 @@ function wordGlue(text, words) {
 }
 
 function lineParts(line) { return splitWords(line && line.text) }
+// loop: NOT-WORTH — one line's words (≤ ~15), per line per estimate/repace (per song, per refine message)
 function lineWeight(parts) { return parts.reduce((a, p) => a + wordWeight(p), 0) }
 
 // time from the line's start to its end, else to the next line's start (Infinity: none)
@@ -257,6 +260,7 @@ function songPace(lines) {
     if (w >= 3 && a > 0 && a < Infinity) r.push(a / w)
   }
   if (r.length < 3) return PACE
+  // loop: NOT-WORTH — sort of ≤ ~150 line paces, once per estimate (per song)
   r.sort((a, b) => a - b)
   const q = r[Math.round(SONG_PACE_Q * (r.length - 1))]
   return clampPace(Math.exp((1 - SONG_PACE_BLEND) * Math.log(PACE) + SONG_PACE_BLEND * Math.log(q)))
@@ -273,6 +277,7 @@ function learnedPace(lines) {
   for (const line of lines || []) {
     if (!(line.aligned || line.refined) || line.repeat || !line.words || line.words.length < 3) continue
     const ws = line.words
+    // loop: NOT-WORTH — one line's words (≤ ~15), per aligned/refined line, per estimate or refine message
     const w = lineWeight(ws.slice(0, -1).map((x) => x.text))
     const d = ws[ws.length - 1].t - ws[0].t
     if (w > 0 && d > 0) r.push(d / w)
@@ -319,12 +324,15 @@ const ONSET_LATE_MAX = 0.5
  * ONSET_LATE_MAX), 0 under ONSET_MIN, at most ONSET_MAX.
  */
 function robustOnset(delays, minLines = ONSET_MIN_LINES) {
+  // loop: NOT-WORTH — sort of ≤ ~150 delays, once per line refined (tens per play), not per tick
   const r = (delays || []).filter(Number.isFinite).sort((a, b) => a - b)
   if (r.length < Math.max(1, minLines)) return null
   const at = (xs, q) => { const p = q * (xs.length - 1), i = Math.floor(p); return xs[i] + ((xs[Math.min(i + 1, xs.length - 1)] - xs[i]) * (p - i)) }
   const med = at(r, 0.5)
+  // loop: NOT-WORTH — ≤ ~150 deviations sorted, once per line refined (tens per play)
   const mad = at(r.map((x) => Math.abs(x - med)).sort((a, b) => a - b), 0.5)
   const lim = Math.max(ONSET_OUTLIER_MIN, ONSET_OUTLIER * 1.4826 * mad)
+  // loop: NOT-WORTH — ≤ ~150 delays, once per line refined (tens per play)
   const kept = r.length >= 4 ? r.filter((x) => Math.abs(x - med) <= lim) : r
   const use = kept.length ? kept : r
   // no overshoot: at most ONSET_LATE_SHARE of the lines may start their words more than ONSET_LATE_MAX
@@ -365,11 +373,13 @@ function estimateLine(line, next, pace, h = {}) {
   if (!parts.length) return null
   const time = lineTime(line, next)
   const weights = parts.map(wordWeight)
+  // loop: NOT-WORTH — one line's word weights (≤ ~15), per line per estimate (per song)
   const total = weights.reduce((a, b) => a + b, 0)
   const tight = hasRealEnd(line, next)
   const cap = tight ? Math.max(0.6 * time, time * EST_FILL - TIGHT_TAIL) : time * EST_FILL
   const span = Math.max(0.2, tight ? cap : Math.min(cap, pace * total))
   let acc = 0
+  // loop: NOT-WORTH — one line's words (≤ ~15), per line per estimate (per song)
   const words = parts.map((text, k) => {
     const t = line.t + (acc / total) * span
     acc += weights[k]
@@ -398,6 +408,7 @@ function estimateLine(line, next, pace, h = {}) {
 function estimateWords(lines, opts = {}) {
   if (!lines || !lines.length || lines[0].t == null || hasWordTiming(lines)) return lines
   const pace = opts.pace || songPace(lines)
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per estimate (per song, in main and the view)
   return lines.map((line, i) => {
     // a `quiet` line (placed from the audio without being found, align-session plainTimed): no guessed words
     const words = line.quiet ? null : estimateLine(line, lines[i + 1], pace, opts.hold)

@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 let onState = null
 let onFocus = null
+// cache: OK — key=none (main's latest rail state); invalidated=replaced on each 'rail:state'; bound=one object
 let last = null
 // lifetime: OK — one 'rail:state' and one 'rail:take-focus' listener per page load (the preload runs once
 // per document) · main sends state only when it changes

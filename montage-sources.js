@@ -50,6 +50,7 @@ function failure(kind, message, status) {
 function createFetcher(deps) {
   const now = deps.now || Date.now
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))   // lifetime: OK — one-shot per wait
+  // cache: OK — key=host; invalidated=never (lane order and last time only); bound=≤ 3 hosts (Wikidata, Commons, upload)
   const lanes = new Map()   // host -> { last, chain }
   function request(url, accept, read) {
     const host = new URL(url).hostname
@@ -97,11 +98,15 @@ function createFetcher(deps) {
 // --- small helpers ---
 const QID = /^Q\d+$/
 const APPLE_ID = /^\d{1,20}$/
+// loop: NOT-WORTH — one property's claims (≤ ~5), once per resolve (stage-ui's yearOf is another function)
 const claims = (entity, prop) => ((entity && entity.claims && entity.claims[prop]) || [])
   .map((c) => (c && c.mainsnak && c.mainsnak.datavalue ? c.mainsnak.datavalue.value : null))
+// loop: NOT-WORTH — ≤ ~5 claims, per item reduce, once per artist+album resolve
 const strings = (entity, prop) => claims(entity, prop).filter((v) => typeof v === 'string')
+// loop: NOT-WORTH — ≤ ~5 claims, per item reduce, once per artist+album resolve
 const items = (entity, prop) => claims(entity, prop).map((v) => (v && QID.test(v.id || '') ? v.id : null)).filter(Boolean)
 const yearOf = (entity, prop) => {
+  // loop: NOT-WORTH — ≤ ~5 claims, per item reduce, once per resolve (not drawNowPlaying: a name match)
   const t = claims(entity, prop).find((v) => v && typeof v.time === 'string')
   const m = t ? /^[+]?(\d{4})-/.exec(t.time) : null
   return m ? Number(m[1]) : 0
@@ -111,9 +116,11 @@ const yearOf = (entity, prop) => {
 const WD_API = 'https://www.wikidata.org/w/api.php'
 async function byStatement(getJson, prop, value) {
   const j = await getJson(WD_API + '?action=query&list=search&srlimit=3&format=json&srsearch=' + encodeURIComponent('haswbstatement:' + prop + '=' + value))
+  // loop: NOT-WORTH — ≤ 3 search hits, ≤ 2 per artist+album resolve (cached set otherwise)
   return ((j && j.query && j.query.search) || []).map((h) => h.title).filter((t) => QID.test(t))
 }
 async function entities(getJson, qids) {
+  // loop: NOT-WORTH — ≤ 10 QIDs, ≤ 3 calls per resolve
   const ids = [...new Set(qids.filter((q) => QID.test(q)))].slice(0, 10)
   if (!ids.length) return {}
   const j = await getJson(WD_API + '?action=wbgetentities&props=claims&format=json&ids=' + ids.join('%7C'))
@@ -158,6 +165,7 @@ async function matchItems(getJson, ids) {
   if (album) more.push(...album.venues)
   const ents = await entities(getJson, more)
   if (!artist && album && album.performers.length) artist = reduceItem(ents[album.performers[0]])
+  // loop: NOT-WORTH — ≤ 2 venues, once per resolve
   const venues = album ? album.venues.map((q) => reduceItem(ents[q])).filter(Boolean) : []
   return { artist, album, venues }
 }
@@ -174,6 +182,7 @@ async function filesIn(getJson, category, width) {
   return (j && j.query && j.query.pages) || []
 }
 async function filesNamed(getJson, names, width) {
+  // loop: NOT-WORTH — ≤ 20 names, once per resolve
   const t = [...new Set(names.filter(Boolean))].slice(0, 20).map((n) => 'File:' + String(n).replace(/^File:/i, '').replace(/ /g, '_'))
   if (!t.length) return []
   const j = await getJson(infoQuery(width) + '&titles=' + encodeURIComponent(t.join('|')))
@@ -182,6 +191,7 @@ async function filesNamed(getJson, names, width) {
 async function subcats(getJson, category) {
   if (!category) return []
   const j = await getJson(COMMONS_API + '?action=query&format=json&formatversion=2&list=categorymembers&cmtype=subcat&cmlimit=100&cmtitle=' + encodeURIComponent(catTitle(category)))
+  // loop: NOT-WORTH — ≤ 100 subcategories, ≤ 2 per resolve
   return ((j && j.query && j.query.categorymembers) || []).map((m) => String(m.title || '').replace(/^Category:/, '')).filter(Boolean)
 }
 /**
@@ -191,6 +201,7 @@ async function subcats(getJson, category) {
 function eraCategories(category, names, year, n) {
   if (!year) return []
   const re = new RegExp('^' + category.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' in (\\d{4})$')
+  // loop: NOT-WORTH — ≤ 100 category names, once per resolve
   return names.map((c) => { const m = re.exec(c); return m ? { c, y: Number(m[1]) } : null })
     .filter((x) => x && Math.abs(x.y - year) <= 3)
     .sort((a, b) => Math.abs(a.y - year) - Math.abs(b.y - year) || a.y - b.y)
@@ -291,6 +302,7 @@ function thumbFor(photo, width) {
 /** The smallest standard width that covers `need` CSS pixels × dpr, at most the largest. */
 function widthFor(needPx) {
   const n = Math.max(1, Number(needPx) || 0)
+  // loop: NOT-WORTH — ≤ ~5 widths, ≤ 8 photos per song change
   return WIDTHS.find((w) => w >= n * 0.85) || WIDTHS[WIDTHS.length - 1]
 }
 
@@ -301,7 +313,9 @@ function widthFor(needPx) {
  * rest: [photo] }, year: the album's year or 0.
  */
 function arrange(groups, year) {
+  // cache: NOT-WORTH — key=photo id; invalidated=local to one arrange call, freed on return; bound=≤ ~150 candidates
   const seen = new Set()
+  // loop: NOT-WORTH — once per artist+album resolve (cached in main.js montageCache), N ≤ ~150 candidates
   const take = (list) => (list || []).filter((p) => p && !seen.has(p.id) && seen.add(p.id))
   const near = (a, b) => (year ? (a.year ? Math.abs(a.year - year) : 99) - (b.year ? Math.abs(b.year - year) : 99) : 0)
   const venue = take(groups.venue)
@@ -330,9 +344,11 @@ async function resolveMontage(getJson, ids, width) {
   const { artist, album, venues } = await matchItems(getJson, ids)
   const year = (album && album.year) || Number(ids.year) || 0
   const pages = { venue: [], era: [], own: [], rest: [] }
+  // loop: NOT-WORTH — ≤ 2 venues, once per artist+album resolve
   const own = [...(artist ? artist.images : []), ...(album ? album.images : []), ...venues.flatMap((v) => v.images)]
   if (own.length) {
     const named = await filesNamed(getJson, own, w)
+    // loop: NOT-WORTH — ≤ 2 venues × ≤ 3 images, once per resolve
     const venueImages = new Set(venues.flatMap((v) => v.images).map((n) => n.replace(/_/g, ' ')))
     // loop: NOT-WORTH — ≤ ~9 own images, once per song
     for (const p of named) (venueImages.has(String(p.title || '').replace(/^File:/, '')) ? pages.venue : pages.own).push(p)
@@ -344,6 +360,7 @@ async function resolveMontage(getJson, ids, width) {
     pages.rest.push(...await filesIn(getJson, artist.category, w))
     if (year) {
       const subs = await subcats(getJson, artist.category)
+      // loop: NOT-WORTH — ≤ 100 subcategories, once per resolve
       const byYear = subs.find((s) => s === artist.category + ' by year')
       const years = eraCategories(artist.category, byYear ? await subcats(getJson, byYear) : subs, year, 2)
       // loop: SERIAL-REQUIRED — ≤ 2 year categories, one request each
@@ -353,6 +370,7 @@ async function resolveMontage(getJson, ids, width) {
   const ph = (list) => list.map(photoFrom).filter(Boolean)
   const checked = pages.venue.length + pages.era.length + pages.own.length + pages.rest.length
   const photos = arrange({ venue: ph(pages.venue), era: ph(pages.era), own: ph(pages.own), rest: ph(pages.rest) }, year)
+  // loop: NOT-WORTH — ≤ 2 venues, once per resolve
   return { photos, how: { artist: artist ? artist.qid : '', album: album ? album.qid : '', venues: venues.map((v) => v.qid) }, checked }
 }
 

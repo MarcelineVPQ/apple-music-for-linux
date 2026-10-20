@@ -186,6 +186,7 @@ function createHelperInstaller(opts, deps = {}) {
   function accept() {
     if (st.phase !== 'licence' || !st.licence) return false
     if (opts.onAccepted) opts.onAccepted(st.licence.sha, st.licence.version, st.licence.licenceVersion)
+    // error: NOT-WORTH — install() turns every failure into the job's failed phase (shown); exec never rejects
     install()
     return true
   }
@@ -226,6 +227,7 @@ function createHelperInstaller(opts, deps = {}) {
     run = { kind: 'remove', args: [], pin: null, hasModels: true }
     cancelling = false
     if (opts.before) opts.before('remove')
+    // loop: NOT-WORTH — 7 steps · once per Remove press (not per paint)
     set({ phase: 'running', kind: 'remove', job: Object.assign(M.newJob('remove', { hasModels: true }), { skipped: M.STEPS.map((s) => s.id).filter((id) => id !== 'download') }), licence: null })
     // lifetime: OK — the removal: one quick installer run
     const res = await exec(['--remove'].concat(deleteModels ? ['--delete-models'] : []), jobEvent)

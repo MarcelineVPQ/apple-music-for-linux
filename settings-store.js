@@ -87,6 +87,7 @@ const SCHEMA = {
 function defaults() {
   const out = {}
   // loop: NOT-WORTH — ~28 settings, at start
+  // error: NOT-WORTH — our own SCHEMA defaults stringified on the same line, can't fail
   for (const k in SCHEMA) out[k] = JSON.parse(JSON.stringify(SCHEMA[k][0]))
   return out
 }

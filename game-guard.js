@@ -33,6 +33,7 @@ function parseGameModeCount(out) {
 function isSteamGame(cmdline) {
   const parts = String(cmdline || '').split('\0')
   if (!parts.includes('SteamLaunch')) return false
+  // loop: NOT-WORTH — the args of one reaper cmdline (a few) · per 5 s check, only for a "reaper" process
   const id = parts.map((p) => /^AppId=(\d+)$/.exec(p)).find(Boolean)
   return !!id && id[1] !== '0'
 }
@@ -44,6 +45,7 @@ function isSteamGame(cmdline) {
 function parsePmon(out, ownPids) {
   const own = ownPids instanceof Set ? ownPids : new Set(ownPids || [])
   const lines = String(out || '').split('\n')
+  // loop: NOT-WORTH — pmon's rows (a few dozen) · once per 5 s check while precise timing has work
   const head = lines.find((l) => /^#\s*gpu\s+pid\s+type\s+sm\b/.test(l))
   if (!head) return null
   let sum = 0
@@ -89,6 +91,7 @@ function pauseText(state) {
  * error: NOT-WORTH — every probe failure means "can't tell" (null), never a pause and never an error shown
  */
 function linuxProbes(deps) {
+  // cache: OK — key=probe name (gamemode, nvidia); invalidated=never: a missing tool stays off for the run (by design); bound=2 names
   const off = new Set()
   const run = (name, cmd, args) => new Promise((resolve) => {
     if (off.has(name)) return resolve(null)
@@ -103,6 +106,7 @@ function linuxProbes(deps) {
   function steam() {
     let pids
     // error: NOT-WORTH — no /proc (not Linux, a sandbox): "can't tell"
+    // loop: HOT-PATH-OK — /proc entries (~800, a regex each) · per 5 s check while precise timing has work (4.6 ms first scan)
     try { pids = deps.fs.readdirSync('/proc').filter((n) => /^\d+$/.test(n)) } catch (e) { return null }
     const next = new Map()
     let found = false
@@ -124,6 +128,7 @@ function linuxProbes(deps) {
   function amd() {
     let cards
     // error: NOT-WORTH — no DRM sysfs: "can't tell"
+    // loop: NOT-WORTH — /sys/class/drm entries (a dozen) · per 5 s check, only without nvidia-smi
     try { cards = deps.fs.readdirSync('/sys/class/drm').filter((n) => /^card\d+$/.test(n)) } catch (e) { return null }
     let best = null
     // loop: NOT-WORTH — one pass over the DRM cards (one or two) · per check

@@ -42,6 +42,7 @@ function chunkStart(clock, wallMs, samples, rate, latency = MONITOR_LATENCY) {
 }
 
 function sameWords(a, b) {
+  // loop: NOT-WORTH — one line's words (≤ ~15), per due line (once per line per play) and on setLyrics
   return a && b && a.length === b.length && a.every((w, i) => w.text === b[i].text)
 }
 
@@ -53,6 +54,7 @@ function sameWords(a, b) {
 function applyLearned(lines, entry) {
   if (!entry || entry.v !== 1 || !entry.lines || !lines) return { lines, used: false }
   let used = false
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per setLyrics (per song)
   const out = lines.map((line, i) => {
     const l = entry.lines[i]
     if (!l || !line.estimated || l.text !== line.text || !sameWords(line.words, l.words)) return line
@@ -100,10 +102,12 @@ function createListenSession(deps) {
   let clock = null
   let expectNext = null    // song time the next chunk should start at
   let coveredFrom = null   // song time since when we've listened without a gap
+  // cache: OK — key=song time; invalidated=reset on gap/seek/song, pruned to KEEP_EVIDENCE 30 s each tick; bound=≤ ~375
   let onsets = []
+  // cache: OK — key=song time; invalidated=reset on gap/seek/song, pruned to 30 s each tick; bound=≤ ~30 spans
   let voiced = []
 
-  let allOnsets = []    // lifetime: whole song's onsets for the noise gate (bounded by song length); cleared per song
+  let allOnsets = []    // lifetime: LEAK — noise-gate onsets, cleared only on a new key (setLyrics): repeat-one/seek-back keep adding (~0.5 MB/h)
   function resetEvidence() {
     onsets = []
     voiced = []
@@ -166,7 +170,9 @@ function createListenSession(deps) {
       song.done.add(i)                                    // one try per line per play
       if (from < coveredFrom) continue                    // we didn't hear the whole line
       const evidence = {
+        // loop: NOT-WORTH — ≤ 30 s of onsets (≤ ~375), once per due line (once per line per play), not every tick
         onsets: onsets.filter((o) => o.t >= from && o.t <= to),
+        // loop: NOT-WORTH — ≤ 30 s of voiced spans (tens), once per due line per play
         voiced: voiced.filter((v) => v.end >= from && v.start <= to)
       }
       let res
@@ -184,7 +190,9 @@ function createListenSession(deps) {
     }
     // drop evidence the remaining lines can't use any more
     const keepFrom = now - KEEP_EVIDENCE
+    // loop: HOT-PATH-OK — runs per 500 ms tick only when the oldest onset is past 30 s; N ≤ ~375
     if (onsets.length && onsets[0].t < keepFrom) onsets = onsets.filter((o) => o.t >= keepFrom)
+    // loop: HOT-PATH-OK — runs per 500 ms tick only when the oldest span is past 30 s; N ≤ ~30
     if (voiced.length && voiced[0].end < keepFrom) voiced = voiced.filter((v) => v.end >= keepFrom)
   }
 

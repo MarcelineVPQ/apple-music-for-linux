@@ -22,6 +22,7 @@
     const plain = root.matchMedia('(prefers-reduced-transparency: reduce)')
     let input = null
     let key = ''
+    // cache: OK — key=token name; invalidated=overwritten when a token's value changes; bound=~28 tokens
     const written = {}
     let shownUrl = ''
     // two backdrop layers per surface; `front` is the one showing

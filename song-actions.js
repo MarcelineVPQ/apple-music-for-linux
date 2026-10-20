@@ -45,7 +45,7 @@ const stateScript = `(async () => {
       const entry = list.find((d) => d && String(d.id) === id) || list[0];
       out.rating = entry && entry.attributes ? Number(entry.attributes.value) || 0 : 0;
       out.read.got = entry ? 'value ' + (entry.attributes ? entry.attributes.value : '?') + (entry.id && String(entry.id) !== id ? ' (for id ' + String(entry.id) + ')' : '') : 'no rating (' + list.length + ' entries)';
-    } catch (e) { /* error: SHOWN — not rated (Apple answers 404) or no answer: shown as not a favourite; what failed is logged by main (out.read) */
+    } catch (e) { /* error: LOGGED-OK — not rated (Apple answers 404) or no answer: shown as not a favourite; what failed is logged by main (out.read) */
       out.read.got = 'error ' + String((e && (e.status || e.errorCode || e.name)) || '') + ' ' + String((e && e.message) || e).slice(0, 120);
     }
     if (/^\\d+$/.test(id)) {
@@ -274,6 +274,7 @@ function createAppleSource(deps) {
     async addToLibrary(id) { need(id); await run(addToLibraryScript(id)) },
     async playlists() {
       const list = await run(playlistsScript)
+      // loop: NOT-WORTH — once per Add to playlist menu open, N = Apple's playlists, capped to PLAYLISTS_MAX (100)
       return (Array.isArray(list) ? list : []).filter((p) => p && safeId(p.id) && typeof p.name === 'string').slice(0, PLAYLISTS_MAX).map((p) => ({ id: p.id, name: p.name.slice(0, 120) || 'Untitled playlist' }))
     },
     async addToPlaylist(playlistId, id) { need(playlistId, id); await run(addToPlaylistScript(playlistId, id)) },

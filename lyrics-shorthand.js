@@ -95,10 +95,13 @@ function readMarker(text, lang = 'en') {
  */
 function expandShorthand(lines, lang = 'en') {
   const list = Array.isArray(lines) ? lines : []
+  // loop: NOT-WORTH — the song's lines (tens), once per LRCLIB lyrics lookup (track change)
   const read = list.map((l) => readMarker(l && l.text, lang))
   if (!read.some(Boolean)) return null
   // a label with sung lines under it names them (dropped from the view); with none it stands for its block
+  // cache: NOT-WORTH — key=block name; invalidated=a new Map per call; bound=the song's labels (once per lyrics lookup)
   const blocks = new Map()      // name -> [line objects]
+  // cache: NOT-WORTH — key=line order; invalidated=a new array per call; bound=the written-out lines (≤ ~150 x MAX_TIMES)
   const out = []
   const markers = []
   const unresolved = []
@@ -147,6 +150,7 @@ function expandShorthand(lines, lang = 'en') {
   }
   close()
   if (!added) return { lines: out, timed: true, added: 0, markers, unresolved }
+  // loop: NOT-WORTH — the written-out lines, once per LRCLIB lyrics lookup with shorthand
   return { lines: out.map((l) => (l.t === null ? l : copy(l))), timed: false, added, markers, unresolved }
 }
 
@@ -154,9 +158,13 @@ function expandShorthand(lines, lang = 'en') {
 // without singing: lyrics-timing findInterludes), counted over the sung lines; null when there's none
 function stanza(list, read, name) {
   const m = /^verse (\d+)$/.exec(name)
+  // loop: NOT-WORTH — the song's lines, once per "verse N" marker in a lyrics lookup
   const sung = list.filter((l, i) => !read[i] && l && l.t != null)
+  // loop: NOT-WORTH — the song's lines, once per "verse N" marker in a lyrics lookup
   if (!m || !sung.length || sung.length !== list.filter((l, i) => !read[i]).length) return null
+  // loop: NOT-WORTH — the song's interludes (a few), once per "verse N" marker in a lyrics lookup
   const starts = new Set(require('./lyrics-timing').findInterludes(sung).map((g) => g.index))
+  // cache: NOT-WORTH — key=stanza index; invalidated=a new array per call; bound=the song's stanzas
   const out = [[]]
   // loop: NOT-WORTH — the song's lines, once per song with such a marker
   sung.forEach((l, i) => { if (i && starts.has(i)) out.push([]); out[out.length - 1].push(l) })

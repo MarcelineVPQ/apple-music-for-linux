@@ -12,7 +12,9 @@
 //   lifetime  timers (setTimeout, setInterval, requestAnimationFrame), listeners (addEventListener,
 //             emitter .on/.once, ipcMain.on/handle, ipcRenderer.on/once, onX = handlers), observers,
 //             child processes (spawn, exec, execFile, fork), windows, views, trays, sockets, streams,
-//             watchers, audio contexts                    // lifetime: VERDICT — release point
+//             watchers, audio contexts, Web Animations (el.animate: fill 'forwards' keeps them alive),
+//             object URLs, power-save blockers, global shortcuts
+//                                                         // lifetime: VERDICT — release point
 //             (a timer that is a recurring loop may carry its // loop: verdict instead)
 //   error     try/catch and .catch()                      // error: VERDICT — what happens to the failure
 // A verdict counts on the candidate's own line or in the 8 lines above it (one comment may cover a
@@ -43,7 +45,8 @@ const PATTERNS = {
     '(^|[^.\\w])(spawn|exec|execFile|execFileSync|fork)\\(', '\\.(spawn|execFile|fork)\\(',
     'new (BrowserWindow|BaseWindow|WebContentsView|Tray|Notification|WebSocket|Worker|AudioContext)\\(',
     '\\bnet\\.(createConnection|connect|createServer)\\(', 'new net\\.Socket\\(',
-    '\\bfs\\.(watch|watchFile|createWriteStream|createReadStream)\\(', '\\bnet\\.request\\('
+    '\\bfs\\.(watch|watchFile|createWriteStream|createReadStream)\\(', '\\bnet\\.request\\(',
+    '\\.animate\\(\\s*[\\[a-zA-Z]', '\\bURL\\.createObjectURL\\(', '\\bpowerSaveBlocker\\.start\\(', '\\bglobalShortcut\\.register\\('
   ].join('|')),
   error: /\bcatch\s*(\(|\{)|\.catch\(/
 }

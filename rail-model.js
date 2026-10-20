@@ -132,6 +132,7 @@
     const keys = (s && s.keys) || {}
     const panel = (s && s.panel) || {}
     const reminders = (s && s.reminders) || {}
+    // loop: HOT-PATH-OK — per rail state push / render, N = 7 items (inner find ≤ 7)
     return ITEMS.map((it) => {
       const key = keys[it.keyName] || ''
       const active = it.kind === 'panel' ? !!panel.shown && panel.page === it.id : !!open[it.id]

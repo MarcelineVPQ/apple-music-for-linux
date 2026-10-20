@@ -42,6 +42,7 @@ class LastFm {
   }
 
   sign(params) {
+    // loop: NOT-WORTH — once per Last.fm call (now playing per song, a scrobble send), N ≤ ~255 params; 'data' root is a name clash
     const base = Object.keys(params).sort().map((k) => k + params[k]).join('')
     return crypto.createHash('md5').update(base + this.config.apiSecret, 'utf8').digest('hex')
   }
@@ -144,6 +145,7 @@ function createScrobbleQueue(deps) {
   let busy = false
   let failures = 0
   let nextAt = 0
+  // cache: OK — key=artist+title+start time; invalidated=cleared and rebuilt by keep() on every queue change; bound=QUEUE_MAX (500)
   const seen = new Set()
 
   // lifetime: OK — the queue is bounded (QUEUE_MAX) and lives for the app's life; no timers: main.js's
@@ -159,6 +161,7 @@ function createScrobbleQueue(deps) {
   }
   function dropExpired() {
     const oldest = now() / 1000 - (SCROBBLE_MAX_AGE_S - AGE_MARGIN_S)
+    // loop: HOT-PATH-OK — per 5 s tick only while scrobbles wait and the backoff allows a send, N ≤ 500 (QUEUE_MAX)
     const fresh = queue.filter((e) => e.timestamp >= oldest)
     if (fresh.length === queue.length) return false
     log('last.fm: ' + (queue.length - fresh.length) + ' scrobble(s) older than ' + SCROBBLE_MAX_AGE_S / 86400 + ' days dropped (Last.fm no longer takes them)')
@@ -199,6 +202,7 @@ function createScrobbleQueue(deps) {
     try {
       const r = await deps.send(batch)
       const sent = new Set(batch.map(entryKey))
+      // loop: NOT-WORTH — once per successful send, N ≤ 500 queued, Set lookup
       keep(queue.filter((e) => !sent.has(entryKey(e))))
       persist()
       failures = 0

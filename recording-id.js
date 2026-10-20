@@ -82,7 +82,9 @@ function timingMismatch(lines, rec) {
   const r = rec || {}
   const duration = Number(r.duration)
   if (r.source !== 'lrclib' || !(duration >= MIN_JUDGED_S) || !Array.isArray(lines)) return null
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per lookup result and per LRCLIB hit checked (not per tick)
   const timed = lines.filter((l) => l && Number.isFinite(l.t) && String(l.text || '').trim())
+  // loop: NOT-WORTH — the timed lines (≤ ~150), once per lookup result / LRCLIB hit
   if (!timed.length || timed.some((l) => Array.isArray(l.words) && l.words.length)) return null   // word-timed LRC: not judged
   const last = timed[timed.length - 1]
   const lyricsEnd = Number.isFinite(last.end) ? last.end : last.t

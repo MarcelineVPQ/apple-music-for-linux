@@ -39,9 +39,11 @@ function createMontage(opts) {
   let setKey = ''          // the photos' ids: a new set starts the clock again
   let timer = 0
   let lastTick = 0
+  // cache: OK — key=layer index (2); invalidated=reset on a new photo set and a reduced-motion change; bound=2
   let slot = [-1, -1]      // the slot (k) each layer shows
   let shownPhoto = ''
   let scrimShown = ''
+  // cache: FIX-UNBOUNDED — key=photo id; invalidated=theme push (per track w/ album colour); bound=none if off, ~1 KB/set
   const shades = new Map() // photo id -> scrim alpha (for this theme)
   const written = [{ t: '', o: '' }, { t: '', o: '' }]
 
