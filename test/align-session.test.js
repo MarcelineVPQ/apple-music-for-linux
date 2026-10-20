@@ -228,7 +228,7 @@ function setup(helperImpl, extra = {}) {
       return l
     },
     helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused, slow: extra.slow,
-    streamFirst: extra.streamFirst, setTimeout: extra.setTimeout, clearTimeout: extra.clearTimeout
+    streamFirst: extra.streamFirst, setTimeout: extra.setTimeout, clearTimeout: extra.clearTimeout, notes: extra.notes
   })
   return { s, listeners, sent, logs, store, calls, setNow: (v) => { nowMs = v } }
 }
@@ -954,4 +954,31 @@ test('session, look-ahead: with no next stream the last song\'s whole pass is no
   await new Promise((r) => setImmediate(r))
   await new Promise((r) => setImmediate(r))
   assert.ok(order.includes('align:final'))
+})
+
+// 0.15.79 (Marcy 2026-10-20, "Come As You Are" on MTV Unplugged: "this is not first play quality"): a learned song with
+// missed lines AND no notes took the section path (notes 48 s in); with look-ahead it streams like a first play
+test('session, look-ahead: a learned song with missed lines and no notes streams; only its missed lines take the stream\'s words', async () => {
+  const st = fakeStream()
+  let missing = false
+  const env = setup(echoHelper, { stream: st.fn, notes: { missing: () => missing, section: () => {}, wanted: () => missing, sectionWanted: () => true, pitchWanted: () => false, done: () => {}, failed: () => {}, unfinished: () => {}, pitch: () => {}, syl: () => null } })
+  const end = A.lyricSpan(VERSES).end + 4
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true)
+  await playWithGap(env, 11, end)
+  await env.s.stop(true)
+  assert.deepEqual(env.store.get('aligned|Song|Artist').missed, [0], 'line 0 was never heard')
+  missing = true
+  env.s.setLyrics('x|y', 'x', 'y', [], true)
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', VERSES, true, { duration: end + 5, lookahead: 3000 })
+  play(env, 0, 3)
+  assert.equal(st.heads.length, 1, 'streamed, not section jobs')
+  st.on({ type: 'stream', state: 'ready', device: 'cuda' })
+  const before = env.sent.filter((x) => x[0] === 'lyrics-stream').length
+  const w = (line) => ({ line, words: [{ t: 1 + line, end: 1.4 + line, text: VERSES[line].text.split(' ')[0] }] })
+  st.on({ type: 'words', lines: [w(1)] })
+  assert.equal(env.sent.filter((x) => x[0] === 'lyrics-stream').length, before, 'a learned line keeps its words')
+  st.on({ type: 'words', lines: [w(0), w(1)] })
+  const msgs = env.sent.filter((x) => x[0] === 'lyrics-stream')
+  assert.equal(msgs.length, before + 1)
+  assert.deepEqual(Object.keys(msgs[msgs.length - 1][1].lines), ['0'], 'only the missed line takes the stream\'s words')
 })

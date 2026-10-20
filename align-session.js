@@ -930,6 +930,11 @@ function createAlignSession(deps) {
     if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return
     const m = streamedMessage(s.raw, msg.lines)
     // loop: HOT-PATH-OK — the 1-2 lines of one stream 'words' message · per 0.25 s hop while a look-ahead song plays
+    // a learned song streamed for its notes: only its missed lines take the stream's words (the rest stay as learned)
+    // loop: HOT-PATH-OK — the 1-2 lines of one stream 'words' message · per 0.25 s hop while a look-ahead song plays
+    if (m && s.wordsFor) for (const i of Object.keys(m.lines)) if (!s.wordsFor.has(Number(i))) delete m.lines[i]
+    if (m && !Object.keys(m.lines).length) return
+    // loop: HOT-PATH-OK — the 1-2 lines of one stream 'words' message · per 0.25 s hop while a look-ahead song plays
     if (m) { s.stream.words += Object.values(m.lines).reduce((a, l) => a + l.words.length, 0); deps.send('lyrics-stream', Object.assign({ key: s.key }, m)) }
   }
   function openStream(s) {
@@ -1445,7 +1450,12 @@ function createAlignSession(deps) {
         // look-ahead play: this first play is heard info.lookahead ms late; its words come from a stream
         // (0.15.70: also a learned song recorded for its notes only: the stream brings them line by line, the
         // cached words stay on screen)
-        lookahead: (!have || notesOnly) && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '', wordsKnown: notesOnly }
+        // 0.15.79: also a learned song whose notes are missing AND that has missed lines (Marcy 2026-10-20, "Come As You
+        // Are" first play: no stream, the notes of lines 1-7 came 48 s in): the stream brings the notes line by line,
+        // the learned words stay, the stream's words fill only the missed lines (wordsFor); the whole-song pass at
+        // the end fills them for good, as for any streamed song
+        lookahead: (!have || notesMissing) && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '', wordsKnown: notesOnly,
+        wordsFor: have && notesMissing && !notesOnly ? new Set(have.missed || []) : null }
       song.slow = !song.lookahead && !!slow()
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */
