@@ -7,6 +7,16 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.63-dev.1] — Songs with a gap in their notes re-learn themselves
+
+### Fixed
+
+- A song learned before 0.15.62 whose saved notes miss a stretch where the lyrics say someone is singing
+  (the recording missed the song's start at a track change) learns itself again on its next play, with
+  no button: its old notes stay until the new ones arrive. At most twice per song; instrumental breaks
+  and rapped or spoken lines never count as a gap. The log says
+  `notes miss <a>–<b> s where lyrics are sung — re-learning this play (1/2)`.
+
 ## [0.15.62-dev.1] — Words no longer jump: listening refines only estimated timing; one clock for everything: lyrics, sheet notes and effects stay in step
 
 ### Fixed

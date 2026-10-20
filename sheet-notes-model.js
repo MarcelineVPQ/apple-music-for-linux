@@ -217,6 +217,63 @@ function expand(entry) {
   }
 }
 
+// --- a gap in the notes (0.15.63) ---
+// A song whose saved notes have a clear gap where the lyrics say someone sings (the recording missed it:
+// before 0.15.62 the recorder's clock could be off at a track change, so a song's first ~20 s weren't
+// heard) learns itself again on its next play, at most RELEARN_MAX times (the count rides with the entry).
+const RELEARN_MAX = 2
+// minRunSecs: two short lines together (a whispered aside) aren't a gap the recorder left
+const GAP = { voicedMax: 0.1, minLines: 2, minSecs: 8, minRunSecs: 5, restMin: 0.4 }
+
+/**
+ * The first stretch of timed lyric lines with (almost) no voiced pitch frames while the rest of the song is
+ * well covered: { from, to, lines } (seconds), or null. Lines without timed words (instrumental breaks) aren't
+ * looked at; rapped lines (faster than GATE.rapRate) and a song the gate shows as a pitch line throughout
+ * (rap, speech) never count as a gap.
+ */
+function notesGap(entry, opts = {}) {
+  const o = Object.assign({}, GAP, opts)
+  const doc = expand(entry)
+  if (!doc || !doc.pitch || !doc.syllables.length) return null
+  const g = gate(doc)
+  if (g.song === 'line' && g.stats.spread > GATE.songSpreadMax) return null
+  const by = new Map()
+  // loop: NOT-WORTH — the song's syllables (hundreds), once per song shown
+  for (const s of doc.syllables) {
+    if (s.line === null || !(s.end > s.t)) continue
+    const l = by.get(s.line) || { t0: s.t, t1: s.end, n: 0 }
+    l.t0 = Math.min(l.t0, s.t); l.t1 = Math.max(l.t1, s.end); l.n++
+    by.set(s.line, l)
+  }
+  const lines = [...by.values()].sort((a, b) => a.t0 - b.t0)
+  // loop: NOT-WORTH — the song's lines (tens), once per song shown
+  for (const l of lines) {
+    const frames = Math.max(1, Math.ceil((l.t1 - l.t0) / doc.pitch.hop))
+    l.frac = voicedIn(doc.pitch, l.t0, l.t1) / frames
+    l.rap = l.n / (l.t1 - l.t0) > GATE.rapRate
+  }
+  const runs = []
+  let run = null
+  // loop: NOT-WORTH — the song's lines (tens), once per song shown
+  for (const l of lines) {
+    if (!l.rap && l.frac < o.voicedMax) { if (!run) runs.push(run = []); run.push(l) } else run = null
+  }
+  const secs = (r) => r[r.length - 1].t1 - r[0].t0
+  const found = runs.find((r) => (r.length >= o.minLines && secs(r) >= o.minRunSecs) || secs(r) >= o.minSecs)
+  if (!found) return null
+  const rest = lines.filter((l) => !l.rap && !found.includes(l))
+  const covered = rest.length ? rest.reduce((a, l) => a + l.frac, 0) / rest.length : 0
+  // the rest of the song well covered, and most of it: a song barely voiced anywhere isn't a recording gap
+  if (covered < o.restMin || rest.length < found.length) return null
+  return { from: round(found[0].t0, 10), to: round(found[found.length - 1].t1, 10), lines: found.length }
+}
+
+/** Whether a valid entry with a gap in its notes is learnt again on this play: a gap and fewer than RELEARN_MAX re-learns. */
+function relearnDue(entry) {
+  if (!entry || entry.failed || (entry.relearns || 0) >= RELEARN_MAX) return null
+  return notesGap(entry)
+}
+
 /** The entry fits these lyrics (the same text: the notes' syllables point at these lines). */
 function entryValid(entry, lyricsHash) {
   return !!(entry && entry.format === FORMAT && !entry.failed && entry.lyricsHash && entry.lyricsHash === lyricsHash)
@@ -762,7 +819,7 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
+  compact, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }
 // the band follows the song clock the way every clocked animation does (song-clock.js followRate)

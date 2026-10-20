@@ -701,7 +701,8 @@ function getAlignSession() {
         // an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
         // every engine this Sonata installs measures it, and a first play after a restart used to be skipped)
         missing: (title, artist, hash) => getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
-          (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)))
+          (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)) ||
+          ((sheetNotesOn() || expressiveOn()) && notesRelearn(title, artist, hash)))
       }
     })
   }
@@ -866,6 +867,25 @@ function expressiveMissing(title, artist, hash) {
   if (!entry || entry.lyricsHash !== hash || entry.failed) return store.missing(title, artist, hash)
   return !('expr' in entry) && store.retryAllowed(title, artist)
 }
+// a learned song whose saved notes miss a stretch the lyrics say is sung (sheet-notes-model.js notesGap): recorded
+// again on this play like a first recording; its old notes stay until the new ones arrive (sheetNotesDone), at
+// most RELEARN_MAX times (counted on the entry), and not while a failing later pass is out of tries
+// cache: OK — key=the song and its re-learn count; invalidated=another song asked about; bound=one string
+let relearnLogged = ''
+function notesRelearn(title, artist, hash) {
+  const store = getSheetStore()
+  const e = store.get(title, artist)
+  if (!sheetModel.entryValid(e, hash) || !store.retryAllowed(title, artist)) return false
+  const gap = sheetModel.relearnDue(e)
+  if (!gap) return false
+  const n = (e.relearns || 0) + 1
+  const id = title + '|' + artist + '|' + n
+  if (relearnLogged !== id) {
+    relearnLogged = id
+    console.log('align: "' + title + '": notes miss ' + Math.round(gap.from) + '–' + Math.round(gap.to) + ' s where lyrics are sung — re-learning this play (' + n + '/' + sheetModel.RELEARN_MAX + ')')
+  }
+  return true
+}
 function getSheetStore() {
   if (!sheetStore) sheetStore = sheetStoreLib.createSheetNotesStore({ dir: path.join(app.getPath('userData'), sheetStoreLib.DIR_NAME) })
   return sheetStore
@@ -917,6 +937,16 @@ function sheetNotesDone(s, result, lineOffset) {
   if (asked) {
     entry.expr = expressive.compact(result.notes.expr, lineOffset)
     console.log('align: ' + expressive.statusLine({ on: true, helper: 'serves', entry, title: s.title }).replace('expressive: ', 'expressive: measured '))
+  }
+  // a re-learn of a song with a gap in its notes (notesRelearn): counted, and an expression the new pass
+  // didn't measure is kept from the old entry
+  // error: NOT-WORTH — a store read that throws: no old entry, nothing to count or keep
+  let old = null
+  try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
+  if (sheetModel.entryValid(old, s.hash)) {
+    const n = sheetModel.relearnDue(old) ? (old.relearns || 0) + 1 : old.relearns || 0
+    if (n) entry.relearns = n
+    if (!('expr' in entry) && 'expr' in old) entry.expr = old.expr
   }
   // error: SHOWN — a failed write: the band says the notes couldn't be kept (and the log)
   try { getSheetStore().set(s.title, s.artist, entry) } catch (e) {
