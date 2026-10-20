@@ -3110,12 +3110,18 @@ function saveDiscordConfig() {
 // --- Last.fm and Discord: set up and connected from Settings → Integrations (or the tray, which opens
 // it). Each step is a notice in that section, with the actions it needs; no pop-up dialogs. ---
 const INTEGRATIONS = { page: 'settings', section: 'integrations' }
+// a service's config file couldn't be written (a read-only or full disk, its folder's permissions): what and where
+function configNotWritten(id, name, file, e) {
+  notices.show({ id, place: INTEGRATIONS, kind: 'error', text: name + ' can\'t be set up: its settings file couldn\'t be written (' + ((e && (e.code || e.message)) || 'error') + ').',
+    detail: 'Sonata needs to write ' + file + '. Check that the folder exists and that you can write to it, then press Connect again.' })
+}
 async function connectDiscord() {
   showPanel('settings', 'integrations')
   loadDiscordConfig()
   notices.clear('discord')
   if (!discordConfig.applicationId) {
-    saveDiscordConfig()
+    // error: SHOWN — an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E3: Connect did nothing)
+    try { saveDiscordConfig() } catch (e) { configNotWritten('discord', 'Discord', discordConfigPath, e); return }
     notices.show({
       id: 'discord', place: INTEGRATIONS,
       text: 'Discord presence needs a (free) Discord application ID.',
@@ -3156,7 +3162,8 @@ async function connectLastFm() {
   showPanel('settings', 'integrations')
   notices.clear('lastfm')
   if (!lastfm.configured) {
-    lastfm.writeTemplate()
+    // error: SHOWN — an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E2: Connect did nothing)
+    try { lastfm.writeTemplate() } catch (e) { configNotWritten('lastfm', 'Last.fm', lastfm.configPath, e); return }
     notices.show({
       id: 'lastfm', place: INTEGRATIONS,
       text: 'Last.fm needs your own (free) API key and shared secret.',

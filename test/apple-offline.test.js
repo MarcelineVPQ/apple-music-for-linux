@@ -41,3 +41,21 @@ test('Apple offline at start: shown with Try again, retried, cleared on load', (
   assert.match(main, /case 'apple-retry': appleRetry\(\); break/)
   assert.match(main, /appleWC\(\)\.on\('did-fail-load', \(e, code, desc, url, isMain\) => appleLoadFailed\(code, desc, isMain\)\)/)
 })
+
+// QC 2026-10 ERROR_PASS E2/E3: an unwritable config folder made Connect do nothing
+test('Last.fm / Discord Connect: a config file that can\'t be written is shown', async () => {
+  const shown = []
+  const env = {
+    INTEGRATIONS: { page: 'settings', section: 'integrations' }, discordConfigPath: '/ro/discord.json', discordConfig: {},
+    showPanel () {}, loadDiscordConfig () {}, notices: { show: (n) => shown.push(n), clear () {} },
+    saveDiscordConfig: () => { throw Object.assign(new Error('read-only file system'), { code: 'EROFS' }) },
+    lastfm: { configured: false, configPath: '/ro/lastfm.json', writeTemplate: () => { throw Object.assign(new Error('permission denied'), { code: 'EACCES' }) } }
+  }
+  const api = new Function('env', 'with (env) { ' + fn('configNotWritten') + main.slice(main.indexOf('async function connectDiscord('), main.indexOf('\n}\n', main.indexOf('async function connectDiscord(')) + 2) +
+    main.slice(main.indexOf('async function connectLastFm('), main.indexOf('\n}\n', main.indexOf('async function connectLastFm(')) + 2) + '; return { connectDiscord, connectLastFm } }')(env)   // eslint-disable-line no-new-func
+  await api.connectDiscord()
+  await api.connectLastFm()
+  assert.deepEqual(shown.map((n) => [n.id, n.kind]), [['discord', 'error'], ['lastfm', 'error']])
+  assert.match(shown[0].text, /Discord can't be set up: its settings file couldn't be written \(EROFS\)/)
+  assert.match(shown[1].detail, /\/ro\/lastfm\.json/)
+})
