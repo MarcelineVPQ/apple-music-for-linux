@@ -533,6 +533,7 @@ function createLyricsView(opts) {
   let xvoc = []             // wordless vocalise the lyrics leave out, ghosted as "ooo" (its own sub-setting; lyrics-expressive.js vocaliseExpressions)
   let xlive = []            // the expressions playing: [{ kind: 'stretch' | 'ghost', it, line, t0, t1, anims, el? }]
   let xpend = null          // first play: { expr, final } waiting for a line boundary (express)
+  let xvocStale = false     // a new expression came while a vocalise ghost played: xvoc is refreshed when it ends (QC 2026-10 #8)
   // loop: NOT-WORTH — a line's measured words (0-3), per line laid out or per applyExpr pass (line boundaries)
   const xKey = (xl) => (xl.length ? JSON.stringify(xl.map((x) => [x.i, x.m])) : '')   // a line's expression, compared on a swap
   let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
@@ -804,6 +805,7 @@ function createLyricsView(opts) {
     if (keys) setRoving(lineEls.find((e, i) => lines[i].t !== null) || null)
     // the ghost vocalise layer: first in the list, sticky at its top, as tall as the list (lyrics-view.css .xg)
     xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    xvocStale = false
     if (xvoc.length || lineEls.some((e) => e.x && e.x.some((x) => x.m.ghost))) {
       ghostLayer = doc.createElement('div')
       ghostLayer.className = 'xg'
@@ -880,9 +882,10 @@ function createLyricsView(opts) {
     }
     xdoc = d
     if (xdoc) container.classList.add('xp')
-    // wordless vocalise: kept while one ghosts (its expression object stays the one playing)
+    // wordless vocalise: kept while one ghosts (its expression object stays the one playing), refreshed when it ends
     // loop: NOT-WORTH — xlive (≤ ~5) and the song's vocalise (a few), once per applyExpr (line boundary while one waits)
-    if (!xlive.some((x) => x.it && x.it.i === -1)) xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    if (!xlive.some((x) => x.it && x.it.i === -1)) refreshVoc()
+    else xvocStale = true
     // loop: NOT-WORTH — the song's lines x their measured words (0-3), once per applyExpr, only until the layer exists
     if (!ghostLayer && (xvoc.length || lineEls.some((e) => e && e.x && e.x.some((x) => x.m.ghost)))) {
       ghostLayer = doc.createElement('div')
@@ -891,6 +894,12 @@ function createLyricsView(opts) {
       container.insertBefore(ghostLayer, container.firstChild)
     }
     if (!left) xpend = null
+  }
+  // the wordless vocalise spans of the expression shown (xdoc)
+  function refreshVoc() {
+    // loop: NOT-WORTH — the song's vocalise spans (a few), once per applyExpr or when a ghost that held them ends
+    xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    xvocStale = false
   }
   // one line's words again with new expression (not lit: no expression of it is playing); the sung marks stay
   function relayLine(e, line, xl) {
@@ -1464,11 +1473,12 @@ function createLyricsView(opts) {
     }
     // keep in step, and end what is over (a stretch also ends when its word or line is no longer sung)
     const keep = []
+    let vocEnded = false
     // loop: HOT-PATH-OK — the expressions playing (≤ 1-2 stretches + GHOST_MAX ghosts), per render
     for (const x of xlive) {
       // a stretch lasts while its word is sung, or while its measured vowel still sounds (x.ve) after the word's own time
       const over = time > x.t1 || time < x.t0 - 1 || (x.kind === 'stretch' && (!live.has(x.line) || (!x.span.classList.contains('now') && time > x.ve)))
-      if (over) { endExpression(x); continue }
+      if (over) { endExpression(x); if (x.it && x.it.i === -1) vocEnded = true; continue }
       const at = (time - x.t0) * 1000
       // loop: HOT-PATH-OK — one expression's animations (≤ ~14), per render
       for (const a of x.anims) {
@@ -1479,6 +1489,8 @@ function createLyricsView(opts) {
       keep.push(x)
     }
     xlive = keep
+    // loop: NOT-WORTH — xlive (≤ ~5), only when a vocalise ghost ended with a newer expression waiting
+    if (vocEnded && xvocStale && !xlive.some((x) => x.it && x.it.i === -1)) refreshVoc()
   }
 
   // a held word's stretch: the extra letters born through the hold, the coda riding after the newest one,

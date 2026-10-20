@@ -830,3 +830,18 @@ test('main: a first play\'s state is one play\'s (song id and lyrics hash), neve
   assert.match(src, /firstPlay\.play !== s\.id \|\| firstPlay\.hash !== s\.hash\) firstPlay = firstPlayFor\(s\)/)
   assert.match(src, /firstPlay\.expr = expressive\.mergeSection\(firstPlay\.expr, add\)/)
 })
+
+// QC 2026-10 #8: an expression that arrives while a vocalise ghost plays still brings its own vocalise
+test('view, first play: new vocalise that arrives while a ghost plays shows once that ghost ends', () => {
+  const first = Object.assign({}, EXPR, { vocalise: [{ t: 0.0, end: 0.75, midi: 64, conf: 0.8 }] })
+  const { list, v } = view(X.forView(X.compact(first), true, true))
+  at(v, 0.2)                                     // the opening "ooo" ghosts
+  assert.equal(list.firstChild.els().length, 1)
+  const next = Object.assign({}, EXPR, { vocalise: [{ t: 0.0, end: 0.75, midi: 64, conf: 0.8 }, { t: 6.0, end: 7.5, midi: 64, conf: 0.9 }] })
+  v.express({ key: 'k1', expr: X.forView(X.compact(next), true, true), final: true })
+  at(v, 1.2)                                     // the ghost is over
+  at(v, 6.2)                                     // the new span, on no lyric word (the old ghost ends this frame)
+  at(v, 6.4)                                     // the next frame
+  const ghosts = list.firstChild.els().filter((g) => /^o{3,}$/.test(g.textContent))   // loop: NOT-WORTH — a test
+  assert.ok(ghosts.length >= 1, 'the new vocalise ghosts')
+})
