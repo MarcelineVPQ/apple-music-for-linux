@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.67-dev.1",
-  "file": "sonata-0.15.67-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.67-dev.1/sonata-0.15.67-dev.1-x86_64.AppImage",
-  "sha512": "f72d07e7df6a8a76af8a9af92f3b9acf958464f525a02f925f8c5a032f4c0d58e05a30629aa8de4fe74edd766798dd7a4c7e900a9bec167eb4570d0122317010",
-  "size": 127574364,
-  "date": "2026-10-20T01:04:28Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.67-dev.1",
-  "notes": "### Fixed\n\n- A long held note whose stretched letters ran out of room on the right (\"Look at me nooow,\") now makes\n  room from the left: after the free space on the right, the words already sung on that row slide left\n  (off the edge if need be) and the held word with them, so the whole stretch shows; the words not yet\n  sung never move back. The same in centred and right-aligned (duet) lines. They glide back when the note\n  ends; with reduced motion nothing slides.\n- With HDR output on, a stretched word no longer shows doubled letters (\"now,oow,\"): the HDR glow drew\n  the word as written under the stretched spelling; it now steps aside while the letters stretch.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.67-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.68-dev.1",
+  "file": "sonata-0.15.68-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.68-dev.1/sonata-0.15.68-dev.1-x86_64.AppImage",
+  "sha512": "70af7252ae3531dda8d89d2f5ad809e68c486f2a2bbef63f4157f3df86c3c444ddb4bb2f955904fdcc2e089c1c6450e740b07afe7a326a67942b570e5349cac1",
+  "size": 127578552,
+  "date": "2026-10-20T01:12:45Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.68-dev.1",
+  "notes": "### Added\n- **First play: notes and Expressive words appear as the song plays.** A new song no longer has to be heard twice: on its first play each part's notes (the Studio's band) and Expressive words (held vowels stretching, vibrato, belted and soft words, wordless vocalise) appear about one part behind the singing, and from the first lines with look-ahead play on. They change only between lines, never the line being sung. The whole song is still measured once more at its end and its result replaces them without a visible jump. The lyrics view says \"Expressive words: measuring as it plays\" meanwhile. Needs engine 0.2.7 (installed with this build) and a graphics card (on the processor alone songs still learn after they end, to keep playback smooth, unless the helper keeps up with the music, as on Intel graphics).\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.68-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
