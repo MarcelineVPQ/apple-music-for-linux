@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.62-dev.1",
-  "file": "sonata-0.15.62-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.62-dev.1/sonata-0.15.62-dev.1-x86_64.AppImage",
-  "sha512": "3cedec829366c992eaf1e681e794add965b8fab7f0440dccbc81f4ab7eef543206697dd3078611ab9116f4fbcd2447fd7d004df9726d3c21cf3ed90e5e2eabbe",
-  "size": 127561997,
-  "date": "2026-10-20T00:03:31Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.62-dev.1",
-  "notes": "### Fixed\n- **Words no longer jump: listening refines only estimated timing.** With Settings → Precise timing → Refine timing by listening on, words could move back and forth while they were sung (\"Dancing Queen\"). Listening now moves only words Sonata estimated from line-timed lyrics, each line once per play and never while it is lit; songs with Apple's own word timing, Precise word timing or an earlier learned result are never touched.\n- **One clock for everything: lyrics, sheet notes and effects stay in step.** The lyrics, the sheet-notes band, the interlude dots, Expressive words and the listening and recording for Precise timing each kept their own time, so they drifted apart: the band's playhead jumped back and forth and could show no notes under a line being sung. Now one song clock sets the time for all of them. It eases small differences in, never goes backwards except on a seek or a new song, and a new song's clock waits for that song's own time (the recording for its notes no longer takes the previous song's position for its opening). A correction over 100 ms is noted in the log, once a minute at most.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.62-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.63-dev.1",
+  "file": "sonata-0.15.63-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.63-dev.1/sonata-0.15.63-dev.1-x86_64.AppImage",
+  "sha512": "a41e20bb7433331d3093e173634ed8294c8fcb54f3a93d3409d595e90b4d93bccd7b9dcfc8d3543bba1f724ce4ee2a2ffb62179cd94678f74c00b1addb73f220",
+  "size": 127566125,
+  "date": "2026-10-20T00:15:43Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.63-dev.1",
+  "notes": "### Fixed\n\n- A song learned before 0.15.62 whose saved notes miss a stretch where the lyrics say someone is singing\n  (the recording missed the song's start at a track change) learns itself again on its next play, with\n  no button: its old notes stay until the new ones arrive. At most twice per song; instrumental breaks\n  and rapped or spoken lines never count as a gap. The log says\n  `notes miss <a>–<b> s where lyrics are sung — re-learning this play (1/2)`.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.63-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
