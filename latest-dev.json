@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.61-dev.1",
-  "file": "sonata-0.15.61-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.61-dev.1/sonata-0.15.61-dev.1-x86_64.AppImage",
-  "sha512": "d8c0d28fa3b1c146f9792370dd82bec105ff8e609ea20af24939662f5e967da99ac4394d4d9ad9244092373a76ae7cfa67ae2d2c0e0c5d8de607238868bfe54d",
-  "size": 127557908,
-  "date": "2026-10-19T22:33:21Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.61-dev.1",
-  "notes": "### Fixed\n- **Sung lines keep their notes.** In a song Sonata has learned, a few sung lines showed the pitch line instead of notes, the same ones on every play (Radiohead's \"15 Step\": four lines in the first verse). Their notes sat a little loose on the pitch grid, as real singing does with scoops and vibrato, and the check for each line was stricter than singing allows. Now a line in a sung song shows its notes unless it is rapped (fast, off the grid) or its pitch is unsure; rapped and spoken songs still show the pitch line.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.61-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.62-dev.1",
+  "file": "sonata-0.15.62-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.62-dev.1/sonata-0.15.62-dev.1-x86_64.AppImage",
+  "sha512": "3cedec829366c992eaf1e681e794add965b8fab7f0440dccbc81f4ab7eef543206697dd3078611ab9116f4fbcd2447fd7d004df9726d3c21cf3ed90e5e2eabbe",
+  "size": 127561997,
+  "date": "2026-10-20T00:03:31Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.62-dev.1",
+  "notes": "### Fixed\n- **Words no longer jump: listening refines only estimated timing.** With Settings → Precise timing → Refine timing by listening on, words could move back and forth while they were sung (\"Dancing Queen\"). Listening now moves only words Sonata estimated from line-timed lyrics, each line once per play and never while it is lit; songs with Apple's own word timing, Precise word timing or an earlier learned result are never touched.\n- **One clock for everything: lyrics, sheet notes and effects stay in step.** The lyrics, the sheet-notes band, the interlude dots, Expressive words and the listening and recording for Precise timing each kept their own time, so they drifted apart: the band's playhead jumped back and forth and could show no notes under a line being sung. Now one song clock sets the time for all of them. It eases small differences in, never goes backwards except on a seek or a new song, and a new song's clock waits for that song's own time (the recording for its notes no longer takes the previous song's position for its opening). A correction over 100 ms is noted in the log, once a minute at most.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.62-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
