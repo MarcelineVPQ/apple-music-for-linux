@@ -35,6 +35,7 @@ function createGfx(o) {
   let exited = false
   let healthTimer = null
   let healthyAt = 0
+  let markerGone = false       // this start's marker was removed (healthy, or a crash handled): nothing left to mark clean
   let sampleTimer = null
   let readoutOpen = false
   let cpu = null
@@ -84,6 +85,7 @@ function createGfx(o) {
   function clearMarker(why) {
     if (ctx.safe || !start.active.length) return
     try { fs.rmSync(sentinelFile, { force: true }) } catch (e) { log('[gpu] start marker: ' + e.message) }   // error: LOGGED-OK — a marker left behind turns the switches off at the next start, the safe side
+    markerGone = true
     log('[gpu] start marker removed: ' + why)
   }
 
@@ -160,7 +162,8 @@ function createGfx(o) {
     if (exited) return
     exited = true
     clearTimeout(healthTimer); healthTimer = null
-    if (ctx.safe || !start.active.length || healthyAt) return
+    // healthy but with one early crash, the marker stayed: a Quit still marks it clean (QC 2026-10 #6: it counted a strike)
+    if (ctx.safe || !start.active.length || markerGone) return
     writeMarker(true)
     log('[gpu] start marker: clean exit (' + (why || 'quit') + ')')
   }
