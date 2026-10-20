@@ -697,7 +697,7 @@ test('session: gaming guard: a queued job not started yet is skipped (one log li
   release()
   await j1
   assert.equal(await j2, null)
-  assert.equal(env.calls.length, 1)
+  assert.equal(env.calls.filter((c) => c[0].cmd !== 'forget').length, 1)   // loop: NOT-WORTH — a test
   assert.ok(env.logs.some((l) => /paused while gaming/.test(l)))
 })
 

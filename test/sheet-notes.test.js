@@ -949,3 +949,20 @@ test('main (0.15.70): a first play left early is kept and carried on; the pieces
   assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) return   \/\/ learned notes are never replaced/)
   assert.match(main, /pitch: sheet && sheet\.key === key \? sheet\.pitch : \[\]/)
 })
+
+// QC 2026-10 #2 / #4: a whole-song job with notes that never runs (skipped while gaming, dropped, the song failed)
+test('session: a notes job that never runs is no longer "measuring", and the helper forgets the song', async () => {
+  let gaming = false
+  const env = setup({ paused: () => gaming, pitchWanted: () => false })
+  env.s.setLyrics('Song|A', 'Song', 'A', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, secs[0].at + 1)
+  await settle()
+  play(env, secs[0].at + 1, secs[1].at + 1)            // the second section and the whole-song pass are queued
+  assert.equal(env.s.notesState('Song|A'), 'measuring')
+  gaming = true                                        // a game starts before they run
+  await settle()
+  assert.ok(!env.calls.some((c) => c.final), 'the whole-song pass was skipped')
+  assert.equal(env.s.notesState('Song|A'), '', 'not measuring when nothing runs')
+  assert.ok(env.calls.some((c) => c.cmd === 'forget'), 'the kept sections are dropped in the helper')
+})

@@ -814,7 +814,7 @@ function createAlignSession(deps) {
   let jobs = 0
   // the songs whose notes job (and so Expressive words' measuring) is queued or running, by lyrics key
   // (main.js expressiveNote: "measuring this song…"); keys only, never the song (its audio buffer)
-  // cache: FIX-STALE — key=the song's lyrics key; invalidated=its notes job ends, but NOT when submit()'s whole-song job with notes is dropped, paused or after s.failed (run returns before notesOn(s, false): 'measuring' sticks); bound=the jobs queued + one stuck key per such song
+  // cache: OK — key=the song's lyrics key; invalidated=its notes job ends, or submit()'s job never runs (dropped, paused, s.failed: never()); bound=the jobs queued
   const noting = new Set()
   const notesOn = (s, on) => { s.notesQueued = on; if (on) noting.add(s.key); else noting.delete(s.key) }
   let songs = 0
@@ -990,11 +990,20 @@ function createAlignSession(deps) {
     // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
     // loop: NOT-WORTH — the song's sections (≤ ~10) · once per whole-song job
     const fromKept = () => !sec && s.secs.length > 0 && s.secs.every((x) => s.kept.has(x.from))
+    // a job that never runs (dropped by prune(), the song failed, skipped while gaming): its notes are no longer
+    // measuring (QC 2026-10 #2: 'measuring' stuck for the session), and a whole-song job wrapUp() left the
+    // helper's forget to is sent here (#4: the kept sections stayed in the helper)
+    const never = () => {
+      pcm = null
+      if (notes) notesOn(s, false)
+      if (!sec && !s.notesQueued && s.kept.size && deps.helper.forget) deps.helper.forget(s.id)
+      return null
+    }
     const run = () => {
-      if (!start()) return null
-      if (s.failed) { pcm = null; return null }
+      if (!start()) return never()
+      if (s.failed) return never()
       // gaming guard: a job not started yet is skipped; its lines fill in on a later play
-      if (paused()) { pcm = null; log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
+      if (paused()) { log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return never() }
       const started = deps.now()
       const audio = () => { const m = alignMessages(id, req.lines, pcm, sec ? { rate, song: s.id, offset: req.offset, notes } : { rate, song: s.id, final: true, notes }); pcm = null; return m }
       const kept = fromKept()
