@@ -360,3 +360,34 @@ test('a resume after a pause goes on from where the clock stood; a small offset 
   now += 500; st = clock.push(150.3, true, 's', now)
   assert.ok(st.epoch > e)
 })
+
+// QC 2026-10 (Marcy's log, look-ahead on: "song clock: corrected 494 ms (jump…)" every minute, words jumping
+// back and forth): MusicKit's whole-second time minus look-ahead's fractional heard delay was taken for a
+// precise time, so the clock snapped ~0.5 s back and forth every few pushes. The player's time being whole
+// seconds (info.coarse) keeps the [v, v + 1) window after the delay is taken off.
+test('look-ahead with whole-second player times: no back-and-forth steps (info.coarse)', () => {
+  const run = (info) => {
+    let now = 1000000
+    const logs = []
+    const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => logs.push(m) })
+    clock.setSong('k', 300)
+    let steps = 0; let prev = null
+    // loop: NOT-WORTH — a test's 4 minutes of pushes
+    for (let i = 0; i < 480; i++) {
+      now += 500 + (i % 3) * 7
+      const truth = (now - 1000000) / 1000 + 5
+      clock.push(Math.floor(truth) - 3.0123, true, 'k', now, info)
+      const shown = clock.time()
+      // (the first seconds settle the start: whole seconds put it up to 1 s off, one clean step at most)
+      if (prev != null && i > 10 && Math.abs(shown - prev - (500 + (i % 3) * 7) / 1000) > 0.1) steps++
+      prev = shown
+    }
+    return { steps, logs }
+  }
+  assert.ok(run({}).steps > 20, 'without the flag the heard time snaps back and forth (the bug)')
+  const fixed = run({ coarse: true })
+  assert.equal(fixed.steps, 0)
+  assert.ok(fixed.logs.length <= 1, 'at most the song start\'s correction is logged: ' + fixed.logs.join(' | '))
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /songClock\.push\(heard\.playbackTime, [^\n]*coarse: Number\.isInteger\(state\.playbackTime\)/, 'main says when the player\'s own time is whole seconds')
+})

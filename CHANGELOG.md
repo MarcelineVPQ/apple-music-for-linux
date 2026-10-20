@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.72-dev.1] — QC build: steadier timing, no hidden failures, duet colours and song sections
+
 ### Added
 - **Song sections: verse, chorus and bridge labels from the lyrics.** A small, quiet label ("Verse 1", "Pre-chorus", "Chorus", "Bridge") above the first line of each section in the lyrics window and the Studio, worked out from the parts of the lyrics that repeat (Apple's own part names when its lyrics carry them). A song with no clear repeats gets no labels rather than wrong ones. Settings → Lyrics & Studio → Show song sections (on by default on Development builds).
 
@@ -29,6 +31,7 @@ See docs/RELEASING.md.
   everyone, in light and dark, with and without Glass, and in the visualizer.
 
 ### Fixed
+- **Look-ahead: the words no longer jump half a second back and forth.** When Apple's player gave its time in whole seconds, the heard time (that minus look-ahead's delay) was taken for an exact one, so the lyrics and the notes band snapped about 0.5 s back and forth every few seconds (the log said "song clock: corrected 494 ms" once a minute, its limit). The clock now knows the time is only good to the second, as it already did without look-ahead.
 - **Look-ahead in album play starts with the song.** The timing helper does one job at a time, so the last song's end-of-song measurement made the next song's look-ahead wait 16-20 s, past most songs' first lines; that measurement now waits until the next song's look-ahead is running.
 - **Look-ahead survives a pause.** Pausing a song while look-ahead streamed it could end the timing helper a couple of minutes later (another part's job, waiting its turn behind the stream, was taken for a hung helper), so the song fell back to section timing with a mismatched notes band. Waiting jobs now wait, and a paused stream stays open.
 - **The notes band no longer shows another part's syllables at the playhead.** With look-ahead, a line the timing helper placed at another repeat of a chorus brought that part's notes and syllable labels; a streamed line's notes are now kept only where they sit on the line's own time in the lyrics (Apple's word times or the line times), the rest come with the pass after the song.

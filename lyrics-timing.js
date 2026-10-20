@@ -596,9 +596,12 @@ function reuseRepeats(lines) {
 const SLEW_BACK = 0.5   // s: a pushed time up to this far behind the clock is slewed, never stepped back
 const SLEW_AHEAD = 0.3  // s: up to this far ahead is slewed too (further: snapped forward, as a seek)
 const SLEW_RATE = 0.5   // s of correction per s: the clock runs at 0.5–1.5× speed while it corrects
-function syncClock(clock, received, isPlaying, nowMs) {
+// coarse: the player's time is whole seconds (MusicKit's own value). Look-ahead's heard time is that minus a
+// fractional delay, so it is no longer an integer but still only good to [v, v + 1): the caller says so
+// (QC 2026-10: with look-ahead such songs snapped ~0.5 s back and forth every few pushes)
+function syncClock(clock, received, isPlaying, nowMs, coarse = Number.isInteger(received)) {
   const prev = clock || {}
-  const stalled = prev.last === received && prev.prev === received && (!Number.isInteger(received) || prev.prev2 === received)
+  const stalled = prev.last === received && prev.prev === received && (!coarse || prev.prev2 === received)
   const playing = isPlaying !== false && !stalled
   const next = { anchor: received, at: nowMs, corr: 0, playing, last: received, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
   if (!playing && prev.playing && prev.anchor != null && Number.isFinite(received)) {
@@ -611,7 +614,7 @@ function syncClock(clock, received, isPlaying, nowMs) {
   const predicted = clockTime(prev, nowMs)
   const seeking = prev.seekAt != null && nowMs - prev.seekAt < 1200 && Math.abs(predicted - received) > 1.05
   const slew = (d) => { next.anchor = predicted; next.at = nowMs; next.corr = d; return next }
-  if (Number.isInteger(received)) {
+  if (coarse) {
     // coarse whole-second time: keep the smooth clock while it's inside [v, v+1); a little outside it is slewed
     if (seeking || (predicted >= received - 0.05 && predicted < received + 1.05)) return slew(0)
     const d = predicted < received ? received - predicted : received + 1 - predicted

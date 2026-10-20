@@ -1560,7 +1560,7 @@ async function lyricsTick() {
   const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
   // the one song clock: its snapshot is the only time the views get (song-clock.js; they interpolate it)
   songClock.setSong(key, state.duration)
-  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1 }) : null
+  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1, coarse: Number.isInteger(state.playbackTime) }) : null
   if (clockNow) sendLyrics('lyrics-time', clockNow)
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)

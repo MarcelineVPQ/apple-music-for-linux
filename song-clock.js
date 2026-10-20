@@ -106,10 +106,10 @@ function createSongClock(opts = {}) {
     seedLeft = 0
   }
   // the phase detector: this push's offset from the shown time (null: no information), as syncClock reads it
-  function offset(fresh, shown, n) {
+  function offset(fresh, shown, n, coarse) {
     if (!Number.isFinite(fresh)) return null
     let d
-    if (Number.isInteger(fresh)) {
+    if (coarse) {
       // a whole-second time (MusicKit may round down): the clock inside [v, v+1) is in step
       if (shown >= fresh - 0.05 && shown < fresh + 1.05) return 0
       d = shown < fresh ? fresh - shown : fresh + 1 - shown
@@ -129,6 +129,8 @@ function createSongClock(opts = {}) {
       }
       // QC 2026-10 #5: the same raw time again is the same instant (its age jitters by ms, so equal times never
       // compared equal and a stall ran on in a saw-tooth): syncClock then sees the repeat and holds
+      // a whole-second player time (info.coarse: look-ahead's heard time is it minus a fractional delay)
+      const coarse = info && typeof info.coarse === 'boolean' ? info.coarse : Number.isInteger(t)
       const fresh = Number.isFinite(t) && t === lastRaw && isPlaying !== false ? lastFresh : T.freshTime(t, isPlaying, readAt, epochNow())
       lastRaw = t
       lastFresh = fresh
@@ -142,7 +144,7 @@ function createSongClock(opts = {}) {
         if (n - boundaryAt < BOUNDARY_WAIT) return null   // held: the views run on, the old song never shows 0:00
       }
       boundaryAt = null   // no drop, or none came in BOUNDARY_WAIT: a seek to the start after all
-      let next = T.syncClock(clock, fresh, isPlaying, n)   // pause, stall, resume and the first time
+      let next = T.syncClock(clock, fresh, isPlaying, n, coarse)   // pause, stall, resume and the first time
       const seeding = seedLeft > 0 && clock && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
       if (seedLeft > 0) seedLeft--
       // a resume after a pause (Marcy 2026-10-19: "corrected 148 ms (jump…)" at each resume with look-ahead, whose
@@ -155,7 +157,7 @@ function createSongClock(opts = {}) {
       }
       if (clock && clock.playing && next.playing && clock.anchor != null) {
         cum += ((Number.isFinite(clock.rate) ? clock.rate : 1) - 1) * Math.max(0, n - clock.at) / 1000
-        const d = offset(fresh, shown, n)
+        const d = offset(fresh, shown, n, coarse)
         const keep = { last: next.last, prev: next.prev, prev2: next.prev2, seekAt: next.seekAt, playing: true, corr: 0 }
         if (d != null && Math.abs(d) > PLL_JUMP && !seeding) {
           next = Object.assign(keep, { anchor: fresh, at: n, rate: 1 })   // a seek: snapped
@@ -175,7 +177,8 @@ function createSongClock(opts = {}) {
       if (shown == null) seedLeft = SEED_PUSHES
       // a correction over 100 ms: one debug line a minute at most, with its size and cause (Marcy's log
       // then shows it if anything still jumps)
-      const off = shown == null || !next.playing ? 0 : fresh - shown
+      // (a whole-second time is in step anywhere in its second: only what lies outside it counts)
+      const off = shown == null || !next.playing || !Number.isFinite(fresh) ? 0 : coarse ? (offset(fresh, shown, n, true) || 0) : fresh - shown
       if (log && Math.abs(off) > 0.1 && n - loggedAt >= 60000) {
         loggedAt = n
         log('song clock: corrected ' + Math.round(off * 1000) + ' ms (' + (stepped ? (gateDone ? 'first time of a new song' : 'jump: a seek or a stall, snapped') : off < 0 ? 'player behind: eased, never back' : 'player ahead: eased') + ')' + (Number.isFinite(readAt) ? ', push ' + Math.round(epochNow() - readAt) + ' ms old' : ''))
