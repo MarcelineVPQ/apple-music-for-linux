@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.74-dev.1",
-  "file": "sonata-0.15.74-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.74-dev.1/sonata-0.15.74-dev.1-x86_64.AppImage",
-  "sha512": "41eca9fc83dadda127a8508bc113be05ce1f9771dff4ef045253202e35fa48224bcd453574d39ba7ee407e9877cab9ce38e94a774bd0666d7fc5708c1e7bbbce",
-  "size": 127644027,
-  "date": "2026-10-20T04:18:37Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.74-dev.1",
-  "notes": "### Added\n- **Forget this song (Development builds).** The song's ⋯ menu, in the mini player and in the Studio, has \"Forget this song…\": it asks first, then removes what Sonata learned for that recording (its word timing, sheet notes, Expressive words, refine progress and the parts kept from an unfinished play) so the next play is a first play again, for a fair retest. The lyrics are kept unless you choose \"Forget it and the lyrics too\". The log says `forgot \"<song>\" for a fresh first play`, and the next song report marks that play as a deliberate retest.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.74-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.75-dev.1",
+  "file": "sonata-0.15.75-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.75-dev.1/sonata-0.15.75-dev.1-x86_64.AppImage",
+  "sha512": "b7cb0051fa2edb2b3137f82faf15e119fbbd283d63dbe108f55bf0e853d6d68d37740d2c512a91a7ee32b5169ca5a25150d31ec9bb6ce2fea9eafabfb408f727",
+  "size": 127648183,
+  "date": "2026-10-20T04:30:51Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.75-dev.1",
+  "notes": "### Fixed\n- **An error window when a photo or info source sent unusual characters.** Starting a song with the Montage on could pop a \"JavaScript error in the main process\" window when one of Wikimedia's photos had a name in, for example, Hebrew or Korean (it happened with Nirvana's MTV Unplugged in New York). Sonata's requests to the Montage's photo sources, the liner notes' sources and LRCLIB now read such answers without failing, and that one known kind of error can no longer open an error window.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.75-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
