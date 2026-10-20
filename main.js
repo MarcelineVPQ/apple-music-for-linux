@@ -977,7 +977,9 @@ function sendSheet() {
   // the notes ride along only when they changed (another song, new notes), the pitch pieces when one came
   const extra = {}
   if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) { extra.entry = sheet.entry && sheet.entry.parts ? Object.assign({}, sheet.entry, { parts: undefined }) : sheet.entry; extra.sung = sheet.sung }   // (a partial entry's kept parts stay in main)
-  if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
+  // (the same song's new pieces only, appended: the band has the ones before; QC 2026-10 #10: the whole array went per line)
+  if (on && sheet && was.on && was.key === st.key && st.pieces > was.pieces) { extra.pitchFrom = was.pieces; extra.pitchAdd = sheet.pitch.slice(was.pieces) }
+  else if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
   lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
 }
 function sheetNotesDone(s, result, lineOffset) {

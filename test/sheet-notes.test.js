@@ -966,3 +966,29 @@ test('session: a notes job that never runs is no longer "measuring", and the hel
   assert.equal(env.s.notesState('Song|A'), '', 'not measuring when nothing runs')
   assert.ok(env.calls.some((c) => c.cmd === 'forget'), 'the kept sections are dropped in the helper')
 })
+
+// QC 2026-10 #10: each streamed line's pitch went with the whole array again (IPC growing with the square of the lines)
+test('main sendSheet: the same song\'s new pitch pieces go as a delta; a new song or a relayout sends them all', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const at = main.indexOf('function sendSheet() {')
+  const src = main.slice(at, main.indexOf('\n}\n', at) + 2)
+  const sent = []
+  const env = { sheetSent: '', settings: { sheetNotes: true, lyricsPreciseTiming: true, sheetPlace: 'band' }, notesSwitch: null, notesStatusText: '',
+    alignInstalled: () => true, alignPaused: () => false,
+    lyricsWindow: { isDestroyed: () => false, webContents: { send: (c, m) => sent.push(m) } },
+    sheet: { key: 'k', pitch: [], entry: null, sung: [], end: 100 } }
+  const send = new Function('env', 'with (env) { ' + src + '; return sendSheet }')(env)   // eslint-disable-line no-new-func
+  send()
+  assert.deepEqual(sent[0].pitch, [])
+  // loop: NOT-WORTH — a test's three lines
+  for (let k = 0; k < 3; k++) { env.sheet.pitch.push({ t0: k, hop: 0.05, v: [600] }); send() }
+  assert.deepEqual(sent.slice(1).map((m) => [m.pitchFrom, m.pitchAdd.length, 'pitch' in m]), [[0, 1, false], [1, 1, false], [2, 1, false]])
+  env.sheetSent = ''                                   // setSheetSong: laid out again
+  send()
+  assert.equal(sent[4].pitch.length, 3)
+  env.sheet = { key: 'k2', pitch: [], entry: null, sung: [], end: 100 }
+  send()
+  assert.deepEqual(sent[5].pitch, [])
+  const ui = require('fs').readFileSync(require('path').join(__dirname, '..', 'sheet-notes-ui.js'), 'utf8')
+  assert.match(ui, /else if \(Array\.isArray\(s\.pitchAdd\) && s\.key === st\.key && s\.pitchFrom === pieces\.length\) pieces = pieces\.concat\(s\.pitchAdd\)/)
+})
