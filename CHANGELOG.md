@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
+
 ### Fixed
 - **First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive.** A song with Apple's own word timing but no notes yet is now a first play for look-ahead (it plays 3 s behind, and each line's notes and Expressive words arrive before you hear it); before, such songs were never delayed. Look-ahead also starts once the timing helper's update finishes (it stayed off for the whole run when the helper needed an update at start). The Studio's band shows the first play's notes with a wider view of what was just heard, so a part that arrived is on the band at once, and "Listening and learning" goes off where notes are.
 - **Expressive words by the second play.** A song left before its end (skipped in its outro, or the next song started early) now keeps the notes and expression of the parts that were heard, so its next play shows them from the start and learns the rest; before, nothing was kept and expression often came only on the third play.
