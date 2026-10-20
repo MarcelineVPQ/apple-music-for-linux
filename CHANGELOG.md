@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.78-dev.1] — Fixed: sheet notes in each singer's colour
+
+### Fixed
+- **Sheet notes in each singer's colour.** In a song with more than one singer, the note being sung and its syllable in the Studio's sheet-notes band now light in the same colour as that singer's lyrics, instead of always the first singer's.
+
 ## [0.15.77-dev.1] — Fixed: lyrics up to a second late on some songs
 
 ### Fixed
