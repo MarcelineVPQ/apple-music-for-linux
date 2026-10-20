@@ -137,6 +137,18 @@ function createHdrGlow(doc) {
     shown = null
   }
 
+  // the 2D canvases a word is measured and painted on, made once and reused (QC 2026-10 LOOP L1: three canvases,
+  // a mask buffer and a texture per sung word went to the GC). Only getImageData's two readbacks stay per word.
+  let probe = null
+  let paintCore = null
+  let paintHalo = null
+  let mask = new Uint8Array(0)
+  const params = new Float32Array(8)
+  function painter() {
+    const c = doc.createElement('canvas')
+    return c.getContext('2d', { willReadFrequently: true })
+  }
+
   // the letters of `el` (a .w word: its bold copy; a .s syllable: its text), masked at the device's pixels
   function draw(el) {
     const isSyl = el.classList.contains('s')
@@ -148,9 +160,12 @@ function createHdrGlow(doc) {
     const pad = Math.ceil(size * 0.6)
     const dpr = win.devicePixelRatio || 1
     const font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(' ')
-    // lifetime: HOT-ALLOC — per sung word/syllable while HDR is on: this probe + 2 paint canvases + 2 getImageData
-    // readbacks (~64 KB each at DPR 1, ~256 KB at DPR 2), a few per second, left to the GC (reuse them: QC 2026-10)
-    const probe = doc.createElement('canvas').getContext('2d')
+    // lifetime: OK — the probe and the two paint canvases are made once per window and reused (they go with the
+    // page); per word only the two getImageData readbacks are new (~64 KB each at DPR 1), the mask buffer and the
+    // texture are reused while the word's size fits
+    if (!probe) { probe = doc.createElement('canvas').getContext('2d'); paintCore = painter(); paintHalo = painter() }
+    const colour = parseRgb(win.getComputedStyle(el).color) || [1, 1, 1]
+    if (!glows(colour)) { hide(); return }
     probe.font = font
     if ('letterSpacing' in probe) probe.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing
     if ('fontKerning' in probe) probe.fontKerning = el.closest('.hs') ? 'none' : 'normal'
@@ -160,28 +175,29 @@ function createHdrGlow(doc) {
     const lay = textLayout({ pad, center: !isSyl, boxW, textW: mt.width, top: isSyl ? 0 : textEl.offsetTop, boxH, elH: el.offsetHeight, ascent: mt.fontBoundingBoxAscent, descent: mt.fontBoundingBoxDescent })
     const W = Math.max(1, Math.round(lay.width * dpr))
     const H = Math.max(1, Math.round(lay.height * dpr))
-    const paint = (blur) => {
-      const c = doc.createElement('canvas')
-      c.width = W; c.height = H
-      const g = c.getContext('2d')
-      g.scale(dpr, dpr)
+    const paint = (g, blur) => {
+      const c = g.canvas
+      if (c.width !== W) c.width = W
+      if (c.height !== H) c.height = H
+      g.setTransform(1, 0, 0, 1, 0, 0)
+      g.clearRect(0, 0, W, H)
+      g.setTransform(dpr, 0, 0, dpr, 0, 0)
       g.font = font
       if ('letterSpacing' in g) g.letterSpacing = probe.letterSpacing
       if ('fontKerning' in g) g.fontKerning = probe.fontKerning
-      if (blur) g.filter = 'blur(' + (size * 0.3).toFixed(1) + 'px)'
+      g.filter = blur ? 'blur(' + (size * 0.3).toFixed(1) + 'px)' : 'none'
       g.fillStyle = '#fff'; g.strokeStyle = '#fff'
       g.lineWidth = parseFloat(cs.webkitTextStrokeWidth) || 0
       g.fillText(text, lay.x, lay.y)
       if (g.lineWidth) g.strokeText(text, lay.x, lay.y)
       return g.getImageData(0, 0, W, H).data
     }
-    const core = paint(false)
-    const halo = paint(true)
-    const data = new Uint8Array(W * H * 4)
+    const core = paint(paintCore, false)
+    const halo = paint(paintHalo, true)
+    if (mask.length < W * H * 4) mask = new Uint8Array(W * H * 4)
+    const data = mask.length === W * H * 4 ? mask : mask.subarray(0, W * H * 4)
     // loop: HOT-PATH-OK — one word's mask (~200 × 80 device px), once per word change, never per frame
     for (let i = 0; i < W * H; i++) { data[i * 4] = core[i * 4 + 3]; data[i * 4 + 1] = halo[i * 4 + 3] }
-    const colour = parseRgb(win.getComputedStyle(el).color) || [1, 1, 1]
-    if (!glows(colour)) { hide(); return }
     const lin = singLinear(colour)
     const b = boosts(headroom)
     if (canvas.width !== W) canvas.width = W
@@ -193,11 +209,15 @@ function createHdrGlow(doc) {
     if (el.style.position === '' && win.getComputedStyle(el).position === 'static') el.style.position = 'relative'
     if (canvas.parentNode !== el) el.appendChild(canvas)
     shown = el
-    const next = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: 0x4 | 0x2 })   // TEXTURE_BINDING | COPY_DST
-    device.queue.writeTexture({ texture: next }, data, { bytesPerRow: W * 4 }, [W, H])
-    if (tex) tex.destroy()
-    tex = next
-    device.queue.writeBuffer(uniform, 0, new Float32Array([lin[0], lin[1], lin[2], 1, b.core, b.halo, 0, 0]))
+    // the texture is kept while the size is the same (most words of a line), else replaced
+    if (!tex || tex.width !== W || tex.height !== H) {
+      if (tex) tex.destroy()
+      // lifetime: OK — destroyed when a word of another size replaces it, or in stop()
+      tex = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: 0x4 | 0x2 })   // TEXTURE_BINDING | COPY_DST
+    }
+    device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: W * 4 }, [W, H])
+    params[0] = lin[0]; params[1] = lin[1]; params[2] = lin[2]; params[3] = 1; params[4] = b.core; params[5] = b.halo
+    device.queue.writeBuffer(uniform, 0, params)
     const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: sampler }, { binding: 2, resource: tex.createView() }] })
     const enc = device.createCommandEncoder()
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }] })
