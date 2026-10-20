@@ -379,3 +379,12 @@ test('builds: Intel (OpenVINO): the row names the device and an honest speed not
   assert.match(HM.stateRow(Object.assign({ gpu: 'CPU only' }, ok)).text, /processor \(OpenVINO\)/)
   assert.match(HM.stateRow(Object.assign({ gpu: 'CPU only' }, ok)).info, /hasn't been measured on a real laptop yet/)
 })
+
+test('the helper rows name helper versions as people read them (version-display.js), never a raw "-dev.N"', () => {
+  const H = require('../helper-install-model')
+  for (const s of [{ state: 'missing', min: '0.2.7-dev.1' }, { state: 'update', want: '0.2.7-dev.1' }]) {
+    const r = H.stateRow(s)
+    assert.doesNotMatch(r.text + ' ' + r.info, /-dev\.\d/, JSON.stringify(r))
+    assert.match(r.info, /0\.2\.7 Dev/)
+  }
+})

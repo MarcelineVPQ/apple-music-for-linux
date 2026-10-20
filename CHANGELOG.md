@@ -29,6 +29,13 @@ See docs/RELEASING.md.
   colour, and the colour of lines sung together, move to the nearest shade that reads as different for
   everyone, in light and dark, with and without Glass, and in the visualizer.
 
+### Fixed
+
+- Settings → Precise timing names the helper version it needs the way every other version is shown
+  ("0.2.7 Dev", not "0.2.7-dev.1").
+- Screen readers hear every Settings switch's state from the moment it appears (a switch could be
+  announced without on or off).
+
 ## [0.15.69-dev.1] — Sonata starts again
 
 ### Fixed

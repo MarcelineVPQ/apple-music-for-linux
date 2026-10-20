@@ -674,8 +674,8 @@ async function lyrics() {
     const active = a.texts.filter((t) => /Line number 3/.test(t.text))
     check(tag + ' the current line is there', active.length >= 1)
     judge(tag, a, { minHit: 24 })
-    // a duet (0.15.33): singer 1 left, singer 2 right, both together centred; each sings in its own
-    // colour, each >= 4.5:1, and the sides differ too (colour is never the only cue)
+    // a duet: one column (0.15.68; before, singer 1 left, singer 2 right, together centred); each sings in
+    // its own colour, each >= 4.5:1, kept apart for colour-blind readers (theme.js duetColours)
     const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.5, end: t + i * 0.5 + 0.45, text: w }))
     const duet = Object.assign({}, data, { title: 'Duet check', lines: [
       { t: 0, end: 4, text: 'First singer sings here', agent: 'v1', words: word(0, 'First singer sings here') },
@@ -689,7 +689,9 @@ async function lyrics() {
     duet.lines[1].bg = word(5.6, '(oh yeah)')
     duet.lines[2].bg = word(12.6, '(now now)')
     await send('lyrics-data', duet); await sleep(500)
-    judgeBacking(tag + ' duet', await page.ev(BG_PLACES), { 0: { word: 2 }, 1: { word: 1 }, 2: { word: 4, after: true } })
+    // one column since 0.15.68 (lyrics-lanes.js duetPlan): every line start-aligned, so the lines sung together place
+    // their backing at the word it comes in on, like the singers' lines
+    judgeBacking(tag + ' duet', await page.ev(BG_PLACES), { 0: { word: 2 }, 1: { word: 1 }, 2: { word: 4 } })
     const seen = {}
     for (const [who, t] of [['singer 1', 1.2], ['singer 2', 6.2], ['together', 11.2]]) {
       await send('lyrics-time', t, true); await sleep(600)
@@ -715,7 +717,8 @@ async function lyrics() {
     }
     await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return true })()`)
     await send('lyrics-data', duet); await sleep(400)
-    check(tag + ' duet: the singers sit on their own sides (left, right, centre)', seen['singer 1'] && seen['singer 1'].side === 'left' && seen['singer 2'].side === 'right' && seen['together'].side === 'center', seen)
+    // one column (Marcy 2026-10-19): no singer is pushed to a side; the colour is the per-singer difference (next check)
+    check(tag + ' duet: one column, no singer on a side of their own', ['singer 1', 'singer 2', 'together'].every((k) => seen[k] && seen[k].side === ''), seen)
     if (process.env.SONATA_TEST_ARTWORK || LABEL.includes('artwork')) {
       check(tag + ' duet: three different colours for singer 1, singer 2 and together', new Set(Object.values(seen).map((x) => x && x.color)).size === 3, seen)
     }

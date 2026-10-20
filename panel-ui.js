@@ -101,6 +101,7 @@
     const b = el('button', 'switch')
     b.type = 'button'
     setAttr(b, 'role', 'switch')
+    setAttr(b, 'aria-checked', 'false')   // a state from the start (update sets the real one): a switch is never stateless
     b.appendChild(el('span', 'knob'))
     const { r, label, desc } = row(labelText, descText, b)
     setAttr(b, 'aria-labelledby', label.id)
