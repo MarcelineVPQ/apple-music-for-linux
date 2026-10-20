@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.87-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>Song reports measure audio look-ahead dropped</p>
+      </description>
+    </release>
     <release version="0.15.86-dev.1" date="2026-10-20" type="development">
       <description>
         <p>Fixed: the first second of the first song cut off</p>

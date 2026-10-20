@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.87-dev.1] — Song reports measure audio look-ahead dropped
+
+### Changed
+- **Song reports say what look-ahead dropped.** Each song's report in the log now says how much of the song's audio look-ahead's delay line dropped (after a song change or a seek), so a start that goes missing is measured, not guessed at.
+
 ## [0.15.86-dev.1] — Fixed: the first second of the first song cut off
 
 ### Fixed
