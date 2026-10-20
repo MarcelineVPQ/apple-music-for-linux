@@ -69,10 +69,13 @@ function compact(expr, lineOffset = 0) {
     const vb = w.vibrato
     if (out.t != null && vb && num(vb.rate) > 0 && num(vb.extent) > 0 && num(vb.t) !== null && num(vb.end) > vb.t && num(vb.conf) >= VIB_CONF) {
       out.vb = { r: vb.rate, d: vb.extent, t: r3(vb.t), e: r3(vb.end) }
+      // loop: NOT-WORTH — the song's vocalise spans (a few), once per notes result
       if (pts(vb.track, 3)) out.vb.tr = vb.track.map((p) => [r3(p[0]), p[1], p[2]])
     }
+    // loop: NOT-WORTH — one vocalise span's loudness points, once per notes result
     if (out.t != null && pts(w.loud_env, 2) && num(w.loud_env_conf) >= ENV_CONF) out.env = w.loud_env.map((p) => [r3(p[0]), clamp(p[1], -1, 1)])
     // version 1 has no contour_conf: the engine sends a contour only where 60 % of it is voiced
+    // loop: NOT-WORTH — one vocalise span's contour points, once per notes result
     if (out.t != null && pts(w.contour, 2) && (w.contour_conf == null || num(w.contour_conf) >= CONTOUR_CONF)) out.ct = w.contour.map((p) => [r3(p[0]), Math.round(p[1])])
     if (out.t != null || out.ld != null) words.push(out)
   }
@@ -90,6 +93,23 @@ function compact(expr, lineOffset = 0) {
       return o
     })
   return { format: FORMAT, v: expr.version, words, voc }
+}
+
+/**
+ * A first play's expression so far (compact form, or null) with one more section's (compact) merged in: its lines'
+ * words replace those lines' old words, and its vocalise spans replace the old ones they overlap (QC 2026-10 #7:
+ * a replay or a section measured again appended its vocalise again, ghosts stacked).
+ */
+function mergeSection(old, add) {
+  if (!add) return old || null
+  const base = old || { format: add.format, v: add.v, words: [], voc: [] }
+  const lines = new Set(add.words.map((w) => w.l))
+  const addVoc = Array.isArray(add.voc) ? add.voc : []
+  // loop: NOT-WORTH — once per first-play section (every ~10-30 s), N ≤ ~500 words, a few vocalise spans (filter + sort)
+  const words = base.words.filter((w) => !lines.has(w.l)).concat(add.words).sort((a, b) => a.l - b.l || a.w - b.w)
+  // loop: NOT-WORTH — as above: the vocalise spans so far (a few) x this section's (a few)
+  const voc = (base.voc || []).filter((v) => !addVoc.some((x) => x.t < v.e && x.e > v.t)).concat(addVoc).sort((a, b) => a.t - b.t)
+  return { format: add.format, v: add.v, words, voc }
 }
 
 /**
@@ -142,6 +162,7 @@ function matchWord(x, word, glued, nextT) {
     // time ends before the sung note does (Apple's word times often lead the singing; 0.15.57)
     const until = Math.max(we !== null ? we : wt, num(nextT) !== null ? nextT : -Infinity)
     const onTime = wt !== null && x.t >= wt - 0.3 && x.t <= until + 0.3
+    // loop: NOT-WORTH — a held vowel's letters (1-3), per word matched (line laid out or applyExpr), not per frame
     if ([...letters].every((c) => LETTER.test(c)) && (x.x == null || x.x === letters) && onTime) {
       out.i0 = x.i0
       out.i1 = x.i1
@@ -166,6 +187,7 @@ function matchWord(x, word, glued, nextT) {
 
 function heldInLastSyllable(word, i0) {
   if (!Array.isArray(word.syl) || word.syl.length < 2) return true
+  // loop: NOT-WORTH — a word's syllables (a handful), per word matched (line laid out or applyExpr)
   const parts = word.syl.map((s) => String((s && s.text) || ''))
   if (parts.join('') !== word.text) return false
   return i0 >= word.text.length - parts[parts.length - 1].length
@@ -542,6 +564,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

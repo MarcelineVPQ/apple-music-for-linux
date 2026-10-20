@@ -382,6 +382,8 @@ function createSheetBand(opts) {
     const s = next || { on: false }
     if ('entry' in s) entry = s.entry || null
     if ('pitch' in s) pieces = Array.isArray(s.pitch) ? s.pitch.slice() : []
+    // main's new pieces of the same song, appended where they go (a stale delta for another count is dropped)
+    else if (Array.isArray(s.pitchAdd) && s.key === st.key && s.pitchFrom === pieces.length) pieces = pieces.concat(s.pitchAdd)
     if ('sung' in s) sung = Array.isArray(s.sung) ? s.sung : []
     if (s.key !== st.key) { nowIdx = -2 }
     st = s

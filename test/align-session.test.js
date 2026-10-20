@@ -227,7 +227,8 @@ function setup(helperImpl, extra = {}) {
       listeners.push(l)
       return l
     },
-    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused, slow: extra.slow
+    helper, store, send: (c, p) => sent.push([c, p]), now: () => nowMs, log: (m) => logs.push(m), latency: 0, paused: extra.paused, slow: extra.slow,
+    streamFirst: extra.streamFirst, setTimeout: extra.setTimeout, clearTimeout: extra.clearTimeout
   })
   return { s, listeners, sent, logs, store, calls, setNow: (v) => { nowMs = v } }
 }
@@ -697,7 +698,7 @@ test('session: gaming guard: a queued job not started yet is skipped (one log li
   release()
   await j1
   assert.equal(await j2, null)
-  assert.equal(env.calls.length, 1)
+  assert.equal(env.calls.filter((c) => c[0].cmd !== 'forget').length, 1)   // loop: NOT-WORTH — a test
   assert.ok(env.logs.some((l) => /paused while gaming/.test(l)))
 })
 
@@ -914,4 +915,43 @@ test('session, look-ahead: a learned song or no delay never streams; leaving ear
   assert.equal(st.heads.length, 1)
   env.s.stop(false)
   assert.equal(st.cancelled, 1)
+})
+
+// systems research 2026-10-19 "Stream-first scheduling": the last song's whole-song pass held the next song's stream
+test('session, look-ahead: at a song change the next song\'s stream goes to the helper before the last song\'s whole pass', async () => {
+  const st = fakeStream()
+  const order = []
+  const timers = []
+  const env = setup((id, msgs) => { order.push('align' + (msgs[0].final ? ':final' : '')); return echoHelper(id, msgs) }, {
+    stream: (id, head, on) => { order.push('stream ' + head.song); return st.fn(id, head, on) }, streamFirst: () => true,
+    setTimeout: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t }, clearTimeout: (t) => { if (t) t.cleared = true }
+  })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })
+  play(env, 0, 30)
+  st.on({ type: 'stream', state: 'ready', device: 'cuda' })
+  env.s.setLyrics('Next|Artist', 'Next', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })   // song N+1, delayed too
+  await new Promise((r) => setImmediate(r))
+  assert.ok(!order.includes('align:final'), 'the whole pass waits: ' + order.join(','))
+  play(env, 0, 2)                                     // N+1 plays: its stream opens
+  assert.equal(order.filter((o) => o.startsWith('stream')).length, 2)
+  st.on({ type: 'stream', state: 'ready', device: 'cuda' })   // ... and is warm
+  await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setImmediate(r))
+  assert.deepEqual(order.slice(-2), [order[order.length - 2], 'align:final'])
+  assert.ok(order.indexOf('align:final') > order.lastIndexOf('stream s2'), 'the stream first, then the pass: ' + order.join(','))
+  // with no stream coming (the next song has none) the pass goes at once; the time limit is the backstop
+  assert.ok(timers.some((t) => t.ms === 20000 && t.cleared))
+  assert.match(require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8'), /streamFirst: \(\) => lookaheadRuns\(\)/)
+})
+
+test('session, look-ahead: with no next stream the last song\'s whole pass is not held', async () => {
+  const st = fakeStream()
+  const order = []
+  const env = setup((id, msgs) => { order.push('align' + (msgs[0].final ? ':final' : '')); return echoHelper(id, msgs) }, { stream: st.fn, streamFirst: () => true })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })
+  play(env, 0, 30)
+  env.s.setLyrics('Next|Artist', 'Next', 'Artist', RAW, true, { duration: 25, lookahead: 0 })   // learned: no delay
+  await new Promise((r) => setImmediate(r))
+  await new Promise((r) => setImmediate(r))
+  assert.ok(order.includes('align:final'))
 })

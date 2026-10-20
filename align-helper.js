@@ -56,6 +56,7 @@ function inAppSandbox(p, home) {
   const h = path.resolve(home || '')
   const x = path.resolve(String(p))
   const roots = ['/snap', '/var/snap', '/var/lib/snapd', path.join(h, 'snap'), path.join(h, '.var', 'app')]
+  // loop: NOT-WORTH — 5 roots · per helperPaths/checkInstall (start, Settings asks), never per tick
   return roots.some((r) => x === r || x.startsWith(r + path.sep)) || x.startsWith('/tmp/.mount_')
 }
 
@@ -240,6 +241,7 @@ function lineParser(onMessage, onBad) {
 // 'exit' listener on process is added once at module load.
 // loop: NOT-WORTH — at most one live helper
 // error: NOT-WORTH — a kill of an already-gone process at exit has nothing left to do
+// cache: OK — key=a spawned helper child; invalidated=gone() on its exit or error; bound=one helper (two while an old one quits)
 const live = new Set()
 process.on('exit', () => { for (const p of live) { try { p.kill('SIGKILL') } catch (e) {} } })
 
@@ -259,6 +261,7 @@ const CPU_FREE = 2
  * free (at least 1). cpus: [{ cpu, core }] (core: a physical core's id, e.g. "package:core").
  */
 function cpuThreadsFor(cpus) {
+  // loop: NOT-WORTH — the allowed CPUs (≤ a few dozen) · once per helper spawn
   const cores = new Set((cpus || []).map((c) => c.core))
   return Math.max(1, cores.size - CPU_FREE)
 }
@@ -279,6 +282,7 @@ function allowedCpus(read = (f) => require('fs').readFileSync(f, 'utf8')) {
       return { cpu, core }
     })
   } catch (e) {
+    // loop: NOT-WORTH — os.cpus() (≤ a few dozen) · once per helper spawn, only without /proc
     return os.cpus().map((c, i) => ({ cpu: i, core: String(i) }))
   }
 }
@@ -294,6 +298,7 @@ function idleDelay(idleFor, warm, coldMs = IDLE_MS, warmMs = WARM_IDLE_MS) {
  */
 function wantFor(want, features) {
   if (!Array.isArray(want) || !Array.isArray(features)) return null
+  // loop: NOT-WORTH — ≤ 3 wanted features · once per notes job or stream start
   const got = want.filter((w) => features.includes(w))
   return got.length ? got : null
 }
@@ -333,12 +338,14 @@ function createAlignHelper(opts, deps = {}) {
   let idleSince = 0           // when the last job ended (0: busy or not running)
   const jobTimeoutMs = opts.jobTimeoutMs || JOB_TIMEOUT_MS
   let child = null
+  // cache: OK — key=job id; invalidated=done/fail (result, error, timeout via touch, exit via gone); bound=jobs in flight (≤ ~3)
   let pending = new Map()     // id -> { resolve, reject, timer, ms }
-  let pings = []              // pong replies carry no id: answered in order
+  let pings = []              // pong replies carry no id: answered in order (a timed-out ping keeps its slot)
   let idle = null
   let crashes = 0
   let quitting = null         // the child we asked to quit
   let releasing = false       // release(): quit as soon as the current job is done (gaming guard)
+  // cache: OK — key=none (the helper's last stderr lines); invalidated=reset at each spawn; bound=20 lines of ≤ one chunk each
   let stderrTail = []
   // cache: OK — key=the running helper process; invalidated=its exit (gone) and every new pong; bound=one list
   let features = null         // the running helper's pong features (null: none answered since it started)
@@ -370,6 +377,10 @@ function createAlignHelper(opts, deps = {}) {
     // loop: none · one-shot job timeout, re-armed on every message for the job
     // error: a helper silent for the timeout is treated as hung: the job fails and the helper is killed
     p.timer = setT(() => {
+      // a job queued behind a look-ahead stream waits for it in the helper (one job at a time): it isn't hung, and
+      // killing the helper for it ended the stream too (QC 2026-10, a pause: "stream … failed (helper exited)")
+      // loop: NOT-WORTH — the pending jobs (1-3), once per quiet timeout
+      if (!p.stream && [...pending.values()].some((q) => q.stream)) { touch(id); return }
       fail(id, new Error('helper timed out'))
       kill()
     }, p.ms)
@@ -387,8 +398,11 @@ function createAlignHelper(opts, deps = {}) {
     if (idle && idle.unref) idle.unref()
   }
 
-  function onMessage(msg) {
+  function onMessage(msg, from) {
     if (msg.type === 'pong') {
+      // a pong from a helper already replaced belongs to none of this one's pings
+      if (from && from !== child) return
+      // in order: a timed-out ping keeps its place (done() then finds no job), so its late pong never answers the next one
       const id = pings.shift()
       if (id) done(id, msg)
     } else if (msg.type === 'stream' || msg.type === 'words' || msg.type === 'notes') {
@@ -431,7 +445,7 @@ function createAlignHelper(opts, deps = {}) {
     live.add(c)
     stderrTail = []
     c.stdout.setEncoding('utf8')
-    c.stdout.on('data', lineParser(onMessage, (line) => log('helper said: ' + line.slice(0, 200))))
+    c.stdout.on('data', lineParser((m) => onMessage(m, c), (line) => log('helper said: ' + line.slice(0, 200))))
     c.stderr.setEncoding('utf8')
     // stderr is the helper's log (warnings, tracebacks): keep the last lines for a crash report only
     // lifetime: OK — the stdout/stderr/stdin/child listeners die with the child
@@ -510,14 +524,14 @@ function createAlignHelper(opts, deps = {}) {
     }
   }
 
-  function request(id, messages, ms, progress) {
+  function request(id, messages, ms, progress, isStream) {
     return new Promise((resolve, reject) => {
       let c
       // error: PASSES-ON — not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it)
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
       idleSince = 0
-      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null })
+      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null, stream: !!isStream })
       touch(id)
       write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
     })
@@ -530,6 +544,7 @@ function createAlignHelper(opts, deps = {}) {
     const want = opts.want ? opts.want() : null
     if (!Array.isArray(want) || !want.length) return Promise.resolve(null)
     if (features && child) return Promise.resolve(wantFor(want, features))
+    // error: NOT-WORTH — a failed ping only means nothing extra is asked; the notes job reports its own failure
     return api.ping().then(() => wantFor(want, features), () => null)
   }
 
@@ -541,7 +556,9 @@ function createAlignHelper(opts, deps = {}) {
       const id = '__ping' + (++pingN)
       pings.push(id)
       // error: PASSES-ON — rethrown to askAlignStatus (main.js), which shows it in Settings
-      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
+      // a ping that failed while its helper still runs keeps its slot in `pings`: a late pong is dropped
+      // there, never given to the next ping (QC #3); with no helper (never sent, or exited) the slot goes
+      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { if (!child) pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
         .then((pong) => { features = known = Array.isArray(pong.features) ? pong.features : []; return pong })
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */
@@ -619,7 +636,7 @@ function createAlignHelper(opts, deps = {}) {
       if (head.duration) msg.duration = head.duration
       // first play: each line's notes (and Expressive words) ride with its words (engine feature "stream-notes")
       if (head.notes && features && features.includes('stream-notes')) msg.want = ['notes'].concat(wantFor(opts.want ? opts.want() : [], features) || [])
-      const done = request(id, [msg], quietMs, on)
+      const done = request(id, [msg], quietMs, on, true)
       let open = true
       const send = (m) => {
         if (!open || !child) return
@@ -631,6 +648,8 @@ function createAlignHelper(opts, deps = {}) {
         /** t: the song time (s) of the chunk's first frame; pcm: s16le stereo at head.rate */
         chunk(t, pcm) { send({ cmd: 'chunk', id, t: Math.round(t * 1000) / 1000, data: pcm.toString('base64') }) },
         end() { send({ cmd: 'end', id }); open = false },
+        /** The song is paused, not gone: no audio and no words come, and that is no hang (its quiet limit restarts). */
+        alive() { if (open) touch(id) },
         cancel() { send({ cmd: 'cancel', id }); open = false; fail(id, Object.assign(new Error('cancelled'), { code: 'cancelled' })) }
       }
     },

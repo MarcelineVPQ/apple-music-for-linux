@@ -363,3 +363,13 @@ test('Apple\'s album: notes HTML to plain paragraphs; only https artwork; bad ID
   assert.equal(M.fmtDate('1994-11'), 'November 1994')
   assert.equal(M.isLive(a, null), true, '"(Live Acoustic)" in Apple\'s title')
 })
+
+// QC 2026-10 bug hunt #14: a 'liner-data' push or a settled resize during a page turn, then the turn's done()
+// replaced the fresh pages with the old-size ones and set cur to the old target
+test('booklet: a relayout during a page turn wins; the turn\'s finish changes nothing', () => {
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'liner-notes.html'), 'utf8')
+  const go = html.slice(html.indexOf('function go(to, why) {'), html.indexOf('const spreadOf'))
+  assert.match(go, /const gen = \+\+turnGen\n\s+const done = \(\) => \{\n(\s+\/\/.*\n)+\s+if \(gen !== turnGen\) return\n\s+spreadEl\.replaceChildren\(na, nb\)/)
+  const re = html.slice(html.indexOf('function relayout(keepSection) {'), html.indexOf('// a resize lays the pages out again'))
+  assert.ok(re.indexOf('turnGen++') >= 0 && re.indexOf('turnGen++') < re.indexOf('show('), 'the relayout ends the turn before it shows')
+})

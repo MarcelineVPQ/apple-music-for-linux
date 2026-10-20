@@ -88,6 +88,7 @@ function makeFft(n) {
 }
 
 function median(arr, n) {
+  // loop: HOT-PATH-OK — about 11 copy-and-sorts per second of ≤ 345 floats while listening (~0.05 ms each)
   const a = Array.prototype.slice.call(arr, 0, n).sort((x, y) => x - y)
   return n ? (n & 1 ? a[n >> 1] : (a[n / 2 - 1] + a[n / 2]) / 2) : 0
 }
@@ -255,6 +256,7 @@ function createVocalDetector(opts = {}) {
     // running floor (a low percentile of the tonal level), refreshed every 8 frames
     if (levelN < 16) floorNow = 0
     else if (g % 8 === 0) {
+      // loop: HOT-PATH-OK — every 8th frame (~11/s while listening): copy + sort of ≤ 345 floats, ~0.05 ms each
       const s = Array.prototype.slice.call(levelHist, 0, levelN).sort((x, y) => x - y)
       floorNow = s[Math.floor(P.floorPct * (levelN - 1))]
     }

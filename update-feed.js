@@ -138,7 +138,17 @@ function testFeed(env) {
 // One check: what the feed for `channel` offers. fetchText(url) -> Promise<string>.
 // With only the placeholder key, the old unsigned latest-linux.yml path is used
 // for both channels (it only ever lists Stable releases).
-async function fetchUpdate({ channel, fetchText, keys = TRUSTED_KEYS, log = () => {}, test = null }) {
+// A check the user asked for (Check for updates) reads the feed fresh. raw.githubusercontent.com serves it from its
+// CDN for up to 5 minutes (cache-control max-age=300, x-cache HIT) and ignores query strings (measured 2026-10-19:
+// a random ?x= still a HIT), so a check right after a release said "up to date". The same file through GitHub's
+// contents API is read from the repository; main sends it with Cache-Control: no-cache (Chromium's own cache).
+// The bytes are the same, so the signature check is unchanged. Automatic checks keep the CDN.
+const RAW_RE = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/([\w.-]+)\/([\w./-]+)$/
+function freshUrl(url) {
+  const m = RAW_RE.exec(String(url || ''))
+  return m ? `https://api.github.com/repos/${m[1]}/${m[2]}/contents/${m[4]}?ref=${m[3]}` : url
+}
+async function fetchUpdate({ channel, fetchText, keys = TRUSTED_KEYS, log = () => {}, test = null, fresh = false }) {
   if (channel !== 'dev') channel = 'stable'
   if (test) keys = test.keys
   if (!signingReady(keys)) {
@@ -146,7 +156,10 @@ async function fetchUpdate({ channel, fetchText, keys = TRUSTED_KEYS, log = () =
     return parseLegacyFeed(await fetchText(LEGACY_FEED_URL))
   }
   const url = (test ? test.urls : FEED_URLS)[channel]
-  const [text, sig] = await Promise.all([fetchText(url), fetchText(url + '.sig')])
+  // fresh: the API (raw bytes), and the CDN if the API refuses (its 60 requests an hour, an outage)
+  // error: PASSES-ON — the CDN's own failure rejects to updater.js (shown); the API's is only the fallback's reason
+  const get = !fresh || test ? fetchText : (u) => fetchText(freshUrl(u), { fresh: true }).catch((e) => { log('update feed: fresh read failed (' + e.message + '); the cached copy instead'); return fetchText(u) })
+  const [text, sig] = await Promise.all([get(url), get(url + '.sig')])
   if (!feedSignedBy(text, sig, keys)) throw new Error(`update refused: ${url.split('/').pop()} is not signed by a trusted key`)
   return parseSignedFeed(text, channel, test ? test.prefix : DOWNLOAD_PREFIX)
 }
@@ -169,5 +182,5 @@ module.exports = {
   REPO, FEED_BRANCH, LEGACY_REPO, LEGACY_FEED_BRANCH, FEED_URLS, LEGACY_FEED_URL, DOWNLOAD_PREFIX, feedUrls, downloadPrefix,
   PLACEHOLDER_KEY, TRUSTED_KEYS, FILE_RE,
   signingReady, feedSignedBy, versionKey, isDevVersion, isNewerVersion,
-  parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload, testFeed
+  parseLegacyFeed, parseSignedFeed, fetchUpdate, verifyDownload, testFeed, freshUrl
 }

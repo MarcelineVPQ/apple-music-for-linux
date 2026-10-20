@@ -406,7 +406,8 @@ function play(env, from, to) {
     for (let k = 0; k < 5; k++) if (env.s.recording) env.s._onChunk(chunk, (t + (k + 1) * 0.1) * 1000, null)
   }
 }
-const settle = () => new Promise((r) => setTimeout(r, 15))
+// the fakes' jobs settle in microtasks and immediates: drained, no fixed wall-clock wait (QC 2026-10 flake)
+const settle = () => require('./until').drain()
 
 test('session, first play: each section\'s pitch line right after its words (same job, so the order holds), not for the whole-song job', async () => {
   const env = setup()
@@ -948,4 +949,65 @@ test('main (0.15.70): a first play left early is kept and carried on; the pieces
   assert.match(main, /firstPlay = firstPlayFor\(s\)/)
   assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) \{\n    \/\/ learned notes are never replaced by a partial set; a refine play left early merges the parts it heard/)
   assert.match(main, /pitch: sheet && sheet\.key === key \? sheet\.pitch : \[\]/)
+})
+
+// QC 2026-10 #2 / #4: a whole-song job with notes that never runs (skipped while gaming, dropped, the song failed)
+test('session: a notes job that never runs is no longer "measuring", and the helper forgets the song', async () => {
+  let gaming = false
+  const env = setup({ paused: () => gaming, pitchWanted: () => false })
+  env.s.setLyrics('Song|A', 'Song', 'A', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, secs[0].at + 1)
+  await settle()
+  play(env, secs[0].at + 1, secs[1].at + 1)            // the second section and the whole-song pass are queued
+  assert.equal(env.s.notesState('Song|A'), 'measuring')
+  gaming = true                                        // a game starts before they run
+  await settle()
+  assert.ok(!env.calls.some((c) => c.final), 'the whole-song pass was skipped')
+  assert.equal(env.s.notesState('Song|A'), '', 'not measuring when nothing runs')
+  assert.ok(env.calls.some((c) => c.cmd === 'forget'), 'the kept sections are dropped in the helper')
+})
+
+// QC 2026-10 #10: each streamed line's pitch went with the whole array again (IPC growing with the square of the lines)
+test('main sendSheet: the same song\'s new pitch pieces go as a delta; a new song or a relayout sends them all', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const at = main.indexOf('function sendSheet() {')
+  const src = main.slice(at, main.indexOf('\n}\n', at) + 2)
+  const sent = []
+  const env = { sheetSent: '', settings: { sheetNotes: true, lyricsPreciseTiming: true, sheetPlace: 'band' }, notesSwitch: null, notesStatusText: '',
+    alignInstalled: () => true, alignPaused: () => false,
+    lyricsWindow: { isDestroyed: () => false, webContents: { send: (c, m) => sent.push(m) } },
+    sheet: { key: 'k', pitch: [], entry: null, sung: [], end: 100 } }
+  const send = new Function('env', 'with (env) { ' + src + '; return sendSheet }')(env)   // eslint-disable-line no-new-func
+  send()
+  assert.deepEqual(sent[0].pitch, [])
+  // loop: NOT-WORTH — a test's three lines
+  for (let k = 0; k < 3; k++) { env.sheet.pitch.push({ t0: k, hop: 0.05, v: [600] }); send() }
+  assert.deepEqual(sent.slice(1).map((m) => [m.pitchFrom, m.pitchAdd.length, 'pitch' in m]), [[0, 1, false], [1, 1, false], [2, 1, false]])
+  env.sheetSent = ''                                   // setSheetSong: laid out again
+  send()
+  assert.equal(sent[4].pitch.length, 3)
+  env.sheet = { key: 'k2', pitch: [], entry: null, sung: [], end: 100 }
+  send()
+  assert.deepEqual(sent[5].pitch, [])
+  const ui = require('fs').readFileSync(require('path').join(__dirname, '..', 'sheet-notes-ui.js'), 'utf8')
+  assert.match(ui, /else if \(Array\.isArray\(s\.pitchAdd\) && s\.key === st\.key && s\.pitchFrom === pieces\.length\) pieces = pieces\.concat\(s\.pitchAdd\)/)
+})
+
+// Marcy 2026-10-19: after a look-ahead stream failed, the stream's line notes and the sections' notes both drew
+test('main firstPlaySection: a section\'s part replaces the streamed lines it covers; a later streamed line it covers is skipped', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
+  const env = { firstPlay: null, sheet: null, lyricsKey: '', alignHelper: null, expressiveOn: () => false,
+    getSheetStore: () => ({ get: () => null }), sheetModel: { entryValid: () => false }, firstPlayUnfinished: () => {}, console: { log () {} } }
+  const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func
+  const s = { key: 'k', id: 's1', hash: 'h', title: 'T', artist: 'A' }
+  const p = (tag) => ({ notes: [{ t: 1, end: 2, midi: 60 }], tag })
+  run(s, p('stream 4'), { from: 4, to: 4, stream: true })
+  run(s, p('stream 5'), { from: 5, to: 5, stream: true })
+  run(s, p('stream 9'), { from: 9, to: 9, stream: true })
+  run(s, p('section 4-7'), { from: 4, to: 7 })        // the stream failed: its sections come instead
+  assert.deepEqual([...env.firstPlay.parts.entries()].map(([k, v]) => [k, v.tag]), [[4, 'section 4-7'], [9, 'stream 9']])
+  run(s, p('stream 6'), { from: 6, to: 6, stream: true })   // a late streamed line the section has
+  assert.equal(env.firstPlay.parts.has(6), false)
 })

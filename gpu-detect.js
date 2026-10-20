@@ -55,6 +55,7 @@ function parseLspci(text) {
     // 01:00.0 "VGA compatible controller [0300]" "NVIDIA Corporation [10de]" "GB203 [GeForce RTX 5080] [2c02]" …
     // (the slot is quoted too in older lspci versions)
     const slot = /^"?([0-9a-f:.]+)"?\s/.exec(line)
+    // loop: NOT-WORTH — the quoted fields of one lspci line (≤ ~8) · once per run (gpuScan caches)
     const f = [...line.slice(slot ? slot[0].length : 0).matchAll(/"([^"]*)"/g)].map((m) => m[1])
     if (f.length < 3 || !/\[03[0-9a-f]{2}\]$/.test(f[0])) continue
     const v = /\[([0-9a-f]{4})\]$/.exec(f[1])
@@ -81,6 +82,7 @@ function niceName(vendor, devField) {
 function detect(sys, lspci) {
   const named = parseLspci(lspci)
   const base = sys && sys.length ? sys : named
+  // loop: NOT-WORTH — the cards (1-3) · once per run (gpuScan caches gpuCards)
   return base.map((g) => {
     const n = named.find((x) => x.vendorId === g.vendorId && x.deviceId === g.deviceId)
     let kind = 'unknown'
@@ -100,14 +102,19 @@ function detect(sys, lspci) {
  */
 function recommend(gpus, cpu) {
   const list = gpus || []
+  // loop: NOT-WORTH — the cards (1-3) · per helper snapshot while Settings shows
   const nv = list.find((g) => g.vendor === 'nvidia')
   if (nv) return { backend: 'cuda', gpu: nv, why: '' }
+  // loop: NOT-WORTH — the cards (1-3) · per helper snapshot while Settings shows
   const amd = list.find((g) => g.vendor === 'amd' && g.kind !== 'integrated')
   if (amd) return { backend: 'rocm', gpu: amd, why: '' }
+  // loop: NOT-WORTH — the cards (1-3) · per helper snapshot while Settings shows
   const arc = list.find((g) => g.vendor === 'intel' && g.kind === 'discrete')
   if (arc) return { backend: 'xpu', gpu: arc, why: '' }
+  // loop: NOT-WORTH — the cards (1-3) · per helper snapshot while Settings shows
   const intel = list.find((g) => g.vendor === 'intel' && g.kind === 'integrated')
   if (intel) return { backend: 'openvino', gpu: intel, why: '' }
+  // loop: NOT-WORTH — the cards (1-3) · per helper snapshot while Settings shows
   const igpu = list.find((g) => g.kind === 'integrated')
   if (cpu === 'intel') return { backend: 'openvino', gpu: null, why: igpu ? igpu.name + ' is an integrated GPU the helper can\'t use' : list.length ? 'no graphics card the helper can use' : 'no graphics card found' }
   return { backend: 'cpu', gpu: null, why: igpu ? igpu.name + ' is an integrated GPU the helper can\'t use' : list.length ? 'no graphics card the helper can use' : 'no graphics card found' }

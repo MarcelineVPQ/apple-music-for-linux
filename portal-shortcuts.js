@@ -36,6 +36,7 @@ async function request(conn, member, signature, body, tok, opts) {
   const path = requestPath(conn.uniqueName, tok)
   await conn.addMatch("type='signal',interface='org.freedesktop.portal.Request',member='Response',path='" + path + "'")
   return new Promise((resolve, reject) => {
+    // cache: OK — key=request path / portal handle; invalidated=dropped with the request when answered; bound=2
     const paths = new Set([path])
     let timer = null
     const done = (fn, v) => { if (timer) clearTimeout(timer); conn.removeListener('signal', onSignal); conn.removeListener('close', onClose); fn(v) }

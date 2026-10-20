@@ -38,6 +38,7 @@ function lineQuality(entry) {
   const g = sheet.gate(doc)
   // rap or speech throughout (the gate's song-wide pitch line): nothing to refine into notes
   if (g.song === 'line' && g.stats.spread > sheet.GATE.songSpreadMax) return []
+  // cache: NOT-WORTH — key=line; invalidated=each call (local to one lineQuality); bound=the song's lines (tens)
   const by = new Map()
   // loop: NOT-WORTH — the song's syllables (hundreds), once per refine decision or merge
   doc.syllables.forEach((s, i) => {
@@ -61,11 +62,13 @@ function lineQuality(entry) {
       const ns = linked.get(i)
       if (!ns) continue
       covered++
+      // loop: NOT-WORTH — a syllable's notes (1-3), once per refine decision (a learned song starts) or merge, not per tick
       const held = ns.reduce((a, n) => a + (n.end - n.t), 0)
       if (held >= HOLD_MIN) heldWords.add(wordOf(entry, i))
       // loop: NOT-WORTH — a syllable's notes (1-3)
       for (const n of ns) { dur += n.end - n.t; w += n.conf * (n.end - n.t) }
     }
+    // loop: NOT-WORTH — a line's held words (≤ ~20), once per refine decision (a learned song starts) or merge, not per tick
     const expr = [...heldWords].filter((k) => exprWords.has(l.line + ':' + k)).length
     out.push({ line: l.line, t0: round(l.t0), t1: round(l.t1), n: l.syl.length, covered, coverage: round(covered / l.syl.length), conf: dur ? round(w / dur) : 0,
       held: heldWords.size, expr, exprCov: heldWords.size ? round(expr / heldWords.size) : 1 })
@@ -84,8 +87,10 @@ function wordOf(entry, i) {
 /** The song's summary: { lines (sung), complete, below: [line], coverage (sung syllables covered / sung syllables) }. */
 function summary(q) {
   const lines = q || []
+  // loop: NOT-WORTH — the song's lines (tens), three passes, once per refine decision (a learned song starts) or merge, not per tick
   const syl = lines.reduce((a, l) => a + l.n, 0)
   const cov = lines.reduce((a, l) => a + l.covered, 0)
+  // loop: NOT-WORTH — the song's lines (tens), filtered then mapped, once per refine decision (a learned song starts) or merge, not per tick
   const below = lines.filter((l) => l.coverage < TARGET).map((l) => l.line)
   return { lines: lines.length, complete: lines.length - below.length, below, coverage: syl ? round(cov / syl) : 1 }
 }
@@ -123,9 +128,12 @@ function better(fresh, old) {
 function merge(old, fresh, meta = {}) {
   const qo = lineQuality(old) || []
   const qf = lineQuality(fresh) || []
+  // loop: NOT-WORTH — the song's lines (tens), once per refine pass (sheetNotesDone), not per tick
   const fBy = new Map(qf.map((l) => [l.line, l]))
+  // error: NOT-WORTH — a deep copy of an entry read from JSON: what JSON.stringify writes always parses
   const out = JSON.parse(JSON.stringify(old))
   // loop: NOT-WORTH — the entry's syllables (hundreds), twice per refine pass
+  // cache: NOT-WORTH — key=line; invalidated=each call (local to one merge); bound=the entry's syllables (hundreds)
   const sylOf = (e) => { const m = new Map(); e.syl.forEach((s, i) => { const a = m.get(s[3]) || []; a.push(i); m.set(s[3], a) }); return m }
   const oSyl = sylOf(old); const fSyl = sylOf(fresh)
   const improved = []
@@ -135,10 +143,12 @@ function merge(old, fresh, meta = {}) {
     const os = oSyl.get(lo.line) || []; const fs = fSyl.get(lo.line) || []
     if (!better(lf, lo) || os.length !== fs.length) continue
     improved.push(lo.line)
+    // loop: NOT-WORTH — a line's syllables (≤ ~20), per improved line, once per refine pass (sheetNotesDone), not per tick
     const map = new Map(fs.map((fi, k) => [fi, os[k]]))
     const t0 = lo.t0; const t1 = lo.t1
     const inSpan = (n) => n[0] < t1 && n[1] > t0
     // the old line's notes (linked to it, or unlinked inside its span) out, the fresh line's in (re-linked to the old syllables)
+    // loop: NOT-WORTH — the song's notes (hundreds) per improved line (tens), once per refine pass (sheetNotesDone), not per tick
     out.notes = out.notes.filter((n) => !(n[6] >= 0 ? old.syl[n[6]] && old.syl[n[6]][3] === lo.line : inSpan(n)))
       .concat(fresh.notes.filter((n) => (n[6] >= 0 ? map.has(n[6]) : inSpan(n))).map((n) => { const c = n.slice(); c[6] = n[6] >= 0 ? map.get(n[6]) : -1; return c }))
     // its pitch line (same hop): the fresh values over the line's span
@@ -149,13 +159,16 @@ function merge(old, fresh, meta = {}) {
     }
     // its expression: the fresh pass's words of this line, when it measured any
     if (fresh.expr && Array.isArray(fresh.expr.words)) {
+      // loop: NOT-WORTH — the fresh pass's Expressive words (hundreds) per improved line, once per refine pass (sheetNotesDone), not per tick
       const fw = fresh.expr.words.filter((w) => w.l === lo.line)
       if (fw.length || !out.expr) {
         const base = out.expr && Array.isArray(out.expr.words) ? out.expr : { format: fresh.expr.format, v: fresh.expr.v, words: [], voc: [] }
+        // loop: NOT-WORTH — the entry's Expressive words (hundreds) per improved line, once per refine pass (sheetNotesDone), not per tick
         out.expr = Object.assign({}, base, { words: base.words.filter((w) => w.l !== lo.line).concat(fw).sort((a, b) => a.l - b.l || a.w - b.w) })
       }
     }
   }
+  // loop: NOT-WORTH — the song's notes (hundreds), sorted once per refine pass (sheetNotesDone), not per tick
   out.notes.sort((a, b) => a[0] - b[0])
   if (!('expr' in out) && 'expr' in fresh) out.expr = fresh.expr
   const before = summary(qo)

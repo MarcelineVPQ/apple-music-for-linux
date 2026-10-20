@@ -7,7 +7,7 @@
   "scripts": {
     "start": "bash start.sh",
     "test": "node --test test/*.test.js",
-    "gates": "node tools/verdicts.js --check && node tools/hardcodes.js --check && node tools/set-version.js --verify && node tools/doc-gates.js --check",
+    "gates": "node tools/verdicts.js --check && node tools/passes.js --check && node tools/hardcodes.js --check && node tools/set-version.js --verify && node tools/doc-gates.js --check",
     "dist": "electron-builder --linux AppImage",
     "dist:appimage": "electron-builder --linux AppImage",
     "dist:snap": "electron-builder --linux snap",
@@ -195,6 +195,7 @@
   "repository": "https://github.com/MarcelineVPQ/apple-music-for-linux",
   "license": "GPL-3.0",
   "devDependencies": {
+    "acorn": "8.15.0",
     "electron": "https://github.com/castlabs/electron-releases#v45.0.0-alpha.14+wvcus",
     "electron-builder": "^26.0.12"
   },

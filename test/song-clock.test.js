@@ -282,3 +282,81 @@ test('a new song\'s first push 227 ms off (or paused, then playing): no visible 
     assert.ok(!lines.some((l) => /jump/.test(l)), lines.join(' | '))   // loop: NOT-WORTH — a test
   }
 })
+
+// QC 2026-10 #1: the same song starting again (Previous more than ~3 s in, a scrub to 0:00, repeat-one)
+// never waits BOUNDARY_WAIT for a song change that won't come
+test('the same song restarting is a clean epoch at once; only a drop near the song\'s end holds', () => {
+  const run = (upTo, info) => {
+    let now = 0
+    const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+    clock.setSong('s', 240)
+    let st
+    // loop: NOT-WORTH — a test's few hundred pushes
+    for (let k = 0; k <= upTo * 2; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now, info) }
+    const e = st.epoch
+    now += 500
+    const got = clock.push(0.1, true, 's', now, info)
+    return { got, e, clock }
+  }
+  const mid = run(60)                                   // Previous at 1:00, or a scrub back to the start
+  assert.ok(mid.got && mid.got.epoch > mid.e, 'snapped at once')
+  assert.ok(Math.abs(mid.clock.time() - 0.1) < 0.05)
+  assert.equal(mid.clock.holding, false)
+  const one = run(236, { repeatOne: true })              // repeat-one at the song's end
+  assert.ok(one.got && one.got.epoch > one.e, 'repeat-one: at once')
+  const end = run(236)                                  // a natural end: the next song's time before its name
+  assert.equal(end.got, null, 'held for the song change')
+  assert.equal(end.clock.holding, true, 'the recorder and the refiner wait while held')
+})
+
+test('main: the recorder and the refiner wait while the clock holds a drop for its song change', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(src, /songClock\.holding \? null : songClock\.snapshot\(\)/)
+  assert.match(src, /repeatOne: state\.repeat === 1/)
+})
+
+// QC 2026-10 #5: freshTime ages each push by its own (jittering) age, so a frozen time never compared equal
+test('a player frozen while it says playing holds the clock, no saw-tooth', () => {
+  let now = 0
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now })
+  let st
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 20; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now - 30) }
+  const frozen = 10
+  const epochs = new Set()
+  const times = []
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 1; k <= 12; k++) {
+    now += 500
+    st = clock.push(frozen, true, 's', now - 30 - (k % 3) * 7) || st   // the same time, ages jittering by ms
+    if (k >= 4) { epochs.add(st.epoch); times.push(clock.time()) }
+  }
+  assert.equal(st.playing, false, 'a stall is detected')
+  assert.equal(epochs.size, 1, 'held: no epoch bump per push')
+  assert.ok(Math.max(...times) - Math.min(...times) < 0.01, 'the clock stands still: ' + times.join(','))
+})
+
+// Marcy 2026-10-19: with look-ahead the heard time comes back ~150 ms off after a pause; that was a snap (an epoch)
+test('a resume after a pause goes on from where the clock stood; a small offset is slewed, never a step', () => {
+  let now = 0
+  const lines = []
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
+  let st
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 160; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now) }
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k < 6; k++) { now += 500; st = clock.push(80.2, false, 's', now) || st }   // paused
+  const e = st.epoch
+  const held = clock.time()
+  now += 500; st = clock.push(80.2 - 0.148, true, 's', now)                                   // resumed, 148 ms back
+  assert.equal(st.epoch, e, 'no discontinuity')
+  assert.ok(clock.time() >= held - 0.01, 'never a step back')
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 1; k <= 6; k++) { now += 500; st = clock.push(80.052 + k * 0.5, true, 's', now) }
+  assert.equal(st.epoch, e)
+  assert.ok(!lines.some((l) => /snapped/.test(l)), lines.join(' | '))
+  // a real seek while paused still snaps
+  now += 500; clock.push(150, false, 's', now)
+  now += 500; st = clock.push(150.3, true, 's', now)
+  assert.ok(st.epoch > e)
+})

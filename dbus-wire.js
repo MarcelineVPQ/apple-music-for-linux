@@ -192,6 +192,7 @@ function read(r, node, depth) {
       if (r.pos !== end) throw new Error('array overruns its length')
       return out
     }
+    // loop: NOT-WORTH — per D-Bus message from the portal (shortcut presses, session setup), N = struct fields
     case '(': r.align(8); return node.f.map((f) => read(r, f, depth + 1))
     case '{': r.align(8); return [read(r, node.k, depth + 1), read(r, node.v, depth + 1)]
     default: throw new Error('cannot read type ' + node.t)
@@ -199,6 +200,7 @@ function read(r, node, depth) {
 }
 function unmarshal(signature, buf, start, le) {
   const r = new Reader(buf, start || 0, buf.length, le !== false)
+  // loop: NOT-WORTH — per D-Bus message from the portal (shortcut presses, session setup), N = signature items
   return parseSig(signature).map((n) => read(r, n, 0))
 }
 
@@ -289,6 +291,7 @@ class Connection extends EventEmitter {
     this.sock = sock
     this.timeoutMs = timeoutMs || 10000
     this.serial = 0
+    // cache: OK — key=call serial; invalidated=deleted on reply or timeout, cleared on shut(); bound=calls in flight (a few)
     this.pending = new Map()   // serial -> { resolve, reject, timer }
     this.buf = Buffer.alloc(0)
     this.uniqueName = ''

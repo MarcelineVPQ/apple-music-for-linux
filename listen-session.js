@@ -42,6 +42,7 @@ function chunkStart(clock, wallMs, samples, rate, latency = MONITOR_LATENCY) {
 }
 
 function sameWords(a, b) {
+  // loop: NOT-WORTH — one line's words (≤ ~15), per due line (once per line per play) and on setLyrics
   return a && b && a.length === b.length && a.every((w, i) => w.text === b[i].text)
 }
 
@@ -53,6 +54,7 @@ function sameWords(a, b) {
 function applyLearned(lines, entry) {
   if (!entry || entry.v !== 1 || !entry.lines || !lines) return { lines, used: false }
   let used = false
+  // loop: NOT-WORTH — the song's lines (≤ ~150), once per setLyrics (per song)
   const out = lines.map((line, i) => {
     const l = entry.lines[i]
     if (!l || !line.estimated || l.text !== line.text || !sameWords(line.words, l.words)) return line
@@ -90,6 +92,24 @@ function withOffset(entry, lines) {
  *   refineWords(line, evidence) / mergeLearned(prev, next, plays)   (timing-refine.js)
  *   store: { get, set }   send(channel, payload)   now() (ms, same base as the clock)   log
  */
+// song-time spans heard ([[a, b]], sorted, merged within GAP_TOLERANCE): the noise gate's record of what it counted
+function addSpan(spans, a, b) {
+  const out = []
+  let cur = [a, b]
+  // loop: NOT-WORTH — the spans heard this song (one per seek, a few), once per audio chunk heard for the first time
+  for (const sp of spans) {
+    if (sp[1] + GAP_TOLERANCE < cur[0] || sp[0] - GAP_TOLERANCE > cur[1]) out.push(sp)
+    else cur = [Math.min(sp[0], cur[0]), Math.max(sp[1], cur[1])]
+  }
+  out.push(cur)
+  // loop: NOT-WORTH — the spans heard this song (a few), once per audio chunk heard for the first time
+  return out.sort((x, y) => x[0] - y[0])
+}
+function spanCovered(spans, a, b) {
+  // loop: HOT-PATH-OK — the spans heard this song (a few), per audio chunk while listening
+  return spans.some((sp) => sp[0] <= a + 0.01 && sp[1] >= b - 0.01)
+}
+
 function createListenSession(deps) {
   const rate = deps.sampleRate || 22050
   const latency = deps.latency == null ? MONITOR_LATENCY : deps.latency
@@ -100,10 +120,15 @@ function createListenSession(deps) {
   let clock = null
   let expectNext = null    // song time the next chunk should start at
   let coveredFrom = null   // song time since when we've listened without a gap
+  // cache: OK — key=song time; invalidated=reset on gap/seek/song, pruned to KEEP_EVIDENCE 30 s each tick; bound=≤ ~375
   let onsets = []
+  // cache: OK — key=song time; invalidated=reset on gap/seek/song, pruned to 30 s each tick; bound=≤ ~30 spans
   let voiced = []
 
-  let allOnsets = []    // lifetime: whole song's onsets for the noise gate (bounded by song length); cleared per song
+  // cache: OK — key=song time; invalidated=a new key (setLyrics); bound=one onset list per song time heard (a replay,
+  // repeat-one or a seek back adds nothing for time already heard: heardSpans), ≤ ~12.5/s of the song's length
+  let allOnsets = []    // lifetime: OK — the noise gate's onsets, one per song time (QC 2026-10 LIFETIME T1: grew per replay)
+  let heardSpans = []   // cache: OK — key=song time; invalidated=a new key (setLyrics); bound=one span per seek (merged)
   function resetEvidence() {
     onsets = []
     voiced = []
@@ -131,7 +156,10 @@ function createListenSession(deps) {
     const res = detector.push(input, t0)
     // loop: HOT-PATH-OK — the few onsets / voiced spans one chunk adds (0-3)
     if (res) {
-      if (res.onsets) for (const o of res.onsets) { onsets.push(o); allOnsets.push(o) }
+      // the noise gate counts each song time once: a stretch heard before (a seek back, a replay) adds no onsets
+      const fresh = !spanCovered(heardSpans, t0, expectNext)
+      if (fresh) heardSpans = addSpan(heardSpans, t0, expectNext)
+      if (res.onsets) for (const o of res.onsets) { onsets.push(o); if (fresh) allOnsets.push(o) }
       if (res.voiced) for (const v of res.voiced) voiced.push(v)
     }
   }
@@ -166,7 +194,9 @@ function createListenSession(deps) {
       song.done.add(i)                                    // one try per line per play
       if (from < coveredFrom) continue                    // we didn't hear the whole line
       const evidence = {
+        // loop: NOT-WORTH — ≤ 30 s of onsets (≤ ~375), once per due line (once per line per play), not every tick
         onsets: onsets.filter((o) => o.t >= from && o.t <= to),
+        // loop: NOT-WORTH — ≤ 30 s of voiced spans (tens), once per due line per play
         voiced: voiced.filter((v) => v.end >= from && v.start <= to)
       }
       let res
@@ -184,11 +214,15 @@ function createListenSession(deps) {
     }
     // drop evidence the remaining lines can't use any more
     const keepFrom = now - KEEP_EVIDENCE
+    // loop: HOT-PATH-OK — runs per 500 ms tick only when the oldest onset is past 30 s; N ≤ ~375
     if (onsets.length && onsets[0].t < keepFrom) onsets = onsets.filter((o) => o.t >= keepFrom)
+    // loop: HOT-PATH-OK — runs per 500 ms tick only when the oldest span is past 30 s; N ≤ ~30
     if (voiced.length && voiced[0].end < keepFrom) voiced = voiced.filter((v) => v.end >= keepFrom)
   }
 
   return {
+    /** The noise gate's onsets kept for this song (tests). */
+    get noiseOnsets() { return allOnsets.length },
     /**
      * New lyrics for the window. lines: the estimated lines (before learned data). Returns the
      * lines to render ({ lines, refined, onset }) with learned words applied (onset: the entry's offset, or null).
@@ -204,6 +238,7 @@ function createListenSession(deps) {
       const estimated = !!lines && !own && lines.some((l) => l.estimated && !l.aligned)
       song = enabled && estimated ? { key, title, artist, base: lines, done: new Set() } : null
       allOnsets = []
+      heardSpans = []
       if (!song) return { lines, refined: false, onset: null }
       // this recording's learned words (info: { isrc, duration }); an old entry of a "(Live)"-style title
       // only when its words start where these lines do
@@ -232,7 +267,7 @@ function createListenSession(deps) {
   }
 }
 
-module.exports = {
+module.exports = { addSpan, spanCovered,
   MONITOR_LATENCY, EVIDENCE_PAD, MIN_CONFIDENCE,
   learnedKey, songTimeAt, chunkStart, applyLearned, recordLearned, withOffset, createListenSession
 }

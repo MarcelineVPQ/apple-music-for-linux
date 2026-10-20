@@ -80,9 +80,11 @@ function learnState(lyrics, aligned, canAlign, hasWords, notesMissing) {
 
 /**
  * The delay for a song, decided once at its start (never mid-song): first plays only.
- * s: { on, ok (helper running, stream routed), video, viewOpen (a lyric view: lyrics window, Studio,
- * visualizer), learn (learnState), engine ('ready' | 'old' | 'cpu' | 'off' | 'unknown' | 'busy'),
- * gpuBusy (a game or other work on the graphics card), ms (the chosen delay) }
+ * s: { on, ok (helper running, stream routed), video, learn (learnState), engine ('ready' | 'old' | 'cpu' | 'off' |
+ * 'unknown' | 'busy'), gpuBusy (the gaming guard's pause: 'game' | 'gpu' (other work on the graphics card) | false),
+ * ms (the chosen delay) }
+ * 0.15.70 (Marcy): every song not learned yet gets it, with or without a lyrics window or the Studio open (the
+ * song is learned either way: main's feed runs while look-ahead does); only real reasons say no.
  * -> { ms, why }   why says what the status line tells
  */
 function decide(s) {
@@ -91,8 +93,7 @@ function decide(s) {
   if (s.video) return { ms: 0, why: 'video' }
   if (s.learn === 'learned') return { ms: 0, why: 'learned' }
   if (s.learn === 'nothing') return { ms: 0, why: 'nothing' }
-  if (!s.viewOpen) return { ms: 0, why: 'no-view' }
-  if (s.gpuBusy) return { ms: 0, why: 'gpu-busy' }
+  if (s.gpuBusy) return { ms: 0, why: s.gpuBusy === 'game' ? 'gaming' : 'gpu-busy' }
   if (s.engine !== 'ready') return { ms: 0, why: 'engine-' + (s.engine || 'unknown') }
   return { ms: s.ms, why: s.learn === 'unknown' ? 'first' : s.learn }
 }
@@ -114,8 +115,10 @@ const WHY_TEXT = {
   learned: 'No delay: this song is learned',
   nothing: 'No delay: nothing to learn in this song',
   video: 'No delay: music videos are never delayed',
-  'no-view': 'No delay: no lyrics window is open',
-  'gpu-busy': 'No delay: graphics card busy (section timing instead)',
+  gaming: 'No delay: a game is running (Precise timing paused)',
+  'gpu-busy': 'No delay: the graphics card is busy (Precise timing paused)',
+  updating: 'No delay: the timing helper is being updated',
+  'needs-precise': 'No delay: needs Precise word timing on',
   'engine-cpu': 'No delay: needs a graphics card (section timing instead)',
   'engine-old': 'No delay: the timing helper needs an update',
   'engine-off': 'No delay: needs Precise word timing on',
@@ -230,8 +233,10 @@ function cleanEvent(m) {
 // --- the helper's control line ---
 
 /**
- * One connection to the helper's control socket. Replies come in order; "ev" lines go to onEvent.
- * deps: { net } -> { ready (Promise), cmd(line) -> Promise<fields>, onEvent(fn), onClose(fn), close() }
+ * One connection to the helper's control socket. Replies come in order, one per command; "ev" lines go to onEvent.
+ * A command whose reply is late (REPLY_MS) is rejected but keeps its place in the queue, so its late reply is
+ * dropped instead of answering the next command (QC 2026-10 #3: a stat taking an open's "ok t=").
+ * deps: { net, replyMs? } -> { ready (Promise), cmd(line) -> Promise<fields>, onEvent(fn), onClose(fn), close() }
  * lifetime: OK — one socket; closed by close() or by the helper's exit (then onClose)
  */
 function createDelayLine(socketPath, deps) {
@@ -260,7 +265,7 @@ function createDelayLine(socketPath, deps) {
       buf = buf.slice(nl + 1)
       const f = parseLine(line)
       if (f.kind === 'ev') evFn(f)
-      else { const w = waiting.shift(); if (w) { clearTimeout(w.timer); w.resolve(f) } }
+      else { const w = waiting.shift(); if (w && !w.late) { clearTimeout(w.timer); w.resolve(f) } }
     }
   })
   // error: NOT-WORTH — a socket error ends the line; its 'close' follows and the controller falls back (shown)
@@ -269,7 +274,7 @@ function createDelayLine(socketPath, deps) {
   sock.on('close', () => {
     closed = true
     // loop: NOT-WORTH — the commands still waiting (≤ a few)
-    for (const w of waiting.splice(0)) { clearTimeout(w.timer); w.reject(new Error('helper gone')) }
+    for (const w of waiting.splice(0)) { clearTimeout(w.timer); if (!w.late) w.reject(new Error('helper gone')) }
     closeFn()
   })
   return {
@@ -278,7 +283,8 @@ function createDelayLine(socketPath, deps) {
       if (closed) return Promise.reject(new Error('helper gone'))
       return new Promise((resolve, reject) => {
         // lifetime: OK — one-shot reply timeout, cleared by the reply or the close
-        const w = { resolve, reject, timer: setTimeout(() => { const i = waiting.indexOf(w); if (i >= 0) waiting.splice(i, 1); reject(new Error('no reply to ' + line)) }, REPLY_MS) }
+        // a late reply still comes in order: the slot stays (late) and drops it when it lands
+        const w = { resolve, reject, late: false, timer: setTimeout(() => { w.late = true; reject(new Error('no reply to ' + line)) }, deps.replyMs || REPLY_MS) }
         waiting.push(w)
         sock.write(line + '\n')
       })
@@ -307,7 +313,8 @@ function createDelayLine(socketPath, deps) {
  */
 function createLookahead(deps) {
   const log = deps.log || (() => {})
-  let phase = 'off'          // off | starting | on | failed
+  let phase = 'off'          // off | starting | on | stopping (stop() until the helper exits) | failed
+  let startAfterStop = false // start() came while the old helper was still exiting (QC 2026-10 #9)
   let failure = ''
   let child = null
   let line = null
@@ -339,6 +346,8 @@ function createLookahead(deps) {
 
   function start() {
     if (phase === 'starting' || phase === 'on') return
+    // a quick off and on: the old helper still owns the socket; this start runs when it has exited (gone)
+    if (phase === 'stopping') { startAfterStop = true; return }
     stopping = false
     phase = 'starting'
     failure = ''
@@ -416,7 +425,12 @@ function createLookahead(deps) {
     if (child !== c) return
     child = null
     if (line) { line.close(); line = null }
-    if (stopping) { phase = 'off'; changed(); return }
+    if (stopping) {
+      phase = 'off'
+      changed()
+      if (startAfterStop) { startAfterStop = false; start() }
+      return
+    }
     fail(exitText(code, signal))
     if (restarts < MAX_RESTARTS) {
       restarts++
@@ -601,7 +615,9 @@ function createLookahead(deps) {
     }
     heardUs = 0
     song = { ms: 0, why: 'off', anchor: null, key: '' }
-    phase = child ? phase : 'off'
+    // the helper's exit (gone) ends it: meanwhile no page event routes the stream back onto its sink
+    phase = child ? 'stopping' : 'off'
+    startAfterStop = false
     changed()
   }
 

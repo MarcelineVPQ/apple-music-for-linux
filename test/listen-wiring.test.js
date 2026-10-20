@@ -275,3 +275,28 @@ test('listener: stream comes back after a track change -> new parec on the new i
   l.stop()
   assert.equal(env.procs[1].killed, true)
 })
+
+// QC 2026-10 LIFETIME T1: the noise gate's onsets grew with every replay and seek back (duplicates skewed its rate)
+test('session: the noise gate counts each song time once: a seek back or a replay adds no onsets', () => {
+  const seen = []
+  const f = fakeSession({ noiseRate: (onsets) => { seen.push(onsets.length); return { rate: null } } })
+  f.session.setLyrics('Song|Band', 'Song', 'Band', LINES, true)
+  const pass = (wall0) => {
+    f.setNow(wall0); f.session.tick(0.5, true, true)
+    // loop: NOT-WORTH — a test's few chunks
+    for (let wall = wall0 + 1000; wall <= wall0 + 5000; wall += 1000) {
+      f.setNow(wall)
+      f.listeners[f.listeners.length - 1].opts.onChunk(new Float32Array(22050), wall)
+      f.session.tick(0.5 + (wall - wall0) / 1000, true, true)
+    }
+  }
+  pass(0)
+  const once = f.session.noiseOnsets
+  assert.ok(once > 0)
+  pass(100000)                                         // back to the start: the same song time again
+  assert.equal(f.session.noiseOnsets, once, 'no duplicates')
+  assert.deepEqual(S.addSpan([[0, 5]], 5.1, 8), [[0, 8]])
+  assert.deepEqual(S.addSpan([[0, 5]], 20, 21), [[0, 5], [20, 21]])
+  assert.equal(S.spanCovered([[0, 8]], 2, 3), true)
+  assert.equal(S.spanCovered([[0, 8]], 7.5, 9), false)
+})

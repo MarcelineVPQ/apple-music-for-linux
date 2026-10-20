@@ -15,6 +15,7 @@
   // `kscreen-doctor -o` -> [{ name, enabled, connected, hdr, sdrNits, peakNits, x, y, width, height, scale }]
   function parseKscreen(text) {
     const clean = String(text || '').replace(ANSI, '')
+    // loop: NOT-WORTH — kscreen outputs (1-4) and their lines, once per kscreen-doctor read (start, About)
     return clean.split(/^Output:/m).slice(1).flatMap((block) => {
       const name = (/^\s*\d+\s+(\S+)/.exec(block) || [])[1]
       if (!name) return []
@@ -53,9 +54,11 @@
     if (!b || !screens || !screens.length) return null
     const cx = b.x + b.width / 2
     const cy = b.y + b.height / 2
+    // loop: NOT-WORTH — the screens (1-4), per lyric window load/move (300 ms debounce) or screen change
     const inside = screens.find((s) => cx >= s.x && cx < s.x + s.width && cy >= s.y && cy < s.y + s.height)
     if (inside) return inside
     const area = (s) => Math.max(0, Math.min(b.x + b.width, s.x + s.width) - Math.max(b.x, s.x)) * Math.max(0, Math.min(b.y + b.height, s.y + s.height) - Math.max(b.y, s.y))
+    // loop: NOT-WORTH — copy + sort of the screens (1-4), per lyric window load/move or screen change
     const best = screens.slice().sort((p, q) => area(q) - area(p))[0]
     return area(best) > 0 ? best : null
   }

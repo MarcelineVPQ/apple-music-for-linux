@@ -428,3 +428,70 @@ test('processor only: the idle helper (its models: ~3 GB) quits after the short 
   clock.advance(2000)
   await waitFor(() => !h.running, 3000)
 })
+
+test('pongs (QC #3): a timed-out ping\'s late pong is dropped, never taken as the next ping\'s answer', async () => {
+  const { EventEmitter } = require('events')
+  const timers = []
+  let c = null
+  const spawn = () => {
+    c = new EventEmitter()
+    c.pid = 0
+    c.stdout = new EventEmitter(); c.stdout.setEncoding = () => {}
+    c.stderr = new EventEmitter(); c.stderr.setEncoding = () => {}
+    c.stdin = new EventEmitter(); c.stdin.write = () => true
+    c.kill = () => {}                                     // the hung helper doesn't exit yet
+    return c
+  }
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {} }, {
+    spawn, isInstalled: () => true, setPriority: () => {},
+    setTimeout: (fn, ms) => { const t = { fn, ms, unref () {} }; timers.push(t); return t },
+    clearTimeout: (t) => { if (t) t.cleared = true }
+  })
+  const pong = (features) => c.stdout.emit('data', JSON.stringify({ type: 'pong', protocol: 2, version: '0.2.0', device: 'cpu', models: {}, features }) + '\n')
+  const first = h.ping()
+  await new Promise((r) => setImmediate(r))
+  timers.filter((t) => !t.cleared && t.ms === 60000).forEach((t) => { t.cleared = true; t.fn() })   // loop: NOT-WORTH — a test
+  await assert.rejects(first, /timed out/)
+  const second = h.ping()
+  await new Promise((r) => setImmediate(r))
+  pong(['old'])                                           // the first ping's answer, late
+  pong(['new'])
+  assert.deepEqual((await second).features, ['new'])
+})
+
+// QC 2026-10 (Marcy, a pause during a look-ahead stream): a job queued behind the stream timed out and killed the helper
+test('stream: a job queued behind a stream is not hung; a paused stream stays alive', async () => {
+  const { EventEmitter } = require('events')
+  const timers = []
+  let c = null
+  let kills = 0
+  const spawn = () => {
+    c = new EventEmitter()
+    c.pid = 0
+    c.stdout = new EventEmitter(); c.stdout.setEncoding = () => {}
+    c.stderr = new EventEmitter(); c.stderr.setEncoding = () => {}
+    c.stdin = new EventEmitter(); c.stdin.write = () => true
+    c.kill = () => { kills++ }
+    return c
+  }
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {}, jobTimeoutMs: 1000 }, {
+    spawn, isInstalled: () => true, setPriority: () => {},
+    setTimeout: (fn, ms) => { const t = { fn, ms, unref () {} }; timers.push(t); return t },
+    clearTimeout: (t) => { if (t) t.cleared = true }
+  })
+  const fire = (ms) => timers.filter((t) => !t.cleared && t.ms === ms).forEach((t) => { t.cleared = true; t.fn() })   // loop: NOT-WORTH — a test
+  const st = h.stream('l1', { song: 's1', lines: [{ t: 1, text: 'a' }], lead: 3, duration: 10, rate: 22050 }, () => {})
+  const job = h.align('a1', [{ cmd: 'align', id: 'a1', lines: [] }])
+  let failed = null
+  job.catch((e) => { failed = e })
+  st.done.catch(() => {})
+  await new Promise((r) => setImmediate(r))
+  fire(1000)                                           // the section job's quiet limit, while the stream runs
+  await new Promise((r) => setImmediate(r))
+  assert.equal(failed, null, 'still waiting behind the stream')
+  assert.equal(kills, 0, 'the helper is not killed')
+  const before = timers.filter((t) => !t.cleared && t.ms === 70000).length
+  st.alive()                                           // paused: the stream's quiet limit restarts
+  assert.equal(timers.filter((t) => !t.cleared && t.ms === 70000).length, before)
+  assert.ok(timers.some((t) => t.ms === 70000 && t.cleared), 'the old limit was cleared')
+})

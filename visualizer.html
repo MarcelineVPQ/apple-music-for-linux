@@ -145,6 +145,7 @@
   addEventListener('resize', resize); resize()
 
   // --- realtime band data + derived audio metrics ---
+  // cache: OK — key=band index; invalidated=re-sliced when the band count changes; bound=band count (~48)
   let bands = [], shown = []
   window.__frames = 0
   ipcRenderer.on('viz-bands', (e, b) => { bands = b; window.__frames++; if (shown.length !== b.length) shown = b.slice() })
@@ -168,6 +169,7 @@
       if (beat.last) {
         beat.intervals.push(now - beat.last)
         if (beat.intervals.length > 8) beat.intervals.shift()
+        // loop: HOT-PATH-OK — copy + sort of ≤ 8 intervals per detected beat (≤ 4/s), not per frame
         const s = [...beat.intervals].sort((x, y) => x - y)
         const med = s[s.length >> 1]
         const b = 60000 / med
@@ -300,6 +302,7 @@
   if (STAGE.missing.length) console.error('visualizer: stage colours missing from theme.css:', STAGE.missing.join(' '))
   const glow = (x, y, radius, c, hue) => PAINT.glow(ctx, x, y, radius, c, hue)
   // lifetime: OK — 2 gradients per band, rebuilt only when the band count changes; kept for the window's life
+  // cache: OK — key=band count; invalidated=rebuilt when it changes (fixed stage colours); bound=one set, 2 per band
   let barPaint = null
 
   // --- helpers ---

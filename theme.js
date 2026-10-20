@@ -22,6 +22,7 @@
     const n = parseInt(m[1], 16)
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
   }
+  // loop: NOT-WORTH — 3 channels, per themeTokens call: only when render()'s key changes (track/theme)
   const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t)
   const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
   const lum = (rgb) => 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
@@ -30,6 +31,7 @@
     return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
   }
   // translucent layers ([rgb, alpha], bottom first) over a backdrop colour
+  // loop: NOT-WORTH — 1-3 layers, per contrast step in themeTokens (on a track/theme change only)
   const stack = (backdrop, layers) => layers.reduce((acc, l) => acc.map((v, i) => l[0][i] * l[1] + v * (1 - l[1])), backdrop)
   const WHITE = [255, 255, 255]
   const BLACK = [0, 0, 0]
@@ -45,6 +47,7 @@
     // loop: NOT-WORTH — 2 backdrops (the extremes)
     return Math.min(...(backdrops || [WHITE, BLACK]).map((b) => contrast(text, stack(b, layers))))
   }
+  // loop: NOT-WORTH — per token when the theme is computed (render key changed), N = 3-4 channels
   const css = (rgb, a) => 'rgba(' + rgb.map((v) => Math.round(v)).join(',') + ',' + (a === undefined ? 1 : +a.toFixed(3)) + ')'
 
   // --- the base palette (the only literal colours in Sonata's own UI, with theme.css's first-paint copy) ---
@@ -85,6 +88,7 @@
     // the panel / card material: Glass over the artwork backdrop, else solid
     // the backdrop's darkest and lightest pixel, in colour when known (makeBackdrop's lo / hi: a
     // coloured pixel under a coloured word matters, 0.15.33), else greys of those luminances
+    // loop: NOT-WORTH — 3 channels, once per themeTokens call (track/theme change)
     const okRgb = (c) => Array.isArray(c) && c.length === 3 && c.every((v) => Number.isFinite(v))
     const bd = o.glass && o.backdrop && Number.isFinite(o.backdrop.lumMin) && Number.isFinite(o.backdrop.lumMax)
       ? (okRgb(o.backdrop.lo) && okRgb(o.backdrop.hi) ? [o.backdrop.lo, o.backdrop.hi, greyOf(o.backdrop.lumMin), greyOf(o.backdrop.lumMax)] : [greyOf(o.backdrop.lumMin), greyOf(o.backdrop.lumMax)]) : null
@@ -345,6 +349,7 @@
     // loop: HOT-PATH-OK — 1,600 pixels, once per track change
     for (let i = 0; i < w * h; i++) {
       const [hh, s, l] = rgbToHsl(px[i * 3], px[i * 3 + 1], px[i * 3 + 2])
+      // loop: NOT-WORTH — 3 channels per pixel (1,600 px x 2 modes), once per track change in main (~3-6 ms)
       const c = hslToRgb(hh, Math.min(1, s), band[0] + l * (band[1] - band[0])).map((v) => Math.round(Math.max(0, Math.min(255, v))))
       const L = lum(c)
       if (L < lumMin) { lumMin = L; lo = c }

@@ -22,6 +22,7 @@ const GAP_MS = 15 * 1000
  */
 function createCpuSampler(deps) {
   const windowMs = deps.windowMs || WINDOW_MS
+  // cache: OK — key=reading time; invalidated=pruned to WINDOW_MS (+1) per sample, reset after a 15 s gap; bound=≤ ~61 readings
   let readings = []     // [{ t, list, procs: Map pid -> { type, s } }]
 
   function sample() {

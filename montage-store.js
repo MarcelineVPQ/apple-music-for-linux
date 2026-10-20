@@ -55,6 +55,7 @@ function createImageStore(opts) {
   }
   function prune(keep) {
     if (total <= maxBytes && index.size <= maxFiles) return
+    // loop: NOT-WORTH — sort of ≤ maxFiles (400) entries, only when a put pushes the cache over a bound
     const old = [...index.entries()].filter(([n]) => n !== keep).sort((a, b) => a[1].used - b[1].used)
     // loop: NOT-WORTH — ≤ maxFiles entries, only when a new photo pushed the cache over a bound
     for (const [n] of old) {
@@ -72,7 +73,7 @@ function createImageStore(opts) {
       const t = now()
       index.get(n).used = t
       try { io.utimesSync(p, t / 1000, t / 1000) } catch (e) { /* error: NOT-WORTH — the file went missing: dropped below */
-        index.delete(n); return null
+        drop(n); return null   // its bytes leave the total too (QC 2026-10 CACHE C5: the total drifted up)
       }
       return p
     },

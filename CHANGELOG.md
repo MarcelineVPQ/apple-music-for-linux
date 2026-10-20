@@ -7,6 +7,34 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+- **Look-ahead in album play starts with the song.** The timing helper does one job at a time, so the last song's end-of-song measurement made the next song's look-ahead wait 16-20 s, past most songs' first lines; that measurement now waits until the next song's look-ahead is running.
+- **Look-ahead survives a pause.** Pausing a song while look-ahead streamed it could end the timing helper a couple of minutes later (another part's job, waiting its turn behind the stream, was taken for a hung helper), so the song fell back to section timing with a mismatched notes band. Waiting jobs now wait, and a paused stream stays open.
+- **The notes band no longer shows another part's syllables at the playhead.** With look-ahead, a line the timing helper placed at another repeat of a chorus brought that part's notes and syllable labels; a streamed line's notes are now kept only where they sit on the line's own time in the lyrics (Apple's word times or the line times), the rest come with the pass after the song.
+- **One set of notes per line on a first play.** When look-ahead's stream stopped and the song's sections were timed instead, the band could show the stream's notes and the sections' for the same lines; a section's notes now replace the streamed ones it covers.
+- **No jump when a song resumes.** After a pause (with look-ahead especially) the lyrics and the band snapped back by a fraction of a second at the resume; they now go on from where they stood and take up the difference unseen.
+- **Starting offline says so.** When Apple Music couldn't load (no connection at start), its area stayed blank with no word; now a notice says what happened, with Try again, and Sonata tries again by itself every 20 seconds.
+- Last.fm and Discord's Connect now say so when their settings file can't be written, instead of doing nothing.
+- **A quick skip no longer keeps the previous song's colours.** When the next song started while the artwork was still loading, the previous song's album tint and Glass backdrop could stay for the whole next song.
+- **Liner notes: a page turn during a resize or new data no longer shows stale pages.** The booklet could end on wrong-size pages, out of step with its page count, until the next turn.
+- Global shortcuts on Wayland: a failed start of the desktop's shortcut session now uses one of its three automatic tries, not two.
+- Experimental graphics: quitting normally after one early graphics crash no longer counts against the switch (two such sessions turned it off with a notice saying they hadn't been quit).
+- **Check for updates finds a release published minutes ago.** It read the update feed through GitHub's file cache, which keeps it up to 5 minutes, so a check right after a release said up to date; a check you ask for now reads it fresh (automatic checks still use the cache). The signature check is unchanged.
+- **Look-ahead: the heard delay no longer drops out after a slow moment.** When the timing helper answered a command late (Sonata busy for over 2 s), every later answer was taken as the reply to the command after its own, so the lyrics and the notes band jumped by the delay and back at each pause, seek or skip until the helper restarted. A late answer is now dropped; the same for the Precise timing helper's status answers.
+- **A song starting again starts its lyrics at once.** Previous more than a few seconds in, a scrub back to 0:00 or Repeat one made the lyrics, the notes band and the Expressive effects run on from the old position for 1.5 s before jumping to the start, and Precise timing could record the song's opening at the old position. Only a jump to the start in a song's last seconds (the next song coming) still waits for the song change, and nothing is recorded meanwhile.
+- **A stalled song holds its lyrics still.** When Apple's player froze while still saying it plays (buffering, the last second of a song), the lit words ran ahead and went dark again every second or so; the clock now sees the frozen time and waits.
+- **Expressive words no longer say "measuring" when nothing runs.** A song whose end-of-song measurement was dropped (the next song came first on a slow PC), skipped while a game ran, or whose timing failed kept saying it was measuring every time it came back that session. The timing helper is now also told to drop that song's kept audio parts.
+- **No doubled vocalise ghosts on a replay.** Playing a song again after leaving it part-way could draw its wordless vocalise ghosts twice (stacked, more opaque), and lyrics that changed source in between could get another text's expression.
+- **Wordless vocalise that arrives during a ghost is no longer lost.** On a first play, the vocalise ghosts measured while another "ooo" was showing never appeared for the rest of the song.
+- **Look-ahead switched off and quickly on again runs again.** It stayed off with the switch on (also after Precise timing off and on), and the audio could be moved back onto the closing look-ahead device for a moment.
+- **Look-ahead for every song not learned yet, lyrics window open or not.** It used to apply only when a lyrics window or the Studio was open as the song started ("No delay: no lyrics window is open"); now every song still missing its timing, notes or expression plays behind and is learned, and learned songs still start at once. When it can't apply the line says exactly why: a game running, the graphics card busy, the timing helper starting or being updated, a music video. After the helper's update the next song gets it.
+- The log no longer says a graphics card's timing helper runs "on the processor → first plays timed after the song".
+- **Refine by listening no longer grows its memory on repeat.** With Repeat one, replays or seeking back, it kept every sound onset it heard again (about half a megabyte an hour), and the repeats skewed its noise check; each moment of the song now counts once.
+- **Sonata does less while it sits in the tray.** Once Settings or About had been opened, it rebuilt the panel's whole contents every 5 s even with the window hidden; now it waits until the panel can be seen.
+- **HDR glow makes less garbage per sung word.** Its measuring and painting canvases and its graphics texture are now reused instead of made anew for every word.
+- **The Studio's notes band gets only the new pitch line parts.** With look-ahead each line's pitch made Sonata send the whole song's pitch so far again, more for every line.
+- The Montage's photo cache no longer counts photos that vanished from its folder, which made it drop others too early.
+
 ## [0.15.71-dev.1] — Songs keep refining their notes and expressions until they're complete
 
 ### Added

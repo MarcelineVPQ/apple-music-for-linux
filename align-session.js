@@ -67,6 +67,7 @@ const splitWords = T.splitWords
 /** FNV-1a 32 over the lyric texts: the cache entry is only used for the same lyrics. */
 function lyricsHash(lines) {
   let h = 0x811c9dc5
+  // loop: NOT-WORTH — the song's lines (tens) · per track change (entryFor, setLyrics, prepareLines), not per tick
   const s = (lines || []).map((l) => String((l && l.text) || '')).join('\n')
   // loop: NOT-WORTH — one pass over the lyrics' characters (a few KB) · per track change
   for (let i = 0; i < s.length; i++) {
@@ -86,6 +87,7 @@ function lyricsHash(lines) {
 
 /** The lyric lines without their timing (t: null; no end, no words): what the views show un-highlighted. */
 function untimed(raw) {
+  // loop: NOT-WORTH — the song's lines (tens) · once per track change, only for lyrics timed for another version
   return (raw || []).map((l) => {
     const out = { t: null, text: String((l && l.text) || '') }
     if (l && l.agent) out.agent = l.agent
@@ -95,6 +97,7 @@ function untimed(raw) {
 
 /** Lyrics with some words: the songs the plain-lyrics mode can align (line times not needed). */
 function canAlignPlain(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics plain path)
   return !!raw && raw.length > 0 && !T.hasWordTiming(raw) && raw.some((l) => splitWords(l && l.text).length)
 }
 
@@ -110,14 +113,18 @@ const PLAIN_LINE_GAP = 3      // s between unaligned lines before the first / af
  */
 function plainTimed(lines, entry) {
   if (!entry || !entry.plain || !entry.lines || !Array.isArray(lines) || !lines.length) return null
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const at = lines.map((line, i) => {
     const a = entry.lines[i]
     if (!a || a.text !== line.text || !Array.isArray(a.words) || !a.words.length) return null
     return { t: a.words[0].t, end: a.words[a.words.length - 1].end }
   })
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const known = at.map((a, i) => (a ? i : -1)).filter((i) => i >= 0)
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const wordy = lines.filter((l) => splitWords(l.text).length).length
   if (known.length < Math.max(2, PLAIN_MIN_SHARE * wordy)) return null
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const t = at.map((a) => (a ? a.t : null))
   const first = known[0], last = known[known.length - 1]
   const r3 = (v) => Math.round(v * 1000) / 1000
@@ -131,6 +138,7 @@ function plainTimed(lines, entry) {
     const from = at[a].end, to = at[b].t
     for (let i = a + 1; i < b; i++) t[i] = r3(from + (to - from) * (i - a) / (b - a))
   }
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   return lines.map((line, i) => {
     const out = { t: t[i], text: line.text }
     if (line.agent) out.agent = line.agent
@@ -142,6 +150,7 @@ function plainTimed(lines, entry) {
 
 /** Line-synced lyrics without word timing, with some text: the songs alignment can improve. */
 function canAlign(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics)
   return !!raw && raw.length > 0 && raw[0].t != null && !T.hasWordTiming(raw) && raw.some((l) => splitWords(l.text).length)
 }
 
@@ -159,6 +168,7 @@ function fitToSong(span, secs, duration) {
 }
 
 function lyricSpan(lines) {
+  // loop: NOT-WORTH — the song's lines (tens) · once per track change (setLyrics)
   const synced = (lines || []).filter((l) => l.t != null)
   if (!synced.length) return null
   const last = synced[synced.length - 1]
@@ -168,6 +178,7 @@ function lyricSpan(lines) {
 
 // lyrics whose words are the same under the version-2 split (white space only)
 function noHyphenRuns(lines) {
+  // loop: NOT-WORTH — the song's lines (tens), only for a version-2 entry · per track change (validEntry)
   return (lines || []).every((l) => splitWords(l && l.text).length === String((l && l.text) || '').split(/\s+/).filter(Boolean).length)
 }
 
@@ -185,6 +196,7 @@ function validEntry(entry, hash, raw) {
 function applyAligned(lines, entry) {
   if (!entry || !entry.lines || !lines) return { lines, used: false }
   let used = false
+  // loop: NOT-WORTH — the song's lines × their words (hundreds) · once per track change or resend (prepareLines)
   const out = lines.map((line, i) => {
     const a = entry.lines[i]
     if (!a || a.text !== line.text) return line
@@ -235,6 +247,7 @@ function createSongBuffer(opts = {}) {
   const maxFrames = Math.round((opts.maxSeconds || MAX_SECONDS) * rate)
   const blockFrames = Math.round((opts.blockSeconds || BLOCK_SECONDS) * rate)
   // lifetime: the blocks live until clear() (after the hand-over, track change, close or quit)
+  // cache: OK — key=10 s block index; invalidated=clear() in wrapUp (every finish/stop path); bound=90 × 882 KB (79 MB)
   let blocks = new Map()        // block index -> Buffer
   let covered = []              // [[startFrame, endFrame)], sorted, merged
 
@@ -339,6 +352,7 @@ function streamedMessage(raw, got) {
     const line = Number.isInteger(i) ? raw[i] : null
     if (!line || !Array.isArray(g.words)) continue
     const parts = splitWords(line.text)
+    // loop: HOT-PATH-OK — one line's words (≤ ~15) · per stream 'words' message (one per 0.25 s hop) while a look-ahead song plays
     const words = g.words.map((w, k) => {
       const t = Number(w && w.t)
       const end = Number(w && w.end)
@@ -359,6 +373,7 @@ function streamedMessage(raw, got) {
 
 /** The lyric lines as the helper wants them: the original anchors (never estimates) and text. */
 function requestLines(raw) {
+  // loop: NOT-WORTH — the song's or section's lines (tens) · once per helper job (submit/stream), not per frame
   return raw.map((l) => {
     const r = { t: l.t, text: String(l.text || '') }
     if (l.end != null) r.end = l.end
@@ -411,9 +426,11 @@ function entryFromResult(result, raw, heard, meta = {}) {
       continue
     }
     const parts = splitWords(line.text)
+    // loop: NOT-WORTH — one line's words (≤ ~15) · once per alignment result
     if (r.words.length !== parts.length || r.words.some((w, k) => w.text !== parts[k])) continue
     let prev = -Infinity
     let ok = true
+    // loop: NOT-WORTH — one line's words (≤ ~15) · once per alignment result
     const words = r.words.map((w) => {
       const t = Number(w.t)
       let end = Number(w.end)
@@ -441,6 +458,7 @@ function entryFromResult(result, raw, heard, meta = {}) {
     lyricsHash: lyricsHash(raw),
     duration: meta.duration || 0,
     aligned: n,
+    // loop: NOT-WORTH — the song's lines (tens) · once per alignment result
     total: raw.filter((l) => splitWords(l.text).length).length,
     lines,
     rejected
@@ -458,7 +476,9 @@ function entryFromResult(result, raw, heard, meta = {}) {
 
 /** A job's separation + emissions + alignment seconds from the helper's stats (model loading left out), or null. */
 function jobSeconds(st) {
+  // loop: NOT-WORTH — 3 stats fields · once per alignment result
   const parts = ['separate_s', 'emissions_s', 'align_s'].map((k) => Number(st && st[k])).filter(Number.isFinite)
+  // loop: NOT-WORTH — ≤ 3 numbers · once per alignment result
   return parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : null
 }
 
@@ -478,6 +498,7 @@ function curiousFields(prev, add) {
 function rejectedNote(rejected, raw) {
   if (!rejected || !rejected.length) return ''
   const text = (i) => { const t = String((raw[i] && raw[i].text) || ''); return t.length > 40 ? t.slice(0, 39) + '…' : t }
+  // loop: NOT-WORTH — the rejected lines (a handful) · one log line per alignment result
   return ' · rejected: ' + rejected.map((r) => 'line ' + (r.line + 1) + ' (' + r.confidence.toFixed(2) + ') "' + text(r.line) + '"').join(', ')
 }
 
@@ -504,6 +525,7 @@ function sections(raw) {
   // loop: NOT-WORTH — the song's lines, then its blocks and sections · per song
   for (let i = 0; i < (raw || []).length; i++) if (raw[i].t != null && splitWords(raw[i].text).length) idx.push(i)
   if (!idx.length) return []
+  // loop: NOT-WORTH — the song's interludes (a few) · once per track change (sections)
   const gaps = new Set(T.findInterludes(raw).map((g) => g.index))
   const blocks = [[]]
   for (const i of idx) {
@@ -539,6 +561,7 @@ function finalMessages(id, raw, song, notes) {
  * (on the aligner's 20 ms frame grid, so the helper can stitch the sections without a shift). */
 function sectionRequest(raw, sec, first) {
   const offset = first ? 0 : Math.max(0, Math.round(Math.floor((sec.start - SECTION_PRE) / FRAME + 1e-9) * FRAME * 1000) / 1000)
+  // loop: NOT-WORTH — one section's lines (≤ 8) · once per section job
   const lines = requestLines(raw.slice(sec.from, sec.to + 1)).map((l) => {
     const r = { t: Math.max(0, l.t - offset), text: l.text }
     if (l.end != null) r.end = l.end - offset
@@ -555,6 +578,7 @@ function sectionResult(result, sec, offset) {
     if (!r || !Number.isInteger(r.line)) continue
     lines.push(Object.assign({}, r, {
       line: sec.from + r.line,
+      // loop: NOT-WORTH — one line's words (≤ ~15) per result line · once per section result
       words: Array.isArray(r.words) ? r.words.map((w) => Object.assign({}, w, { t: Number(w.t) + offset, end: Number(w.end) + offset })) : r.words
     }))
   }
@@ -585,6 +609,7 @@ function gapsAfter(prev, add, covered, lines) {
   const missed = new Set([...((prev && prev.missed) || []), ...covered])
   for (const k of Object.keys(lines)) { rejected.delete(+k); missed.delete(+k) }
   for (const i of rejected.keys()) missed.delete(i)
+  // loop: NOT-WORTH — the song's rejected and missed lines (a handful) · once per alignment result
   return { rejected: [...rejected.values()].sort((a, b) => a.line - b.line), missed: [...missed].sort((a, b) => a - b) }
 }
 
@@ -594,6 +619,7 @@ function gapsAfter(prev, add, covered, lines) {
  */
 function mergeEntry(prev, add, sec, total, raw) {
   const lines = Object.assign({}, add.lines, (prev && prev.lines) || {})
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per section result
   const done = [...new Set([...((prev && prev.done) || []), sec.from])].sort((a, b) => a - b)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, sec.from, sec.to), lines) : {}
   const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total, whole: !!(prev && prev.whole) })
@@ -605,6 +631,7 @@ function mergeEntry(prev, add, sec, total, raw) {
 function mergeWhole(prev, add, secs, raw) {
   const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, 0, raw.length - 1), lines) : {}
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per whole-song result
   const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
   delete merged.firstAt; delete merged.workS
   return Object.assign(merged, curiousFields(prev, add))
@@ -633,6 +660,7 @@ function withOffset(entry, raw) {
 function refillSections(entry, secs) {
   if (!entry || !Array.isArray(entry.missed) || !entry.missed.length || (entry.fills || 0) >= MAX_FILLS) return []
   const missed = new Set(entry.missed)
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per track change, only for an entry with missed lines
   return secs.filter((sec) => (entry.done || []).includes(sec.from) && missedIn(missed, sec))
 }
 function missedIn(missed, sec) {
@@ -651,6 +679,7 @@ function missedIn(missed, sec) {
 
 /** Line-synced lyrics with their own word timing and words: the songs whose notes come from given times. */
 function canGiveNotes(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics)
   return !!raw && raw.length > 0 && raw[0].t != null && T.hasWordTiming(raw) && raw.some((l) => Array.isArray(l && l.words) && l.words.length)
 }
 
@@ -663,6 +692,7 @@ function canGiveNotes(raw) {
  */
 const GIVEN_REACH_S = 1.0   // how far a given word's end may reach towards the next word (givenSyllables)
 function givenSyllables(raw, hyphenate) {
+  // cache: NOT-WORTH — key=none (a local array returned per call); invalidated=new each call; bound=the song's syllables
   const rows = []
   const r3 = (v) => Math.round(v * 1000) / 1000
   // loop: NOT-WORTH — the song's lines, words and syllables (hundreds), once per song
@@ -682,6 +712,7 @@ function givenSyllables(raw, hyphenate) {
       })
     })
   }
+  // loop: NOT-WORTH — sort of the song's or section's syllables (hundreds) · once per notes/section-notes job
   rows.sort((a, b) => a.t - b.t || a.line - b.line || a.word - b.word || a.syl - b.syl)
   // a word's last syllable reaches on to the next syllable's start (at most GIVEN_REACH_S more): the lyrics'
   // own word times (Apple's) often end before the held note does, and the helper gives a note to the syllable
@@ -707,6 +738,7 @@ function givenSyllables(raw, hyphenate) {
 function sectionGiven(raw, entry, sec, hyphenate) {
   const from = sec.from
   const to = sec.to
+  // loop: NOT-WORTH — the song's lines (tens) · once per section-notes job
   const own = (raw || []).map((l, i) => {
     if (i < from || i > to || !l) return null
     const e = entry && entry.lines && entry.lines[i]
@@ -715,6 +747,7 @@ function sectionGiven(raw, entry, sec, hyphenate) {
   })
   const syllables = givenSyllables(own, hyphenate)
   if (!syllables.length) return null
+  // loop: NOT-WORTH — one section's syllables (≤ ~100) · once per section-notes job
   const span = [Math.round((syllables[0].t - 0.05) * 1000) / 1000, Math.round((Math.max(...syllables.map((x) => x.end)) + 0.3) * 1000) / 1000]
   return { syllables, lines: requestLines(raw || []), span }
 }
@@ -770,6 +803,40 @@ function givenNotesMessages(id, song, raw, syllables, pcm, opts = {}) {
  * every section was aligned) and sent to the views. A section that wasn't heard (seek) is left out;
  * a partial entry is completed on a later play.
  */
+// A streamed line's notes are measured on the engine's own alignment of that line. In a song with repeated choruses
+// it can place a line at another repeat (Marcy 2026-10-19, "After Midnight": the band showed syllables of other
+// parts at the playhead), and then its notes are another part's audio too. -> whether the part sits on its line's
+// own span in the lyrics (Apple's words or line times: STREAM_FIT_S of slack, at least half of it inside), or
+// true when the lyrics give no time to check against. A part that doesn't fit is dropped (the pass after the song
+// measures it on the right audio).
+const STREAM_FIT_S = 1.5
+// Stream first (systems research 2026-10-19, "Stream-first scheduling"): the helper runs one job at a time in arrival
+// order, so the last song's whole-song pass sent at its end held the next song's look-ahead stream ~16-20 s, past most
+// first lines. While look-ahead runs, that pass waits until the next song's stream is ready (or failed, or the next
+// song has none) and at most STREAM_FIRST_MS. Which job the helper runs first is the engine's own (a job already
+// running there can't be passed): this only orders what Sonata sends.
+const STREAM_FIRST_MS = 20000
+function streamPartFits(part, raw, i) {
+  const line = raw && raw[i]
+  if (!line || line.t == null || !part) return true
+  // loop: NOT-WORTH — one streamed line's syllables and notes (≤ ~40 each), once per streamed line
+  const syl = Array.isArray(part.syllables) ? part.syllables.filter((y) => Number.isFinite(y.t)) : []
+  const notes = Array.isArray(part.notes) ? part.notes.filter((n) => Number.isFinite(n.t)) : []
+  const xs = syl.length ? syl : notes
+  if (!xs.length) return true
+  // loop: NOT-WORTH — one streamed line's syllables or notes (≤ ~40), once per streamed line
+  const a = Math.min(...xs.map((y) => y.t))
+  // loop: NOT-WORTH — as above
+  const b = Math.max(...xs.map((y) => (Number.isFinite(y.end) ? y.end : y.t)))
+  const words = Array.isArray(line.words) && line.words.length ? line.words : null
+  const r0 = words ? words[0].t : line.t
+  const r1 = words ? words[words.length - 1].end : T.lineEnd(line, raw[i + 1])
+  if (!Number.isFinite(r0) || !Number.isFinite(r1)) return true
+  if (Math.abs(a - r0) > STREAM_FIT_S + Math.max(0, (r1 - r0) * 0.25)) return false
+  const inside = Math.max(0, Math.min(b, r1 + STREAM_FIT_S) - Math.max(a, r0 - STREAM_FIT_S))
+  return inside >= 0.5 * Math.max(0.05, b - a)
+}
+
 function createAlignSession(deps) {
   const rate = deps.sampleRate || RATE
   const latency = deps.latency == null ? MONITOR_LATENCY : deps.latency
@@ -781,7 +848,7 @@ function createAlignSession(deps) {
   let jobs = 0
   // the songs whose notes job (and so Expressive words' measuring) is queued or running, by lyrics key
   // (main.js expressiveNote: "measuring this song…"); keys only, never the song (its audio buffer)
-  // cache: OK — key=the song's lyrics key; invalidated=its notes job ends (done, failed or skipped); bound=the jobs queued (a few)
+  // cache: OK — key=the song's lyrics key; invalidated=its notes job ends, or submit()'s job never runs (dropped, paused, s.failed: never()); bound=the jobs queued
   const noting = new Set()
   const notesOn = (s, on) => { s.notesQueued = on; if (on) noting.add(s.key); else noting.delete(s.key) }
   let songs = 0
@@ -853,13 +920,15 @@ function createAlignSession(deps) {
   function onStreamMessage(s, msg) {
     // first play's notes, line by line (engine feature "stream-notes"): like a section's, ahead of the delayed listener
     if (msg.type === 'notes') {
+      if (msg.notes && Number.isInteger(msg.line) && !streamPartFits(msg.notes, s.raw, msg.line)) { log('stream of "' + s.title + '": the notes of line ' + (msg.line + 1) + ' were measured at another part of the song: dropped'); return }
       if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true }) }
       return
     }
-    if (msg.type === 'stream') { s.stream.ready = true; log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
+    if (msg.type === 'stream') { s.stream.ready = true; streamNews(); log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
     // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used
     if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return
     const m = streamedMessage(s.raw, msg.lines)
+    // loop: HOT-PATH-OK — the 1-2 lines of one stream 'words' message · per 0.25 s hop while a look-ahead song plays
     if (m) { s.stream.words += Object.values(m.lines).reduce((a, l) => a + l.words.length, 0); deps.send('lyrics-stream', Object.assign({ key: s.key }, m)) }
   }
   function openStream(s) {
@@ -877,6 +946,7 @@ function createAlignSession(deps) {
       log('stream of "' + s.title + '" failed (' + ((e && (e.code || e.message)) || '?') + '): its sections are aligned instead')
       s.streamFailed = (e && e.code) || 'error'
       s.stream = null
+      streamNews()
     })
   }
   function closeStream(s, cancel) {
@@ -915,11 +985,13 @@ function createAlignSession(deps) {
     // given times, not heard to the end: whatever sections the helper kept for the song are dropped after its jobs
     if (s.given && s.cancelled && deps.helper.forget) {
       const job = queue.then(() => deps.helper.forget(s.id))
+      // error: NOT-WORTH — keeps the chain going; helper.forget is sync and catches its own write error
       queue = job.then(() => {}, () => {})
       return
     }
     if (!s.finalQueued && !s.notesQueued && s.kept.size && deps.helper.forget) {
       const job = queue.then(() => deps.helper.forget(s.id))
+      // error: NOT-WORTH — keeps the chain going; helper.forget is sync and catches its own write error
       queue = job.then(() => {}, () => {})
     }
   }
@@ -928,6 +1000,27 @@ function createAlignSession(deps) {
   // before 0.15.33: one global alignment is a little better than the sections, so it is what gets
   // cached). The result is merged into the song's cache entry and, if the song is still on screen,
   // sent to the lyric views (lyrics window, visualizer).
+  // waits for the song on screen's stream (see STREAM_FIRST_MS); resolved by streamNews() or the time limit
+  // cache: OK — key=a whole-song pass waiting for the next stream; invalidated=that stream ready/failed, no stream, or the limit; bound=the passes queued (1-2)
+  let streamWaiters = []
+  function streamFirst(s) {
+    const ready = () => { const n = song; return !!n && n !== s && (!n.lookahead || !!n.streamFailed || !!(n.stream && n.stream.ready) || n.sent || n.failed) }
+    if (ready()) return Promise.resolve()
+    return new Promise((resolve) => {
+      // loop: NOT-WORTH — the passes waiting (1-2), once when one goes
+      const w = { ready, done: () => { clearT(w.timer); streamWaiters = streamWaiters.filter((x) => x !== w); resolve() } }
+      // lifetime: OK — one-shot limit per waiting pass, cleared when it goes (streamNews)
+      w.timer = setT(() => { log('the whole-song pass of "' + s.title + '" waited ' + STREAM_FIRST_MS / 1000 + ' s for the next song\'s stream: sent now'); w.done() }, STREAM_FIRST_MS)
+      streamWaiters.push(w)
+    })
+  }
+  // afterSet: a new song's lyrics were just set; no song kept (nothing to time, switch off): no stream will come
+  function streamNews(afterSet) {
+    // loop: NOT-WORTH — the passes waiting (1-2), on a song change or a stream's ready / failure
+    for (const w of streamWaiters.slice()) if (w.ready() || (afterSet && !song)) w.done()
+  }
+  const setT = deps.setTimeout || setTimeout
+  const clearT = deps.clearTimeout || clearTimeout
   function submit(s, sec) {
     const req = sec ? sectionRequest(s.raw, sec, sec === s.secs[0]) : { offset: 0, lines: requestLines(s.raw) }
     if (!sec) s.finalQueued = true
@@ -952,12 +1045,27 @@ function createAlignSession(deps) {
     // A no-model refusal is remembered so the song isn't recorded again for nothing.
     // Separate once per song: a section's stem stays in the helper (song id + offset); the final pass
     // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
+    // loop: NOT-WORTH — the song's sections (≤ ~10) · once per whole-song job
     const fromKept = () => !sec && s.secs.length > 0 && s.secs.every((x) => s.kept.has(x.from))
+    // a job that never runs (dropped by prune(), the song failed, skipped while gaming): its notes are no longer
+    // measuring (QC 2026-10 #2: 'measuring' stuck for the session), and a whole-song job wrapUp() left the
+    // helper's forget to is sent here (#4: the kept sections stayed in the helper)
+    const never = () => {
+      pcm = null
+      if (notes) notesOn(s, false)
+      if (!sec && !s.notesQueued && s.kept.size && deps.helper.forget) deps.helper.forget(s.id)
+      return null
+    }
     const run = () => {
-      if (!start()) return null
-      if (s.failed) { pcm = null; return null }
+      // the last song's whole-song pass: the next song's stream goes to the helper first (STREAM_FIRST_MS)
+      if (!sec && s !== song && deps.streamFirst && deps.streamFirst()) return streamFirst(s).then(go)
+      return go()
+    }
+    const go = () => {
+      if (!start()) return never()
+      if (s.failed) return never()
       // gaming guard: a job not started yet is skipped; its lines fill in on a later play
-      if (paused()) { pcm = null; log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return null }
+      if (paused()) { log('skipped ' + what + ' of "' + s.title + '" (paused while gaming)'); return never() }
       const started = deps.now()
       const audio = () => { const m = alignMessages(id, req.lines, pcm, sec ? { rate, song: s.id, offset: req.offset, notes } : { rate, song: s.id, final: true, notes }); pcm = null; return m }
       const kept = fromKept()
@@ -1004,6 +1112,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run)
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (LOGGED-OK) and the caller holds `job`
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1075,6 +1184,7 @@ function createAlignSession(deps) {
       notesOn(s, false)
       if (!s.finalQueued && s.kept.size && deps.helper.forget) deps.helper.forget(s.id)
     })
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (deps.notes.failed, SHOWN)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1111,6 +1221,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run)
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (LOGGED-OK)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1160,6 +1271,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run).then(() => { notesOn(s, false) })
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (deps.notes.failed, SHOWN)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1267,6 +1379,8 @@ function createAlignSession(deps) {
      * ended). Recording starts for line-only lyrics that aren't fully aligned yet.
      */
     setLyrics(key, title, artist, raw, enabled, info) {
+      // error: NOT-WORTH — streamNews only resolves waiters (no throw)
+      if (streamWaiters.length) Promise.resolve().then(() => streamNews(true))
       if (song && song.key === key) return
       finish(true)
       // Sheet notes for lyrics with their own word timing: recorded for the notes only (no alignment)
@@ -1321,6 +1435,7 @@ function createAlignSession(deps) {
       const fills = refill.length ? (have.fills || 0) + 1 : (have && have.fills) || 0
       const wholeDone = !notesMissing && !!(have && have.whole)
       // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
+      // loop: NOT-WORTH — the song's sections (≤ ~10) · once per track change, only after a whole-song pass
       const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
       if (notesOnly) log('recording "' + title + '" once more for its sheet notes')
@@ -1339,7 +1454,12 @@ function createAlignSession(deps) {
       const now = deps.now()
       // songClock: main's one song clock in deps.now()'s base (song-clock.js localize); without it, the raw push smoothed here
       clock = songClock || T.syncClock(clock, playbackTime, isPlaying, now)
-      if (!clock.playing) { stopCapture(); expectNext = null; return null }
+      if (!clock.playing) {
+        stopCapture(); expectNext = null
+        // paused: the stream stays open (it resumes where the audio does); its quiet limit isn't a hang meanwhile
+        if (song.stream && song.stream.job.alive) song.stream.job.alive()
+        return null
+      }
       // gaming guard: nothing is recorded while a game runs, so the sections it covers are not
       // heard (skipped) and fill in on a later play (a partial entry); recording resumes after
       if (paused()) { stopCapture(); expectNext = null; return null }
@@ -1377,5 +1497,5 @@ module.exports = {
   GIVEN_REACH_S, END_SLACK, fitToSong, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, sectionGiven, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
-  STREAM_HOP, toS16, streamedMessage
+  STREAM_HOP, toS16, streamedMessage, streamPartFits, STREAM_FIT_S
 }

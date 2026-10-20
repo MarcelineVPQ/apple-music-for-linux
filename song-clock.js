@@ -33,9 +33,13 @@ const PLL_JUMP = 1        // s: one push this far off is a seek: a discontinuity
 // BOUNDARY_FROM s to under BOUNDARY_TO s now waits up to BOUNDARY_WAIT ms for the song change (no push: the
 // views run on); only if none comes is it a seek. A new song's first SEED_PUSHES pushes seed its phase quietly:
 // a resume or a small offset (< PLL_JUMP) is slewed in, never a step.
+// 0.15.70 (QC 2026-10 #1): only a drop that can be a song change holds: the old song was in its last BOUNDARY_END s
+// (or its length is unknown) and the player doesn't repeat one song. A drop earlier in the song (Previous more
+// than ~3 s in, a scrub back to 0:00) or under repeat-one is the same song starting again: a clean epoch at once.
 const BOUNDARY_TO = 2
 const BOUNDARY_FROM = 5
 const BOUNDARY_WAIT = 1500
+const BOUNDARY_END = 10
 const SEED_PUSHES = 3
 
 function median(xs) {
@@ -61,7 +65,9 @@ function localize(st, masterNowMs, localNowMs) {
 
 /**
  * createSongClock({ now() ms (the clock's base), epochNow() epoch ms (for readAt), jump (s), log(line) })
- * -> { setSong(key, duration), push(t, isPlaying, key, readAt) -> snapshot | null, seek(t), snapshot(), time(), epoch }
+ * -> { setSong(key, duration), push(t, isPlaying, key, readAt, info) -> snapshot | null, seek(t), snapshot(), time(), epoch, holding }
+ * info: { repeatOne } (the player repeats this song: a drop to its start is never a song change).
+ * holding: a drop to a song's start is waiting for its song change (the snapshot is still the old song's).
  * push: null while a new song's gate waits for its first own sample (lyrics-timing trackSample), or for
  * another song's time. A step of more than `jump` (default 0.05 s) in the shown time is a discontinuity.
  */
@@ -76,6 +82,9 @@ function createSongClock(opts = {}) {
   let gateDone = false   // this push is a new song's first
   let boundaryAt = null  // when a drop to a song's start began waiting for its song change (BOUNDARY_WAIT)
   let seedLeft = 0       // the new song's pushes still seeding its phase quietly
+  let duration = 0       // this song's length (s; 0 unknown): only a drop near its end can be a song change
+  let lastRaw = null     // the last push's raw player time and its aged value: a repeated raw time keeps that value,
+  let lastFresh = null   // so a frozen player (a stall while it says playing) reads as a stall, not as time running on
   const log = opts.log || null
   let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
   let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
@@ -85,12 +94,14 @@ function createSongClock(opts = {}) {
     if (!clock) return null
     return { anchor: clock.anchor, at: clock.at, corr: clock.corr || 0, rate: Number.isFinite(clock.rate) ? clock.rate : 1, playing: !!clock.playing, key, epoch }
   }
-  function setSong(k, duration) {
-    if (k === key) return
-    gate = T.trackGate(clock, duration, now())
+  function setSong(k, dur) {
+    if (k === key) { if (dur > 0) duration = dur; return }
+    duration = dur > 0 ? dur : 0
+    gate = T.trackGate(clock, dur, now())
     key = k
     clock = null
     samples = []
+    lastRaw = lastFresh = null
     boundaryAt = null
     seedLeft = 0
   }
@@ -108,7 +119,7 @@ function createSongClock(opts = {}) {
   }
   return {
     setSong,
-    push(t, isPlaying, k, readAt) {
+    push(t, isPlaying, k, readAt, info) {
       if (typeof k === 'string' && k !== key) setSong(k, 0)
       const n = now()
       if (gate) {
@@ -116,11 +127,17 @@ function createSongClock(opts = {}) {
         gate = null
         gateDone = true
       }
-      const fresh = T.freshTime(t, isPlaying, readAt, epochNow())
+      // QC 2026-10 #5: the same raw time again is the same instant (its age jitters by ms, so equal times never
+      // compared equal and a stall ran on in a saw-tooth): syncClock then sees the repeat and holds
+      const fresh = Number.isFinite(t) && t === lastRaw && isPlaying !== false ? lastFresh : T.freshTime(t, isPlaying, readAt, epochNow())
+      lastRaw = t
+      lastFresh = fresh
       const shown = clock ? T.clockTime(clock, n) : null
       // a drop to the start of a song: the song change it most likely is comes first (BOUNDARY_WAIT)
       const recentSeek = clock && clock.seekAt != null && n - clock.seekAt < 1200
-      if (clock && clock.playing && !recentSeek && Number.isFinite(fresh) && fresh < BOUNDARY_TO && shown > BOUNDARY_FROM) {
+      const nearEnd = !(duration > 0) || shown >= duration - BOUNDARY_END
+      const canChange = nearEnd && !(info && info.repeatOne)
+      if (clock && clock.playing && !recentSeek && canChange && Number.isFinite(fresh) && fresh < BOUNDARY_TO && shown > BOUNDARY_FROM) {
         if (boundaryAt == null) boundaryAt = n
         if (n - boundaryAt < BOUNDARY_WAIT) return null   // held: the views run on, the old song never shows 0:00
       }
@@ -128,7 +145,10 @@ function createSongClock(opts = {}) {
       let next = T.syncClock(clock, fresh, isPlaying, n)   // pause, stall, resume and the first time
       const seeding = seedLeft > 0 && clock && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
       if (seedLeft > 0) seedLeft--
-      if (seeding && next.playing && !clock.playing) {
+      // a resume after a pause (Marcy 2026-10-19: "corrected 148 ms (jump…)" at each resume with look-ahead, whose
+      // heard delay settles back over the first moments): on from where the clock stood, the small offset slewed in
+      const resumed = !seeding && clock && !clock.playing && clock.anchor != null && next.playing && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
+      if ((seeding || resumed) && next.playing && !clock.playing) {
         // the new song's player said "paused" at its first push and plays now: on from where it is, the
         // offset slewed in by the PLL below (Marcy's log: "corrected 227 ms (jump…)" at a song's start)
         clock = Object.assign({}, clock, { playing: true, at: n, rate: 1 })
@@ -172,6 +192,7 @@ function createSongClock(opts = {}) {
       return snapshot()
     },
     snapshot,
+    get holding() { return boundaryAt != null },
     time() { return clock ? T.clockTime(clock, now()) : 0 },
     get epoch() { return epoch }
   }

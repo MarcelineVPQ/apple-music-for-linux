@@ -77,6 +77,7 @@ gfx.beforeReady()
 // cannot be handled from here. The AppImage launcher (electron-builder's
 // AppRun) and start.sh both probe for it and disable the sandbox when needed.
 
+// cache: NOT-WORTH — key=none (the locale at start); invalidated=never (a restart); bound=one string
 let locale = 'US'
 let themeFile = null
 let mainWindow = null
@@ -84,20 +85,27 @@ let tray = null
 let miniWindow = null
 let miniPoll = null
 let lyricsWindow = null
+// cache: NOT-WORTH — key=none (the poll handle); invalidated=cleared when the last view closes; bound=one
 let lyricsPoll = null
 let lyricsKey = ''
 let lyricsRetry = null  // { key, tries, at } after a failed lyrics lookup
 // failed lookups per song this session (lyrics-sources retryPlan caps them); bounded, oldest dropped
 // lifetime: OK — at most LYRICS_TRIES_MAX songs, for the app's life
+// cache: OK — key=recording key; invalidated=deleted on success, oldest dropped; bound=200 songs (~60 B)
 const lyricsTries = new Map()
 const LYRICS_TRIES_MAX = 200
 let lyricsArt = ''
 let curiousTrack = null  // the lyrics feed's song: { key, startAligned, startRefined } (About → For the Curious)
 let shuttingDown = false
+// cache: NOT-WORTH — key=none (the one LastFm client); invalidated=never; bound=one object
 let lastfm = null
+// cache: OK — key=none (lastfm-pending.json); invalidated=its own atomic saves; bound=QUEUE_MAX 500
 let scrobbleQueue = null   // scrobbles waiting for Last.fm (lastfm.js createScrobbleQueue; lastfm-pending.json)
+// cache: OK — key=title+artist; invalidated=a new track; bound=one object
 let scrobbleState = null
+// cache: NOT-WORTH — key=none (the presence client); invalidated=replaced on reconnect/disconnect; bound=one
 let discord = null
+// cache: OK — key=none (discord.json); invalidated=read again on Connect; bound=one small object
 let discordConfig = { applicationId: '', enabled: false }
 let discordConfigPath = null
 let discordReconnectTicks = 0
@@ -105,18 +113,23 @@ let discordReconnectTicks = 0
 // scrobble count, the reconnect and the rail's "retries every 30 s" all read these
 const NOW_PLAYING_MS = 5000
 const DISCORD_RETRY_TICKS = 6
+// cache: OK — key=title|artist|end/5 s; invalidated=track change, seek, reconnect; bound=one string
 let lastPresenceKey = ''
 let miniTrackKey = ''
 let vizWindow = null
+// cache: NOT-WORTH — key=none (the open visualizer's FFT); invalidated=nulled on 'closed'; bound=one
 let visualizer = null
 let vizListener = null   // Sonata's own stream for the visualizer (audio-listen.js)
 let vizArt = ''
 // the settings and what each may hold: settings-store.js (defaults, recovery from a damaged file, atomic saves)
 let settings = settingsStore.defaults()
 let settingsExisted = false   // a settings file was there at start (an install from before 0.15.32 has no lastRunVersion)
+// cache: OK — key=title|artist; invalidated=next track (a fetch for an earlier track is dropped: lastPaletteKey check); bound=one object
 let lastPalette = null
+// cache: OK — key=title|artist; invalidated=a new track, adaptive colour toggled; bound=one string
 let lastPaletteKey = null
 let settingsPath = null
+// cache: OK — key=title|artist; invalidated=each track change; bound=one string
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
 let trayTooltip = ''
 let saveBoundsTimer = null
@@ -196,7 +209,9 @@ const desktopScheme = require('./desktop-scheme')
 let themePref = 'system'     // the theme file: 'system' | 'light' | 'dark'
 let chromiumDark = false
 let portalScheme = null      // 'dark' | 'light' | null (no portal, or no preference)
+// cache: OK — key=none (kdeglobals); invalidated=read again at each readDesktopScheme; bound=one value
 let kdeScheme = null
+// cache: NOT-WORTH — key=none (the gdbus monitor child); invalidated=nulled on exit or stop; bound=one
 let schemeWatch = null       // the `gdbus monitor` child while following the desktop
 function applyThemePref() {
   const want = desktopScheme.effectiveScheme(themePref, portalScheme, kdeScheme, chromiumDark)
@@ -275,6 +290,7 @@ function openExternalSafe(url) {
   try {
     const scheme = new URL(url).protocol
     if (scheme === 'http:' || scheme === 'https:' || scheme === 'mailto:') {
+      // error: NOT-WORTH — Linux: resolves once xdg-open is launched; only a missing xdg-open rejects (a warning)
       shell.openExternal(url)
     }
   } catch (e) { /* error: NOT-WORTH — not a URL: nothing to open */ }
@@ -414,6 +430,7 @@ function createMiniWindow() {
       contextIsolation: false
     }
   })
+  // error: NOT-WORTH — packaged miniplayer.html; rejects only if the window closes mid-load (a warning)
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
   pushRail()
@@ -626,10 +643,13 @@ function getSharedListener() {
 // align/install.sh into the helper home); Sonata carries none of its code, only the protocol client.
 // The install is checked at start and whenever Settings asks (install.sh runs outside Sonata), not
 // per poll tick.
+// cache: OK — key=env + app dir; invalidated=alignInstalled(true) (start, Settings, a job); bound=one
 let alignPaths = null
 let alignInstalledNow = false
 let alignHealth = null      // align-helper checkInstall: ok / missing / broken / sandboxed / stray
+// cache: NOT-WORTH — key=none (one helper client, reads alignPaths in place); invalidated=never; bound=one
 let alignHelper = null
+// cache: FIX-STALE — key=none; invalidated=never (engine version fixed at creation); bound=one session
 let alignSession = null
 function alignInstalled(recheck) {
   if (recheck || !alignPaths) {
@@ -687,6 +707,8 @@ function getAlignSession() {
     alignSession = alignSessionLib.createAlignSession({
       createListener: getSharedListener(),
       helper: getAlignHelper(),
+      // look-ahead runs: the next song's stream goes to the helper before the last song's whole-song pass
+      streamFirst: () => lookaheadRuns(),
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
       send: sendLyrics,
       now: () => performance.now(),
@@ -738,6 +760,7 @@ function notesMissing(title, artist, hash) {
 // model is downloaded when the switch is turned on, never while it is off.
 // lifetime: OK — one switch object for the app's life; no timer, no child of its own (the helper's)
 // error: SHOWN — every outcome (saved, skipped, failed, download) is the one status line under the switch
+// cache: NOT-WORTH — key=none (one notes switch); invalidated=never; bound=one object
 let notesSwitch = null
 let notesStatusText = ''
 function sungNotesOn() { return !!settings.sungNotesLog && updateFeed.isDevVersion(app.getVersion()) && preciseTimingOn() }   // a Development build (Settings' one dev check)
@@ -791,6 +814,7 @@ function sungNotesFailed(s, e) {
 // skips the jobs) and nothing at all while the switch is off; the band only draws.
 // lifetime: OK — one store object and one per-song state for the app's life; no timer, no child of its own
 // error: SHOWN — a failed notes step or pitch line is the band's one-line message (and the log)
+// cache: NOT-WORTH — key=none (one store; disk ≤ MAX_FILES); invalidated=never; bound=one object
 let sheetStore = null
 let sheet = null          // the song on screen: { key, title, artist, hash, entry, pitch: [], aligned, wordSynced, timed, error, end }
 let sheetSent = ''
@@ -820,7 +844,8 @@ function expressiveFor(title, artist, lines, key) {
     console.log('align: ' + expressive.statusLine({ on, helper, entry, title }))
   }
   // a first play still under way: what its sections measured so far (firstPlaySection)
-  const now = !entry && on && firstPlay && firstPlay.key === key && firstPlay.expr ? firstPlay.expr : null
+  const fp = firstPlayOf(key, alignSessionLib.lyricsHash(lines || []))
+  const now = !entry && on && fp && fp.expr ? fp.expr : null
   const view = entry ? expressive.forView(entry.expr, true, vocaliseSetting()) : now ? expressive.forView(now, true, vocaliseSetting()) : null
   exprSong = { key: key || '', entry: view ? 'drawn' : entry && 'expr' in entry ? 'none' : 'missing' }
   return view || undefined
@@ -856,6 +881,7 @@ function sendExprNote(key) {
   const json = JSON.stringify(expressiveNote(key))
   if (json === exprNoteSent) return
   exprNoteSent = json
+  // error: NOT-WORTH — parses the JSON.stringify of the line above
   sendLyrics('lyrics-expr-note', JSON.parse(json))
 }
 // one log line per song shown: its cached notes and expression and whether this play records it again, and why
@@ -963,7 +989,7 @@ function setSheetSong(key, title, artist, lines, prep, instrumental, shown) {
     if (sheetModel.entryValid(e, hash)) sheet.entry = e
   }
   // a first play under way (the song laid out again): its sections' notes so far
-  if (settings.sheetNotes && (!sheet.entry || sheet.entry.partial) && firstPlay && firstPlay.key === key && firstPlay.parts.size) {
+  if (settings.sheetNotes && (!sheet.entry || sheet.entry.partial) && firstPlayOf(key, hash) && firstPlay.parts.size) {
     sheet.entry = Object.assign(sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() }), { partial: true })
   }
   sheetSent = ''
@@ -981,12 +1007,15 @@ function sendSheet() {
   } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
   const json = JSON.stringify(st)
   if (json === sheetSent) return
+  // error: NOT-WORTH — sheetSent is our own JSON.stringify (set on each send below)
   const was = sheetSent ? JSON.parse(sheetSent) : {}
   sheetSent = json
   // the notes ride along only when they changed (another song, new notes), the pitch pieces when one came
   const extra = {}
   if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) { extra.entry = sheet.entry && sheet.entry.parts ? Object.assign({}, sheet.entry, { parts: undefined }) : sheet.entry; extra.sung = sheet.sung }   // (a partial entry's kept parts stay in main)
-  if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
+  // (the same song's new pieces only, appended: the band has the ones before; QC 2026-10 #10: the whole array went per line)
+  if (on && sheet && was.on && was.key === st.key && st.pieces > was.pieces) { extra.pitchFrom = was.pieces; extra.pitchAdd = sheet.pitch.slice(was.pieces) }
+  else if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
   lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
 }
 function sheetNotesDone(s, result, lineOffset) {
@@ -1058,15 +1087,30 @@ function sheetNotesFailed(s, e) {
 // express). The whole-song pass after the song still runs (sheetNotesDone) and replaces it all, the views'
 // copy swapped line by line off screen ('lyrics-expr' final).
 // cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
-let firstPlay = null      // { key, title, artist, hash, parts: Map(from -> part), expr, n }
+let firstPlay = null      // { key, play (the align session's song id: one play), title, artist, hash, parts: Map(from -> part), streamed: Set(from), covers: Map(from -> to) of section parts, expr, n }
+// the first play under way for this song and these lyrics (QC 2026-10 #7: lyrics from another source have other line indexes)
+function firstPlayOf(key, hash) { return firstPlay && firstPlay.key === key && firstPlay.hash === hash ? firstPlay : null }
 function sectionNotesWanted() {
   // alignSlow (0.15.65, helper-speed.js): processor only, unless the helper has shown it keeps up with the music
   if (!getNotesSwitch().wanted() || alignSlow() || !alignHelper || !alignHelper.serves('section-notes')) return false
-  return (expressiveOn() && lyricViews().length > 0) || (sheetNotesOn() && stageShowing())
+  // look-ahead on: every song not learned yet is learned as it plays, with or without a view (lookaheadDecide)
+  return (expressiveOn() && (lyricViews().length > 0 || lookaheadRuns())) || (sheetNotesOn() && (stageShowing() || lookaheadRuns()))
 }
 function firstPlaySection(s, part, sec) {
   if (!part || !Array.isArray(part.notes)) return
-  if (!firstPlay || firstPlay.key !== s.key) firstPlay = firstPlayFor(s)
+  // one play's state: a replay starts again from what the store kept (firstPlayFor), never from an earlier play's
+  // memory (QC 2026-10 #7: its vocalise was appended again, doubled ghosts)
+  if (!firstPlay || firstPlay.key !== s.key || firstPlay.play !== s.id || firstPlay.hash !== s.hash) firstPlay = firstPlayFor(s)
+  // one set of notes per line (Marcy 2026-10-19: after a stream failed, its line notes and the sections' disagreed on
+  // the band): a section's part replaces the streamed lines it covers, and a streamed line a section has is skipped
+  const to = Number.isInteger(sec.to) ? sec.to : sec.from
+  if (sec.stream && firstPlaySectionHas(sec.from)) return
+  if (!sec.stream) {
+    // loop: NOT-WORTH — the parts so far (≤ ~60), once per section part
+    for (const [from] of [...firstPlay.parts]) if (from > sec.from && from <= to && firstPlay.streamed.has(from)) { firstPlay.parts.delete(from); firstPlay.streamed.delete(from) }
+    firstPlay.covers.set(sec.from, to)
+  }
+  if (sec.stream) firstPlay.streamed.add(sec.from); else firstPlay.streamed.delete(sec.from)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
   // Expressive words: the section's expression, merged (each line comes from one section); a refine play of a learned
@@ -1075,9 +1119,7 @@ function firstPlaySection(s, part, sec) {
   if (!learned && expressiveOn() && alignHelper && alignHelper.serves('expr')) {
     const add = expressive.compact(part.expr, 0)
     if (add) {
-      const old = firstPlay.expr || { format: add.format, v: add.v, words: [], voc: [] }
-      const lines = new Set(add.words.map((w) => w.l))
-      firstPlay.expr = { format: add.format, v: add.v, words: old.words.filter((w) => !lines.has(w.l)).concat(add.words).sort((a, b) => a.l - b.l || a.w - b.w), voc: old.voc.concat(add.voc).sort((a, b) => a.t - b.t) }
+      firstPlay.expr = expressive.mergeSection(firstPlay.expr, add)
       if (lyricsKey === s.key) {
         const view = expressive.forView(firstPlay.expr, true, vocaliseSetting())
         if (view) { exprSong = { key: s.key, entry: 'drawn' }; sendLyrics('lyrics-expr', { key: s.key, expr: view, final: false }) }
@@ -1097,10 +1139,16 @@ function firstPlaySection(s, part, sec) {
   // a section that finished after its song was left: kept with the others
   if (firstPlay.unfinished) firstPlayUnfinished(s)
 }
+// a section's part (not a streamed line's) already covers this line
+function firstPlaySectionHas(line) {
+  // loop: NOT-WORTH — the section parts so far (≤ ~20), once per streamed line
+  for (const [from, to] of firstPlay.covers) if (line >= from && line <= to) return true
+  return false
+}
 // the first play's state for a song: a new one, or one carried on from the partial entry an earlier play left
 // (0.15.70, Marcy: "I don't get expression until the third playthrough": a play left before its end kept nothing)
 function firstPlayFor(s) {
-  const fp = { key: s.key, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  const fp = { key: s.key, play: s.id, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), streamed: new Set(), covers: new Map(), expr: null, n: 0 }
   let old = null
   // error: NOT-WORTH — a store read that throws: a first play from scratch
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
@@ -1150,6 +1198,7 @@ function sheetPitch(s, line, e) {
 // loop: NOT-WORTH — none of its own · one check per 5 s at most, from the lyrics poll, only while precise timing
 // has work (a song still to align, the helper running) or is paused (to see the game end) · cost ~5 ms in main + gdbus and
 // nvidia-smi children (~10 ms each) per check
+// cache: NOT-WORTH — key=none (one game guard); invalidated=reset when the setting goes off; bound=one
 let gameGuard = null
 let alignNote = ''
 function alignPaused() { return !!(settings.alignGamingPause && gameGuard && gameGuard.paused) }
@@ -1162,6 +1211,8 @@ const LEARNS_AFTER_NOTE = 'Precise timing after this song, to keep playback smoo
 // Settings' line under the switch: what the song playing now got; a delayed song whose stream the helper
 // refused says its timing comes in sections
 function lookaheadStatusText() {
+  // the switch on but the helper not running: why (an update or install of the timing helper, Precise timing off)
+  if (settings.lookahead && !lookaheadWanted()) return lookaheadLib.statusText(helperJob ? 'updating' : !preciseTimingOn() ? 'needs-precise' : 'off', 0)
   if (!lookahead) return ''
   const st = alignSession ? alignSession.streamState : ''
   if (lookahead.phase === 'on' && lookahead.song.ms > 0 && /^failed/.test(st)) return Math.round(lookahead.song.ms / 100) / 10 + ' s behind, but timed in sections: ' + st.replace(/^failed: /, '')
@@ -1189,6 +1240,7 @@ function alignGuardTick() {
     gameGuard = gameGuardLib.createGameGuard({
       probes: gameGuardLib.linuxProbes({
         execFile, fs, platform: process.platform,
+        // loop: HOT-PATH-OK — ≤ 1 game-guard check per 5 s, only while precise timing has work; N ≈ 8 processes
         ownPids: () => app.getAppMetrics().map((m) => m.pid).concat(alignHelper && alignHelper.pid ? [alignHelper.pid] : [])
       }),
       log: (m) => console.log('align:', m),
@@ -1212,13 +1264,14 @@ function alignGuardTick() {
 // lyrics, the Studio, the mini player and the liner notes' sung line run on the heard (delayed) clock;
 // the engine and the recording keep the player's own clock (they hear the stream undelayed).
 // lifetime: OK — one controller for the app's life; its helper child, control socket and `pactl subscribe`
-// run only while the switch is on (stopped when it goes off and on quit); the page scripts are injected
+// run only while the switch is on (stopped when it goes off and on a window-close quit; tray Quit and restarts skip stop(): the helper ends by PR_SET_PDEATHSIG, pactl at its next write); the page scripts are injected
 // per Apple page load while it runs
 // error: SHOWN — the helper failing or dying is the status line under the switch; the stream falls back
 // to the default device by itself (the session manager relinks it) and the clock stops shifting
 const lookaheadLib = require('./lookahead')
 const lookaheadPage = require('./lookahead-page')
 const audioListen = require('./audio-listen')
+// cache: NOT-WORTH — key=none (one look-ahead controller); invalidated=never; bound=one
 let lookahead = null
 let lookaheadPong = null      // the engine's last pong (its stream feature and readiness)
 function lookaheadBinary() {
@@ -1272,8 +1325,8 @@ function lookaheadDecide(item) {
   const streamsNotes = !!(lookaheadPong && Array.isArray(lookaheadPong.features) && lookaheadPong.features.includes('stream-notes'))
   const learn = lookaheadLib.learnState(lyr, aligned, alignSessionLib.canAlign, lyricsTiming.hasWordTiming, needsNotes && streamsNotes)
   const d = lookaheadLib.decide({
-    on: true, ok: true, video: !!item.video, viewOpen: lyricViews().length > 0, learn,
-    engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused(),
+    on: true, ok: true, video: !!item.video, learn,
+    engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused() ? (gameGuard.state && gameGuard.state.reason === 'gpu' ? 'gpu' : 'game') : false,
     ms: lookaheadLib.delayOf(settings.lookaheadDelay)
   })
   console.log('look-ahead: "' + item.title + '": ' + (d.ms && d.why === 'notes' ? 'first play delayed ' + d.ms / 1000 + ' s (needs notes/expression)' : d.ms ? d.ms + ' ms (' + d.why + ')' : 'no delay (' + d.why + ')'))
@@ -1314,12 +1367,17 @@ function applyLookahead() {
     lookaheadAskEngine()
     getLookahead().start()
     injectLookahead()
-  } else if (lookahead) lookahead.stop()
+    startLyricsFeed()   // the songs are learned with or without a lyric view (lyricsFeedWanted)
+  } else {
+    if (lookahead) lookahead.stop()
+    stopLyricsFeedIfIdle()
+  }
 }
 // whether the engine can stream is in its pong: asked once when look-ahead starts or a lyric view opens
 // (the helper starts then anyway for Precise word timing), never per song
 function lookaheadAskEngine() {
-  if (lookaheadWanted() && preciseTimingOn() && !lookaheadPong && lyricViews().length) askAlignStatus()
+  // error: NOT-WORTH — askAlignStatus catches inside (the helper's error is Settings' status line)
+  if (lookaheadWanted() && preciseTimingOn() && !lookaheadPong) askAlignStatus()
 }
 // the views' clock: the heard (delayed) position while look-ahead runs, else the player's own
 function heardState(state) {
@@ -1340,6 +1398,7 @@ ipcMain.on('apple:lookahead', (event, msg) => {
 // line/word objects with estimated + learned timing), 'lyrics-time' pushes, 'lyrics-refined' and
 // 'lyrics-art'. The visualizer also gets 'viz-nowplaying' (large art), and its audio is run from here.
 function lyricViews() {
+  // loop: HOT-PATH-OK — a ≤ 2-window filter, a few calls per 500 ms lyrics tick while a view is open
   return [lyricsWindow, vizWindow].filter((w) => w && !w.isDestroyed())
 }
 function sendLyrics(channel, ...args) {
@@ -1347,17 +1406,24 @@ function sendLyrics(channel, ...args) {
   for (const w of lyricViews()) w.webContents.send(channel, ...args)
 }
 // a view joined (its page just loaded): resend the song and the art on the next tick
+// the lyrics feed runs while a lyric view is open, or while look-ahead runs (it learns songs with no view open:
+// the recorder and the stream need the song and its clock; nothing is sent while no view exists)
+function lyricsFeedWanted() { return lyricViews().length > 0 || lookaheadRuns() }
+// look-ahead's helper is running or starting (no file checks: called per tick)
+function lookaheadRuns() { return !!(lookahead && (lookahead.phase === 'on' || lookahead.phase === 'starting')) }
 function startLyricsFeed() {
   lyricsKey = null
   lyricsArt = null
   vizArt = null
-  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
+  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused), or while look-ahead runs (0.15.70: it learns songs with no view open; nothing is sent then) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
   if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
   lookaheadAskEngine()
 }
 function stopLyricsFeedIfIdle() {
   if (lyricViews().length) return
+  // the last view closed with look-ahead on: the feed goes on for it; listening (Level 1) is for the views only
+  if (lyricsFeedWanted()) { if (listenSession) listenSession.stop(); return }
   clearInterval(lyricsPoll)
   lyricsPoll = null
   lyricsRetry = null
@@ -1368,12 +1434,12 @@ function stopLyricsFeedIfIdle() {
 
 // error: NOT-WORTH — a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
 async function lyricsTick() {
-  if (!mainAlive() || !lyricViews().length) return
+  if (!mainAlive() || !lyricsFeedWanted()) return
   let state
   try {
     state = await appleWC().executeJavaScript(nowPlayingScript)
   } catch (e) { return }
-  if (!state || !state.ok || !lyricViews().length) return
+  if (!state || !state.ok || !lyricsFeedWanted()) return
   const sampledAt = Date.now()   // when state.playbackTime was read (a lyrics lookup below may take a while)
 
   // one recording (title|artist plus its ISRC, else its length): a live cut titled like the studio one is a new song
@@ -1415,7 +1481,9 @@ async function lyricsTick() {
     // lyrics-shorthand.js): the markers are never shown, the lines they stand for are written out, untimed
     const sh = got.source === 'lrclib' ? lyricsShorthand.expandShorthand(got.lines || []) : null
     const base = sh ? sh.lines : (got.lines || [])
+    // loop: NOT-WORTH — once per song change, LRCLIB shorthand lyrics only; N = markers (≤ ~10)
     if (sh) console.log('lyrics: "' + state.title + '" by ' + state.artist + ': shorthand ' + sh.markers.map((m) => JSON.stringify(m.text)).join(', ') + ': ' + sh.added + ' line(s) written out' + (sh.unresolved.length ? ', ' + sh.unresolved.length + ' marker(s) with nothing to repeat dropped' : '') + (sh.timed ? ' (labels only: timing kept)' : ''))
+    // loop: NOT-WORTH — once per song change, LRCLIB shorthand lyrics only; N = markers (≤ ~10)
     const shorthand = sh && !sh.timed ? { reason: 'shorthand', marker: (sh.markers.find((m) => m.kind !== 'label') || sh.markers[0]).text, added: sh.added } : null
     const stored = precise ? aligner.entryFor(state.title, state.artist, base, rec) : null
     // lyrics timed for another version (recording-id.js timingMismatch; a song with a plain entry is marked
@@ -1486,7 +1554,7 @@ async function lyricsTick() {
   const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
   // the one song clock: its snapshot is the only time the views get (song-clock.js; they interpolate it)
   songClock.setSong(key, state.duration)
-  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt) : null
+  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1 }) : null
   if (clockNow) sendLyrics('lyrics-time', clockNow)
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
@@ -1494,12 +1562,15 @@ async function lyricsTick() {
   // performance.now() base) unless look-ahead runs, when the clock is the heard time and they keep the player's
   // (a new song's first ticks: the clock waits for the song's own time, and so do they: the previous
   // song's position at a track change is never recorded as this song's opening)
-  const master = heard.playerTime ? null : songClock.snapshot()
+  // (a drop to the start held for its song change (songClock.holding): the snapshot is still the old song's, so
+  // they wait too: the new song's opening is never recorded at the old position)
+  const master = heard.playerTime || songClock.holding ? null : songClock.snapshot()
   const playerClock = heard.playerTime ? null : master ? require('./song-clock').localize(master, Date.now(), performance.now()) : { anchor: null, playing: false }
-  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine, playerClock)
+  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine && lyricViews().length > 0, playerClock)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn(), playerClock)
   alignGuardTick()
   vizAudioTick(state.isPlaying)
+  // error: NOT-WORTH — refreshPalette catches its artwork fetch inside; the rest is sync
   refreshPalette(state)
 }
 
@@ -1524,6 +1595,7 @@ function createLyricsWindow() {
       contextIsolation: false
     }
   }))
+  // error: NOT-WORTH — packaged lyrics.html; rejects only if the window closes mid-load (a warning)
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, () => (settings.lyricsStage ? 'stageBounds' : 'lyricsBounds'))
   trackHdr(lyricsWindow)
@@ -1578,6 +1650,7 @@ let stageQueueLast = null // the queue as last sent (stage-model cleanQueue): th
 let stageSongKey = ''     // the song the action row and the credits were read for (read once per song)
 let stageSongSeq = 0      // a newer read wins over a late answer
 let stageSong = { ok: false }   // the playing song's state (song-actions.js cleanState)
+// cache: OK — key=album id; invalidated=cleared past 500; bound=500 ids (~20 B each)
 const stageCreditsAsked = new Set()   // albums whose MusicBrainz credits the Studio asked for this session (once each)
 // the liner notes (openLinerNotes(album, from), below); the tile shows only when it's there
 const linerNotesReady = () => typeof openLinerNotes === 'function'
@@ -1656,6 +1729,7 @@ async function stageTick(state, key) {
   const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(state.volume) || 0, releaseDate: state.releaseDate || '' }
   const json = JSON.stringify(np)
   if (json !== stageSent) { stageSent = json; lyricsWindow.webContents.send('stage-np', np) }
+  // error: NOT-WORTH — stageSongRead catches its one async read (songSource.state); the rest is sync
   if (key !== stageSongKey) { stageSongKey = key; stageSongRead(state, key) }
   montageTick(state)
   const now = Date.now()
@@ -1773,12 +1847,14 @@ function stageDone(action, ok, why, info, answer) {
   }
   // read back from Apple's page: the button shows what Apple now says (same song key kept, so the next
   // tick doesn't read again and outrun this read); a read that lags a favourite write is settled there
+  // error: NOT-WORTH — stageSongRead catches its one async read (songSource.state); the rest is sync
   if (ok && /favorite|library|playlist/.test(action)) stageSongRead(null, '')
 }
 // Apple's ratings read lags its write (seconds): after a favourite write the read is taken again this
 // long after the last one while it still disagrees, then Apple's read is left to the next song change
 const STAGE_REREAD_MS = [3000, 10000]
 let stageWrote = null      // { id, on, tries }: the favourite write Apple accepted, until a read agrees
+// cache: NOT-WORTH — key=none (the pending re-read timer); invalidated=fires or a new write; bound=one
 let stageReread = null     // the one pending re-read (a timeout), or null
 function settleStageSong(st) {
   const w = stageWrote
@@ -1790,6 +1866,7 @@ function settleStageSong(st) {
   if (wait) {
     w.tries++
     // lifetime: OK — one one-shot re-read at a time (cleared by a new write), at most STAGE_REREAD_MS.length per write; it reads only while the same write still waits
+    // error: NOT-WORTH — stageSongRead catches its one async read (songSource.state); the rest is sync
     stageReread = setTimeout(() => { stageReread = null; if (stageWrote === w) stageSongRead(null, '') }, wait)
   } else stageWrote = null
   return s.st
@@ -1897,8 +1974,10 @@ const montageStoreLib = require('./montage-store')
 const MONTAGE_SHOW = 8                         // photos downloaded per song (of the ≤ 12 found)
 const MONTAGE_FRESH = 30 * 24 * 3600 * 1000    // a found set is asked again after 30 days
 const MONTAGE_NONE = 3 * 24 * 3600 * 1000      // "no free photos" is asked again after 3 days
+// cache: OK — key=song/set/px; invalidated=30 d / 3 d freshness; bound=1500 entries, 4 MB
 let montageCache = null     // JSON answers (lyrics-store.js): 'song|<id>' -> ids, 'set|<artist>|<album>' -> photos, 'px|<file>' -> extremes
 let montageImages = null    // the thumbnails on disk (montage-store.js)
+// cache: NOT-WORTH — key=none (one fetcher, made on first use); invalidated=never; bound=one
 let montageFetch = null     // the polite fetcher (one lane per host), made on first use
 let montageSong = ''        // the song the montage was last resolved for
 let montageGen = 0          // bumps per resolve: an older one still running stops sending
@@ -2065,6 +2144,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
 // A lightbox over the screen the window it was opened from is on: the playing song's cover at the
 // size it shows (cover-model.js: the lightbox's pixels, never more than Apple's original), closed with
 // Esc, a click, or by leaving it. Nothing animates; one image per open.
+// cache: NOT-WORTH — key=none (the open lightbox); invalidated=nulled on 'closed'; bound=one window
 let coverWindow = null
 const coverArtScript = `(() => {
   try {
@@ -2112,6 +2192,7 @@ async function openCover(from) {
     title: TITLES.cover,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
+  // error: NOT-WORTH — packaged cover.html; rejects only if the lightbox closes (blur) mid-load
   coverWindow.loadFile('cover.html')
   lockDownLocalWindow(coverWindow)
   const win = coverWindow
@@ -2154,8 +2235,10 @@ let linerNotes = null
 let linerAlbum = null      // the open booklet's album: { id, tracks: Set of song ids }
 let linerData = null       // the last 'liner-data' (resent when the page reloads)
 let linerFollow = false    // the page shows a lyrics page of the playing song
+// cache: NOT-WORTH — key=none (the poll handle); invalidated=cleared in syncLinerPoll; bound=one
 let linerPoll = null
 let linerPlayingKey = ''
+// cache: OK — key=title|artist; invalidated=a new song, booklet closed; bound=≤ ~150 line times
 let linerSung = null       // { key, times: [line start times] } of the playing song, while following
 let linerSungLine = -2
 const linerAlbumScript = (albumId, byName) => `(async () => {
@@ -2232,6 +2315,7 @@ function linerLyricsFor(apple) {
     const got = recordingId.lookup(lyricsStore, '', recordingId.songOf({ title: t.name, artist: t.artist, duration: t.ms / 1000 }), { write: false, check: () => true }).entry
     if (!got || !Array.isArray(got.lines) || !got.lines.length) continue
     if (got.source === 'lrclib' && !settings.lrclibFallback) continue
+    // loop: NOT-WORTH — per booklet push (a few per open), ≤ ~100 tracks × ≤ ~150 lines, in memory
     out[t.id] = { lines: got.lines.map((l) => ({ t: l.t, end: l.end, text: l.text || '', gap: !!l.gap })), source: got.source, writers: got.writers || [] }
   }
   return out
@@ -2248,6 +2332,7 @@ function sendLinerData(entry, pending) {
 // 250 px thumbnail (one fetch + nativeImage decode, ~15 ms) and kept in the liner-notes cache
 // ('disc:' + the thumbnail's URL; { fit: null } when no disc was found for sure: shown as before, still).
 // -> { [key]: fit | null } of the circles known now; the others are sent as 'liner-disc' when found.
+// cache: OK — key=scan URL; invalidated=deleted when its lookup ends (finally); bound=≤ ~4 in flight
 const linerDiscAsking = new Set()
 function linerDiscs(booklet) {
   const out = {}
@@ -2308,6 +2393,7 @@ async function linerTick() {
   const key = state.title + '|' + state.artist
   if (!linerSung || linerSung.key !== key) {
     const got = lyricsStore ? recordingId.lookup(lyricsStore, '', recordingId.songOf(state), { write: false }).entry : null
+    // loop: NOT-WORTH — inside the song-change check: once per song while following, N ≤ ~150 lines
     linerSung = { key, times: got && Array.isArray(got.lines) ? got.lines.map((l) => (l && !l.gap && l.text && Number.isFinite(l.t) ? l.t : null)) : [] }
     linerSungLine = -2
   }
@@ -2381,6 +2467,7 @@ function createLinerWindow(from) {
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   }), 'linerBounds'))
   const win = linerWindow
+  // error: NOT-WORTH — packaged liner-notes.html; rejects only if the booklet closes mid-load
   win.loadFile('liner-notes.html')
   persistBounds(win, 'linerBounds')
   lockDownLocalWindow(win)
@@ -2433,6 +2520,7 @@ function createVizWindow() {
     title: TITLES.visualizer,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
+  // error: NOT-WORTH — packaged visualizer.html; rejects only if the visualizer closes mid-load
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
   pushRail()
@@ -2790,6 +2878,7 @@ function cleanupWindowPositionMemory() {
 // Every Sonata window takes the album's colour and (Glass on) the blurred artwork through ONE theme
 // object (themeState: theme.js computes the tokens in each page); the visualizer also keeps its
 // 'palette' (the sung word's glow).
+// cache: OK — key=the palette's track; invalidated=with lastPalette (a late fetch for another track is dropped); bound=2 × ~3 KB
 let lastBackdrop = null    // { dark: { url, lumMin, lumMax }, light: {...} } for the current track
 function broadcastPalette(p) {
   const t = themeState()
@@ -2837,7 +2926,11 @@ async function refreshPalette(state) {
   if (!url) { lastPalette = null; lastBackdrop = null; broadcastPalette(null); return }
   try {
     const res = await fetch(url)
-    useArtwork(nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())))
+    const buf = Buffer.from(await res.arrayBuffer())
+    // a later song started while this artwork loaded (a quick skip): its own fetch sets the colours, never this one
+    // (QC 2026-10 CACHE C1: the previous song's tint and Glass stayed for the rest of the next)
+    if (lastPaletteKey !== key) return
+    useArtwork(nativeImage.createFromBuffer(buf))
   } catch (e) { /* error: NOT-WORTH — artwork unreachable: the previous palette stays */ }
 }
 function useArtwork(full) {
@@ -2880,6 +2973,7 @@ ipcMain.on('mini-command', (event, command, value) => {
     toggleLyricsWindow()
   }
   else if (command === 'moreMenu') {
+    // error: NOT-WORTH — showMoreMenu catches its page read; building the menu is sync
     showMoreMenu()
   }
   else if (command === 'artMenu') {
@@ -2967,15 +3061,18 @@ function startNowPlayingLoop() {
     railSong = !!state.title
     // the rail's album tint (one artwork fetch per track change, while the main window shows) and
     // its status dots (Discord reconnecting, the align helper starting/stopping): sent on change only
+    // error: NOT-WORTH — refreshPalette catches its artwork fetch inside
     if ((railMounted || panelMounted) && mainWindow.isVisible()) refreshPalette(state)
     pushRail()
     pushPanel()
     if (wantLastfm && state.title) feedScrobbler(state)
+    // error: NOT-WORTH — feedDiscord catches its connect; setActivity/clearActivity are sync writes
     if (wantDiscord) feedDiscord(state)
     if (wantNotify && state.title) {
       const key = state.title + '|' + state.artist
       // baseline on the first observed track so launch doesn't fire a notification
       if (notifyKey === null) notifyKey = key
+      // error: NOT-WORTH — notifyTrack catches its art fetch; the Notification is sync
       else if (key !== notifyKey && state.isPlaying) { notifyKey = key; notifyTrack(state) }
       else if (key !== notifyKey) notifyKey = key
     }
@@ -3072,12 +3169,18 @@ function saveDiscordConfig() {
 // --- Last.fm and Discord: set up and connected from Settings → Integrations (or the tray, which opens
 // it). Each step is a notice in that section, with the actions it needs; no pop-up dialogs. ---
 const INTEGRATIONS = { page: 'settings', section: 'integrations' }
+// a service's config file couldn't be written (a read-only or full disk, its folder's permissions): what and where
+function configNotWritten(id, name, file, e) {
+  notices.show({ id, place: INTEGRATIONS, kind: 'error', text: name + ' can\'t be set up: its settings file couldn\'t be written (' + ((e && (e.code || e.message)) || 'error') + ').',
+    detail: 'Sonata needs to write ' + file + '. Check that the folder exists and that you can write to it, then press Connect again.' })
+}
 async function connectDiscord() {
   showPanel('settings', 'integrations')
   loadDiscordConfig()
   notices.clear('discord')
   if (!discordConfig.applicationId) {
-    saveDiscordConfig()
+    // error: SHOWN — an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E3: Connect did nothing)
+    try { saveDiscordConfig() } catch (e) { configNotWritten('discord', 'Discord', discordConfigPath, e); return }
     notices.show({
       id: 'discord', place: INTEGRATIONS,
       text: 'Discord presence needs a (free) Discord application ID.',
@@ -3118,7 +3221,8 @@ async function connectLastFm() {
   showPanel('settings', 'integrations')
   notices.clear('lastfm')
   if (!lastfm.configured) {
-    lastfm.writeTemplate()
+    // error: SHOWN — an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E2: Connect did nothing)
+    try { lastfm.writeTemplate() } catch (e) { configNotWritten('lastfm', 'Last.fm', lastfm.configPath, e); return }
     notices.show({
       id: 'lastfm', place: INTEGRATIONS,
       text: 'Last.fm needs your own (free) API key and shared secret.',
@@ -3175,10 +3279,38 @@ function showRecovered(what, text, aside) {
   })
   recoveredAside[what] = aside
 }
+// cache: OK — key=what (settings | lyrics); invalidated=a new recovery; bound=2 paths
 const recoveredAside = {}
 
 // What each notice's buttons do (the notice ids and action ids main itself put there)
 // error: NOT-WORTH — an action for a notice that isn't shown any more, or not one of these, is dropped
+// Apple's page didn't load (QC 2026-10 ERROR_PASS E1: offline at start left a blank area, no words, no retry): a
+// notice says so with Try again (the panel opens on it once), and it tries again every APPLE_RETRY_MS by itself
+const APPLE_RETRY_MS = 20000
+let appleStartUrl = ''
+let appleRetryTimer = null   // cache: NOT-WORTH — key=the pending retry; invalidated=a load (appleLoaded) or the next failure; bound=one timer
+let appleFailShown = false   // cache: NOT-WORTH — key=this failing spell; invalidated=a successful load; bound=one flag
+function appleLoadFailed(code, desc, isMain) {
+  if (!isMain || code === -3) return   // a subframe, or a load replaced by another (ERR_ABORTED): not a failure
+  notices.show({ id: 'apple-offline', place: 'top', kind: 'error', task: true, text: 'Apple Music didn\'t load: ' + (desc || 'no connection') + '. Sonata tries again by itself.',
+    detail: 'Check your internet connection. Your lyrics, settings and learned songs are kept.', actions: [{ id: 'apple-retry', label: 'Try again', primary: true }] })
+  if (!appleFailShown) { appleFailShown = true; showPanel(settings.panelPage) }
+  if (appleRetryTimer) clearTimeout(appleRetryTimer)
+  // lifetime: OK — one-shot retry, re-armed by the next failure, cleared on a successful load (appleLoaded)
+  appleRetryTimer = setTimeout(() => { appleRetryTimer = null; appleRetry() }, APPLE_RETRY_MS)
+}
+function appleRetry() {
+  if (!mainAlive()) return
+  const wc = appleWC()
+  const url = wc.getURL()
+  // error: SHOWN — a failed retry comes back through did-fail-load (the notice)
+  if (url && !url.startsWith('chrome-error:') && url !== 'about:blank') wc.reload(); else wc.loadURL(appleStartUrl).catch(() => {})
+}
+function appleLoaded() {
+  if (appleRetryTimer) { clearTimeout(appleRetryTimer); appleRetryTimer = null }
+  appleFailShown = false
+  notices.clear('apple-offline')
+}
 function noticeAction(id, action) {
   const n = notices.get(id)
   if (!n || !n.actions.some((a) => a.id === action && !a.disabled)) return
@@ -3187,12 +3319,15 @@ function noticeAction(id, action) {
     case 'discord-open-portal': openExternalSafe('https://discord.com/developers/applications'); break
     case 'lastfm-open-config': shell.openPath(lastfm.configPath); break
     case 'lastfm-get-account': openExternalSafe('https://www.last.fm/api/account/create'); break
+    // error: NOT-WORTH — finishLastFm catches inside (SHOWN: the Integrations notice)
     case 'lastfm-done': finishLastFm(); break
     case 'lastfm-cancel': notices.clear('lastfm'); break
     case 'update-details': showPanel('settings', 'updates'); break
     case 'update-install': installUpdate(); break
+    // error: NOT-WORTH — quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js)
     case 'update-restart': if (!lastPlaying) quitGuard.allow('restart').then((go) => { if (go) restartIntoUpdate() }); break
     case 'helper-resume-show': showPanel('settings', 'timing'); break
+    case 'apple-retry': appleRetry(); break
     case 'whatsnew-see': showPanel('about', 'whatsnew'); break
     case 'ask-auto-yes': setSetting('autoInstallUpdates', true); break
     case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
@@ -3242,7 +3377,9 @@ function setSetting(key, value) {
     // a switch: the other channel's offer goes; checks again at once if checks are on (never a downgrade)
     if (updater) updater.reset()
     backConfirm = false
+    // error: NOT-WORTH — updater.check catches inside (SHOWN in Settings → Updates)
     if (settings.checkForUpdates) checkForUpdates(false)
+    // error: NOT-WORTH — checkEngineFeed catches its feed fetch (LOGGED-OK); the rest is sync
     checkEngineFeed(true)   // the helper's feed follows the channel too
   }
   else if (key === 'checkForUpdates') { startUpdateChecks(); startHelperFeedChecks() }
@@ -3261,6 +3398,7 @@ function setSetting(key, value) {
       if (alignSession) alignSession.stop(false)   // drop any recording
       if (alignHelper) alignHelper.stop()           // and free the GPU now
       alignStatusText = ''
+    // error: NOT-WORTH — askAlignStatus catches inside (Settings' status line)
     } else askAlignStatus()
     showAlignRepair()
     applyLookahead()   // look-ahead needs Precise word timing: off with it (its helper out of the audio path)
@@ -3402,6 +3540,7 @@ function learnPong(pong) {
 }
 // what is in the helper's folder besides a working install (one readdir; at start and after each change)
 function helperScan(home) {
+  // loop: NOT-WORTH — once per install recheck (helperScan), N = files in one folder; the hot link is a name collision with Map.has
   const has = (dir) => { try { return fs.readdirSync(dir).some((f) => !f.startsWith('.')) } catch (e) { return false } }   // error: NOT-WORTH — no folder: nothing there
   let names = []
   try { names = fs.readdirSync(home) } catch (e) { names = [] }   // error: NOT-WORTH — no folder: nothing to remove
@@ -3409,6 +3548,7 @@ function helperScan(home) {
   let stamp = ''
   try { stamp = fs.readFileSync(path.join(home, 'venv', '.sonata-engine-venv'), 'utf8') } catch (e) { stamp = '' }   // error: NOT-WORTH — no venv: no build
   const variant = (/^variant=(.*)$/m.exec(stamp) || [])[1]
+  // loop: NOT-WORTH — helperScan runs only on alignInstalled(recheck), not per tick; N ≤ ~10 entries
   return { models: has(path.join(home, 'models')), leftovers: names.some((f) => /^(engine-|venv|active-engine$)/.test(f)) || has(path.join(home, 'python')), backend: gpuDetect.backendOfVariant(variant) }
 }
 // the graphics cards: sysfs now (a few small reads), lspci's names when it answers (once per run)
@@ -3548,6 +3688,7 @@ function helperAfter(kind, job) {
   alignStatusText = ''
   aboutCache = null
   alignInstalled(true)
+  lookaheadPong = null   // the new engine answers its own pong: whether it streams is asked again (lookaheadAskEngine)
   // 0.15.70: a helper that needed its update at start kept look-ahead off for the whole run (lookaheadWanted needs
   // the helper installed); now it starts (or stops) with the helper's new state
   applyLookahead()
@@ -3560,6 +3701,7 @@ function helperAfter(kind, job) {
   else if (ok) {
     lyricsKey = null
     if (!settings.lyricsPreciseTiming && alignHelper) alignHelper.stop()   // the models step's helper, when the switch is off
+    // error: NOT-WORTH — askAlignStatus catches inside (Settings' status line)
     else if (settings.lyricsPreciseTiming) askAlignStatus()
   }
   pushRail()
@@ -3618,6 +3760,7 @@ function helperResume() {
   if (m.kind === 'remove') {
     helperJob = { kind: 'remove', o: m.opts, tries: m.tries + 1 }
     writeHelperJob(m.step)
+    // error: NOT-WORTH — installer remove() never rejects (exec resolves); failures are the job's row
     getHelperInstaller().remove(!!m.opts.deleteModels)
   } else helperStart(m.kind, '', m)
 }
@@ -3682,6 +3825,7 @@ function helperAction(name) {
     helperJob = { kind: 'remove', o: { deleteModels: name === 'helper-remove-all' }, tries: 0 }
     helperJobStep = ''
     helperResumed = false
+    // error: NOT-WORTH — installer remove() never rejects (exec resolves); failures are the job's row
     inst.remove(name === 'helper-remove-all')
   }
   pushPanel()
@@ -3751,6 +3895,7 @@ function refreshTrayMenu() {
     lastfmItem,
     discordItem,
     { type: 'separator' },
+    // error: NOT-WORTH — updater.check catches inside (SHOWN in Settings → Updates, opened by the click)
     { label: 'Check for Updates…', click: () => { showPanel('settings', 'updates'); checkForUpdates(true) } },
     { label: 'Settings…', click: () => showPanel('settings') },
     { label: 'About Sonata', click: () => showPanel('about') },
@@ -3812,6 +3957,7 @@ let railWide = false      // the rail view is widened over Apple's page (unpinne
 let railSong = null       // the now-playing poll found a song (null: not asked yet)
 let railSent = ''         // the last state sent, as JSON
 let railBoundsKey = ''    // the last bounds applied, as JSON
+// cache: OK — key=none (two shipped files); invalidated=never (shipped); bound=one string (tens of KB)
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
 function railPrecise() {
@@ -3914,8 +4060,11 @@ function toggleRailPin() { toggleRailFlag('pin') }
 // the notices, and sends it only when it changes.
 let panelMounted = false
 let panelSent = ''
+let panelSentHidden = false   // the last snapshot sent said the panel is out of sight (hidden, or the window in the tray)
+let panelStale = false        // a push skipped while out of sight: sent when the window shows again
 let reveal = null         // the last deep link: { page, section, n, focus }
 let revealCount = 0
+// cache: OK — key=none (CHANGELOG, BACKLOG, install); invalidated=nulled after a helper job; bound=one
 let aboutCache = null     // About's texts (CHANGELOG.md, BACKLOG.md), read when About first shows
 let backConfirm = false   // Back to stable: the confirm step is showing
 function createPanelView() {
@@ -3925,18 +4074,20 @@ function createPanelView() {
   panelView.setBackgroundColor('#00000000')
   // between Apple's page and the rail: the rail, opening over the page, stays on top
   mainWindow.contentView.addChildView(panelView, mainWindow.contentView.children.indexOf(railView))
+  // error: NOT-WORTH — packaged panel.html; rejects only if the view is closed mid-load
   panelView.webContents.loadFile('panel.html')
   lockDownLocalWindow(panelView)
   // lifetime: OK — one listener each on the panel's web contents, created once, die with it
   panelView.webContents.on('before-input-event', (event, input) => { if (!shortcutCapture) windowShortcut(input) })
   panelView.webContents.on('focus', () => { focusedView = 'panel' })
-  panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = '' })
+  panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = ''; panelSentHidden = false })
 }
 // the open section and pins of a page (first visit: the first section with an open task opens)
 function accOf(page) {
   const stored = { open: (settings.panelOpen || {})[page], pins: (settings.panelPins || {})[page] }
   if (stored.open === undefined) {
     const rem = notices.reminders().sections
+    // loop: HOT-PATH-OK — per pushPanel (5 s tick), only for a page with no stored open section; N ≤ ~12
     stored.open = panelModel.sectionIds(page).find((id) => rem[page + '/' + id]) || null
   }
   return panelModel.accState(stored, page)
@@ -3951,6 +4102,7 @@ function accAction(page, type, id) {
   const after = panelModel.accReduce(before, { type, id })
   if (JSON.stringify(after) === JSON.stringify(before)) return
   saveAcc(page, after)
+  // error: NOT-WORTH — askAlignStatus and checkEngineFeed both catch inside
   if (page === 'settings' && panelModel.isOpen(after, 'timing') && !panelModel.isOpen(before, 'timing')) { askAlignStatus(); checkEngineFeed(false) }
   seenWhatsNew()
   pushPanel()
@@ -3970,6 +4122,7 @@ function showPanel(page, section, opts) {
   createPanelView()
   if (!mainWindow.isVisible()) mainWindow.show()
   if (mainWindow.isMinimized()) mainWindow.restore()
+  // error: NOT-WORTH — askAlignStatus catches inside (Settings' status line)
   if (settings.panelPage === 'settings' && panelModel.isOpen(accOf('settings'), 'timing')) askAlignStatus()
   seenWhatsNew()
   pushRail()
@@ -4142,6 +4295,7 @@ function gfxReadout() {
 // shown; every change of those (a state push, the window shown, hidden, minimised or restored) asks again
 // lifetime: OK — one sampler for the app's life, created on the section's first open; its one-shot refresh
 // timer runs only while open (curious-sampler.js)
+// cache: NOT-WORTH — key=none (one sampler, made on first open); invalidated=never; bound=one
 let curious = null
 const curiousOpen = () => aboutShowing('curious')
 function curiousSync() {
@@ -4228,10 +4382,16 @@ function curiousCopy() {
 function pushPanel() {
   if (!panelAlive() || !panelMounted) return
   aboutSync()
+  // out of sight (the panel hidden, or the window in the tray or minimized): one snapshot says so, then nothing is
+  // built until it shows again (QC 2026-10 LOOP L2: the 5 s loop rebuilt it forever, ~0.4 MB of strings each time)
+  const seen = !!(settings.panelShown && mainAlive() && mainWindow.isVisible() && !mainWindow.isMinimized())
+  if (!seen && panelSentHidden) { panelStale = true; return }
+  panelStale = false
   const s = panelSnapshot()
   const json = JSON.stringify(s)
   if (json === panelSent) return
   panelSent = json
+  panelSentHidden = !seen
   panelView.webContents.send('panel:state', s)
 }
 
@@ -4254,6 +4414,7 @@ function syncToasts() {
     toastView = new WebContentsView({ webPreferences: SONATA_VIEW_PREFS('preload-panel.js') })
     toastView.setBackgroundColor('#00000000')
     mainWindow.contentView.addChildView(toastView)   // on top of everything
+    // error: NOT-WORTH — packaged toast.html; rejects only if the last toast ends mid-load
     toastView.webContents.loadFile('toast.html')
     lockDownLocalWindow(toastView)
     railBoundsKey = ''
@@ -4390,7 +4551,7 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
     return
   }
   if (!fromPanel) return
-  if (command === 'mounted') { panelMounted = true; panelSent = ''; if (shortcutCapture) captureShortcut(false); pushPanel() }
+  if (command === 'mounted') { panelMounted = true; panelSent = ''; panelSentHidden = false; if (shortcutCapture) captureShortcut(false); pushPanel() }
   else if (command === 'set' && typeof a === 'string') setSetting(a, b)
   else if (command === 'action' && PANEL_ACTIONS.includes(a)) panelAction(a)
   else if (command === 'notice-action' && typeof a === 'string' && typeof b === 'string') noticeAction(a, b)
@@ -4406,20 +4567,25 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
   else if (command === 'shortcut-capture' && typeof a === 'boolean') captureShortcut(a)
 })
 function panelAction(name) {
+  // error: SHOWN — connectLastFm shows its own failures (an unwritable config: configNotWritten; the auth: its notice)
   if (name === 'lastfm') { if (lastfm && lastfm.connected) disconnectLastFm(); else connectLastFm() }
+  // error: SHOWN — connectDiscord shows its own failures (an unwritable config: configNotWritten; the connect: its notice)
   else if (name === 'discord') { if (discordConfig.enabled) disconnectDiscord(); else connectDiscord() }
+  // error: NOT-WORTH — updater.check catches inside (SHOWN in Settings → Updates)
   else if (name === 'check-now') checkForUpdates(true)
   else if (name === 'show-timing') showPanel('settings', 'timing')   // Lyrics & Studio's "Set up Precise timing"
   else if (name === 'back-to-stable') {
     // the first press asks (the line says what happens), the second installs
     if (!backConfirm) { backConfirm = true; pushPanel(); return }
     backConfirm = false
+    // error: NOT-WORTH — updater.check / install catch inside (SHOWN in the update notice)
     backToStable()
   }
   else if (name === 'back-cancel') { backConfirm = false; pushPanel() }
   else if (name === 'shortcuts-configure' && shortcuts) shortcuts.configure()
   else if (name === 'shortcuts-ask-again' && shortcuts) shortcuts.askAgain()
   else if (name === 'shortcuts-reset') { settings.shortcutKeys = {}; saveSettings(); shortcutError = ''; applyShortcuts() }
+  // error: NOT-WORTH — quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js)
   else if (name === 'gfx-restart') quitGuard.allow('restart').then((go) => { if (go) restartApp() })
   else if (name === 'gfx-back-on') gfxBackOn()
   else if (name === 'curious-copy') curiousCopy()
@@ -4522,7 +4688,14 @@ function createWindow() {
   mainWindow.contentView.addChildView(appleView)
   mainWindow.contentView.addChildView(railView)   // added last: on top
   layoutViews()
-  appleWC().loadURL(appUrl + locale.toLowerCase() + '/browse')
+  appleStartUrl = appUrl + locale.toLowerCase() + '/browse'
+  // offline or Apple down: did-fail-load says so in a notice with Try again, and tries again by itself (appleLoadFailed)
+  // lifetime: OK — 'did-fail-load' / 'did-finish-load' listeners for Apple's view's life (they go with it)
+  appleWC().on('did-fail-load', (e, code, desc, url, isMain) => appleLoadFailed(code, desc, isMain))
+  appleWC().on('did-finish-load', appleLoaded)
+  // error: SHOWN — a failed load is the 'apple-offline' notice (did-fail-load above); the rejection itself is that same failure
+  appleWC().loadURL(appleStartUrl).catch(() => {})
+  // error: NOT-WORTH — packaged rail.html; rejects only if the window closes mid-load
   railView.webContents.loadFile('rail.html')
   // lifetime: OK — once, on the rail's first load: the start-marker clock (gfx-runtime.js) starts there
   railView.webContents.once('did-finish-load', () => gfx.painted())
@@ -4551,6 +4724,9 @@ function createWindow() {
   // lifetime: OK — four listeners for the window's life: About → Graphics and For the Curious sample only while the window shows
   // loop: NOT-WORTH — four event names, once
   for (const ev of ['show', 'hide', 'minimize', 'restore']) mainWindow.on(ev, aboutSync)
+  // lifetime: OK — two listeners for the window's life: a panel snapshot skipped in the tray is sent on showing
+  // loop: NOT-WORTH — two event names, once
+  for (const ev of ['show', 'restore']) mainWindow.on(ev, () => { if (panelStale) pushPanel() })
   mainWindow.on('enter-full-screen', pushRail)
   mainWindow.on('leave-full-screen', pushRail)
   // lifetime: OK — one listener · the window's focus goes to the view that had it (a BaseWindow has no
@@ -4629,7 +4805,7 @@ function createWindow() {
     // closing quits: while the helper installs, ask first (quit-guard.js)
     if (!shuttingDown && helperInstaller && helperInstaller.busy) {
       e.preventDefault()
-      quitGuard.allow('quit').then((go) => { if (go && mainAlive()) { shuttingDown = true; mainWindow.close() } })
+      quitGuard.allow('quit').then((go) => { if (go && mainAlive()) { shuttingDown = true; mainWindow.close() } })   // error: NOT-WORTH — allow() never rejects
       return
     }
     shuttingDown = true
@@ -4701,16 +4877,18 @@ function integrateAppImage() {
   } catch (e) { console.error('menu integration failed:', e.message) }   // error: LOGGED-OK — no menu entry or icon this run; Sonata itself runs
 }
 
-function fetchText(url) {
+function fetchText(url, o) {
   return new Promise((resolve, reject) => {
     // lifetime: OK — one request per feed fetch; its listeners go with it at end or error
     const req = net.request(url)
+    // a fresh read (a check the user asked for): GitHub's contents API as raw bytes, past Chromium's own cache
+    if (o && o.fresh) { req.setHeader('Accept', 'application/vnd.github.raw'); req.setHeader('Cache-Control', 'no-cache') }
     req.on('response', (res) => {
       if (res.statusCode !== 200) { reject(new Error('HTTP ' + res.statusCode)); return }
       let body = ''
       res.on('data', (chunk) => { body += chunk })
       res.on('end', () => resolve(body))
-      res.on('error', reject)
+      res.on('error', reject)   // lifetime: OK — the response's listeners go with it
     })
     req.on('error', reject)   // lifetime: OK — goes with the request
     req.end()
@@ -4742,13 +4920,14 @@ function downloadFile(url, dest, onProgress) {
 // notices and the playback state ---
 const testFeed = updateFeed.testFeed(process.env)
 if (testFeed) console.log('update: TEST FEED ' + testFeed.prefix + ' (loopback only)')
+// cache: OK — key=none (the last poll's isPlaying); invalidated=each now-playing poll; bound=one boolean
 let lastPlaying = false          // from the now-playing polls: Restart now waits for a pause
 let updateNotified = ''          // the version a desktop notification was shown for (tray-only state)
 // lifetime: NOT-WORTH — one updater for the app's life (AppImage builds only)
 const updater = updaterLib.createUpdater({
   version: app.getVersion(),
   channel: () => settings.updateChannel,
-  fetchUpdate: (channel) => updateFeed.fetchUpdate({ channel, fetchText, test: testFeed, log: (m) => console.log(m) }),
+  fetchUpdate: (channel, o) => updateFeed.fetchUpdate({ channel, fetchText, test: testFeed, fresh: !!(o && o.fresh), log: (m) => console.log(m) }),
   download: downloadFile,
   verify: (file, feed) => updateFeed.verifyDownload(file, feed),
   fs,
@@ -4765,6 +4944,7 @@ const updater = updaterLib.createUpdater({
   now: () => Date.now(),
   log: (m) => console.error(m)
 })
+// cache: OK — key=version; invalidated=a ready install replaces it; bound=one object
 let lastInstallFailure = null   // { version, detail } of the last failed install (said while that version is offered)
 function onUpdateState() {
   const st = updater.state()
@@ -4996,6 +5176,7 @@ app.whenReady().then(async () => {
   const pendingPath = path.join(app.getPath('userData'), 'lastfm-pending.json')
   scrobbleQueue = createScrobbleQueue({
     send: (entries) => lastfm.scrobbleBatch(entries),
+    // error: NOT-WORTH — load() runs inside createScrobbleQueue's try (lastfm.js:170): damaged = none
     load: () => JSON.parse(fs.readFileSync(pendingPath, 'utf8')),
     // written whole and renamed into place, so a quit mid-write can't leave half a file
     save: (list) => {

@@ -8,6 +8,7 @@ const LA = require('../lookahead')
 const P = require('../lookahead-page')
 const { pickSinkInput } = require('../audio-listen')
 const AS = require('../align-session')
+const { until } = require('./until')
 const T = require('../lyrics-timing')
 
 const MS = LA.DELAYS.precise
@@ -32,19 +33,21 @@ test('decide: music videos are never delayed', () => {
   assert.deepEqual(LA.decide(Object.assign({}, base, { video: true, learn: 'unknown' })), { ms: 0, why: 'video' })
 })
 
-test('decide: no GPU, a busy GPU, an old or stopped engine, no view, switch off: no delay, and why', () => {
-  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: true })).why, 'gpu-busy')
+test('decide: no GPU, a busy GPU, a game, an old or stopped engine, switch off: no delay, and why', () => {
+  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: 'gpu' })).why, 'gpu-busy')
+  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: 'game' })).why, 'gaming')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'cpu' })).why, 'engine-cpu')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'old' })).why, 'engine-old')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'off' })).why, 'engine-off')
-  assert.equal(LA.decide(Object.assign({}, base, { viewOpen: false })).why, 'no-view')
+  // 0.15.70: no lyric view open is no reason (the song is learned without one)
+  assert.equal(LA.decide(Object.assign({}, base, { viewOpen: false })).ms, MS)
   assert.equal(LA.decide(Object.assign({}, base, { on: false })).why, 'off')
   assert.equal(LA.decide(Object.assign({}, base, { ok: false })).why, 'unavailable')
   // every refusal is 0 ms
-  for (const k of [{ gpuBusy: true }, { engine: 'cpu' }, { viewOpen: false }, { on: false }]) assert.equal(LA.decide(Object.assign({}, base, k)).ms, 0)
+  for (const k of [{ gpuBusy: 'gpu' }, { gpuBusy: 'game' }, { engine: 'cpu' }, { on: false }]) assert.equal(LA.decide(Object.assign({}, base, k)).ms, 0)
   // a status line for each, the first play's naming its delay
   assert.equal(LA.statusText('first', 3000), 'This song plays 3 s behind: its first play')
-  for (const why of ['learned', 'nothing', 'video', 'no-view', 'gpu-busy', 'engine-cpu', 'engine-old', 'engine-off']) {
+  for (const why of ['learned', 'nothing', 'video', 'gaming', 'gpu-busy', 'engine-cpu', 'engine-old', 'engine-off', 'engine-unknown', 'updating', 'needs-precise']) {
     const t = LA.statusText(why, 0)
     assert.ok(t && t.length <= 60, why + ': ' + t)   // the visible line's limit (the ⓘ rule)
   }
@@ -96,7 +99,7 @@ test('learnState + decide (0.15.70): a song is learned only with its notes and e
   }
   assert.deepEqual(LA.decide(Object.assign({}, base, { learn: 'notes' })), { ms: LA.DELAYS.precise, why: 'notes' })
   // the delay still needs the GPU free and the engine ready
-  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', gpuBusy: true })).ms, 0)
+  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', gpuBusy: 'gpu' })).ms, 0)
   assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', engine: 'cpu' })).ms, 0)
   const t = LA.statusText('notes', 3000)
   assert.equal(t, 'This song plays 3 s behind: learning its notes')
@@ -512,7 +515,9 @@ test('controller: a gate the player never confirms is opened after 100 ms, not 3
   await settle()
   w.la.pageEvent({ ev: 'item', natural: false, title: 'S' })    // a skip into a delayed song: gated
   assert.deepEqual(w.sent.slice(-1), ['flush ' + MS])
-  await new Promise((r) => setTimeout(r, 130))
+  const t0 = Date.now()
+  await until(() => w.sent[w.sent.length - 1] === 'open')   // the 100 ms fallback (a condition, not a fixed 130 ms)
+  assert.ok(Date.now() - t0 < 2000, 'well before the old 3 s')
   assert.deepEqual(w.sent.slice(-1), ['open'])
   assert.ok(w.log.some((l) => /did not confirm/.test(l)))
   // a confirmed one is not opened twice
@@ -555,4 +560,95 @@ test('the helper\'s own gate timeout is a backstop of at most 300 ms (never a si
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'native', 'lookahead', 'sonata-lookahead.c'), 'utf8')
   const ms = Number((/#define GATE_TIMEOUT_MS (\d+)/.exec(src) || [])[1])
   assert.ok(ms > 0 && ms <= 300, String(ms))
+})
+
+test('delay line (QC #3): a late reply is dropped, never taken by the next command', async () => {
+  const sock = new EventEmitter()
+  const writes = []
+  sock.setEncoding = () => {}
+  sock.write = (s) => writes.push(s)
+  sock.end = () => sock.emit('close')
+  const line = LA.createDelayLine('/x.sock', { net: { createConnection: () => sock }, replyMs: 20 })
+  sock.emit('connect')
+  await line.ready
+  const open = line.cmd('open')
+  await assert.rejects(open, /no reply to open/)        // the helper stalls past the timeout
+  const stat = line.cmd('stat')
+  sock.emit('data', 'ok t=123\n')                        // open's late reply lands first
+  sock.emit('data', 'ok stat state=run heard_us=3021333\n')
+  const f = await stat
+  assert.equal(f.name, 'stat')
+  assert.equal(f.heard_us, 3021333)
+  line.close()
+})
+
+test('controller (QC #9): a quick off and on starts again once the old helper exits; nothing routes meanwhile', async () => {
+  const w = fakeWorld()
+  w.la.start()
+  await settle()
+  assert.equal(w.la.phase, 'on')
+  const helper = w.children.find((c) => c.bin === '/app/sonata-lookahead')   // loop: NOT-WORTH — a test
+  w.la.stop()
+  assert.equal(w.la.phase, 'stopping')
+  await settle()                                       // its route back to the default device
+  w.la.start()                                         // switched on again before the old helper is gone
+  const moves = w.execs.length
+  w.la.pageEvent({ ev: 'play' })                       // no route onto the dying sink
+  await settle()
+  assert.equal(w.execs.length, moves)
+  helper.emit('exit', 0, null)
+  await settle()
+  await settle()
+  assert.equal(w.la.phase, 'on', 'running again with the switch on')
+  assert.equal(w.children.filter((c) => c.bin === '/app/sonata-lookahead').length, 2)   // loop: NOT-WORTH — a test
+  w.la.stop()
+})
+
+// Marcy (2026-10-19): every song not learned yet gets look-ahead; a view open or not never decides it
+test('decide: the table: view open/closed x learned/unlearned x helper ready/not x graphics card busy', () => {
+  const learns = { first: MS, notes: MS, unknown: MS, learned: 0, nothing: 0 }
+  // loop: NOT-WORTH — a test's 5 x 2 x 4 x 3 cases
+  for (const learn of Object.keys(learns)) {
+    for (const viewOpen of [true, false]) {
+      for (const engine of ['ready', 'unknown', 'old', 'cpu']) {
+        for (const gpuBusy of [false, 'gpu', 'game']) {
+          const d = LA.decide(Object.assign({}, base, { learn, viewOpen, engine, gpuBusy }))
+          const plain = learns[learn] === 0
+          const want = plain ? { ms: 0, why: learn } : gpuBusy ? { ms: 0, why: gpuBusy === 'game' ? 'gaming' : 'gpu-busy' }
+            : engine !== 'ready' ? { ms: 0, why: 'engine-' + engine } : { ms: MS, why: learn === 'unknown' ? 'first' : learn }
+          assert.deepEqual(d, want, JSON.stringify({ learn, viewOpen, engine, gpuBusy }))
+          assert.ok(d.ms || plain || LA.statusText(d.why, 0), 'a refusal says why')
+        }
+      }
+    }
+  }
+})
+
+test('main (0.15.70): look-ahead learns with no view open; the status says why it is off; helper ready re-asks', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.doesNotMatch(main, /viewOpen: lyricViews\(\)/)
+  assert.match(main, /function lyricsFeedWanted\(\) \{ return lyricViews\(\)\.length > 0 \|\| lookaheadRuns\(\) \}/)
+  assert.match(main, /if \(lookaheadWanted\(\) && preciseTimingOn\(\) && !lookaheadPong\) askAlignStatus\(\)/)
+  assert.match(main, /statusText\(helperJob \? 'updating' : !preciseTimingOn\(\) \? 'needs-precise' : 'off', 0\)/)
+  const after = main.slice(main.indexOf('function helperAfter('), main.indexOf('function helperStart('))
+  assert.ok(after.indexOf('lookaheadPong = null') >= 0 && after.indexOf('lookaheadPong = null') < after.indexOf('applyLookahead()'))
+})
+
+// Marcy 2026-10-19 ("After Midnight"): streamed line notes the engine placed at another chorus repeat are dropped
+test('streamPartFits: a streamed line\'s notes must sit on that line\'s own span (Apple words or line times)', () => {
+  const W = (t, end, text) => ({ t, end, text })
+  const raw = [
+    { t: 10, text: 'everything good happens', words: [W(10, 10.6, 'everything'), W(10.6, 11, 'good'), W(11, 12, 'happens')] },
+    { t: 40, text: 'can\'t be a good girl' },
+    { t: 44, text: 'after midnight' }
+  ]
+  const part = (a, b) => ({ syllables: [{ t: a, end: a + 0.5 }, { t: b - 0.5, end: b }], notes: [{ t: a, end: b, midi: 60 }] })
+  assert.equal(AS.streamPartFits(part(10.1, 11.9), raw, 0), true, 'on its Apple word times')
+  assert.equal(AS.streamPartFits(part(70.1, 71.9), raw, 0), false, 'another repeat of the chorus')
+  assert.equal(AS.streamPartFits(part(40.3, 43.5), raw, 1), true, 'on its line time')
+  assert.equal(AS.streamPartFits(part(44.2, 46), raw, 1), false, 'the next line\'s audio')
+  assert.equal(AS.streamPartFits(part(5, 6), [{ t: null, text: 'x' }], 0), true, 'nothing to check against')
+  assert.equal(AS.streamPartFits({ syllables: [] , notes: [] }, raw, 0), true)
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'align-session.js'), 'utf8')
+  assert.match(src, /!streamPartFits\(msg\.notes, s\.raw, msg\.line\)\) \{ log\(/)
 })

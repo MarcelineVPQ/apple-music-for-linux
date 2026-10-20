@@ -25,6 +25,7 @@
   // "ctrl+alt+p" / "Alt+Control+P" -> "Ctrl+Alt+P" (modifiers in MODS order); null when not a key Sonata takes
   function normalize(accel) {
     if (typeof accel !== 'string' || accel.length > 40) return null
+    // loop: NOT-WORTH — per key check (apply, a settings write, a key press), ≤ 4 parts; interval root is a name clash
     const parts = accel.split('+').map((p) => p.trim()).filter(Boolean)
     if (parts.length < 2) return null
     const mods = new Set()
@@ -35,8 +36,10 @@
       mods.add(m)
     }
     const raw = parts[parts.length - 1]
+    // loop: NOT-WORTH — per key check, N = 11 named keys
     const key = raw.length === 1 ? raw.toUpperCase() : (NAMED.find((n) => n.toLowerCase() === raw.toLowerCase()) || (/^f\d{1,2}$/i.test(raw) ? raw.toUpperCase() : raw))
     if (!KEYS.has(key)) return null
+    // loop: NOT-WORTH — per key check, N = 4 modifiers
     return MODS.filter((m) => mods.has(m)).concat([key]).join('+')
   }
 
@@ -175,6 +178,7 @@
   // One action per key press: key repeat (a held key) and a press arriving twice don't skip songs.
   // -> fn(id, nowMs) -> true when the press counts
   function repeatGuard(ms) {
+    // cache: OK — key=action id; invalidated=overwritten per press; bound=4 ids (fire() checks M.IDS first)
     const last = new Map()
     return (id, now) => {
       const prev = last.get(id)

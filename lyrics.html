@@ -857,9 +857,11 @@
       }
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) { thumb.src = artUrl; return }   // reduced motion: no flip
       try {
+        // lifetime: OK — a 250 ms flip, finishes on its own (no fill); once per new cover
         await thumb.animate([{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(90deg)' }], { duration: 250, easing: 'ease-in' }).finished
       } catch (e) { /* error: NOT-WORTH — the flip was cancelled (a newer cover or the window closing); the cover is set below anyway */ }
       thumb.src = artUrl
+      // lifetime: OK — a 250 ms flip, finishes on its own (no fill); once per new cover
       thumb.animate([{ transform: 'rotateY(-90deg)' }, { transform: 'rotateY(0deg)' }], { duration: 250, easing: 'ease-out' })
     }
     img.src = artUrl
@@ -963,6 +965,7 @@
     const total = swing + remaining
     const f = swing / total
     const rot = (a) => 'rotate(' + a.toFixed(2) + 'deg)'
+    // lifetime: OK — fill 'forwards' (the arm stays put): cancelled by the next stopArm() (seek, pause, new song)
     const anim = armEl.animate([{ transform: rot(from), offset: 0, easing: 'ease-in-out' }, { transform: rot(target), offset: f, easing: 'linear' }, { transform: rot(ARM_IN), offset: 1 }], { duration: total * 1000, fill: 'forwards' })
     arm = { anim, at: t, perf: performance.now(), from, to: target, f }
     if (newSong) {

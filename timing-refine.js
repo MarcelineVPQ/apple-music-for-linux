@@ -136,17 +136,21 @@ function refineWords(line, evidence, opts = {}) {
   const n = est.length
   if (!n) return { words: [], moved: 0, confidence: 0 }
   if (P.noiseRate != null && P.noiseRate > P.maxNoise) {
+    // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play (noisy song)
     return { words: est.map((w) => ({ t: w.t, end: w.end, text: w.text })), moved: 0, confidence: 0 }
   }
   const lo = line.t != null ? Math.min(line.t, est[0].t) : est[0].t
   let hi = Math.min(line.end != null ? line.end : Infinity, P.nextStart != null ? P.nextStart : Infinity)
   if (!(hi < Infinity)) hi = est[n - 1].end + P.maxShift
   hi = Math.max(hi, est[n - 1].end)                      // never squeeze the estimate itself
+  // loop: NOT-WORTH — the line's evidence onsets (≤ ~40) filter/map/sort, once per due line per play
   const onsets = ((evidence && evidence.onsets) || [])
     .filter((o) => o.strength >= P.minStrength && o.t >= lo - P.leadIn && o.t <= hi - P.minWord / 2)
     .map((o) => ({ t: Math.max(lo, o.t), s: o.strength }))
     .sort((a, b) => a.t - b.t)
+  // loop: NOT-WORTH — the line's voiced spans (≤ ~10), once per due line per play
   const voiced = ((evidence && evidence.voiced) || []).filter((v) => v.confidence >= P.minVoiced)
+  // loop: NOT-WORTH — line's onsets (≤ ~40) per call, a few calls per word, once per due line per play
   const anyOnset = (a, b) => ((evidence && evidence.onsets) || []).some((o) => o.strength >= P.holdOnset && o.t > a && o.t < b)
   // held notes: a voiced run that starts at an onset and lasts holdMin+ with no new syllable
   // loop: NOT-WORTH — the line's onsets (≤ ~40) × its voiced spans, once per refine
@@ -157,9 +161,11 @@ function refineWords(line, evidence, opts = {}) {
   const heldUntil = new Array(n).fill(0)
   const syl = syllablePlan(est)
 
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play
   let starts = est.map((w) => w.t)
   const anchored = new Array(n).fill(false)
   let confidence = 0
+  // loop: NOT-WORTH — line's onsets (≤ ~40), once per due line per play
   const inLine = onsets.filter((o) => o.t >= est[0].t - P.maxShift && o.t <= est[n - 1].end).length
   // gate: no onsets, or a line drowning in them (drums, guitar chugs), gives no usable evidence
   if (onsets.length && inLine <= P.maxDensity * syl.length) {
@@ -168,11 +174,13 @@ function refineWords(line, evidence, opts = {}) {
     // (syllable times scaled around the line start) and keep the best alignment.
     // Near-ties between tempos that put a word on different onsets mean the onset pattern is
     // ambiguous there (a regular grid with a missed syllable): such words don't move.
+    // loop: NOT-WORTH — 8 tempos × one alignment each, once per due line per play
     const tries = P.rates.map((rate) => {
       const warped = rate === 1 ? syl : syl.map((x) => ({ w: x.w, first: x.first, t: lo + (x.t - lo) * rate }))
       const a = align(warped, onsets, P, lo)
       return { warped, match: a.match, raw: a.score, score: a.score - P.ratePenalty * Math.abs(Math.log(rate)) * syl.length }
     })
+    // loop: NOT-WORTH — sort of 8 tempo tries, once per due line per play
     tries.sort((a, b) => b.score - a.score)
     const best = tries[0]
     const match = Int32Array.from(best.match), score = best.score
@@ -191,6 +199,7 @@ function refineWords(line, evidence, opts = {}) {
         if (best.raw - alt.score < P.margin) match[k] = -1
       }
     }
+    // loop: NOT-WORTH — the line's syllables (≤ ~25), once per due line per play
     const count = match.filter((j) => j >= 0).length
     confidence = clamp(score / syl.length, 0, 1)
     if (count >= Math.max(1, Math.ceil(P.minMatchFrac * syl.length))) {
@@ -215,6 +224,7 @@ function refineWords(line, evidence, opts = {}) {
           }
         }
       }
+      // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play
       starts = est.map((w, i) => w.t + clamp(shift[i] || 0, -P.maxShift, P.maxShift))
     } else {
       confidence = Math.min(confidence, count / syl.length)
@@ -231,7 +241,9 @@ function refineWords(line, evidence, opts = {}) {
     const max = i < n - 1 ? starts[i + 1] - P.minWord : hi - P.minWord
     if (starts[i] > max) starts[i] = max
   }
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play
   if (starts.some((t, i) => Math.abs(t - est[i].t) > P.maxShift + 1e-9 || t < lo - 1e-9 || (i && t < starts[i - 1] + P.minWord - 1e-9))) {
+    // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play
     starts = est.map((w) => w.t)
   }
 
@@ -254,12 +266,15 @@ function refineWords(line, evidence, opts = {}) {
     }
   }
 
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per due line per play
   const words = est.map((w, i) => ({ t: starts[i], end: i < n - 1 ? starts[i + 1] : 0, text: w.text }))
   const last = words[n - 1]
   last.end = clamp(est[n - 1].end + (starts[n - 1] - est[n - 1].t), last.t + P.minWord, hi)
 
   // held last word: a voiced segment that carries it past its end, with no onset in between
+  // loop: NOT-WORTH — line's voiced spans (≤ ~10), once per due line per play
   const v = voiced.find((s) => s.start <= last.t + 0.12 && s.end > last.t + 0.1)
+  // loop: NOT-WORTH — line's onsets (≤ ~40), once per due line per play
   if (v && v.end > last.end + P.minStretch && !onsets.some((o) => o.t > last.t + 0.1 && o.t < v.end - 0.05)) {
     last.end = Math.min(v.end, hi)
   }
@@ -269,6 +284,7 @@ function refineWords(line, evidence, opts = {}) {
   for (const w of words) {
     if (w.held || w.end - w.t < P.holdMin) continue
     const a = w.end - P.holdTail
+    // loop: NOT-WORTH — words × voiced spans (≤ 15 × 10), once per due line per play
     if (voiced.some((s) => s.start <= a && s.end >= w.end - 0.1) && !anyOnset(a, w.end - 0.05)) w.held = true
   }
   let moved = 0
@@ -286,6 +302,7 @@ function refineWords(line, evidence, opts = {}) {
  */
 function noiseRate(onsets, lines, upTo = Infinity, opts = {}) {
   const P = Object.assign({}, REFINE, opts)
+  // loop: NOT-WORTH — the song's interludes (a few), once per due line per play (tens per song)
   const spans = (findInterludes(lines) || []).map((g) => [g.start + 0.5, Math.min(upTo, g.end - 0.5)])
   if (!spans.length && lines && lines.length && lines[0].t != null) spans.push([0.5, Math.min(upTo, lines[0].t - 0.5)])
   let seconds = 0, count = 0
@@ -306,9 +323,12 @@ const MAX_PLAYS = 5   // after this many plays a new play still counts for 1/5
  * changed) starts over from `next`.
  */
 function mergeLearned(prev, next, plays) {
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per refined line
   const fresh = () => next.map((w) => Object.assign({ t: w.t, end: w.end, text: w.text }, w.held ? { held: true } : {}))
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per refined line
   if (!prev || !next || prev.length !== next.length || prev.some((w, i) => w.text !== next[i].text)) return fresh()
   const k = 1 / clamp(Math.round(plays) || 1, 1, MAX_PLAYS)
+  // loop: NOT-WORTH — one line's words (≤ ~15), once per refined line
   return next.map((w, i) => {
     const p = prev[i]
     const out = { t: p.t + (w.t - p.t) * k, end: p.end + (w.end - p.end) * k, text: w.text }

@@ -151,7 +151,8 @@ function play(env, from, to) {
     for (let k = 0; k < 5; k++) if (env.s.recording) env.s._onChunk(chunk, (t + (k + 1) * 0.1) * 1000, null)
   }
 }
-const settle = () => new Promise((r) => setTimeout(r, 15))
+// the fakes' jobs settle in microtasks and immediates: drained, no fixed wall-clock wait (QC 2026-10 flake)
+const settle = () => require('./until').drain()
 
 test('session: an Apple-timed song is recorded for its notes: each section separated (+ its pitch line), then the notes on its own times', async () => {
   const env = setup()

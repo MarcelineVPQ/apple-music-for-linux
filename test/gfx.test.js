@@ -590,3 +590,20 @@ test('gfx: True video colours says honestly when Hardware video decoding keeps i
   assert.equal(g3.snapshot({ gpu_compositing: 'enabled' }).note.expTrueVideoColours, 'On now, but not used from the next start while Hardware video decoding is on: this fix covers software-decoded video only.')
   g3.stop()
 })
+
+// QC 2026-10 bug hunt #6: one early GPU crash kept the marker past the healthy mark, and a normal Quit then
+// returned early (healthyAt) without writing clean: the next start counted a strike
+test('gfx runtime: one early graphics crash, then healthy, then Quit: the exit is clean, no strike', (t) => withFake(() => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const d = tmp()
+  const settings = { expRiskA: true }
+  const { gfx, app } = runtime(d, settings)
+  gfx.ready({ settings: () => settings, turnOff: () => assert.fail('one crash keeps it on'), notify: () => assert.fail('nothing to say'), changed: () => {} })
+  gfx.painted()
+  app.handlers['child-process-gone']({}, { type: 'GPU', reason: 'crashed', exitCode: 139 })
+  t.mock.timers.tick(5000)                             // healthy, but the crash keeps the marker
+  assert.ok(fs.existsSync(marker(d)))
+  gfx.cleanExit('quit')
+  assert.equal(JSON.parse(fs.readFileSync(marker(d), 'utf8')).clean, true, 'a Quit is clean')
+  gfx.stop()
+}))

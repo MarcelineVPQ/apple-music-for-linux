@@ -15,8 +15,10 @@ function ratioOf(st) {
   const dur = Number(st.duration_s)
   if (!(dur >= 5)) return null
   if (Number(st.stitched) > 0) return null          // the final pass from kept stems: no separation, not comparable
+  // loop: NOT-WORTH — 3 stats fields · once per helper job result
   const parts = ['separate_s', 'emissions_s', 'align_s'].map((k) => Number(st[k]))
   if (!parts.every(Number.isFinite)) return null
+  // loop: NOT-WORTH — 3 numbers · once per helper job result
   return parts.reduce((a, b) => a + b, 0) / dur
 }
 
@@ -31,16 +33,19 @@ function createHelperSpeed(opts = {}) {
   let key = ''
   let ratios = []
   let gpu = false
+  let decides = false   // the decision applies to this helper (OpenVINO or the processor), not to a CUDA/ROCm/XPU one
   let last = null       // the last decision logged
   function learnPong(pong) {
     const p = pong || {}
     const ov = p.backend === 'openvino' && p.openvino && typeof p.openvino === 'object' ? p.openvino : null
     const k = String(p.backend || '') + '/' + String(p.device || '') + '/' + (ov ? String(ov.device || '') : '')
     gpu = !!(ov && ov.device === 'GPU')
+    decides = !!ov || String(p.device || '') === 'cpu'
     if (k !== key) { key = k; ratios = []; last = null }
   }
   function median() {
     if (!ratios.length) return null
+    // loop: NOT-WORTH — once per helper job result, N ≤ the kept ratios (a handful)
     const s = ratios.slice().sort((a, b) => a - b)
     const m = s.length >> 1
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
@@ -48,7 +53,9 @@ function createHelperSpeed(opts = {}) {
   function fast() {
     const m = median()
     const yes = gpu && m != null && m < FAST_BELOW
-    if (yes !== last && (m != null || last != null)) {
+    // logged only for a helper it decides for: a graphics card's helper does section work anyway (QC 2026-10:
+    // "on the processor → first plays timed after the song" was printed on a CUDA helper)
+    if (decides && yes !== last && (m != null || last != null)) {
       last = yes
       log('helper speed: ' + (m == null ? 'not measured' : m.toFixed(2) + ' s of work per s of audio (median of ' + ratios.length + ')') +
         (gpu ? ' on Intel graphics' : ' on the processor') + ' → first plays ' + (yes ? 'section by section while they play' : 'timed after the song'))

@@ -41,6 +41,7 @@ function entryWords(entry) {
     if (!l || !Array.isArray(l.words)) continue
     out.lines++
     out.words += l.words.length
+    // loop: HOT-PATH-OK — one line's words (≤ ~15) · per 5 s refresh (current song), per minute over the library, while open
     out.held += l.words.filter((w) => w && w.held).length
     if (Number.isFinite(l.conf)) { out.confSum += l.conf; out.confN++ }
   }
@@ -148,6 +149,7 @@ function libraryRows(s, files, opts) {
 
 // a notes-log document (notes-log.js buildDoc) -> { melismas, low, high, span, key }
 function notesFacts(doc) {
+  // loop: HOT-PATH-OK — one song's notes (hundreds) · per 5 s refresh while For the Curious is open
   const notes = doc && Array.isArray(doc.notes) ? doc.notes.filter((n) => n && Number.isFinite(n.midi)) : []
   if (!notes.length) return null
   const groups = new Set()
@@ -198,6 +200,7 @@ function nowRows(np) {
   rows.push({ id: 'melisma', label: 'Melismas', value: nf ? plural(nf.melismas, 'syllable') + ' sung over several notes' : unknown(st.dev ? 'needs the song\'s sung notes (Settings → Precise timing)' : 'needs the sung notes (Development channel)') })
   if (aligned && aligned.workS != null) {
     const dev = aligned.device === 'cuda' ? 'on the GPU' : aligned.device === 'cpu' ? 'on the CPU' : ''
+    // loop: NOT-WORTH — 2 stats fields · per 5 s refresh while For the Curious is open
     const notesS = nf ? ['f0_s', 'notes_s'].map((k) => Number(nf.stats[k])).filter(Number.isFinite).reduce((a, b) => a + b, 0) : 0
     rows.push({ id: 'gpu', label: 'Helper time on this song', value: aligned.workS.toFixed(1) + ' s ' + dev + (notesS ? ' + ' + notesS.toFixed(1) + ' s for the sung notes' : '') })
   } else rows.push({ id: 'gpu', label: 'Helper time on this song', value: aligned ? unknown('aligned before ' + SINCE + ', not kept') : 'None' })

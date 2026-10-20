@@ -272,7 +272,8 @@ function play(env, from, to) {
   }
   return res
 }
-const settle = () => new Promise((r) => setTimeout(r, 10))
+// the fakes' jobs settle in microtasks and immediates: drained, no fixed wall-clock wait (QC 2026-10 flake)
+const settle = () => require('./until').drain()
 
 test('session, switch off: no notes flag, no notes request (so the helper keeps nothing)', async () => {
   for (const env of [setup({ wanted: () => false }), setup({ noNotes: true })]) {
