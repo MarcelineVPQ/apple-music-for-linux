@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.76-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Fixed: Expressive words on a first play's held last words, and refrains labelled as verses</p>
+      </description>
+    </release>
     <release version="0.15.75-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Fixed: an error window when a photo or info source sent unusual characters</p>

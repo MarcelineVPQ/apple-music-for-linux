@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.76-dev.1] — Fixed: Expressive words on a first play's held last words, and refrains labelled as verses
+
+### Fixed
+- **Expressive words on a first play's held last words.** With look-ahead on, a line's long held last word (for example in Nirvana's "Jesus Doesn't Want Me for a Sunbeam") could get its expression only while it was already being sung, and then drew nothing for the whole song. It now stretches from that moment on; when too little of the note is left, it shows only its shading. The song report counts a line's Expressive words once the line has been sung.
+- **Refrains labelled "Verse 8, 9, 10".** When the lyrics name every part of a song the same (Nirvana's MTV Unplugged names every part "Verse"), Sonata now works out the sections from the song itself instead, and shows none where it can't tell.
+
 ## [0.15.75-dev.1] — Fixed: an error window when a photo or info source sent unusual characters
 
 ### Fixed
