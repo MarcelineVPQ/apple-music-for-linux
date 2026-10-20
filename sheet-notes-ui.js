@@ -204,7 +204,10 @@ function createSheetBand(opts) {
     lay.notes.forEach((n, i) => {
       if (n.show !== 'notes' || gated.song === 'line') return
       // fill: a note the word timing placed (M.fillNotes), not heard as a note start: drawn faded (lyrics.html .n.fill)
-      const g = sv(doc, 'g', { class: 'n' + (n.loose ? ' loose' : '') + (n.fill ? ' fill' : '') }, svg)
+      // the note's singer: the same colour class as its lyric line (lyrics-view.js voice), so a second singer's
+      // notes light in that singer's colour as their words do (Marcy 2026-10-19: "we should be matching colors")
+      const v = opts.voice && n.line != null ? opts.voice(n.line) : ''
+      const g = sv(doc, 'g', { class: 'n' + (v ? ' ' + v : '') + (n.loose ? ' loose' : '') + (n.fill ? ' fill' : '') }, svg)
       const x0 = x(n.t)
       const x1 = Math.max(x0 + 2 * H, x(n.end))
       // a note beyond the box's room sits on its edge, marked (as the pitch line: M.roomRuns), its ledgers up to there
@@ -223,12 +226,12 @@ function createSheetBand(opts) {
         // (widths measured on a canvas in the label's font, no layout read; the estimate was ~15 % short on wide
         // letters, so "maybe" and "the" ran together: Marcy 2026-10-19, "maybethe")
         const sx = Math.max(x0 - 4, sylRight + SYL_GAP)
-        syl = el(doc, 'span', 's', syls)
+        syl = el(doc, 'span', 's' + (v ? ' ' + v : ''), syls)
         syl.textContent = n.syl
         syl.style.transform = 'translateX(' + r1(sx) + 'px)'
         sylRight = sx + sylWidth(n.syl)
       } else if (n.ext && x1 - 2 > sylRight + 3) sv(doc, 'line', { x1: Math.max(x0 - 8, sylRight + 3), x2: x1, y1: SYL_Y + 3, y2: SYL_Y + 3, class: 'ext' }, svg)
-      items.push({ g, syl, i, cls: g.getAttribute('class') })
+      items.push({ g, syl, i, cls: g.getAttribute('class'), sylCls: syl ? syl.className : '' })
     })
     built = 'notes:' + (st.key || '') + ':' + (entry && entry.created)
   }
@@ -327,7 +330,7 @@ function createSheetBand(opts) {
       for (const it of items) {
         const state = it.i === at ? ' now' : lay.notes[it.i].end <= t ? ' past' : ''
         const c = it.cls + state
-        if (it.g.getAttribute('class') !== c) { it.g.setAttribute('class', c); if (it.syl) it.syl.className = 's' + state }
+        if (it.g.getAttribute('class') !== c) { it.g.setAttribute('class', c); if (it.syl) it.syl.className = it.sylCls + state }
       }
     }
     // the label says what the staff shows (M.labelAt): "no singing here" over an empty window, the

@@ -144,3 +144,17 @@ test('cvd simulation: red and green collapse for deutan, stay apart for tritan; 
   assert.ok(deutan < normal / 2 && protan < normal / 2, deutan + ' ' + protan)
   assert.equal(T.cvdDistance([10, 20, 30], [10, 20, 30]), 0)
 })
+
+test('the sheet-notes band lights each singer\'s notes in that singer\'s colour, as the lyric lines (Marcy 2026-10-19)', () => {
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')
+  const ui = read('sheet-notes-ui.js')
+  const html = read('lyrics.html')
+  assert.match(ui, /const v = opts\.voice && n\.line != null \? opts\.voice\(n\.line\) : ''/, 'each note takes its line\'s voice class')
+  assert.match(ui, /class: 'n' \+ \(v \? ' ' \+ v : ''\)/)
+  assert.match(ui, /it\.sylCls \+ state/, 'its syllable keeps the voice class through the note states')
+  assert.match(html, /voice: \(i\) => view\.voice\(i\)/, 'the band asks the lyrics view, the one place that knows the singers')
+  assert.match(html, /\.sn \.singer-2 \{ --sing: var\(--active-2, var\(--active\)\); \}/)
+  assert.match(html, /\.sn \.n\.now \.head, \.sn \.n\.now \.held, \.sn \.n\.now \.gl \{ fill: var\(--sing\)/, 'the note being sung: the singer\'s colour')
+  assert.match(html, /\.sn-syls \.s\.now \{ color: var\(--sing\); \}/)
+  assert.match(read('lyrics-view.js'), /voice: \(i\) => lineVoice\[i\] \|\| ''/)
+})

@@ -352,14 +352,19 @@
   .sn .n.fill .head, .sn .n.fill .held { opacity: 0.45; }   /* a note the word timing placed (sheet-notes-model.js fillNotes): less sure */
   .sn-syls .s { position: absolute; left: 0; top: 108px; font-size: 12px; font-weight: 600; line-height: 14px; color: var(--s-text); white-space: nowrap; }
   .sn-syls .s.past { color: var(--s-soft); }
-  .sn-syls .s.now { color: var(--active); }
+  /* the singer's colour, as on the lyric lines (lyrics-view.css --sing): a second singer's notes and syllables
+     light in that singer's colour (sheet-notes-ui.js gives each note its line's voice class) */
+  .sn { --sing: var(--active); }
+  .sn .singer-2 { --sing: var(--active-2, var(--active)); }
+  .sn .singer-group { --sing: var(--active-mix, var(--active)); }
+  .sn-syls .s.now { color: var(--sing); }
   .sn .sl, .sn .ledger, .sn .bar { stroke: var(--s-dim); stroke-width: 1; }
   .sn .gl { fill: var(--s-text); }
   .sn .clef8 { fill: var(--s-text); font-size: 9px; font-weight: 700; }
   .sn .n .head, .sn .n .held, .sn .n .gl { fill: var(--s-text); }
   .sn .n .held { fill-opacity: 0.45; }
   .sn .n.loose .head, .sn .n.loose .held, .sn .n.past .head, .sn .n.past .held, .sn .n.past .gl { fill: var(--s-dim); }
-  .sn .n.now .head, .sn .n.now .held, .sn .n.now .gl { fill: var(--active); fill-opacity: 1; }
+  .sn .n.now .head, .sn .n.now .held, .sn .n.now .gl { fill: var(--sing); fill-opacity: 1; }
   .sn .ext { stroke: var(--s-soft); stroke-width: 1; }
   .sn .pl { fill: none; stroke: var(--s-soft); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .sn .pl.first { stroke: var(--active); }
@@ -1168,7 +1173,8 @@
     duration: () => duration,
     reducedMotion: () => matchMedia('(prefers-reduced-motion: reduce)').matches,
     onPlace: (p) => ipcRenderer.send('stage-command', 'sheet-place', p),
-    onLayout: () => {}
+    onLayout: () => {},
+    voice: (i) => view.voice(i)
   })
   stage.setBand(sheetBand.el)
   const bandEl = document.getElementById('band')

@@ -723,6 +723,7 @@ function createLyricsView(opts) {
     container.classList.toggle('lanes', duet.lanes > 1)
     if (duet.lanes > 1) container.style.setProperty('--lanes', String(duet.lanes)); else container.style.removeProperty('--lanes')
     laneCount = duet.lanes
+    lineVoice = duet.voice || []
     fitLanes()
     const laneClass = (i) => (duet.voice[i] ? ' ' + duet.voice[i] : '') + (duet.lane && duet.lane[i] >= 0 && duet.lanes > 1 ? ' lane' : '')
     const setLane = (el, i) => { if (duet.lane && duet.lane[i] >= 0 && duet.lanes > 1) el.style.setProperty('--lane', String(duet.lane[i])) }
@@ -1222,6 +1223,7 @@ function createLyricsView(opts) {
   // lanes too narrow for a line (a narrow window, the visualizer's stage): one column, name tags kept
   // (lyrics-lanes.js collapsed); read once per song laid out and per resize, never per frame
   let laneCount = 0
+  let lineVoice = []   // cache: OK — key=this song's lines; invalidated=setData; bound=the song's lines (each line's singer colour class, '' for the first)
   function fitLanes() {
     container.classList.toggle('lane-one', laneCount > 1 && (stage || L.collapsed(container.clientWidth || 0, laneCount)))
   }
@@ -1916,6 +1918,8 @@ function createLyricsView(opts) {
     alignState: setAlignState,
     exprNote: setXNote,
     express,
+    // a line's singer colour class ('' the first singer, 'singer-2', 'singer-group'): the band's notes take it too
+    voice: (i) => lineVoice[i] || '',
     reportLit,
     stream,
     time: () => T.clockTime(clock, performance.now()),
