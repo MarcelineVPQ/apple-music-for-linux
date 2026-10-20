@@ -14,6 +14,8 @@ const songClock = require('./song-clock').createSongClock({ now: () => Date.now(
 // the song report (song-report.js): one journal entry per song shown in a lyric view, at its end; the per-line
 // draw lines only with the developer log (Sung notes, a Development build)
 // lifetime: OK — one keeper for the app's life; its one-shot timer is flushed at quit
+const playerTimeLib = require('./player-time')
+const playerTime = playerTimeLib.createPlayerTime({ log: (m) => console.log(m) })
 const songReport = require('./song-report').createSongReport({
   log: (m) => console.log(m),
   clock: () => songClock.corrections(),
@@ -430,6 +432,10 @@ const nowPlayingScript = `(() => {
         }
         return Number.isFinite(best) ? best : mkTime;
       })(),
+      /* 0.15.85: MusicKit's own time and every media element's (currentTime, paused): player-time.js learns an
+         element's offset from the song when MusicKit gives whole seconds and the element doesn't agree */
+      mkTime: mk.currentPlaybackTime || 0,
+      els: [...document.querySelectorAll('audio, video')].slice(0, 4).map((el) => [Number.isFinite(el.currentTime) ? el.currentTime : 0, el.paused ? 1 : 0]),
       /* when that time was read (epoch ms): the views add the push's age (lyrics-timing freshTime) */
       readAt: Date.now(),
       artworkLarge: attrs && attrs.artwork && attrs.artwork.url
@@ -1549,6 +1555,9 @@ async function lyricsTick() {
   } catch (e) { return }
   if (!state || !state.ok || !lyricsFeedWanted()) return
   const sampledAt = Date.now()   // when state.playbackTime was read (a lyrics lookup below may take a while)
+  // the song's precise time when MusicKit gives whole seconds (player-time.js): every consumer below reads it
+  const pt = playerTime.read({ key: state.title + '|' + state.artist + '|' + state.duration, mk: state.mkTime != null ? state.mkTime : state.playbackTime, els: state.els })
+  if (state.mkTime != null) state = Object.assign({}, state, { playbackTime: pt.t, coarseTime: pt.coarse })
 
   // one recording (title|artist plus its ISRC, else its length): a live cut titled like the studio one is a new song
   const key = recordingId.trackKey(recordingId.songOf(state))
@@ -1670,7 +1679,7 @@ async function lyricsTick() {
   const readAt = Number.isFinite(state.readAt) ? Math.min(state.readAt, sampledAt) : sampledAt
   // the one song clock: its snapshot is the only time the views get (song-clock.js; they interpolate it)
   songClock.setSong(key, state.duration)
-  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1, coarse: Number.isInteger(state.playbackTime) }) : null
+  const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1, coarse: state.coarseTime != null ? state.coarseTime : Number.isInteger(state.playbackTime) }) : null
   if (clockNow) sendLyrics('lyrics-time', clockNow)
   if (songReport.key === key) {
     const heardT = songClock.time()

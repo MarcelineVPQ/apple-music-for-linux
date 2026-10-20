@@ -275,7 +275,7 @@ test('a new song\'s first push 227 ms off (or paused, then playing): no visible 
     const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
     const a = consumer(0)
     now = 1000; a.take(clock.push(0, !pausedFirst, 'n', now), now)
-    const e = a.epoch
+    let e = a.epoch
     let last = a.at(now)
     let lastAt = now
     // loop: NOT-WORTH — a test's few pushes
@@ -283,6 +283,16 @@ test('a new song\'s first push 227 ms off (or paused, then playing): no visible 
       now = 1000 + k * 500
       const st = clock.push((pausedFirst ? k - 1 : k) * 0.5 + 0.227, true, 'n', now)   // paused first: it starts at the 2nd push
       if (st) a.take(st, now)
+      // 0.15.85: paused first (look-ahead holds a song's start), its first playing push sets the start where the music
+      // is, from rest (nothing moved yet: one epoch, then on exactly; was 0.3-0.4 s late for a second, then a step)
+      if (pausedFirst && k === 1) {
+        assert.equal(a.epoch, e + 1, 'set once, from rest')
+        e = a.epoch
+        assert.ok(Math.abs(a.at(now) - 0.227) < 1e-6, 'at the time the music reached')
+        last = a.at(now)
+        lastAt = now
+        continue
+      }
       assert.equal(a.epoch, e, 'no discontinuity')
       // loop: NOT-WORTH — a test's few frames
       for (let f = 0; f < 5; f++) {
@@ -402,7 +412,7 @@ test('look-ahead with whole-second player times: no back-and-forth steps (info.c
   assert.equal(fixed.steps, 0)
   assert.ok(fixed.logs.length <= 1, 'at most the song start\'s correction is logged: ' + fixed.logs.join(' | '))
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
-  assert.match(main, /songClock\.push\(heard\.playbackTime, [^\n]*coarse: Number\.isInteger\(state\.playbackTime\)/, 'main says when the player\'s own time is whole seconds')
+  assert.match(main, /songClock\.push\(heard\.playbackTime, [^\n]*coarse: state\.coarseTime != null \? state\.coarseTime : Number\.isInteger\(state\.playbackTime\)/, 'main says when the player\'s own time is whole seconds (player-time.js, 0.15.85)')
 })
 
 // 0.15.77 (Marcy 2026-10-19: the words up to ~1 s late, "corrected ~979 ms (player ahead: eased)"): whole-second
@@ -504,4 +514,39 @@ test('a precise-time error the pushes agree on is trimmed at up to 2 %, not 0.5 
   // 150 ms ahead in every push for ~12 s: trimmed in, never a step (at 0.5 % about 90 ms would be left)
   assert.ok(Math.abs(truth + 0.15 - c.time()) < 0.04, 'left ' + Math.round((truth + 0.15 - c.time()) * 1000) + ' ms (started ' + Math.round(behind) + ')')
   assert.ok(Math.abs(C.rateAt(c.snapshot(), n) - 1) <= 0.02 + 1e-9)
+})
+
+test('a look-ahead song start takes the time it reached at once: no 0.3-0.4 s for its first second (0.15.85)', () => {
+  // Marcy's song reports 2026-10-20 on precise times: "at 0:00.0 +377, 0:00.5 +372, 0:00.9 +365" on every song
+  const LA = require('../lookahead')
+  // loop: NOT-WORTH — three phases
+  for (const phase of [0, 120, 300]) {
+    let n = 100000
+    const c = C.createSongClock({ now: () => n, epochNow: () => n })
+    c.setSong('a', 240)
+    const t0 = n + phase
+    const errs = []
+    // loop: NOT-WORTH — a test's pushes
+    for (let k = 0; k < 14; k++) {
+      n += 470
+      const P = (n - t0) / 1000
+      const h = LA.heardClock(P, true, 3, 0)
+      c.push(h.time, h.playing, 'a', n, { coarse: false })
+      if (P - 3 > 0) errs.push((c.time() - (P - 3)) * 1000)
+    }
+    assert.ok(errs.every((e) => Math.abs(e) < 20), 'phase ' + phase + ': ' + errs.map(Math.round).join(' '))
+    assert.deepEqual(c.corrections().at, [], 'no correction counted at the start')
+  }
+  // a pause and resume mid-song still goes on from where the clock stood (slewed, no step)
+  let n = 0
+  const c = C.createSongClock({ now: () => n, epochNow: () => n })
+  c.setSong('a', 240)
+  c.push(30, true, 'a', n)
+  n += 470; c.push(30.47, true, 'a', n)
+  n += 470; c.push(30.94, false, 'a', n)
+  const at = c.time()
+  const ep = c.epoch
+  n += 470; c.push(31.1, true, 'a', n)
+  assert.equal(c.epoch, ep, 'a resume is no step')
+  assert.ok(Math.abs(c.time() - at) < 0.02)
 })

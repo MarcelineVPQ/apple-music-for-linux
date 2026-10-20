@@ -136,6 +136,7 @@ function createSongClock(opts = {}) {
   let boundaryAt = null  // when a drop to a song's start began waiting for its song change (BOUNDARY_WAIT)
   let seedLeft = 0       // the new song's pushes still seeding its phase quietly
   let duration = 0       // this song's length (s; 0 unknown): only a drop near its end can be a song change
+  let played = false     // this song's clock has run (its start is set once, at its first playing push)
   let lastRaw = null     // the last push's raw player time and its aged value: a repeated raw time keeps that value,
   let lastFresh = null   // so a frozen player (a stall while it says playing) reads as a stall, not as time running on
   const log = opts.log || null
@@ -160,6 +161,7 @@ function createSongClock(opts = {}) {
     lastRaw = lastFresh = null
     boundaryAt = null
     seedLeft = 0
+    played = false
     song = newTally()
   }
   function flushMinute(n) {
@@ -196,7 +198,7 @@ function createSongClock(opts = {}) {
       const fresh = Number.isFinite(t) && t === lastRaw && isPlaying !== false ? lastFresh : T.freshTime(t, isPlaying, readAt, epochNow())
       lastRaw = t
       lastFresh = fresh
-      const shown = clock ? T.clockTime(clock, n) : null
+      let shown = clock ? T.clockTime(clock, n) : null
       // a drop to the start of a song: the song change it most likely is comes first (BOUNDARY_WAIT)
       const recentSeek = clock && clock.seekAt != null && n - clock.seekAt < 1200
       const nearEnd = !(duration > 0) || shown >= duration - BOUNDARY_END
@@ -207,6 +209,7 @@ function createSongClock(opts = {}) {
       }
       boundaryAt = null   // no drop, or none came in BOUNDARY_WAIT: a seek to the start after all
       let next = T.syncClock(clock, fresh, isPlaying, n, coarse)   // pause, stall, resume and the first time
+      let seeded = false   // this push set a new song's start (not a correction)
       const seeding = seedLeft > 0 && clock && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
       if (seedLeft > 0) seedLeft--
       // a resume after a pause (Marcy 2026-10-19: "corrected 148 ms (jump…)" at each resume with look-ahead, whose
@@ -214,8 +217,14 @@ function createSongClock(opts = {}) {
       const resumed = !seeding && clock && !clock.playing && clock.anchor != null && next.playing && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
       if ((seeding || resumed) && next.playing && !clock.playing) {
         // the new song's player said "paused" at its first push and plays now: on from where it is, the
-        // offset slewed in by the PLL below (Marcy's log: "corrected 227 ms (jump…)" at a song's start)
-        clock = Object.assign({}, clock, { playing: true, at: n, rate: 1 })
+        // offset slewed in by the PLL below (Marcy's log: "corrected 227 ms (jump…)" at a song's start).
+        // 0.15.85: a new song's start takes the precise time it has reached at once (look-ahead held the heard time at
+        // 0:00 while its line filled; going on from 0:00 left the words 0.3-0.4 s late for a second, then a step:
+        // Marcy's song reports 2026-10-20, "at 0:00.0 +377, 0:00.5 +372, 0:00.9 +365", on every song). Nothing is
+        // sung in its first moment, so the start is set, not slewed; a resume mid-song still goes on from where it stood.
+        const start = !played && !coarse && Number.isFinite(fresh) && fresh >= shown && fresh - shown <= PLL_JUMP
+        clock = Object.assign({}, clock, { playing: true, at: n, rate: 1 }, start ? { anchor: fresh } : {})
+        if (start) { seeded = true; shown = fresh }   // the phase detector below starts from the set start
       }
       if (clock && clock.playing && next.playing && clock.anchor != null) {
         cum += ((Number.isFinite(clock.rate) ? clock.rate : 1) - 1) * Math.max(0, n - clock.at) / 1000
@@ -248,8 +257,8 @@ function createSongClock(opts = {}) {
           } else next = Object.assign(keep, { anchor: shown, at: n, rate: 1 + Math.max(-slewMax, Math.min(slewMax, err / PLL_TAU)) })
         }
       } else samples = []
-      const stepped = shown != null && Math.abs(T.clockTime(next, n) - shown) > jump
-      if (shown == null || stepped) epoch++
+      const stepped = shown != null && !seeded && Math.abs(T.clockTime(next, n) - shown) > jump
+      if (shown == null || stepped || seeded) epoch++
       if (shown == null) seedLeft = SEED_PUSHES
       // a correction over 100 ms: one debug line a minute at most, with its size and cause (Marcy's log
       // then shows it if anything still jumps)
@@ -266,6 +275,7 @@ function createSongClock(opts = {}) {
       }
       gateDone = false
       clock = next
+      if (clock.playing) played = true
       return snapshot()
     },
     /** A seek from a view: shown at once, stale pushes from before it are ignored (seekClock). */
