@@ -52,6 +52,22 @@ function ttmlAgents(ttml) {
   return agents
 }
 
+/**
+ * The singers' names Apple gives, when it does: <ttm:agent xml:id="v1"><ttm:name type="full">Name</ttm:name>
+ * </ttm:agent> -> { v1: 'Name' } (lyrics-lanes.js name tags); {} when none has a name.
+ */
+function ttmlAgentNames(ttml) {
+  const names = {}
+  // loop: NOT-WORTH — the song's singers (1-3), once per song
+  for (const m of String(ttml || '').matchAll(/<ttm:agent\b([^>]*)>([\s\S]*?)<\/ttm:agent>/g)) {
+    const id = tagAttrs(m[1])['xml:id']
+    const name = /<ttm:name\b[^>]*>([\s\S]*?)<\/ttm:name>/.exec(m[2])
+    const text = name ? decodeEntities(name[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() : ''
+    if (id && text) names[id] = text
+  }
+  return names
+}
+
 // One <p>'s inner markup -> timed spans ("syllables") per track, main and background
 // (inside <span ttm:role="x-bg">). newWord marks whitespace before the syllable: adjacent
 // spans with nothing between them are syllables of one word.
@@ -462,9 +478,10 @@ function retryPlan(error, tries, rand = Math.random) {
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // what a result carries beyond its lines: the language and the writers, only when there are some
-function withExtras(result, lang, writers) {
+function withExtras(result, lang, writers, singers) {
   if (lang) result.lang = lang
   if (writers && writers.length) result.writers = writers
+  if (singers && Object.keys(singers).length) result.singers = singers
   return result
 }
 
@@ -491,7 +508,7 @@ function createLyricsResolver(deps) {
       const stored = found.entry
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
-      if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers)
+      if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers, stored.singers)
       // an instrumental verdict played before: instant, nothing asked
       if (stored && stored.instrumental && !(stored.lines && stored.lines.length)) return { lines: [], source: stored.source || '', instrumental: stored.instrumental }
       const remember = (result) => {
@@ -510,7 +527,7 @@ function createLyricsResolver(deps) {
           const ttml = await deps.fetchApple(state)
           appleFailed = ''
           const lines = ttml ? parseTtml(ttml) : []
-          if (lines.length) return remember(withExtras({ lines, source: 'apple' }, ttmlLang(ttml), ttmlSongwriters(ttml)))
+          if (lines.length) return remember(withExtras({ lines, source: 'apple' }, ttmlLang(ttml), ttmlSongwriters(ttml), ttmlAgentNames(ttml)))
           break
         } catch (e) {
           // error: SHOWN — a failed Apple lookup (page mid-navigation, Apple's API erring) is tried again; then
@@ -522,7 +539,7 @@ function createLyricsResolver(deps) {
         }
       }
       if (appleFailed && deps.log) deps.log('apple lyrics lookup failed: ' + appleFailed)
-      if (stale) return withExtras({ lines: stored.lines, source: 'apple' }, stored.lang, stored.writers)   // Apple unreachable now: the older parse
+      if (stale) return withExtras({ lines: stored.lines, source: 'apple' }, stored.lang, stored.writers, stored.singers)   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
@@ -559,4 +576,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { HIT_NEAR_S, instrumentalTitle, instrumentalHit, rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { HIT_NEAR_S, instrumentalTitle, instrumentalHit, rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, ttmlAgentNames, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }

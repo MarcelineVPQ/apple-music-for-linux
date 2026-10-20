@@ -7,6 +7,13 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Changed
+
+- Duets read as one column now: every singer's lines sit in the same place, with the same alignment
+  and size, and each singer keeps their own colour as they sing (the second singer in the album's
+  second colour, lines sung together in a blend of both). Before, the second singer's lines were
+  pushed to the right. Background vocals, the syllable pop and Expressive words are unchanged.
+
 ## [0.15.69-dev.1] — Sonata starts again
 
 ### Fixed

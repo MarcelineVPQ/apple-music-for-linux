@@ -15,7 +15,8 @@ test('prepare: estimates words when asked, finds interludes and sides', () => {
   assert.equal(p.lines.length, 3)
   assert.ok(p.lines.every((l) => l.estimated && l.words.length === l.text.split(' ').length))
   assert.equal(p.wordTimed, true)
-  assert.deepEqual(p.sides, ['', '', ''])
+  assert.equal(p.duet.duet, false)
+  assert.deepEqual(p.duet.voice, ['', '', ''])
   assert.deepEqual(p.gaps.map((g) => g.index), [0, 2])   // intro (5 s) and the break before line 3
 })
 

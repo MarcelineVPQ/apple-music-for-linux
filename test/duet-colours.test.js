@@ -80,10 +80,10 @@ test('visualizer: each voice lifted to 4.5:1 on the dark stage', () => {
 
 test('the lyric views route the colours by singer; background vocals inherit their line', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.css'), 'utf8')
-  assert.match(css, /\.line\.right, \.dots\.right \{ --sing: var\(--active-2, var\(--active\)\); \}/)
-  assert.match(css, /\.line\.center, \.dots\.center \{ --sing: var\(--active-mix, var\(--active\)\); \}/)
+  assert.match(css, /\.line\.singer-2, \.dots\.singer-2 \{ --sing: var\(--active-2, var\(--active\)\); \}/)
+  assert.match(css, /\.line\.singer-group, \.dots\.singer-group \{ --sing: var\(--active-mix, var\(--active\)\); \}/)
   assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\.line, \.dots \{ --sing: var\(--active\); \}/, ''), /color: var\(--active\)|text-shadow:[^;]*var\(--active\)/)
-  assert.match(css, /\.line\.left \{ text-align: left/, 'the sides stay: colour is not the only cue')
+  // 0.15.68: one column, no sides (test/duet-lanes.test.js): colour is the one per-singer difference
   const lyr = fs.readFileSync(path.join(__dirname, '..', 'lyrics.html'), 'utf8')
   assert.match(lyr, /'--active-2': '--s-accent-2-text'/)
   const viz = fs.readFileSync(path.join(__dirname, '..', 'visualizer.html'), 'utf8')
