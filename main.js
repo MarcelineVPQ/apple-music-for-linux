@@ -659,15 +659,20 @@ function getAlignHelper() {
   // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
   // want: a notes job also asks for the measured expression while Expressive words is on (when the helper serves it)
   // cpu: a processor-only helper runs below playback with cores left free, and quits sooner (align-helper.js HELPER_NICE)
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, cpu: alignCpuOnly, want: () => (expressiveOn() ? ['expr'] : []), log: (m) => console.log('align:', m) })
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, cpu: alignCpuOnly, want: () => (expressiveOn() ? ['expr'] : []), onResult: (msg) => helperSpeed.record(msg && msg.stats), log: (m) => console.log('align:', m) })
   return alignHelper
 }
 // Processor only (0.15.59): the helper's last pong ran on the CPU, or (before one) the installed build is the CPU one.
 // Then first plays are timed after the song (align-session.js slow), never section by section during it.
 function alignCpuOnly() {
   if (alignRunDevice) return alignRunDevice === 'cpu'
-  return !!(helperFiles && helperFiles.backend === 'cpu')
+  return !!(helperFiles && (helperFiles.backend === 'cpu' || helperFiles.backend === 'openvino'))
 }
+// Intel graphics through OpenVINO (0.15.65): the CPU-mode protections stay (priority, cores free, quits sooner), but
+// once the helper has shown it keeps up with the music (a job's work < its audio length, helper-speed.js, logged)
+// first plays are timed section by section like on a GPU machine
+const helperSpeed = helperSpeedLib.createHelperSpeed({ log: (m) => console.log('align: ' + m) })
+function alignSlow() { return alignCpuOnly() && !helperSpeed.fast() }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
 // the engine version this Sonata runs (the pin in align/engine.json, ''  with SONATA_ENGINE_DIR): kept in
 // each new aligned entry and shown in About → For the Curious
@@ -688,7 +693,7 @@ function getAlignSession() {
       // a plain song placed from the audio while on screen: the next tick sends its lyrics again
       resend: (key) => { if (lyricsKey === key) lyricsKey = null },
       paused: () => alignPaused(),
-      slow: alignCpuOnly,
+      slow: alignSlow,
       notes: {
         wanted: () => notesActive() && getNotesSwitch().wanted(),
         syl: notesLogLib.syllableSpec,
@@ -3136,8 +3141,11 @@ async function askAlignStatus() {
   pushPanel()
   try {
     const pong = await getAlignHelper().ping()
-    console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + ', v' + (pong.version || '?') + ')')
-    alignStatusText = pong.device === 'cuda' || pong.device === 'xpu' ? 'Ready on ' + (pong.gpu || 'the GPU') : 'Ready, CPU only (slow: about a minute per song)'
+    const ov = pongOpenvino(pong)
+    console.log('align: helper ready (' + (pong.device || '?') + (pong.gpu ? ', ' + pong.gpu : '') + (ov ? ', OpenVINO ' + (ov.device || '?') + ' ' + (ov.name || '') : '') + ', v' + (pong.version || '?') + ')')
+    alignStatusText = pong.device === 'cuda' || pong.device === 'xpu' ? 'Ready on ' + (pong.gpu || 'the GPU')
+      : ov && ov.device === 'GPU' ? 'Ready on ' + (ov.name || 'Intel graphics') + ' (OpenVINO)'
+        : ov ? 'Ready on the processor (OpenVINO)' : 'Ready, CPU only (slow: about a minute per song)'
     learnPong(pong)
   } catch (e) { // error: SHOWN — "Helper not working: …" in Settings → Precise timing
     console.log('align: helper not answering: ' + e.message)
@@ -3158,6 +3166,7 @@ const helperInstallerLib = require('./helper-installer')
 const helperModel = require('./helper-install-model')
 const engineFeedLib = require('./engine-feed')
 const gpuDetect = require('./gpu-detect')
+const helperSpeedLib = require('./helper-speed')
 const modelFetch = require('./model-fetch')
 const quitGuardLib = require('./quit-guard')
 const engineTestFeed = engineFeedLib.testEngineFeed(process.env)
@@ -3211,8 +3220,15 @@ const quitGuard = quitGuardLib.createQuitGuard({
     return (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts)).then((r) => r.response)
   }
 })
+// the pong's OpenVINO part (engine 0.2.6, the openvino build): { device: 'GPU' | 'CPU', name, version } or null
+function pongOpenvino(pong) {
+  return pong && pong.backend === 'openvino' && pong.openvino && typeof pong.openvino === 'object' ? pong.openvino : null
+}
 function learnPong(pong) {
-  alignGpu = pong.device === 'cuda' || pong.device === 'xpu' ? String(pong.gpu || 'the GPU').slice(0, 80) : 'CPU only'
+  const ov = pongOpenvino(pong)
+  alignGpu = pong.device === 'cuda' || pong.device === 'xpu' ? String(pong.gpu || 'the GPU').slice(0, 80)
+    : ov && ov.device === 'GPU' ? String(ov.name || 'Intel graphics').slice(0, 80) : 'CPU only'
+  helperSpeed.learnPong(pong)
   alignRunDevice = String(pong.device || '')
   alignRunMessage = typeof pong.message === 'string' ? pong.message.slice(0, 400) : ''
   lookaheadPong = pong
@@ -3245,8 +3261,19 @@ function gpuScan() {
   return gpuCards
 }
 // the build Install makes (Build for, Auto = the card found), and the one an Update or Repair keeps
-function wantBackend() { return gpuDetect.resolve(settings.alignBackend, gpuDetect.recommend(gpuScan())) }
-function keepBackend() { return settings.alignBackend !== 'auto' ? settings.alignBackend : (helperFiles.backend || wantBackend()) }
+// cache: OK — key=none (the processor doesn't change while Sonata runs); invalidated=never; bound=one string
+let cpuMaker = null
+function cpuVendor() { if (cpuMaker == null) cpuMaker = gpuDetect.cpuVendor(); return cpuMaker }
+function recommendBuild() { return gpuDetect.recommend(gpuScan(), cpuVendor()) }
+function wantBackend() { return gpuDetect.resolve(settings.alignBackend, recommendBuild()) }
+// on Auto an Update keeps the installed build, except Processor only, which moves to OpenVINO when Auto picks it
+// (the same CPU packages plus one: faster on an Intel processor, and Intel graphics when there are some)
+function keepBackend() {
+  if (settings.alignBackend !== 'auto') return settings.alignBackend
+  const want = wantBackend()
+  if (helperFiles.backend === 'cpu' && want === 'openvino') return want
+  return helperFiles.backend || want
+}
 // error: NOT-WORTH — a file that vanishes while counting counts 0
 async function dirBytes(dir) {
   let n = 0
@@ -3513,10 +3540,10 @@ function helperSnapshot() {
     backend: helperFiles.backend, choice: settings.alignBackend, wantBackend: wantBackend(),
     detected: (() => {
       const cards = gpuScan()
-      const rec = gpuDetect.recommend(cards)
+      const rec = gpuDetect.recommend(cards, cpuVendor())
       return { name: rec.gpu ? rec.gpu.name : '', backend: rec.backend, why: rec.why, cards: cards.map((g) => g.name + (g.kind === 'integrated' ? ' (integrated)' : '')) }
     })(),
-    detectedGpu: (() => { const rec = gpuDetect.recommend(gpuScan()); return rec.gpu && gpuDetect.BACKEND_OF[rec.gpu.vendor] === helperFiles.backend ? rec.gpu.name : '' })(),
+    detectedGpu: (() => { const rec = recommendBuild(); return rec.gpu && rec.backend === helperFiles.backend ? rec.gpu.name : '' })(),
     runDevice: alignRunDevice, runMessage: alignRunMessage
   }
 }

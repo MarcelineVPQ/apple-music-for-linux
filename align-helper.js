@@ -401,7 +401,11 @@ function createAlignHelper(opts, deps = {}) {
       const p = pending.get(msg.id)
       if (p && p.progress) p.progress(msg)
     }
-    else if (msg.type === 'result') done(msg.id, msg)
+    else if (msg.type === 'result') {
+      // the job's stats for main's measured helper speed (helper-speed.js: pure, never throws)
+      if (opts.onResult) opts.onResult(msg)
+      done(msg.id, msg)
+    }
     else if (msg.type === 'error') {
       if (msg.id == null) { log('helper: ' + msg.message); return }
       const e = new Error(msg.message || 'helper error')

@@ -7,6 +7,18 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+
+- **Intel laptops: Precise timing runs on Intel graphics (OpenVINO).** Settings → Precise timing → Build for
+  has a new choice, *Intel (OpenVINO, new)*, and Auto picks it on a computer with Intel graphics (Iris Xe, UHD)
+  and no NVIDIA or AMD card, and on an Intel processor without a usable graphics card. On the processor alone it
+  measured about 1.5 times as fast as *Processor only*, with the same word timings; on Intel graphics it should
+  be faster still, not yet measured on a real laptop. A helper set to *Processor only* moves to it with its next
+  Update (on Auto), or with *Rebuild for Intel (OpenVINO)*. The first song after that prepares the models for the
+  computer once (a few minutes). While the helper is slower than the music, first plays are timed after the song
+  as before; once it has shown it keeps up on Intel graphics, first plays are timed while they play. Needs helper
+  0.2.6-dev.1, which this version asks for.
+
 ## [0.15.64-dev.1] — The sheet-notes band scrolls at a steady speed
 
 ### Fixed

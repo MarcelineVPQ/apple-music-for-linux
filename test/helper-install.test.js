@@ -356,6 +356,26 @@ test('builds: the Build for row says what was found and what Auto builds for, �
   assert.equal(HM.buildForRow({ detected: { name: 'NVIDIA GeForce RTX 5080', backend: 'cuda' }, choice: 'rocm', wantBackend: 'rocm' }).text, 'Builds for AMD (ROCm, new)')
   const long = HM.buildForRow({ detected: { name: 'AMD Radeon RX 7700 XT / 7800 XT / 7900 GRE something very long', backend: 'rocm' }, choice: 'auto', wantBackend: 'rocm' }).text
   assert.ok(long.length <= 60, long)
-  assert.deepEqual(HM.BUILD_FOR.map((b) => b[0]), ['auto', 'cuda', 'rocm', 'xpu', 'cpu'])
-  assert.ok(HM.BUILD_FOR.filter((b) => /new/.test(b[1])).map((b) => b[0]).join() === 'rocm,xpu')
+  assert.deepEqual(HM.BUILD_FOR.map((b) => b[0]), ['auto', 'cuda', 'rocm', 'xpu', 'openvino', 'cpu'])
+  assert.ok(HM.BUILD_FOR.filter((b) => /new/.test(b[1])).map((b) => b[0]).join() === 'rocm,xpu,openvino')
+})
+
+test('builds: Intel (OpenVINO): the row names the device and an honest speed note, ≤ 60 characters', () => {
+  const iris = HM.buildForRow({ detected: { name: 'Intel(R) Iris(R) Xe Graphics', backend: 'openvino', cards: ['Intel Iris Xe Graphics (integrated)'] }, choice: 'auto', wantBackend: 'openvino' })
+  assert.equal(iris.text, 'Found: Intel Iris Xe Graphics → OpenVINO, speed untested')
+  assert.ok(iris.text.length <= 60)
+  assert.match(iris.info, /Auto builds for Intel \(OpenVINO, new\)/)
+  assert.match(iris.info, /1\.5 times as fast as Processor only/)
+  assert.match(iris.info, /not yet measured on a real laptop/)
+  const cpu = HM.buildForRow({ detected: { name: '', backend: 'openvino', why: 'no graphics card found', cards: [] }, choice: 'auto', wantBackend: 'openvino' })
+  assert.equal(cpu.text, 'No usable graphics card → OpenVINO (~1.5× faster)')
+  const long = HM.buildForRow({ detected: { name: 'Intel(R) Iris(R) Xe Graphics with a name long enough to overflow', backend: 'openvino' }, choice: 'auto', wantBackend: 'openvino' }).text
+  assert.ok(long.length <= 60, long)
+  assert.equal(HM.buildForRow({ detected: { name: '', backend: 'cpu' }, choice: 'openvino', wantBackend: 'openvino' }).text, 'Builds for Intel (OpenVINO, new)')
+  assert.equal(HM.buttonLabel('rebuild', { wantBackend: 'openvino' }), 'Rebuild for Intel (OpenVINO)')
+  // the installed line: the Intel graphics the helper runs on, else the processor
+  const ok = { state: 'ok', version: '0.2.6-dev.1', py: '3.14', backend: 'openvino' }
+  assert.match(HM.stateRow(Object.assign({ gpu: 'Intel(R) Iris(R) Xe Graphics' }, ok)).text, /Intel Iris Xe.*\(OpenVINO\)$/)
+  assert.match(HM.stateRow(Object.assign({ gpu: 'CPU only' }, ok)).text, /processor \(OpenVINO\)/)
+  assert.match(HM.stateRow(Object.assign({ gpu: 'CPU only' }, ok)).info, /hasn't been measured on a real laptop yet/)
 })

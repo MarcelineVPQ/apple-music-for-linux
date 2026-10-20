@@ -7,14 +7,17 @@
 // The builds (the engine's setup-venv.sh --backend): cuda = NVIDIA (CUDA 12.8), rocm = AMD (ROCm 7.2: the
 // PyTorch wheels carry the ROCm runtime, the system needs the amdgpu kernel driver; discrete Radeon RX 6000
 // and newer, integrated AMD GPUs aren't supported by those wheels), xpu = Intel Arc (A- and B-series cards),
-// cpu = the processor only. Auto picks: an NVIDIA card, else a discrete AMD card, else an Intel Arc card,
-// else the processor. ROCm and XPU are new and untested on real hardware here.
+// openvino = Intel graphics (Iris Xe, UHD) or the processor through OpenVINO (engine 0.2.6: the CPU wheels plus
+// OpenVINO; on the processor alone measured 1.5x as fast as the plain CPU build, word times identical),
+// cpu = the processor only. Auto picks: an NVIDIA card, else a discrete AMD card, else an Intel Arc card, else
+// Intel integrated graphics (OpenVINO), else on an Intel processor OpenVINO too, else the processor.
+// ROCm, XPU and OpenVINO's GPU device are new and untested on real hardware here.
 const fs = require('fs')
 const path = require('path')
 
 const VENDORS = { '0x10de': 'nvidia', '0x1002': 'amd', '0x8086': 'intel' }
 const PCI_VENDOR = { '10de': 'nvidia', '1002': 'amd', '8086': 'intel' }
-const BACKENDS = ['cuda', 'rocm', 'xpu', 'cpu']
+const BACKENDS = ['cuda', 'rocm', 'xpu', 'openvino', 'cpu']
 const BACKEND_OF = { nvidia: 'cuda', amd: 'rocm', intel: 'xpu' }
 const AMD_IGPU_VRAM = 4 * 1024 * 1024 * 1024   // below this, amdgpu's VRAM is an integrated GPU's carve-out
 // Intel Arc discrete cards: Alchemist 0x5690–0x56cf, Battlemage 0xe200–0xe2ff (Intel's PCI id lists)
@@ -92,9 +95,10 @@ function detect(sys, lspci) {
 /**
  * Auto's choice: { backend, gpu (the card it is for, or null), why }. An NVIDIA card first (the tested
  * path), then a discrete AMD card (ROCm), then an Intel Arc card (XPU); integrated GPUs and anything else:
- * the processor.
+ * Intel integrated graphics through OpenVINO; no usable card on an Intel processor (cpu: cpuVendor()) also
+ * OpenVINO (its CPU device is faster than the plain CPU build); anything else: the processor.
  */
-function recommend(gpus) {
+function recommend(gpus, cpu) {
   const list = gpus || []
   const nv = list.find((g) => g.vendor === 'nvidia')
   if (nv) return { backend: 'cuda', gpu: nv, why: '' }
@@ -102,7 +106,10 @@ function recommend(gpus) {
   if (amd) return { backend: 'rocm', gpu: amd, why: '' }
   const arc = list.find((g) => g.vendor === 'intel' && g.kind === 'discrete')
   if (arc) return { backend: 'xpu', gpu: arc, why: '' }
+  const intel = list.find((g) => g.vendor === 'intel' && g.kind === 'integrated')
+  if (intel) return { backend: 'openvino', gpu: intel, why: '' }
   const igpu = list.find((g) => g.kind === 'integrated')
+  if (cpu === 'intel') return { backend: 'openvino', gpu: null, why: igpu ? igpu.name + ' is an integrated GPU the helper can\'t use' : list.length ? 'no graphics card the helper can use' : 'no graphics card found' }
   return { backend: 'cpu', gpu: null, why: igpu ? igpu.name + ' is an integrated GPU the helper can\'t use' : list.length ? 'no graphics card the helper can use' : 'no graphics card found' }
 }
 
@@ -111,14 +118,23 @@ function resolve(choice, rec) {
   return BACKENDS.includes(choice) ? choice : (rec && rec.backend) || 'cpu'
 }
 
-/** The engine venv's stamp variant (setup-venv.sh: cu128, rocm7.2, xpu, cpu) -> the backend, or ''. */
+/** The processor's maker from /proc/cpuinfo's vendor_id: 'intel' | 'amd' | '' (unknown, not Linux). */
+function cpuVendor(read = (f) => fs.readFileSync(f, 'utf8')) {
+  let text = ''
+  try { text = String(read('/proc/cpuinfo')) } catch (e) { return '' }   // error: NOT-WORTH — no /proc: unknown, Auto takes the processor build
+  const v = /^vendor_id\s*:\s*(\S+)/m.exec(text)
+  return !v ? '' : v[1] === 'GenuineIntel' ? 'intel' : v[1] === 'AuthenticAMD' ? 'amd' : ''
+}
+
+/** The engine venv's stamp variant (setup-venv.sh: cu128, rocm7.2, xpu, openvino, cpu) -> the backend, or ''. */
 function backendOfVariant(v) {
   const s = String(v || '')
   if (/^cu\d+$/.test(s)) return 'cuda'
   if (/^rocm/.test(s)) return 'rocm'
   if (s === 'xpu') return 'xpu'
+  if (s === 'openvino') return 'openvino'
   if (s === 'cpu') return 'cpu'
   return ''
 }
 
-module.exports = { VENDORS, BACKENDS, BACKEND_OF, AMD_IGPU_VRAM, intelArc, scanSysfs, parseLspci, niceName, detect, recommend, resolve, backendOfVariant }
+module.exports = { VENDORS, BACKENDS, BACKEND_OF, AMD_IGPU_VRAM, intelArc, scanSysfs, parseLspci, niceName, detect, recommend, resolve, backendOfVariant, cpuVendor }

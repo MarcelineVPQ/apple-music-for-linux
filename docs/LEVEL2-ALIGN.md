@@ -440,11 +440,19 @@ files; anything else in the folder, such as bench songs, stays). A fresh install
    engine that never became active and a half-done switch are undone.
 
 **Builds (GPU backends).** Settings → Precise timing → *Build for* (`settings.alignBackend`: auto | cuda |
-rocm | xpu | cpu). `gpu-detect.js` reads `/sys/class/drm/cardN/device/{vendor,device,class}` (0x10de NVIDIA,
+rocm | xpu | openvino | cpu). `gpu-detect.js` reads `/sys/class/drm/cardN/device/{vendor,device,class}` (0x10de NVIDIA,
 0x1002 AMD, 0x8086 Intel; amdgpu's `mem_info_vram_total` < 4 GiB = an integrated GPU; Intel Arc = device ids
 0x5690–0x56cf, 0xe200–0xe2ff) and `lspci -mm -nn` for names (and as the fallback without sysfs). Auto: an
-NVIDIA card → cuda, else a discrete AMD card → rocm, else an Intel Arc card → xpu, else cpu. Install and
-*Rebuild for …* make the chosen build; Update and Repair keep the installed one (the venv stamp's variant).
+NVIDIA card → cuda, else a discrete AMD card → rocm, else an Intel Arc card → xpu, else Intel integrated
+graphics → openvino, else on an Intel processor (`/proc/cpuinfo` GenuineIntel) → openvino, else cpu. Install and
+*Rebuild for …* make the chosen build; Update and Repair keep the installed one (the venv stamp's variant), except
+that on Auto an Update moves Processor only to OpenVINO when Auto picks it. **OpenVINO** (0.15.65, engine 0.2.6):
+the CPU wheels plus OpenVINO (no telemetry package); the engine converts its networks on this machine at the first
+job (models/openvino, ~1.8 GB) and runs them on an Intel GPU (FP16) else the CPU (FP32, word times identical to
+PyTorch, measured 1.5× as fast). The pong keeps `device: cpu` and adds `backend: openvino`, `openvino: {device,
+name}`. The 0.15.59 processor-only protections stay (priority, cores free, quits sooner); first plays are timed
+after the song until `helper-speed.js` has measured that the helper on Intel graphics keeps up (median of the last
+3 jobs' work seconds per audio second < 1), then section by section like a GPU machine (logged as "helper speed: …").
 `install.sh --backend B` passes `--backend B` to the engine's setup-venv.sh when its ENGINE.json lists B in
 `"backends"` (engine 0.2.2 on), else `--gpu` / `--cpu` (cuda / cpu only; rocm and xpu fail with code
 `backend`, said in Settings). The PyTorch 2.11.0 indexes: cu128, rocm7.2 (the wheels carry the ROCm runtime;

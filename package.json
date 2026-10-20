@@ -110,6 +110,7 @@
       "quit-guard.js",
       "engine-feed.js",
       "gpu-detect.js",
+      "helper-speed.js",
       "gfx-model.js",
       "gfx-runtime.js",
       "glow-dither.js",

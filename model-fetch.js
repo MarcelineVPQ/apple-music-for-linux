@@ -46,8 +46,9 @@ class FetchError extends Error {
   constructor(code, message) { super(message); this.code = code }
 }
 
-/** The models the install fetches for a build (cuda | rocm | xpu | cpu). */
-function installNames(backend) { return INSTALL_MODELS.concat(backend && backend !== 'cpu' ? GPU_MODELS : []) }
+/** The models the install fetches for a build (cuda | rocm | xpu | openvino | cpu). */
+// OpenVINO runs on the processor's PyTorch side too: Kim (a GPU-only separator) isn't fetched for it
+function installNames(backend) { return INSTALL_MODELS.concat(backend && backend !== 'cpu' && backend !== 'openvino' ? GPU_MODELS : []) }
 
 // the engine's table, printed by its own Python (stdlib only at import: ~30 ms); names the caller wants
 const PLAN_PY = [

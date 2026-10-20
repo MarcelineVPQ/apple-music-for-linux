@@ -54,11 +54,12 @@ test('gpu: a discrete AMD card: ROCm; an integrated one alone: the processor, an
   assert.equal(pick({ card0: { vendor: '0x1002', device: '0x73bf' } }).rec.backend, 'rocm')
 })
 
-test('gpu: Intel Arc cards: XPU; Intel integrated graphics: the processor; nothing: the processor', () => {
+test('gpu: Intel Arc cards: XPU; Intel integrated graphics: OpenVINO; nothing: the processor', () => {
   assert.equal(pick({ card0: { vendor: '0x8086', device: '0x56a0' } }).rec.backend, 'xpu')       // Arc A770
   assert.equal(pick({ card0: { vendor: '0x8086', device: '0xe20b' } }).rec.backend, 'xpu')       // Arc B580
   const igpu = pick({ card0: { vendor: '0x8086', device: '0xa780' } })                           // Raptor Lake UHD 770
-  assert.equal(igpu.rec.backend, 'cpu')
+  assert.equal(igpu.rec.backend, 'openvino')
+  assert.equal(igpu.rec.gpu.kind, 'integrated')
   assert.equal(igpu.d[0].kind, 'integrated')
   const none = pick({})
   assert.equal(none.rec.backend, 'cpu')
@@ -82,7 +83,34 @@ test('gpu: Build for resolves Auto; the venv stamp names the installed build', (
   assert.equal(G.resolve('auto', { backend: 'rocm' }), 'rocm')
   assert.equal(G.resolve('cpu', { backend: 'rocm' }), 'cpu')
   assert.equal(G.resolve('metal', null), 'cpu')
-  assert.deepEqual(['cu128', 'cu130', 'rocm7.2', 'xpu', 'cpu', '', 'other'].map(G.backendOfVariant), ['cuda', 'cuda', 'rocm', 'xpu', 'cpu', '', ''])
+  assert.deepEqual(['cu128', 'cu130', 'rocm7.2', 'xpu', 'openvino', 'cpu', '', 'other'].map(G.backendOfVariant), ['cuda', 'cuda', 'rocm', 'xpu', 'openvino', 'cpu', '', ''])
+  assert.equal(G.resolve('openvino', { backend: 'cpu' }), 'openvino')
   assert.equal(G.niceName('intel', 'DG2 [Arc A770] [56a0]'), 'Intel Arc A770')
   assert.equal(G.niceName('nvidia', 'GB203 [GeForce RTX 5080] [2c02]'), 'NVIDIA GeForce RTX 5080')
+})
+
+// Auto and OpenVINO (0.15.65, engine 0.2.6): Marcy's laptop (HP EliteBook 840, Iris Xe, no other card) gets OpenVINO
+test('gpu: Auto picks OpenVINO for Intel integrated graphics without an NVIDIA/AMD card, and on an Intel processor', () => {
+  const iris = G.detect([{ card: 'card0', vendor: 'intel', vendorId: '8086', deviceId: '9a49', vram: null, bootVga: true }], '')
+  assert.equal(G.recommend(iris, 'intel').backend, 'openvino')
+  assert.equal(G.recommend(iris, '').backend, 'openvino')
+  // an NVIDIA or discrete AMD card beside the Intel iGPU still wins
+  const both = G.detect([{ card: 'card0', vendor: 'intel', vendorId: '8086', deviceId: '9a49', vram: null }, { card: 'card1', vendor: 'nvidia', vendorId: '10de', deviceId: '2c02', vram: null }], '')
+  assert.equal(G.recommend(both, 'intel').backend, 'cuda')
+  const amd = G.detect([{ card: 'card0', vendor: 'intel', vendorId: '8086', deviceId: '9a49', vram: null }, { card: 'card1', vendor: 'amd', vendorId: '1002', deviceId: '747e', vram: 16 * GB }], '')
+  assert.equal(G.recommend(amd, 'intel').backend, 'rocm')
+  // no usable graphics: an Intel processor takes OpenVINO (its CPU device), an AMD or unknown one the plain build
+  assert.equal(G.recommend([], 'intel').backend, 'openvino')
+  assert.equal(G.recommend([], 'intel').gpu, null)
+  assert.equal(G.recommend([], 'amd').backend, 'cpu')
+  assert.equal(G.recommend([], '').backend, 'cpu')
+  const apu = G.detect([{ card: 'card0', vendor: 'amd', vendorId: '1002', deviceId: '13c0', vram: 512 * 1024 * 1024 }], '')
+  assert.equal(G.recommend(apu, 'amd').backend, 'cpu')
+})
+
+test('gpu: the processor maker from /proc/cpuinfo', () => {
+  assert.equal(G.cpuVendor(() => 'processor\t: 0\nvendor_id\t: GenuineIntel\n'), 'intel')
+  assert.equal(G.cpuVendor(() => 'vendor_id\t: AuthenticAMD\n'), 'amd')
+  assert.equal(G.cpuVendor(() => 'vendor_id\t: Other\n'), '')
+  assert.equal(G.cpuVendor(() => { throw new Error('no /proc') }), '')
 })

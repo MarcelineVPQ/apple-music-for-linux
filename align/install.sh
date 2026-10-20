@@ -3,8 +3,9 @@
 # folder: no sudo, no system packages. Generic: download -> verify -> licence -> unpack -> venv -> check.
 # The one installer: Settings → Precise timing runs this same script (with --progress), and so can a terminal.
 #   ./install.sh               the build the venv has, else NVIDIA's (CUDA 12.8 wheels; works on CPU too, ~7 GB)
-#   ./install.sh --backend B   the PyTorch build: cuda (NVIDIA), rocm (AMD, new), xpu (Intel Arc, new) or cpu;
-#                              rocm and xpu need an engine whose ENGINE.json lists them ("backends", 0.2.2 on)
+#   ./install.sh --backend B   the PyTorch build: cuda (NVIDIA), rocm (AMD, new), xpu (Intel Arc, new),
+#                              openvino (Intel graphics or the processor through OpenVINO, new) or cpu; rocm and
+#                              xpu need an engine whose ENGINE.json lists them ("backends", 0.2.2 on), openvino 0.2.6 on
 #   ./install.sh --cpu         the same as --backend cpu: CPU-only build (~1 GB, much slower)
 #   ./install.sh --rebuild     a new venv even when the current one fits; the downloaded models in
 #                              <home>/models stay
@@ -48,7 +49,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --cpu) BACKEND=cpu ;;
     --backend) BACKEND="$2"; shift
-      case "$BACKEND" in cuda|rocm|xpu|cpu) ;; *) echo "unknown backend: $BACKEND (cuda, rocm, xpu or cpu)" >&2; exit 2 ;; esac ;;
+      case "$BACKEND" in cuda|rocm|xpu|openvino|cpu) ;; *) echo "unknown backend: $BACKEND (cuda, rocm, xpu, openvino or cpu)" >&2; exit 2 ;; esac ;;
     --rebuild) REBUILD=1 ;;
     --dry-run) DRY=1 ;;
     --accept-licence|--accept-license) ACCEPT=1 ;;
@@ -340,7 +341,7 @@ export SONATA_ALIGN_HOME="$HOME_DIR"
 # the backend: asked for, else the one the venv has, else NVIDIA's
 if [ -z "$BACKEND" ]; then
   case "$(sed -n 's/^variant=//p' "$HOME_DIR/venv/.sonata-engine-venv" 2>/dev/null | head -n 1)" in
-    cpu) BACKEND=cpu ;; rocm*) BACKEND=rocm ;; xpu) BACKEND=xpu ;; *) BACKEND=cuda ;;
+    cpu) BACKEND=cpu ;; rocm*) BACKEND=rocm ;; xpu) BACKEND=xpu ;; openvino) BACKEND=openvino ;; *) BACKEND=cuda ;;
   esac
 fi
 FLAG="$(backend_flag "$BACKEND" "$ENGINE")"
@@ -351,7 +352,7 @@ if [ "$REBUILD" = 0 ] && sh "$ENGINE/setup-venv.sh" --home "$HOME_DIR" --dry-run
 else
   # room for the new venv beside the old one (the old one goes only once the new one works): the venv plus
   # pip's downloaded wheels, per backend (measured 2026-10-18)
-  case "$BACKEND" in cpu) NEED_GB=3 ;; xpu) NEED_GB=12 ;; rocm) NEED_GB=24 ;; *) NEED_GB=12 ;; esac
+  case "$BACKEND" in cpu) NEED_GB=3 ;; openvino) NEED_GB=5 ;; xpu) NEED_GB=12 ;; rocm) NEED_GB=24 ;; *) NEED_GB=12 ;; esac
   AVAIL_KB="$(df -Pk "$HOME_DIR" 2>/dev/null | awk 'NR==2 { print $4 }')"
   if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt $((NEED_GB * 1024 * 1024)) ]; then
     fail space "not enough free space for the helper: it needs about $NEED_GB GB in $HOME_DIR, $((AVAIL_KB / 1024 / 1024)) GB are free"

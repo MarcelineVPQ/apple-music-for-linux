@@ -24,14 +24,15 @@
   const WEIGHT = { download: 3, verify: 1, venv: 1, torch: 60, packages: 20, check: 5, models: 10 }
   // the venv on disk when done (docs/LEVEL2-ALIGN.md "Install footprint"): the size bar's end
   // per build (the engine's setup-venv.sh --backend), measured 2026-10-18 with Python 3.14 and torch 2.11
-  const EXPECTED_VENV = { cuda: 7.3e9, rocm: 15e9, xpu: 8.1e9, cpu: 1.3e9 }
+  const EXPECTED_VENV = { cuda: 7.3e9, rocm: 15e9, xpu: 8.1e9, openvino: 1.3e9, cpu: 1.3e9 }
   // what pip downloads for it (the wheels: torch cu128 and NVIDIA's CUDA libraries, measured 2026-10-18)
-  const EXPECTED_DOWNLOAD = { cuda: 3.9e9, rocm: 6.5e9, xpu: 2.7e9, cpu: 0.3e9 }
-  const BACKENDS = ['cuda', 'rocm', 'xpu', 'cpu']
-  const SHORT = { cuda: 'CUDA', rocm: 'ROCm', xpu: 'XPU', cpu: 'processor' }
-  // Settings → Precise timing → Build for (the ROCm and XPU builds are new: untested on real cards here)
-  const BUILD_FOR = [['auto', 'Auto (recommended)'], ['cuda', 'NVIDIA (CUDA)'], ['rocm', 'AMD (ROCm, new)'], ['xpu', 'Intel Arc (XPU, new)'], ['cpu', 'Processor only (slow)']]
-  const BUILD_NAME = { cuda: 'NVIDIA (CUDA)', rocm: 'AMD (ROCm, new)', xpu: 'Intel Arc (XPU, new)', cpu: 'the processor only' }
+  const EXPECTED_DOWNLOAD = { cuda: 3.9e9, rocm: 6.5e9, xpu: 2.7e9, openvino: 0.35e9, cpu: 0.3e9 }
+  const BACKENDS = ['cuda', 'rocm', 'xpu', 'openvino', 'cpu']
+  const SHORT = { cuda: 'CUDA', rocm: 'ROCm', xpu: 'XPU', openvino: 'OpenVINO', cpu: 'processor' }
+  // Settings → Precise timing → Build for (the ROCm, XPU and OpenVINO builds are new: untested on real cards here;
+  // OpenVINO (engine 0.2.6): Intel integrated graphics, or the processor through OpenVINO)
+  const BUILD_FOR = [['auto', 'Auto (recommended)'], ['cuda', 'NVIDIA (CUDA)'], ['rocm', 'AMD (ROCm, new)'], ['xpu', 'Intel Arc (XPU, new)'], ['openvino', 'Intel (OpenVINO, new)'], ['cpu', 'Processor only (slow)']]
+  const BUILD_NAME = { cuda: 'NVIDIA (CUDA)', rocm: 'AMD (ROCm, new)', xpu: 'Intel Arc (XPU, new)', openvino: 'Intel (OpenVINO, new)', cpu: 'the processor only' }
   const variantOf = (v) => (BACKENDS.includes(v) ? v : v === 'gpu' ? 'cuda' : 'cuda')   // install.sh up to 0.15.45 said gpu
   const TAIL = 12   // the last output lines kept for a failure
 
@@ -215,6 +216,8 @@
   function cardPart(s) {
     const b = s.backend || ''
     if (b === 'cpu' || (!b && s.gpu === 'CPU only')) return 'processor only'
+    // OpenVINO: the Intel graphics it runs on (the pong's openvino device), else the processor
+    if (b === 'openvino') return s.gpu && s.gpu !== 'CPU only' ? gpuName(s.gpu) + ' (OpenVINO)' : 'processor (OpenVINO)'
     const name = gpuName(s.gpu && s.gpu !== 'CPU only' ? s.gpu : s.detectedGpu || '')
     if (!name) return b && b !== 'cuda' ? '(' + SHORT[b] + ')' : ''
     return b === 'rocm' || b === 'xpu' ? name + ' (' + SHORT[b] + ')' : name
@@ -244,7 +247,8 @@
         if (s.py) parts.push('Python ' + s.py)
         const card = cardPart(s)
         const full = 'Installed: ' + parts.concat(card ? [card] : []).join(', ')
-        const newer = s.backend === 'rocm' || s.backend === 'xpu' ? ' The ' + SHORT[s.backend] + ' build is new: it hasn\'t been tested on a real ' + (s.backend === 'rocm' ? 'AMD' : 'Intel') + ' card yet.' : ''
+        const newer = s.backend === 'rocm' || s.backend === 'xpu' ? ' The ' + SHORT[s.backend] + ' build is new: it hasn\'t been tested on a real ' + (s.backend === 'rocm' ? 'AMD' : 'Intel') + ' card yet.'
+          : s.backend === 'openvino' ? ' The OpenVINO build is new: on the processor it measured about 1.5 times as fast as Processor only, with the same word timings; its speed on Intel graphics hasn\'t been measured on a real laptop yet.' : ''
         if (s.available) return { text: 'Update available: ' + V.short(s.available), info: full + '. The update keeps the downloaded models and the build' + (s.availableNotes ? '. ' + s.availableNotes : '') + '. Installed in ' + where + '.', level: 'warn' }
         // a GPU build that found no card it can use (pong.message): it runs, slowly, on the processor
         if (s.runDevice === 'cpu' && s.backend && s.backend !== 'cpu' && s.runMessage) {
@@ -279,7 +283,7 @@
     return out
   }
   const BUTTON_LABEL = { install: 'Install', update: 'Update', repair: 'Repair', rebuild: 'Rebuild', remove: 'Remove…', cancel: 'Cancel' }
-  const buttonLabel = (id, s) => (id === 'rebuild' && s && s.wantBackend ? 'Rebuild for ' + ({ cuda: 'NVIDIA', rocm: 'AMD', xpu: 'Intel Arc', cpu: 'the processor' }[s.wantBackend]) : BUTTON_LABEL[id])
+  const buttonLabel = (id, s) => (id === 'rebuild' && s && s.wantBackend ? 'Rebuild for ' + ({ cuda: 'NVIDIA', rocm: 'AMD', xpu: 'Intel Arc', openvino: 'Intel (OpenVINO)', cpu: 'the processor' }[s.wantBackend]) : BUTTON_LABEL[id])
 
   /**
    * The Build for row: { text (≤ 60), info } — the card found and what Auto builds for. s: helperSnapshot
@@ -290,12 +294,22 @@
     const want = (s && s.wantBackend) || d.backend || 'cpu'
     const found = d.name ? 'Found: ' + gpuName(d.name) : d.why ? 'No graphics card the helper can use' : 'No graphics card found'
     let text = (s && s.choice && s.choice !== 'auto') ? 'Builds for ' + BUILD_NAME[want] : found + (d.name ? ' → ' + SHORT[want] : '')
+    // OpenVINO on Auto: the speed note, honest (measured on the processor, not yet on Intel graphics)
+    if ((!s || !s.choice || s.choice === 'auto') && want === 'openvino') {
+      const base = d.name ? found + ' → OpenVINO' : 'No usable graphics card → OpenVINO'
+      const note = d.name ? ', speed untested' : ' (~1.5× faster)'
+      text = (base + note).length <= LIMIT ? base + note : base
+    }
     if (text.length > LIMIT) text = text.slice(0, LIMIT - 1) + '…'
     const cards = (d.cards || []).length ? 'Found: ' + d.cards.join(', ') + '. ' : ''
     const info = cards + 'Auto builds for ' + BUILD_NAME[d.backend || 'cpu'] + (d.why ? ' (' + d.why + ')' : '') + '. ' +
       'NVIDIA (CUDA, ~7 GB) is the tested build. AMD (ROCm, ~15 GB; Radeon RX 6800 and newer) and Intel Arc (XPU, ~8 GB) ' +
       'are new and not yet tested on real cards; without a usable card they run on the processor and say so. ' +
-      'Processor only (~1.3 GB) is slow. Update and Repair keep the build.'
+      'Intel (OpenVINO, ~1.3 GB, and ~1.8 GB more once the models are prepared at the first song) runs on Intel graphics ' +
+      '(Iris Xe, UHD) or, without them, on the processor through OpenVINO: there it measured about 1.5 times as fast as ' +
+      'Processor only, with the same word timings; on Intel graphics it should be faster still (estimated 2 to 4 times), ' +
+      'not yet measured on a real laptop. While it runs slower than the music, first plays are timed after the song. ' +
+      'Processor only (~1.3 GB) is slow. Update and Repair keep the build (an Update moves Processor only to OpenVINO when Auto picks it).'
     return { text, info }
   }
 
