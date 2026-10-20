@@ -421,6 +421,8 @@ function createAlignHelper(opts, deps = {}) {
       if (opts.onResult) opts.onResult(msg)
       done(msg.id, msg)
     }
+    // the engine's own account of a stream (engine 0.2.12: what each line waits for), into Sonata's log
+    else if (msg.type === 'log') { if (typeof msg.text === 'string') log('engine: ' + msg.text.slice(0, 300)) }
     else if (msg.type === 'error') {
       if (msg.id == null) { log('helper: ' + msg.message); return }
       const e = new Error(msg.message || 'helper error')

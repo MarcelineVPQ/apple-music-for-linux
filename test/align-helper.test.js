@@ -495,3 +495,8 @@ test('stream: a job queued behind a stream is not hung; a paused stream stays al
   assert.equal(timers.filter((t) => !t.cleared && t.ms === 70000).length, before)
   assert.ok(timers.some((t) => t.ms === 70000 && t.cleared), 'the old limit was cleared')
 })
+
+test('the engine\'s "log" messages (engine 0.2.12: what each first-play line waits for) go to Sonata\'s log', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'align-helper.js'), 'utf8')
+  assert.match(src, /else if \(msg\.type === 'log'\) \{ if \(typeof msg\.text === 'string'\) log\('engine: ' \+ msg\.text\.slice\(0, 300\)\) \}/)
+})
