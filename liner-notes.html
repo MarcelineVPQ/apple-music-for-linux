@@ -639,13 +639,18 @@
   }
   function say(t) { $('say').textContent = ''; requestAnimationFrame(() => { $('say').textContent = t }) }   // lifetime: OK — one frame, then done
 
+  let turnGen = 0   // cache: NOT-WORTH — key=the page turn under way; invalidated=the next turn or a relayout; bound=one number
   function go(to, why) {
     if (busy || !spreads.length) return
     if (to < 0 || to >= spreads.length) return
     if (to === cur) return
     const fwd = to > cur
     const [na, nb] = attach(to)
+    const gen = ++turnGen
     const done = () => {
+      // a relayout during the turn (new data, a settled resize) already showed fresh pages: this turn's old-size
+      // pages are dropped (QC 2026-10 #14: the booklet showed stale or wrong-size pages, cur off)
+      if (gen !== turnGen) return
       spreadEl.replaceChildren(na, nb)
       L = na; R = nb; cur = to; busy = false
       chrome()
@@ -827,6 +832,7 @@
     layout()
     buildNav()
     const i = keep ? spreadOf(keep) : 0
+    turnGen++   // a turn under way ends here: its finish changes nothing (go's done)
     busy = false
     show(Math.max(0, Math.min(spreads.length - 1, i < 0 ? 0 : i)))
     const now = turned == null ? null : spreadEl.querySelector('.disc.spin')
