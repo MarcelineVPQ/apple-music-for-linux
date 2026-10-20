@@ -671,6 +671,7 @@ function alignCpuOnly() {
 // Intel graphics through OpenVINO (0.15.65): the CPU-mode protections stay (priority, cores free, quits sooner), but
 // once the helper has shown it keeps up with the music (a job's work < its audio length, helper-speed.js, logged)
 // first plays are timed section by section like on a GPU machine
+const helperSpeedLib = require('./helper-speed')
 const helperSpeed = helperSpeedLib.createHelperSpeed({ log: (m) => console.log('align: ' + m) })
 function alignSlow() { return alignCpuOnly() && !helperSpeed.fast() }
 function preciseTimingOn() { return !!settings.lyricsPreciseTiming && alignInstalled() }
@@ -3231,7 +3232,6 @@ const helperInstallerLib = require('./helper-installer')
 const helperModel = require('./helper-install-model')
 const engineFeedLib = require('./engine-feed')
 const gpuDetect = require('./gpu-detect')
-const helperSpeedLib = require('./helper-speed')
 const modelFetch = require('./model-fetch')
 const quitGuardLib = require('./quit-guard')
 const engineTestFeed = engineFeedLib.testEngineFeed(process.env)

@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.69-dev.1] — Sonata starts again
+
+### Fixed
+- **Sonata starts again.** 0.15.68 quit right after starting (a startup step ran before the part it needs was loaded), so Restart after the update seemed to do nothing. A new check now stops a build like that from shipping.
+
 ## [0.15.68-dev.1] — First play: notes and Expressive words appear as the song plays
 
 ### Added

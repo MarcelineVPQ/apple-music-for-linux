@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.69-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Sonata starts again after 0.15.68, which quit right after starting.</p>
+      </description>
+    </release>
     <release version="0.15.68-dev.1" date="2026-10-19" type="development">
       <description>
         <p>First play: notes and Expressive words appear as the song plays</p>
