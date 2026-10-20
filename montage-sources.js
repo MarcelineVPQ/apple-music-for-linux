@@ -1,5 +1,5 @@
 // The Studio's Montage: where its photos come from (Wikimedia Commons, found through Wikidata) and
-// which ones may show. No DOM, no Electron: main passes in its fetch (Electron's net.fetch), so
+// which ones may show. No DOM, no Electron: main passes in its fetch (safe-fetch.js over Electron's net.request), so
 // node --test covers every match, licence and credit with saved answers (test/fixtures/montage/).
 //
 // The matches (identifiers only, never a fuzzy name search):

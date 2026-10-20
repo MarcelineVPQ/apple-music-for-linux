@@ -1,7 +1,7 @@
 // The liner notes' outside sources (the booklet: liner-notes.html, opened by main.js openLinerNotes):
 // matching an Apple Music album to MusicBrainz, Wikidata and Wikipedia by identifiers only, fetching
 // politely, and reducing each answer to the little the booklet prints. No DOM, no Electron: main
-// passes in its fetch (Electron's net.fetch), so node --test covers every match with fixtures.
+// passes in its fetch (safe-fetch.js over Electron's net.request), so node --test covers every match with fixtures.
 //
 // The matches (never a fuzzy title search):
 //   Wikidata  the Apple Music album ID property P2281 (haswbstatement, then the item is read back and

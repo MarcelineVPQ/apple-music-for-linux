@@ -63,6 +63,7 @@
       "stage-ui.js",
       "montage-model.js",
       "montage-sources.js",
+      "safe-fetch.js",
       "montage-store.js",
       "montage-ui.js",
       "lyrics-view.css",

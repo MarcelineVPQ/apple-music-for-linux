@@ -32,6 +32,21 @@ const songSections = require('./lyrics-sections')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const versionDisplay = require('./version-display');   // every version, channel and product name people read
+// Every third-party request (LRCLIB, Montage, liner notes, disc scans) goes through safe-fetch.js: Electron's
+// net.fetch threw an uncaught exception (an error window) on a server header that isn't Latin-1.
+const safeFetch = require('./safe-fetch')
+// lifetime: OK — each request's listeners go with it (safe-fetch.js: end, error or abort)
+const thirdPartyFetch = safeFetch.createSafeFetch({ open: (url, method) => net.request({ url, method, redirect: 'follow' }) })
+// The last-resort guard: only that one known error (a server's non-Latin-1 header in net.fetch's Headers) is
+// logged and dropped, so a bad server can never pop an error window. Anything else is shown exactly as
+// Electron does without a handler (its own dialog), never swallowed.
+// lifetime: NOT-WORTH — one handler for the app's life
+process.on('uncaughtException', (e) => {
+  if (safeFetch.isBadHeaderError(e)) { console.error('network: a server sent a header that is not Latin-1 (ignored): ' + e.message); return }   // error: LOGGED-OK — a third-party server's header; the request it belonged to just has no answer
+  console.error('Uncaught Exception:', e)
+  // error: SHOWN — Electron's own uncaught-exception dialog, as before this handler
+  try { dialog.showErrorBox('A JavaScript error occurred in the main process', 'Uncaught Exception:\n' + ((e && e.stack) || String(e))) } catch (err) { console.error('error dialog failed: ' + err.message) }   // error: LOGGED-OK — before app ready the dialog can't show; the log has it
+})
 const railModel = require('./rail-model');
 const panelModel = require('./panel-model');
 const settingsStore = require('./settings-store');
@@ -565,7 +580,7 @@ const lyricsSources = require('./lyrics-sources')
 const recordingId = require('./recording-id')
 const lyricsShorthand = require('./lyrics-shorthand')
 
-// Apple first, then LRCLIB (Settings → LRCLIB lyrics). net.fetch goes through
+// Apple first, then LRCLIB (Settings → LRCLIB lyrics). safe-fetch.js (net.request) goes through
 // Chromium's network stack, like the rest of the app.
 // lyrics cache on disk (created in app 'ready', when userData is known)
 let lyricsStore = null
@@ -579,7 +594,7 @@ const getLyrics = lyricsSources.createLyricsResolver({
   },
   store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
   fetchLrclib: (state) => lyricsSources.fetchLrclib(state, {
-    fetch: (url, opts) => net.fetch(url, opts),
+    fetch: thirdPartyFetch,
     userAgent: versionDisplay.userAgent(app.getVersion())
   }),
   lrclibEnabled: () => !!settings.lrclibFallback,
@@ -2150,7 +2165,7 @@ async function resolveMontageSong(gen, song, testIds) {
   if (!live()) return
   if (!ids || !ids.artistId) { montageSend({ on: true, status: offline ? 'offline' : 'none', photos: [] }); return }
   // 2. the photos for this artist and album: the cache while fresh, else Wikidata + Commons
-  if (!montageFetch) montageFetch = montageSources.createFetcher({ fetch: (url, o) => net.fetch(url, o), ua: versionDisplay.userAgent(app.getVersion()) })
+  if (!montageFetch) montageFetch = montageSources.createFetcher({ fetch: thirdPartyFetch, ua: versionDisplay.userAgent(app.getVersion()) })
   const setKey = 'set|' + ids.artistId + '|' + (ids.albumId || '')
   // the same artist and album: the photos showing just go on; another one: "Looking…" until its photos come
   if (montageMsg.set !== setKey) montageSend({ on: true, status: 'looking', photos: [] })
@@ -2392,7 +2407,7 @@ const linerAlbumScript = (albumId, byName) => `(async () => {
 function getLinerNotes() {
   if (linerNotes) return linerNotes
   linerNotes = linerModel.createLinerNotes({
-    getJson: linerSources.createGetJson({ fetch: (url, opts) => net.fetch(url, opts), ua: versionDisplay.userAgent(app.getVersion()) }),
+    getJson: linerSources.createGetJson({ fetch: thirdPartyFetch, ua: versionDisplay.userAgent(app.getVersion()) }),
     store: { get: (k) => (linerStore ? linerStore.get(k) : null), set: (k, v) => { if (linerStore) linerStore.set(k, v) } },
     lang: linerSources.wikiLang(app.getLocale()),
     setlistKey: () => settings.setlistfmKey || '',
@@ -2453,7 +2468,7 @@ function linerDiscs(booklet) {
 // -> the fit, null (no disc for sure: remembered), or undefined (the scan didn't load: asked again next time)
 async function findScanDisc(url) {
   try {
-    const res = await net.fetch(url, { headers: { 'User-Agent': versionDisplay.userAgent(app.getVersion()) } })
+    const res = await thirdPartyFetch(url, { headers: { 'User-Agent': versionDisplay.userAgent(app.getVersion()) } })
     if (!res.ok) throw new Error('HTTP ' + res.status)
     let img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()))
     if (img.isEmpty()) return null

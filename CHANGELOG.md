@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.75-dev.1] — Fixed: an error window when a photo or info source sent unusual characters
+
+### Fixed
+- **An error window when a photo or info source sent unusual characters.** Starting a song with the Montage on could pop a "JavaScript error in the main process" window when one of Wikimedia's photos had a name in, for example, Hebrew or Korean (it happened with Nirvana's MTV Unplugged in New York). Sonata's requests to the Montage's photo sources, the liner notes' sources and LRCLIB now read such answers without failing, and that one known kind of error can no longer open an error window.
+
 ## [0.15.74-dev.1] — Forget this song: the next play is a first play again
 
 ### Added
