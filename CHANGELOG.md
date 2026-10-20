@@ -21,6 +21,7 @@ See docs/RELEASING.md.
 - **Sonata does less while it sits in the tray.** Once Settings or About had been opened, it rebuilt the panel's whole contents every 5 s even with the window hidden; now it waits until the panel can be seen.
 - **HDR glow makes less garbage per sung word.** Its measuring and painting canvases and its graphics texture are now reused instead of made anew for every word.
 - **The Studio's notes band gets only the new pitch line parts.** With look-ahead each line's pitch made Sonata send the whole song's pitch so far again, more for every line.
+- The Montage's photo cache no longer counts photos that vanished from its folder, which made it drop others too early.
 
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 

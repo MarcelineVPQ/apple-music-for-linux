@@ -71,3 +71,16 @@ test('a photo missing from disk is a miss, not an error', () => {
   fs.rmSync(dir, { recursive: true, force: true })
   assert.equal(createImageStore({ dir: path.join(dir, 'never') }).get(n), null, 'no folder yet')
 })
+
+// QC 2026-10 CACHE_PASS C5: a photo that vanished behind the store left its bytes in the total
+test('a photo file that vanished leaves the byte total too', () => {
+  const dir = tmp()
+  let t = 0
+  const s = createImageStore({ dir, maxBytes: 1e9, maxFiles: 100, now: () => ++t })
+  const n = (i) => nameFor('v' + i)
+  s.put(n(1), bytes(1000)); s.put(n(2), bytes(500))
+  fs.rmSync(path.join(dir, n(1)))
+  assert.equal(s.get(n(1)), null)
+  assert.deepEqual(s.size(), { bytes: 500, files: 1 })
+  fs.rmSync(dir, { recursive: true, force: true })
+})
