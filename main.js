@@ -3218,6 +3218,33 @@ const recoveredAside = {}
 
 // What each notice's buttons do (the notice ids and action ids main itself put there)
 // error: NOT-WORTH — an action for a notice that isn't shown any more, or not one of these, is dropped
+// Apple's page didn't load (QC 2026-10 ERROR_PASS E1: offline at start left a blank area, no words, no retry): a
+// notice says so with Try again (the panel opens on it once), and it tries again every APPLE_RETRY_MS by itself
+const APPLE_RETRY_MS = 20000
+let appleStartUrl = ''
+let appleRetryTimer = null   // cache: NOT-WORTH — key=the pending retry; invalidated=a load (appleLoaded) or the next failure; bound=one timer
+let appleFailShown = false   // cache: NOT-WORTH — key=this failing spell; invalidated=a successful load; bound=one flag
+function appleLoadFailed(code, desc, isMain) {
+  if (!isMain || code === -3) return   // a subframe, or a load replaced by another (ERR_ABORTED): not a failure
+  notices.show({ id: 'apple-offline', place: 'top', kind: 'error', task: true, text: 'Apple Music didn\'t load: ' + (desc || 'no connection') + '. Sonata tries again by itself.',
+    detail: 'Check your internet connection. Your lyrics, settings and learned songs are kept.', actions: [{ id: 'apple-retry', label: 'Try again', primary: true }] })
+  if (!appleFailShown) { appleFailShown = true; showPanel(settings.panelPage) }
+  if (appleRetryTimer) clearTimeout(appleRetryTimer)
+  // lifetime: OK — one-shot retry, re-armed by the next failure, cleared on a successful load (appleLoaded)
+  appleRetryTimer = setTimeout(() => { appleRetryTimer = null; appleRetry() }, APPLE_RETRY_MS)
+}
+function appleRetry() {
+  if (!mainAlive()) return
+  const wc = appleWC()
+  const url = wc.getURL()
+  // error: SHOWN — a failed retry comes back through did-fail-load (the notice)
+  if (url && !url.startsWith('chrome-error:') && url !== 'about:blank') wc.reload(); else wc.loadURL(appleStartUrl).catch(() => {})
+}
+function appleLoaded() {
+  if (appleRetryTimer) { clearTimeout(appleRetryTimer); appleRetryTimer = null }
+  appleFailShown = false
+  notices.clear('apple-offline')
+}
 function noticeAction(id, action) {
   const n = notices.get(id)
   if (!n || !n.actions.some((a) => a.id === action && !a.disabled)) return
@@ -3234,6 +3261,7 @@ function noticeAction(id, action) {
     // error: NOT-WORTH — quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js)
     case 'update-restart': if (!lastPlaying) quitGuard.allow('restart').then((go) => { if (go) restartIntoUpdate() }); break
     case 'helper-resume-show': showPanel('settings', 'timing'); break
+    case 'apple-retry': appleRetry(); break
     case 'whatsnew-see': showPanel('about', 'whatsnew'); break
     case 'ask-auto-yes': setSetting('autoInstallUpdates', true); break
     case 'ask-auto-no': setSetting('autoInstallUpdates', false); break
@@ -4594,8 +4622,13 @@ function createWindow() {
   mainWindow.contentView.addChildView(appleView)
   mainWindow.contentView.addChildView(railView)   // added last: on top
   layoutViews()
-  // error: SILENT-BUG — offline or Apple down at start: loadURL rejects, Apple's view stays blank, unexplained
-  appleWC().loadURL(appUrl + locale.toLowerCase() + '/browse')
+  appleStartUrl = appUrl + locale.toLowerCase() + '/browse'
+  // offline or Apple down: did-fail-load says so in a notice with Try again, and tries again by itself (appleLoadFailed)
+  // lifetime: OK — 'did-fail-load' / 'did-finish-load' listeners for Apple's view's life (they go with it)
+  appleWC().on('did-fail-load', (e, code, desc, url, isMain) => appleLoadFailed(code, desc, isMain))
+  appleWC().on('did-finish-load', appleLoaded)
+  // error: SHOWN — a failed load is the 'apple-offline' notice (did-fail-load above); the rejection itself is that same failure
+  appleWC().loadURL(appleStartUrl).catch(() => {})
   // error: NOT-WORTH — packaged rail.html; rejects only if the window closes mid-load
   railView.webContents.loadFile('rail.html')
   // lifetime: OK — once, on the rail's first load: the start-marker clock (gfx-runtime.js) starts there
