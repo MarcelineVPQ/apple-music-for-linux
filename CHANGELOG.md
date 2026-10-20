@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.89-dev.1] — The log says why a first-play line has no notes yet
+
+### Changed
+- **Why a first-play line has no notes yet.** With the timing helper 0.2.12, Sonata's log says what each line is waiting for on a first play (its words, its start, a word to end) and when its notes and expression were sent.
+
 ## [0.15.88-dev.1] — Restart now stays in sight while music plays
 
 ### Changed
