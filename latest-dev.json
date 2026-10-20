@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.65-dev.1",
-  "file": "sonata-0.15.65-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.65-dev.1/sonata-0.15.65-dev.1-x86_64.AppImage",
-  "sha512": "eab38299ab3d5cbc5d900e95c447227ec23eacdef8b86ab6a274d795c2a57354bf284cccb22db6f4d8257f61c5419c924ef883154430a45db2d3f60b76384eff",
-  "size": 127574399,
-  "date": "2026-10-20T00:59:12Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.65-dev.1",
-  "notes": "### Added\n\n- **Intel laptops: Precise timing runs on Intel graphics (OpenVINO).** Settings → Precise timing → Build for\n  has a new choice, *Intel (OpenVINO, new)*, and Auto picks it on a computer with Intel graphics (Iris Xe, UHD)\n  and no NVIDIA or AMD card, and on an Intel processor without a usable graphics card. On the processor alone it\n  measured about 1.5 times as fast as *Processor only*, with the same word timings; on Intel graphics it should\n  be faster still, not yet measured on a real laptop. A helper set to *Processor only* moves to it with its next\n  Update (on Auto), or with *Rebuild for Intel (OpenVINO)*. The first song after that prepares the models for the\n  computer once (a few minutes). While the helper is slower than the music, first plays are timed after the song\n  as before; once it has shown it keeps up on Intel graphics, first plays are timed while they play. Needs helper\n  0.2.6-dev.1, which this version asks for.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.65-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.66-dev.1",
+  "file": "sonata-0.15.66-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.66-dev.1/sonata-0.15.66-dev.1-x86_64.AppImage",
+  "sha512": "a8f98f4abce6a885b3f6cdfb6d48f5c12b93c8e78c34d48d97015697213695df3b5d9870e7513c52fc793007c70aa26f4133ceadc4faab5a2bab93abde9bc6b0",
+  "size": 127574375,
+  "date": "2026-10-20T01:01:32Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.66-dev.1",
+  "notes": "### Fixed\n\n- No more silence at the start of songs: look-ahead stays out of the audio path when it's off. Its\n  helper ran, with Sonata's sound routed through it, whenever the switch had once been turned on, even\n  while the switch was off for want of Precise word timing; now it runs only while the switch is on and\n  working. When it does run, a song change is never taken for a seek, a song with no delay is never\n  gated, and a seek the player doesn't confirm lets the sound through after 100 ms (it was 3 s, which\n  cost the first verse).\n- No jump at the start of a song: the clock waits for the song change. Apple's player gives the new\n  song's time a moment before it names the new song; that time was read as a seek in the old song, so\n  the old words and the sheet-notes band flashed back to 0:00. A drop to a song's start now waits up to\n  1.5 s for the song change, and a new song's first moments settle in smoothly instead of in a step.\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.66-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
