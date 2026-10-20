@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.85-dev.1] — Fixed: lyrics timing after a song change and at a song's start
+
+### Fixed
+- **Lyrics timing after a song change.** After most song changes the lyrics ran on Apple's whole-second time, up to a second off, with small jumps in a song's first seconds. Sonata now works out the playing audio's own precise time within a few seconds of each song.
+- **The first second of each song.** With look-ahead the words started a third of a second late and then jumped. They now start where the music is.
+
 ## [0.15.84-dev.1] — Fixed: held notes without Expressive words on first play
 
 ### Fixed
