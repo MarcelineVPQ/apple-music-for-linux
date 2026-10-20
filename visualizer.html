@@ -229,6 +229,8 @@
   ipcRenderer.on('lyrics-time', (e, clock) => { lyricsView.setTime(clock); gate.setPlaying(lyricsView.playing) })
   ipcRenderer.on('lyrics-refined', (e, msg) => lyricsView.refine(msg))
   ipcRenderer.on('lyrics-aligned', (e, msg) => lyricsView.align(msg))
+  // lifetime: OK — added once at load, released with the window (as the lines above)
+  ipcRenderer.on('lyrics-expr', (e, msg) => lyricsView.express(msg))   // first play: a section's Expressive words (lyrics-view.js express)
   ipcRenderer.on('lyrics-stream', (e, msg) => lyricsView.stream(msg))   // look-ahead play: words committed while the song plays
   // lifetime: OK — the lyrics feed's listeners, added once at load, released with the window
   ipcRenderer.on('lyrics-align-state', (e, text) => lyricsView.alignState(text))

@@ -368,6 +368,13 @@ function setup(opts = {}) {
     notes: async (id, song) => { calls.push({ cmd: 'notes', id, song }); return { type: 'result', id, notes: { notes: [{ t: 10, end: 10.5, midi: 60 }], pitch: { t0: 0, hop: 0.05, v: [600] } } } },
     pitch: async (id, song, offset) => { calls.push({ cmd: 'pitch', id, song, offset }); if (opts.pitchError) throw opts.pitchError; return { type: 'result', id, pitch: { t0: offset, hop: 0.05, v: [0, 600] } } }
   }
+  // first play's section notes (engine feature "section-notes"): the same pitch job, with the section's syllables
+  if (opts.sectionWanted) {
+    helper.sectionNotes = async (id, song, offset, given) => {
+      calls.push({ cmd: 'pitch', id, song, offset, given })
+      return { type: 'result', id, pitch: { t0: offset, hop: 0.05, v: [0, 600] }, notes: { notes: [{ t: given.span[0] + 0.1, end: given.span[0] + 0.4, midi: 62, syl_index: 0 }], syllables: given.syllables, pitch: { t0: offset, hop: 0.05, v: [620] }, section: { offset, span: given.span } } }
+    }
+  }
   const s = A.createAlignSession({
     createListener: () => ({ start() {}, stop() {} }),
     helper,
@@ -384,7 +391,9 @@ function setup(opts = {}) {
       failed: (song, e) => got.failed.push(e.code || e.message),
       pitchWanted: opts.pitchWanted || (() => true),
       pitch: (song, line, e) => got.pitch.push(line ? line.t0 : 'error ' + (e && (e.code || e.message))),
-      missing: opts.missing || (() => false)
+      missing: opts.missing || (() => false),
+      sectionWanted: opts.sectionWanted,
+      section: (song, part, sec) => { got.sections = (got.sections || []).concat([{ from: sec.from, to: sec.to, part }]) }
     }
   })
   return { s, calls, got, store, setNow: (v) => { nowMs = v } }
@@ -827,4 +836,70 @@ test('store: a song with its notes keeps them when a later pass fails; repeated 
     st.failed('Monday Morning', 'Fleetwood Mac', 'h2', 'timeout')
     assert.equal(st.get('Monday Morning', 'Fleetwood Mac').failed, 'timeout')
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+// --- first play: notes and Expressive words section by section (0.15.66) ---
+
+test('session, first play: each section\'s notes ride on its pitch job, with that section\'s own syllables in song time; the whole-song pass still runs', async () => {
+  const env = setup({ sectionWanted: () => true, pitchWanted: () => false })
+  env.s.setLyrics('Song|A', 'Song', 'A', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, secs[0].at + 1)
+  assert.equal(env.s.notesState('Song|A'), 'recording')
+  await settle()
+  assert.equal(env.s.notesState('Song|A'), 'sections', 'the status line says it measures as it plays')
+  play(env, secs[0].at + 1, secs[1].at + 1)
+  await settle()
+  assert.deepEqual(env.calls.map((c) => c.cmd + (c.final ? ':final' : '')), ['align', 'pitch', 'align', 'pitch', 'align:final', 'notes'])
+  const jobs = env.calls.filter((c) => c.cmd === 'pitch')
+  jobs.forEach((c, k) => {
+    const sec = secs[k]
+    assert.ok(c.given.syllables.length > 0)
+    assert.ok(c.given.syllables.every((y) => y.line >= sec.from && y.line <= sec.to), 'only the section\'s own lines')
+    assert.ok(c.given.syllables.every((y) => y.t >= VERSES[y.line].t - 1 && y.end > y.t), 'song time')
+    assert.ok(c.given.span[0] <= c.given.syllables[0].t && c.given.span[1] >= c.given.syllables[c.given.syllables.length - 1].end)
+  })
+  assert.deepEqual(env.got.sections.map((x) => [x.from, x.to]), secs.slice(0, 2).map((x) => [x.from, x.to]))
+  assert.deepEqual(env.got.pitch, [], 'no pitch line handed on while the band does not want one')
+  assert.equal(env.got.done.length, 1, 'the whole-song notes come after, as before')
+})
+
+test('session: no section notes when not wanted (a processor-only helper, nothing showing them): the jobs are as before', async () => {
+  const env = setup({ sectionWanted: () => false })
+  env.s.setLyrics('Song|A', 'Song', 'A', VERSES, true)
+  const secs = A.sections(VERSES)
+  play(env, 0, secs[1].at + 1)
+  await settle()
+  assert.ok(env.calls.filter((c) => c.cmd === 'pitch').every((c) => !c.given))
+  assert.equal(env.got.sections, undefined)
+})
+
+test('sectionGiven: aligned words of the section\'s lines, else the lyrics\' own word times; null with none', () => {
+  const raw = [{ t: 1, text: 'one two' }, { t: 5, text: 'three', words: [{ text: 'three', t: 5.1, end: 5.6 }] }, { t: 9, text: 'four' }]
+  const entry = { lines: { 0: { text: 'one two', words: [{ text: 'one', t: 1.1, end: 1.4 }, { text: 'two', t: 1.5, end: 2 }] } } }
+  const g = A.sectionGiven(raw, entry, { from: 0, to: 1 }, null)
+  assert.deepEqual(g.syllables.map((y) => [y.line, y.text]), [[0, 'one'], [0, 'two'], [1, 'three']])
+  assert.equal(g.span[0], 1.05)
+  assert.equal(A.sectionGiven(raw, null, { from: 2, to: 2 }, null), null)
+})
+
+test('mergeSections: sections in song order, notes on the merged syllables, pitch lines merged; drawn as the first play\'s notes', () => {
+  const part = (off, t) => ({ section: { offset: off }, tuning: { cents: 10 }, syllables: [{ t, end: t + 0.4, text: 'la', line: off, syl: 0, nsyl: 1 }, { t: t + 0.5, end: t + 0.9, text: 'lo', line: off, syl: 0, nsyl: 1 }],
+    notes: [{ t: t + 0.5, end: t + 0.9, midi: 64, cents: 0, syl_index: 1 }, { t, end: t + 0.4, midi: 62, cents: 0, syl_index: 0 }], pitch: { t0: off, hop: 0.05, v: [600, 610] } })
+  const m = M.mergeSections([part(20, 21), part(0, 1)])
+  assert.deepEqual(m.notes.map((n) => [n.t, n.syl_index]), [[1, 0], [1.5, 1], [21, 2], [21.5, 3]])
+  assert.deepEqual(m.syllables.map((y) => y.line), [0, 0, 20, 20])
+  assert.equal(m.pitch.t0, 0)
+  assert.equal(m.tuning.cents, 10)
+  const entry = Object.assign(M.compact(m, { lyricsHash: 'h', created: 'first-play:2' }), { partial: true })
+  const doc = M.expand(entry)
+  assert.equal(doc.notes.length, 4)
+  assert.equal(doc.notes[2].line, 20)
+  const st = { on: true, installed: true, precise: true, timed: true, aligned: false, wordSynced: false, partial: true, doc }
+  const md = M.mode(st)
+  assert.equal(md.band, 'notes')
+  assert.equal(md.label, 'First play · notes')
+  assert.ok(md.live)
+  assert.equal(M.listening(md, [{ t0: 0, hop: 0.05, v: [1, 1] }], 50, 0), M.LISTENING, 'still listening where no section came yet')
+  assert.equal(M.listening(md, [{ t0: 0, hop: 0.05, v: new Array(100).fill(1) }], 1, 0), null)
 })

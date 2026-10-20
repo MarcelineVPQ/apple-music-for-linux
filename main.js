@@ -702,6 +702,11 @@ function getAlignSession() {
         // the first play's pitch line: only while the Studio shows its band (nothing for a band nobody sees)
         pitchWanted: () => sheetNotesOn() && getNotesSwitch().wanted() && stageShowing(),
         pitch: sheetPitch,
+        // first play's notes and Expressive words, section by section (0.15.66; engine feature "section-notes"): while a
+        // lyric view or the Studio's band would show them, on a helper that learns while the song plays (not a
+        // processor-only one: 0.15.59's protection, its songs are timed after they end)
+        sectionWanted: () => sectionNotesWanted(),
+        section: firstPlaySection,
         // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song,
         // an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
         // every engine this Sonata installs measures it, and a first play after a restart used to be skipped)
@@ -802,7 +807,9 @@ function expressiveFor(title, artist, lines, key) {
     const helper = !alignHelper || !alignHelper.answered ? 'unknown' : alignHelper.serves('expr') ? 'serves' : 'lacks'
     console.log('align: ' + expressive.statusLine({ on, helper, entry, title }))
   }
-  const view = entry ? expressive.forView(entry.expr, true, vocaliseSetting()) : null
+  // a first play still under way: what its sections measured so far (firstPlaySection)
+  const now = !entry && on && firstPlay && firstPlay.key === key && firstPlay.expr ? firstPlay.expr : null
+  const view = entry ? expressive.forView(entry.expr, true, vocaliseSetting()) : now ? expressive.forView(now, true, vocaliseSetting()) : null
   exprSong = { key: key || '', entry: view ? 'drawn' : entry && 'expr' in entry ? 'none' : 'missing' }
   return view || undefined
 }
@@ -910,6 +917,10 @@ function setSheetSong(key, title, artist, lines, prep, instrumental, shown) {
     const e = getSheetStore().get(title, artist)
     if (sheetModel.entryValid(e, hash)) sheet.entry = e
   }
+  // a first play under way (the song laid out again): its sections' notes so far
+  if (settings.sheetNotes && !sheet.entry && firstPlay && firstPlay.key === key && firstPlay.parts.size) {
+    sheet.entry = Object.assign(sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() }), { partial: true })
+  }
   sheetSent = ''
   sendSheet()
 }
@@ -920,7 +931,7 @@ function sendSheet() {
   const st = on && sheet ? {
     on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, key: sheet.key, wordSynced: sheet.wordSynced, timed: sheet.timed, instrumental: sheet.instrumental, aligned: sheet.aligned,
     paused: alignPaused(), error: sheet.error || (notesSwitch && notesSwitch.model === false ? notesStatusText : ''), pieces: sheet.pitch.length, end: sheet.end,
-    entryAt: sheet.entry ? sheet.entry.created || '1' : '', place: settings.sheetPlace
+    entryAt: sheet.entry ? sheet.entry.created || '1' : '', partial: !!(sheet.entry && sheet.entry.partial), place: settings.sheetPlace
   } : { on, installed: alignInstalled(), precise: !!settings.lyricsPreciseTiming, place: settings.sheetPlace }
   const json = JSON.stringify(st)
   if (json === sheetSent) return
@@ -959,8 +970,15 @@ function sheetNotesDone(s, result, lineOffset) {
     if (sheet && sheet.key === s.key) { sheet.error = 'Could not keep the notes: ' + e.message; sendSheet() }
   }
   if (sheet && sheet.key === s.key) { sheet.entry = entry; sheet.aligned = true; sheet.error = ''; sendSheet() }
-  // the song on screen: its lyrics again, now with their expression (the next tick)
-  if (entry.expr && lyricsKey === s.key) lyricsKey = null
+  // the song on screen: its lyrics again, now with their expression (the next tick); after a first play that drew
+  // its sections' expression, the final one replaces it in place instead, line by line off screen (no re-layout)
+  const drew = firstPlay && firstPlay.key === s.key && firstPlay.expr
+  if (firstPlay && firstPlay.key === s.key) firstPlay = null
+  if (drew && lyricsKey === s.key) {
+    const view = expressive.forView(entry.expr, true, vocaliseSetting())
+    exprSong = { key: s.key, entry: view ? 'drawn' : 'expr' in entry ? 'none' : 'missing' }
+    sendLyrics('lyrics-expr', { key: s.key, expr: view || { v: 2, words: [], voc: [] }, final: true })
+  } else if (entry.expr && lyricsKey === s.key) lyricsKey = null
 }
 function sheetNotesFailed(s, e) {
   if (!sheetNotesOn() && !expressiveOn()) return
@@ -979,6 +997,48 @@ function sheetNotesFailed(s, e) {
       : code === 'low-vram' ? 'No notes this time: not enough free graphics memory' : 'No notes this time: ' + ((e && e.message) || 'unknown error')
     sendSheet()
   }
+}
+// First play's notes and Expressive words (0.15.66, Marcy 2026-10-19: "you have to listen to a song twice to get
+// its effects"): each section's notes and expression (align-session.js sectionPitch; the stream's line notes with
+// look-ahead) are merged here into the song's in-progress result, kept in memory only (not the store: a song left
+// before its end is learned again, whole). The Studio's band draws it as a provisional entry; the lyric views
+// get it as 'lyrics-expr', applied only at line boundaries and never to the line being sung (lyrics-view.js
+// express). The whole-song pass after the song still runs (sheetNotesDone) and replaces it all, the views'
+// copy swapped line by line off screen ('lyrics-expr' final).
+// cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
+let firstPlay = null      // { key, title, artist, hash, parts: Map(from -> part), expr, n }
+function sectionNotesWanted() {
+  if (!getNotesSwitch().wanted() || alignCpuOnly() || !alignHelper || !alignHelper.serves('section-notes')) return false
+  return (expressiveOn() && lyricViews().length > 0) || (sheetNotesOn() && stageShowing())
+}
+function firstPlaySection(s, part, sec) {
+  if (!part || !Array.isArray(part.notes)) return
+  if (!firstPlay || firstPlay.key !== s.key) firstPlay = { key: s.key, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  firstPlay.parts.set(sec.from, part)
+  firstPlay.n++
+  // Expressive words: the section's expression, merged (each line comes from one section)
+  if (expressiveOn() && alignHelper && alignHelper.serves('expr')) {
+    const add = expressive.compact(part.expr, 0)
+    if (add) {
+      const old = firstPlay.expr || { format: add.format, v: add.v, words: [], voc: [] }
+      const lines = new Set(add.words.map((w) => w.l))
+      firstPlay.expr = { format: add.format, v: add.v, words: old.words.filter((w) => !lines.has(w.l)).concat(add.words).sort((a, b) => a.l - b.l || a.w - b.w), voc: old.voc.concat(add.voc).sort((a, b) => a.t - b.t) }
+      if (lyricsKey === s.key) {
+        const view = expressive.forView(firstPlay.expr, true, vocaliseSetting())
+        if (view) { exprSong = { key: s.key, entry: 'drawn' }; sendLyrics('lyrics-expr', { key: s.key, expr: view, final: false }) }
+      }
+    }
+  }
+  // the band: the notes so far as a provisional entry, unless the song already has its learned notes
+  if (sheet && sheet.key === s.key && (!sheet.entry || sheet.entry.partial)) {
+    const entry = sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: s.hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() })
+    entry.partial = true
+    sheet.entry = entry
+    if (sec.stream && part.pitch) sheet.pitch.push(part.pitch)   // look-ahead: the line's pitch, so "Listening and learning" moves on
+    sheet.error = ''
+    sendSheet()
+  }
+  console.log('align: first play of "' + s.title + '": notes of ' + (sec.stream ? 'line ' + (sec.from + 1) : 'lines ' + (sec.from + 1) + '–' + (sec.to + 1)) + ' (' + part.notes.length + ' notes' + (part.expr ? ', ' + (part.expr.words || []).length + ' expr words' : '') + ')')
 }
 function sheetPitch(s, line, e) {
   if (!sheet || sheet.key !== s.key) return

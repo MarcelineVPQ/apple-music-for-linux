@@ -698,6 +698,27 @@ function givenSyllables(raw, hyphenate) {
   return rows
 }
 
+/**
+ * First play: the syllable table of one section's own lines for the helper's section notes (engine feature
+ * "section-notes"): the words this play aligned for them (entry.lines), else the lyrics' own word times (lyrics
+ * with their own timing), split as the views pop them (givenSyllables). -> { syllables, lines, span } or null
+ * (no timed word in the section). span: the section's sung stretch, song s.
+ */
+function sectionGiven(raw, entry, sec, hyphenate) {
+  const from = sec.from
+  const to = sec.to
+  const own = (raw || []).map((l, i) => {
+    if (i < from || i > to || !l) return null
+    const e = entry && entry.lines && entry.lines[i]
+    if (e && Array.isArray(e.words) && e.words.length) return { t: l.t, text: l.text, words: e.words }
+    return Array.isArray(l.words) && l.words.length ? l : null
+  })
+  const syllables = givenSyllables(own, hyphenate)
+  if (!syllables.length) return null
+  const span = [Math.round((syllables[0].t - 0.05) * 1000) / 1000, Math.round((Math.max(...syllables.map((x) => x.end)) + 0.3) * 1000) / 1000]
+  return { syllables, lines: requestLines(raw || []), span }
+}
+
 // a header, then the PCM as base64 chunks and `end` (stream mode), one chunk encoded at a time
 function * streamed(head, pcm, opts = {}) {
   const size = opts.chunkBytes || STREAM_CHUNK
@@ -830,6 +851,11 @@ function createAlignSession(deps) {
   }
   // the stream's words, to the views while the song is on screen
   function onStreamMessage(s, msg) {
+    // first play's notes, line by line (engine feature "stream-notes"): like a section's, ahead of the delayed listener
+    if (msg.type === 'notes') {
+      if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true }) }
+      return
+    }
     if (msg.type === 'stream') { s.stream.ready = true; log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
     if (msg.type !== 'words' || !song || song !== s) return
     const m = streamedMessage(s.raw, msg.lines)
@@ -838,7 +864,7 @@ function createAlignSession(deps) {
   function openStream(s) {
     if (!s.lookahead || s.stream || s.streamFailed || !deps.helper.stream || paused()) return
     const id = 'l' + (++jobs)
-    const job = deps.helper.stream(id, { song: s.id, lines: requestLines(s.raw), language: s.info && s.info.lang, lead: s.lookahead / 1000, duration: s.info && s.info.duration, rate }, (msg) => onStreamMessage(s, msg))
+    const job = deps.helper.stream(id, { song: s.id, lines: requestLines(s.raw), language: s.info && s.info.lang, lead: s.lookahead / 1000, duration: s.info && s.info.duration, rate, notes: sectionNotesOn() }, (msg) => onStreamMessage(s, msg))
     s.stream = { id, job, parts: [], frames: 0, t: 0, next: 0, ready: false, words: 0 }
     // the helper can't stream (no GPU, a refusal, its exit): this song's sections are aligned as before
     // error: LOGGED-OK — one log line; the song plays on (delayed) with section timing
@@ -961,7 +987,7 @@ function createAlignSession(deps) {
             if (s.plain) { if (deps.resend) deps.resend(s.key) } else deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           }
           if (notes) submitNotes(s, req.lines, sec ? sec.from : 0)
-          if (sec && !whole && s.kept.has(sec.from) && deps.notes && deps.notes.pitchWanted && deps.notes.pitchWanted() && deps.helper.pitch) return sectionPitch(s, req.offset, what).then(() => s.entry)
+          if (sec && !whole && s.kept.has(sec.from) && sectionAsked() && deps.helper.pitch) return sectionPitch(s, req.offset, what, sec).then(() => s.entry)
           return s.entry
         })
         .catch((e) => {   // error: LOGGED-OK — see the comment above run()
@@ -985,21 +1011,32 @@ function createAlignSession(deps) {
   // it (no second separation). Skipped while a game runs. The line goes to main (deps.notes.pitch),
   // which sends it to the Studio's band if the song is still on screen.
   // error: SHOWN — a failure is handed to deps.notes.pitch(song, null, error): the band says the line is missing
-  function sectionPitch(s, offset, what) {
+  // First play's notes and Expressive words (0.15.66; engine feature "section-notes"): when sectionWanted(), the same
+  // job also asks for the section's notes and expression (sectionGiven: its own lines' syllables), handed to
+  // deps.notes.section as they come; the whole-song pass after the song still runs and replaces them.
+  function sectionAsked() { return !!(deps.notes && ((deps.notes.pitchWanted && deps.notes.pitchWanted()) || sectionNotesOn())) }
+  function sectionNotesOn() { return !!(deps.notes && deps.notes.sectionWanted && deps.notes.section && deps.helper.sectionNotes && deps.notes.sectionWanted()) }
+  function sectionPitch(s, offset, what, sec) {
     if (paused()) { log('skipped the pitch line of ' + what + ' of "' + s.title + '" (paused while gaming)'); return Promise.resolve() }
     if (!current(s)) return Promise.resolve()
     const qid = 'q' + (++jobs)
     const started = deps.now()
+    const given = sec && sectionNotesOn() ? sectionGiven(s.raw, s.entry, sec, LS.hyphenatorFor((s.info && s.info.lang) || 'en')) : null
+    if (given && s.info && s.info.lang) given.language = s.info.lang
+    if (!given && !(deps.notes.pitchWanted && deps.notes.pitchWanted())) return Promise.resolve()
     return Promise.resolve()
-      .then(() => deps.helper.pitch(qid, s.id, offset))
+      .then(() => given ? deps.helper.sectionNotes(qid, s.id, offset, given) : deps.helper.pitch(qid, s.id, offset))
       .then((result) => {
         const line = result && result.pitch
-        log('pitch line of ' + what + ' of "' + s.title + '": ' + (line && line.v ? line.v.length : 0) + ' values in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
-        deps.notes.pitch(s, line || null, line ? null : new Error('no pitch line in the answer'))
+        const part = given && result && result.notes
+        log((part ? 'notes + pitch line of ' : 'pitch line of ') + what + ' of "' + s.title + '": ' + (part ? (part.notes || []).length + ' notes' + (part.expr ? ', ' + (part.expr.words || []).length + ' expr words' : '') + ', ' : '') +
+          (line && line.v ? line.v.length : 0) + ' values in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
+        if (deps.notes.pitchWanted && deps.notes.pitchWanted()) deps.notes.pitch(s, line || null, line ? null : new Error('no pitch line in the answer'))
+        if (part) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, part, sec) }
       })
-      .catch((e) => {   // error: SHOWN — see above
+      .catch((e) => {   // error: SHOWN — see above (a section's notes that failed: the whole-song pass after the song has them)
         log('pitch line failed for ' + what + ' of "' + s.title + '": ' + (e && e.message))
-        deps.notes.pitch(s, null, e)
+        if (deps.notes.pitchWanted && deps.notes.pitchWanted()) deps.notes.pitch(s, null, e)
       })
   }
 
@@ -1064,7 +1101,7 @@ function createAlignSession(deps) {
         .then((result) => {
           if (result && result.kept) s.kept.add(sec.from)
           log('separated ' + what + ' of "' + s.title + '" for its notes in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s')
-          if (result && result.kept && !s.cancelled && deps.notes.pitchWanted && deps.notes.pitchWanted() && deps.helper.pitch) return sectionPitch(s, req.offset, what)
+          if (result && result.kept && !s.cancelled && sectionAsked() && deps.helper.pitch) return sectionPitch(s, req.offset, what, sec)
           return null
         })
         .catch((e) => {   // error: LOGGED-OK — see above
@@ -1302,7 +1339,8 @@ function createAlignSession(deps) {
      * running), 'recording' (on screen and being recorded for its notes or alignment), else ''. */
     notesState(key) {
       if (noting.has(key)) return 'measuring'
-      return song && song.key === key && !song.sent && !song.failed ? 'recording' : ''
+      // first play: the section notes are flowing (sectionPitch / the stream's line notes): measured as it plays
+      return song && song.key === key && !song.sent && !song.failed ? (song.sectionNotes ? 'sections' : 'recording') : ''
     },
     /** A song on screen still needs alignment work (the gaming guard only polls then). */
     get active() { return !!(song && !song.sent) },
@@ -1319,7 +1357,7 @@ function createAlignSession(deps) {
 
 module.exports = {
   RATE, MIN_COVERAGE, STREAM_CHUNK, SECTION_LINES, ENTRY_VERSION,
-  GIVEN_REACH_S, END_SLACK, fitToSong, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
+  GIVEN_REACH_S, END_SLACK, fitToSong, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, sectionGiven, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
   STREAM_HOP, toS16, streamedMessage

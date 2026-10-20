@@ -278,6 +278,18 @@ melody in a band above the Studio's lyrics, on the lyrics clock (Marcy's decisio
 docs/research/live-sheet-notes-2026-10.md on the research-gpu-pipeline branch).
 
 **What it shows** (sheet-notes-model.js `mode()`):
+- **First play: notes and Expressive words section by section (0.15.66, engine 0.2.7 `section-notes`).**
+  When a lyric view shows Expressive words or the Studio shows its band, and the helper learns while the
+  song plays (not a processor-only one: those still learn after the song), the same pitch job also sends
+  the section's own syllables (align-session.js `sectionGiven`: the words this play aligned, else the
+  lyrics' own times) and gets that section's notes and expression back, in song time, from the same
+  pitch pass. main.js `firstPlaySection` merges them into the song's in-progress result (memory only,
+  not the store): the band draws them as "First play · notes" (sheet-notes-model.js `mergeSections`), the
+  views get `lyrics-expr`, applied only at line boundaries and never to the line being sung
+  (lyrics-view.js `express`). With look-ahead play the stream sends each line's notes beside its words
+  (`stream-notes`), so they are there from the first lines. The whole-song pass after the song still
+  runs and replaces it; on screen it is swapped line by line off screen (`final`), so nothing jumps.
+  The Expressive words line says "measuring as it plays" meanwhile.
 - **First play: a pitch line.** Right after each section's words come back, align-session.js asks
   the helper for that section's pitch line (`{"cmd":"pitch","id","song","offset"}`, from the stem the
   song cache kept for the section: no second separation). It runs inside the section's job, so later

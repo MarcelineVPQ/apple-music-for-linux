@@ -391,8 +391,8 @@ function createAlignHelper(opts, deps = {}) {
     if (msg.type === 'pong') {
       const id = pings.shift()
       if (id) done(id, msg)
-    } else if (msg.type === 'stream' || msg.type === 'words') {
-      // look-ahead play's streaming job (stream()): its ready state and its committed words
+    } else if (msg.type === 'stream' || msg.type === 'words' || msg.type === 'notes') {
+      // look-ahead play's streaming job (stream()): its ready state, its committed words and each line's notes
       touch(msg.id)
       const p = pending.get(msg.id)
       if (p && p.progress) p.progress(msg)
@@ -560,6 +560,16 @@ function createAlignHelper(opts, deps = {}) {
      */
     pitch(id, song, offset) { return request(id, [{ cmd: 'pitch', id, song, offset }], jobTimeoutMs) },
     /**
+     * First play (engine feature "section-notes", 0.2.7): the pitch line of one kept section plus its notes and,
+     * when wanted, its Expressive words, from the same pitch pass. given: { syllables (the section's own lines,
+     * song time), lines, span: [a, b], language? }. -> result { pitch, notes: { notes, syllables, pitch, expr?,
+     * section }, stats }; the same error codes as pitch()
+     */
+    sectionNotes(id, song, offset, given) {
+      return wanted().then((want) => request(id, [Object.assign({ cmd: 'pitch', id, song, offset, want: ['notes'].concat(want || []),
+        given: { syllables: given.syllables, lines: given.lines || [] }, span: given.span }, given.language ? { language: given.language } : {})], jobTimeoutMs))
+    },
+    /**
      * Sheet notes for lyrics with their own word timing (Apple's): one section only separated and kept
      * (align-session.js separateMessages; no alignment). -> result { kept, stats }; error code low-vram
      */
@@ -607,6 +617,8 @@ function createAlignHelper(opts, deps = {}) {
       const msg = { cmd: 'stream', id, song: head.song, lines: head.lines, lead: head.lead, audio: { format: 's16le', rate: head.rate || 22050, channels: 2 } }
       if (head.language) msg.language = head.language
       if (head.duration) msg.duration = head.duration
+      // first play: each line's notes (and Expressive words) ride with its words (engine feature "stream-notes")
+      if (head.notes && features && features.includes('stream-notes')) msg.want = ['notes'].concat(wantFor(opts.want ? opts.want() : [], features) || [])
       const done = request(id, [msg], quietMs, on)
       let open = true
       const send = (m) => {

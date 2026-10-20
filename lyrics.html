@@ -1074,8 +1074,10 @@
   ipcRenderer.on('lyrics-stream', (event, msg) => view.stream(msg))   // look-ahead play: words committed while the song plays
   ipcRenderer.on('lyrics-align-state', (event, text) => view.alignState(text))
   ipcRenderer.on('lyrics-expr-note', (event, note) => view.exprNote(note))   // Expressive words' line (lyrics-view.js showXNote)
+  ipcRenderer.on('lyrics-expr', (event, msg) => view.express(msg))   // first play: a section's Expressive words, at a line boundary (lyrics-view.js express)
 
   // the song clock's snapshot (song-clock.js, main's one clock for every view and the band)
+  // lifetime: OK — see 'lyrics-data' above
   ipcRenderer.on('lyrics-time', (event, clock) => {
     view.setTime(clock)
     updateStill()

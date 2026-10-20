@@ -201,6 +201,7 @@ class El {
   get firstChild() { return this.children[0] || null }
   append(...cs) { for (const c of cs) this.appendChild(c) }   // loop: test only
   remove() { const p = this.parentElement; if (p) p.children.splice(p.children.indexOf(this), 1); this.parentElement = null }
+  replaceWith(n) { const p = this.parentElement; if (!p) return; p.children[p.children.indexOf(this)] = n; if (n instanceof El) n.parentElement = p; this.parentElement = null }
   set innerHTML(v) { this.children = []; if (/<i>/.test(v)) for (let i = 0; i < 3; i++) this.appendChild(new El(this.ownerDocument, 'i')) }   // loop: test only
   set textContent(v) { this.children = []; this._text = String(v) }
   get textContent() { return this._text + this.children.map((c) => (c instanceof El ? c.textContent : c.text)).join('') }
@@ -589,7 +590,9 @@ test('main: expr is sent only when Expressive words is on and kept for these lyr
   assert.match(src, /function expressiveSetting\(\) \{ return settings\.expressiveWords == null \? expressive\.defaultOn\(app\.getVersion\(\)\) : !!settings\.expressiveWords \}/)
   assert.match(src, /function expressiveOn\(\) \{ return expressiveSetting\(\) && preciseTimingOn\(\) \}/)
   assert.match(src, /const e = on \? getSheetStore\(\)\.get\(title, artist\) : null/)
-  assert.match(src, /const view = entry \? expressive\.forView\(entry\.expr, true, vocaliseSetting\(\)\) : null/)
+  assert.match(src, /const view = entry \? expressive\.forView\(entry\.expr, true, vocaliseSetting\(\)\) : now \? expressive\.forView\(now, true, vocaliseSetting\(\)\) : null/)
+  // a first play's sections only while no learned entry exists for these lyrics (firstPlaySection)
+  assert.match(src, /const now = !entry && on && firstPlay && firstPlay\.key === key && firstPlay\.expr \? firstPlay\.expr : null/)
   assert.match(src, /if \(expr\) data\.expr = expr\n\s+sendLyrics\('lyrics-data', data\)/)
   assert.match(src, /want: \(\) => \(expressiveOn\(\) \? \['expr'\] : \[\]\)/)
   assert.equal(require('../settings-store').defaults().expressiveWords, null)
@@ -746,4 +749,65 @@ test('view: a stretch lasts while its measured vowel sounds, past the lyrics\' o
   assert.match(src, /const sounding = wt != null && time >= wt && time < m\.ve/)
   assert.match(src, /\(lit \|\| sounding\) && time <= m\.ve \+ 0\.3/)
   assert.match(src, /\(!x\.span\.classList\.contains\('now'\) && time > x\.ve\)/)
+})
+
+// --- first play: the expression measured section by section (0.15.66, lyrics-view.js express) ---
+
+test('view, first play: a section\'s expression is applied only at line boundaries, never into the line being sung', () => {
+  const { list, v } = view(null)
+  const lines = () => list.els().filter((e) => e.has('line'))
+  at(v, 2.0)                                     // line 0 sung ("home")
+  const sung = dump(lines()[0])
+  v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: false })
+  assert.equal(dump(lines()[0]), sung, 'the line being sung is untouched')
+  at(v, 2.5)
+  assert.equal(dump(lines()[0]), sung, 'still untouched while it is sung')
+  assert.ok(!lines()[1].all().some((e) => e.has('xs')), 'nothing applied before the boundary')
+  at(v, 4.2)                                     // the boundary: line 1 lit, line 0 behind
+  assert.ok(lines()[0].all().some((e) => e.has('xs')), 'the line that is no longer sung takes its expression')
+  assert.ok(!lines()[1].all().some((e) => e.has('xs')), 'the line now sung waits')
+  at(v, 1.2)                                     // the next boundary (a seek back: line 0 lit again)
+  assert.ok(lines()[1].all().some((e) => e.has('xs')), 'and takes it at the next boundary')
+  assert.ok(list.has('xp'))
+})
+
+test('view, first play: the whole-song pass replaces the sections\' expression without a visible change', () => {
+  const { list, v } = view(null)
+  const lines = () => list.els().filter((e) => e.has('line'))
+  v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: false })   // nothing lit: applied at once
+  const nodes = () => lines().flatMap((l) => l.all())
+  const before = nodes()
+  // the same measurement from the final pass: not one node of the lines is rebuilt
+  v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: true })
+  at(v, 2.0)
+  at(v, 4.2)
+  const after = nodes()
+  assert.equal(after.length, before.length)
+  assert.ok(after.every((n, k) => n === before[k]), 'the same nodes: nothing visible changed')
+  // a different final measurement: only lines off screen are swapped; one on screen waits until it scrolls away
+  const changed = JSON.parse(JSON.stringify(EXPR))
+  changed.words[1].loud = 0.9
+  at(v, 6.0)
+  const l1 = lines()[1]
+  const shown = dump(l1)
+  v.express({ key: 'k1', expr: X.forView(X.compact(changed), true), final: true })
+  assert.equal(dump(l1), shown, 'on screen: unchanged')
+  l1.getBoundingClientRect = () => ({ top: 900, bottom: 940, height: 40, left: 0, right: 0, width: 0 })
+  at(v, 1.2)                                     // a boundary with the line off screen
+  assert.notEqual(dump(lines()[1]), shown, 'swapped once off screen')
+  assert.ok(lines()[1].all().some((e) => e.has('xi')), 'the final pass\'s louder word')
+})
+
+test('view: another song\'s expression is ignored; a new song drops one still waiting', () => {
+  const { list, v } = view(null)
+  v.express({ key: 'other', expr: X.forView(X.compact(EXPR), true), final: false })
+  assert.ok(!list.all().some((e) => e.has('xs')))
+})
+
+test('noteFor: while the sections\' expression flows the line says it measures as it plays (not "once played through")', () => {
+  const base = { on: true, installed: true, precise: true, helper: 'serves', entry: 'drawn', job: 'sections' }
+  assert.equal(X.noteFor(base).text, 'Expressive words: measuring as it plays')
+  assert.equal(X.noteFor(Object.assign({}, base, { entry: 'missing' })).text, 'Expressive words: measuring as it plays')
+  assert.equal(X.noteFor(Object.assign({}, base, { job: '' })), null)
+  assert.equal(X.noteFor(Object.assign({}, base, { job: 'sections', paused: true })), null)
 })

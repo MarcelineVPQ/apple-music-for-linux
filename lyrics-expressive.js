@@ -514,14 +514,17 @@ function statusLine(state) {
  * TEXT_MAX), the rest behind the ⓘ; action: a button that opens Settings → Precise timing ('install' | 'show').
  * st: { on (the setting), installed, installing, update (the helper is too old), precise (Precise word timing),
  *   helper: 'unknown' | 'serves' | 'lacks', pitch: '' | 'downloading' | 'failed', pitchWhy,
- *   entry: 'drawn' | 'none' | 'missing' (this song's measured expression), job: 'measuring' | 'recording' | '',
+ *   entry: 'drawn' | 'none' | 'missing' (this song's measured expression), job: 'measuring' | 'recording' | 'sections' (first play: section results flowing) | '',
  *   paused (a game runs: the timing note says so) }
  */
 function noteFor(state) {
   const st = state || {}
-  if (!st.on || st.entry === 'drawn') return null
+  if (!st.on) return null
   const say = (text, info, action) => ({ text, info: info || '', action: action || '' })
   const what = 'Expressive words draws how each word was sung (held notes stretching, wordless vocalise as ghosts) from what the Precise timing helper measures on this PC.'
+  // first play (0.15.66): the sections' expression flows in while the song plays, drawn from the next line on
+  if (st.job === 'sections' && !st.paused) return say('Expressive words: measuring as it plays', what + ' This first play is measured section by section while it plays: each part draws from the next line after it was heard, and the whole song is measured once more at its end.')
+  if (st.entry === 'drawn') return null
   if (st.installing) return say('Expressive words: the helper is being installed…', what + ' It starts once the helper is installed (Settings → Precise timing).', 'show')
   if (st.update) return say('Expressive words needs a newer helper', what + ' This helper is too old for this Sonata: update it in Settings → Precise timing.', 'show')
   if (!st.installed) return say('Expressive words needs the Precise timing helper', what + ' Install the helper in Settings → Precise timing (a separate download).', 'install')

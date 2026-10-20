@@ -431,6 +431,8 @@ function mode(st) {
   if (!s.installed) return say('message', '', 'Needs Precise timing’s helper (Settings → Precise timing)', 'Sheet notes are worked out by Precise word timing’s helper on this PC. Install it in Settings → Precise timing.')
   if (!s.precise) return say('message', '', 'Needs Precise word timing on (Settings → Precise timing)', 'Sheet notes are worked out on this PC by Precise word timing’s helper: turn Precise word timing on in Settings → Precise timing.')
   // the notes are on the clock of the words on screen: aligned ones, or the lyrics' own word timing
+  // the first play's notes so far (mergeSections): drawn as they come, "Listening and learning" where none came yet
+  if (s.partial && s.doc && s.doc.notes && s.doc.notes.length) return Object.assign(say('notes', 'First play · notes', s.error || ''), { live: !s.error && !s.paused })
   if (s.doc && s.doc.notes && s.doc.notes.length && (s.aligned || s.wordSynced)) {
     const g = s.gate || gate(s.doc)
     return say('notes', 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), g.song === 'line' ? 'Pitch line only' : '', g.song === 'line' ? 'Pitch line only: ' + g.why : '')
@@ -474,6 +476,46 @@ function mergePitch(pieces) {
     for (let i = 0; i < p.v.length; i++) if (p.v[i] > 0 || v[at + i] === undefined) v[at + i] = p.v[i]
   }
   return { t0, hop, v }
+}
+
+// --- the first play's notes, section by section (0.15.66; engine feature "section-notes") ---
+
+/**
+ * The helper's section notes parts (each in song time: notes with syl_index into its own syllables, its
+ * syllables, its pitch line, section { offset, span }) -> one part for compact(): syllables and notes in
+ * song order (each note's syl_index moved to the merged table), the pitch lines merged (mergePitch), the
+ * tuning weighted by each part's notes. The whole-song pass after the song replaces it.
+ */
+function mergeSections(parts) {
+  const ps = (parts || []).filter((p) => p && Array.isArray(p.notes) && Array.isArray(p.syllables))
+    .slice().sort((a, b) => ((a.section && a.section.offset) || 0) - ((b.section && b.section.offset) || 0))
+  const syllables = []
+  const notes = []
+  let cents = 0
+  let weight = 0
+  // loop: NOT-WORTH — the song's sections or lines processed so far (≤ ~60), once per new one
+  for (const p of ps) {
+    const base = syllables.length
+    syllables.push(...p.syllables)
+    // loop: NOT-WORTH — one section's notes (tens), once per new section
+    for (const n of p.notes) notes.push(Object.assign({}, n, { syl_index: Number.isInteger(n.syl_index) && n.syl_index >= 0 ? n.syl_index + base : null }))
+    const tc = p.tuning && Number.isFinite(p.tuning.cents) ? p.tuning.cents : null
+    if (tc !== null && p.notes.length) { cents += tc * p.notes.length; weight += p.notes.length }
+  }
+  // (each part's notes start inside its own span, so the merged list is in time order once sorted)
+  const order = notes.map((n, i) => i).sort((a, b) => notes[a].t - notes[b].t || a - b)
+  const last = ps[ps.length - 1] || {}
+  return {
+    model: last.model || '',
+    tuning: { cents: weight ? Math.round(cents / weight) : 0, strength: 0 },
+    confidence: { overall: 0 },
+    key: {},
+    bars: [],
+    duration_s: 0,
+    syllables,
+    notes: order.map((i) => notes[i]),
+    pitch: mergePitch(ps.map((p) => p.pitch))
+  }
 }
 
 // --- layout: what to draw, in song seconds and staff steps (sheet-notes-ui.js turns them into pixels) ---
@@ -683,7 +725,7 @@ const LISTENING = {
   info: 'The pitch line for this part appears once Sonata has heard it; next play it’s there from the start.'
 }
 function listening(m, pieces, t, end) {
-  if (!m || m.band !== 'line' || !m.live || !(t >= 0)) return null
+  if (!m || (m.band !== 'line' && m.band !== 'notes') || !m.live || !(t >= 0)) return null
   if (end > 0 && t >= end) return null
   // loop: NOT-WORTH — the song's sections (≤ ~12), on the 2/s time pushes of the first play's band only
   for (const p of pieces || []) {
@@ -819,7 +861,7 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
+  compact, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, mergeSections, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }
 // the band follows the song clock the way every clocked animation does (song-clock.js followRate)

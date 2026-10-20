@@ -11,6 +11,7 @@
 //   'lyrics-stream'  -> stream(msg)       look-ahead play: words committed while the song plays, a few at a time
 //   'lyrics-align-state' -> alignState(t) a short state for the timing note ("Precise timing paused while you play")
 //   'lyrics-expr-note' -> exprNote(n)     Expressive words' line while it can't draw yet (lyrics-expressive.js noteFor), null: none
+//   'lyrics-expr'    -> express(msg)      first play: the expression measured so far ({ key, expr, final }), at line boundaries
 //   data.expr (Expressive words, lyrics-expressive.js forView): only when the setting is on and the song's
 //   notes carry the engine's measured expression; without it the view is exactly the plain karaoke.
 // The pure helpers (prepare, refinedLine, alignedLines, timingNote, writtenBy, wordState, stageNext) are tested
@@ -522,6 +523,8 @@ function createLyricsView(opts) {
   let ghostLayer = null     // the ghost vocalise layer behind the lines (only with xdoc and a ghosting word)
   let xvoc = []             // wordless vocalise the lyrics leave out, ghosted as "ooo" (its own sub-setting; lyrics-expressive.js vocaliseExpressions)
   let xlive = []            // the expressions playing: [{ kind: 'stretch' | 'ghost', it, line, t0, t1, anims, el? }]
+  let xpend = null          // first play: { expr, final } waiting for a line boundary (express)
+  const xKey = (xl) => (xl.length ? JSON.stringify(xl.map((x) => [x.i, x.m])) : '')   // a line's expression, compared on a swap
   let roving = null         // scroll: the line the keyboard enters the list on (tabindex 0), see setRoving
   // prefers-reduced-motion: no pop, bounce, slide or smooth scroll (lyrics-view.css has the CSS half);
   // read when used, so a change of the desktop setting applies from the next word
@@ -671,6 +674,7 @@ function createLyricsView(opts) {
     roving = null
     stopFrames()
     endExpressions()
+    xpend = null
     xdoc = data.expr && Array.isArray(data.expr.words) && (data.expr.words.length || (Array.isArray(data.expr.voc) && data.expr.voc.length)) ? data.expr : null
     ghostLayer = null
     if (sungEl) { sungEl = null; opts.onSung(null) }   // the old song's word goes with its lines
@@ -733,24 +737,9 @@ function createLyricsView(opts) {
       ly.className = 'ly'
       const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null, bgKey: null, main: null, x: null }
       if (line.words && line.words.length) {
-        const main = doc.createElement('div')
         // Expressive words: the line's measured words (none: the plain karaoke, as before)
         const xl = xdoc && line.t !== null ? X.lineExpressions(xdoc, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
-        if (xl.length) entry.x = xl
-        // a held word stays lit while its measured vowel is sung (up to the next word's start): the lyrics' own
-        // word time (Apple's) often ends first, and the stretch, drawn in the lit word, then never showed (0.15.57)
-        // loop: NOT-WORTH — the line's measured words (0-3), once per line laid out
-        for (const x of xl) {
-          const w = line.words[x.i]
-          const next = line.words[x.i + 1]
-          const until = Math.min(x.m.ve, next && next.t != null ? next.t : Infinity)
-          if (!(x.m.stretch || x.m.vb) || !(until > w.end)) continue
-          const syl = Array.isArray(w.syl) && w.syl.length ? w.syl.map((y, k) => (k === w.syl.length - 1 ? Object.assign({}, y, { end: until }) : y)) : w.syl
-          line.words[x.i] = Object.assign({}, w, { end: until }, syl ? { syl } : {})
-        }
-        entry.words = wordSpans(main, line.words, line.text, xl.length ? new Map(xl.map((x) => [x.i, x.m])) : null)
-        entry.main = main
-        ly.appendChild(main)
+        ly.appendChild(lineMain(entry, line, xl))
       }
       else ly.textContent = line.text
       if (line.bg && line.bg.length) {
@@ -819,6 +808,98 @@ function createLyricsView(opts) {
       showXNote()
     }
     if (clock) render(T.clockTime(clock, performance.now()))
+  }
+
+  // a line's words (the karaoke layer's main row) with its measured expression xl (lineExpressions; [] = none)
+  function lineMain(entry, line, xl) {
+    const main = doc.createElement('div')
+    entry.x = xl.length ? xl : null
+    entry.xk = xKey(xl)
+    // a held word stays lit while its measured vowel is sung (up to the next word's start): the lyrics' own
+    // word time (Apple's) often ends first, and the stretch, drawn in the lit word, then never showed (0.15.57)
+    // loop: NOT-WORTH — the line's measured words (0-3), once per line laid out
+    for (const x of xl) {
+      const w = line.words[x.i]
+      const next = line.words[x.i + 1]
+      const until = Math.min(x.m.ve, next && next.t != null ? next.t : Infinity)
+      if (!(x.m.stretch || x.m.vb) || !(until > w.end)) continue
+      const syl = Array.isArray(w.syl) && w.syl.length ? w.syl.map((y, k) => (k === w.syl.length - 1 ? Object.assign({}, y, { end: until }) : y)) : w.syl
+      line.words[x.i] = Object.assign({}, w, { end: until }, syl ? { syl } : {})
+    }
+    entry.words = wordSpans(main, line.words, line.text, xl.length ? new Map(xl.map((x) => [x.i, x.m])) : null)
+    entry.main = main
+    return main
+  }
+
+  // First play (0.15.66; main.js firstPlaySection): the song's expression measured section by section while it
+  // plays ('lyrics-expr' { key, expr, final }), merged so far. Master clock rule (song-clock.js): nothing moves
+  // under the line being sung, so it is applied at line boundaries only (render, when the lit lines change; at
+  // once when none is lit), to every line not lit; a lit line takes it at the next boundary. `final` (the
+  // whole-song pass after the song, replacing the sections' results): only lines off screen are swapped, the
+  // rest at later boundaries once they are off screen, so nothing visible jumps.
+  // Idle cost: none (no timer or listener): one pass over the lines per boundary while something waits.
+  function express(msg) {
+    if (!msg || msg.key !== songKey || !lines.length || lines[0].t === null) return
+    const e = msg.expr && Array.isArray(msg.expr.words) ? msg.expr : { words: [], voc: [] }
+    xpend = { expr: e, final: !!msg.final }
+    if (!live.size) applyExpr()
+  }
+  function onScreen(e) {
+    if (stage) return e.el.classList.contains('active') || e.el.classList.contains('next')
+    const r = e.el.getBoundingClientRect()
+    const v = container.getBoundingClientRect()
+    return r.bottom > v.top && r.top < v.bottom
+  }
+  function applyExpr() {
+    const p = xpend
+    if (!p) return
+    const d = p.expr.words.length || (Array.isArray(p.expr.voc) && p.expr.voc.length) ? p.expr : null
+    let left = 0
+    // loop: NOT-WORTH — the song's lines (tens), once per line boundary while an expression waits (a few per song)
+    for (let i = 0; i < lineEls.length; i++) {
+      const e = lineEls[i]
+      const line = lines[i]
+      if (!e || !e.main || !line || line.t === null || !line.words || !line.words.length) continue
+      const xl = d ? X.lineExpressions(d, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
+      if (xKey(xl) === (e.xk || '')) continue
+      if (live.has(i) || (p.final && onScreen(e))) { left++; continue }
+      relayLine(e, line, xl)
+    }
+    xdoc = d
+    if (xdoc) container.classList.add('xp')
+    // wordless vocalise: kept while one ghosts (its expression object stays the one playing)
+    if (!xlive.some((x) => x.it && x.it.i === -1)) xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
+    if (!ghostLayer && (xvoc.length || lineEls.some((e) => e && e.x && e.x.some((x) => x.m.ghost)))) {
+      ghostLayer = doc.createElement('div')
+      ghostLayer.className = 'xg'
+      ghostLayer.setAttribute('aria-hidden', 'true')
+      container.insertBefore(ghostLayer, container.firstChild)
+    }
+    if (!left) xpend = null
+  }
+  // one line's words again with new expression (not lit: no expression of it is playing); the sung marks stay
+  function relayLine(e, line, xl) {
+    const old = e.words
+    const was = e.main
+    const main = lineMain(e, line, xl)
+    // loop: NOT-WORTH — one line's words (~5-12), once per swapped line
+    old.forEach((sp, k) => { const n = e.words[k]; if (n) for (const c of ['sung', 'now', 'hold', 'late']) n.classList.toggle(c, sp.classList.contains(c)) })
+    was.replaceWith(main)
+    if (!stage) {
+      // the lyrics window's two plain copies (unsung and hover colours) follow the karaoke layer
+      // loop: NOT-WORTH — two copies, once per swapped line
+      for (const cls of ['ly-dim', 'ly-hov']) {
+        const prev = e.el.querySelector(':scope > .' + cls)
+        if (!prev) continue
+        const copy = e.ly.cloneNode(true)
+        copy.className = 'ly ' + cls
+        copy.setAttribute('aria-hidden', 'true')
+        // loop: NOT-WORTH — the copy's bold layers (one per word), once per swapped line
+        for (const b of copy.querySelectorAll('.b')) b.remove()
+        prev.replaceWith(copy)
+      }
+    }
+    e.pos = e.bgKey = null
   }
 
   function showNotes() {
@@ -1198,8 +1279,12 @@ function createLyricsView(opts) {
       if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos, e.side)
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
+    let boundary = next.size !== live.size
+    // loop: HOT-PATH-OK — the live lines (1-3) per rendered frame, a set lookup each (no allocation)
+    if (!boundary) for (const i of next) if (!live.has(i)) { boundary = true; break }
     live = next
     if (held.size) takeHeld(time)
+    if (xpend && boundary) applyExpr()   // first play: a section's expression, at a line boundary (express)
     if (xdoc) syncExpressions(time)
     if (opts.onSung) sungNow(gi >= 0 ? -1 : latest)
     let slides = null
@@ -1686,6 +1771,7 @@ function createLyricsView(opts) {
     align,
     alignState: setAlignState,
     exprNote: setXNote,
+    express,
     stream,
     time: () => T.clockTime(clock, performance.now()),
     // the clock's speed now (0 paused, 0.5-1.5 while it eases) and its discontinuity count: the band follows both
