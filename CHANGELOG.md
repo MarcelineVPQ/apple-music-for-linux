@@ -7,6 +7,8 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.65-dev.1] — Intel laptops: Precise timing runs on Intel graphics (OpenVINO)
+
 ### Added
 
 - **Intel laptops: Precise timing runs on Intel graphics (OpenVINO).** Settings → Precise timing → Build for
