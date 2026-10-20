@@ -1008,7 +1008,8 @@ function sheetNotesFailed(s, e) {
 // cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
 let firstPlay = null      // { key, title, artist, hash, parts: Map(from -> part), expr, n }
 function sectionNotesWanted() {
-  if (!getNotesSwitch().wanted() || alignCpuOnly() || !alignHelper || !alignHelper.serves('section-notes')) return false
+  // alignSlow (0.15.65, helper-speed.js): processor only, unless the helper has shown it keeps up with the music
+  if (!getNotesSwitch().wanted() || alignSlow() || !alignHelper || !alignHelper.serves('section-notes')) return false
   return (expressiveOn() && lyricViews().length > 0) || (sheetNotesOn() && stageShowing())
 }
 function firstPlaySection(s, part, sec) {

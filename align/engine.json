@@ -1,10 +1,10 @@
 {
-  "version": "0.2.6-dev.1",
+  "version": "0.2.7-dev.1",
   "protocol": 2,
   "python": "3.14",
-  "file": "sonata-engine-0.2.6-dev.1-linux-x86_64.tar.gz",
-  "url": "https://github.com/MarcelineVPQ/sonata-releases/releases/download/engine-v0.2.6-dev.1/sonata-engine-0.2.6-dev.1-linux-x86_64.tar.gz",
-  "size": 2786655,
-  "sha256": "900462f15a757ec15feeafc68bd7b886278ce18cbd47baa3000465126511715a",
+  "file": "sonata-engine-0.2.7-dev.1-linux-x86_64.tar.gz",
+  "url": "https://github.com/MarcelineVPQ/sonata-releases/releases/download/engine-v0.2.7-dev.1/sonata-engine-0.2.7-dev.1-linux-x86_64.tar.gz",
+  "size": 2841941,
+  "sha256": "f863511ad53c40b1260c1e27eef4ff1ea8dcc6362be693bac883bec32e96a092",
   "key": "MCowBQYDK2VwAyEAo6A58PmODt4/8+9fga0sDbKb4BP3OCu8zBuryOy9gQc="
 }

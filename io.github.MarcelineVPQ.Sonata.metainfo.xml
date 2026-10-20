@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.68-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>First play: notes and Expressive words appear as the song plays</p>
+      </description>
+    </release>
     <release version="0.15.67-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Expressive words: long holds borrow room from the words already sung; no doubled letters</p>

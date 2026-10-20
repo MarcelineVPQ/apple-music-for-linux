@@ -7,8 +7,10 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.68-dev.1] — First play: notes and Expressive words appear as the song plays
+
 ### Added
-- **First play: notes and Expressive words appear as the song plays.** A new song no longer has to be heard twice: on its first play each part's notes (the Studio's band) and Expressive words (held vowels stretching, vibrato, belted and soft words, wordless vocalise) appear about one part behind the singing, and from the first lines with look-ahead play on. They change only between lines, never the line being sung. The whole song is still measured once more at its end and its result replaces them without a visible jump. The lyrics view says "Expressive words: measuring as it plays" meanwhile. Needs engine 0.2.7 and a graphics card (on the processor alone songs still learn after they end, to keep playback smooth).
+- **First play: notes and Expressive words appear as the song plays.** A new song no longer has to be heard twice: on its first play each part's notes (the Studio's band) and Expressive words (held vowels stretching, vibrato, belted and soft words, wordless vocalise) appear about one part behind the singing, and from the first lines with look-ahead play on. They change only between lines, never the line being sung. The whole song is still measured once more at its end and its result replaces them without a visible jump. The lyrics view says "Expressive words: measuring as it plays" meanwhile. Needs engine 0.2.7 (installed with this build) and a graphics card (on the processor alone songs still learn after they end, to keep playback smooth, unless the helper keeps up with the music, as on Intel graphics).
 
 ## [0.15.67-dev.1] — Expressive words: long holds borrow room from the words already sung; no doubled letters
 
