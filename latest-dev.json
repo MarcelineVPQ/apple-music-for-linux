@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.70-dev.1",
-  "file": "sonata-0.15.70-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.70-dev.1/sonata-0.15.70-dev.1-x86_64.AppImage",
-  "sha512": "d8a2a7c9e77f566ae13a7d891de13ca7c676c70d31ed6b4f7abdee531e1df3877a2966e298c79986d16fd737a1e7577e0c98ebf4640ad23061a682aa184714b0",
-  "size": 127582628,
-  "date": "2026-10-20T02:01:12Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.70-dev.1",
-  "notes": "### Fixed\n- **First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive.** A song with Apple's own word timing but no notes yet is now a first play for look-ahead (it plays 3 s behind, and each line's notes and Expressive words arrive before you hear it); before, such songs were never delayed. Look-ahead also starts once the timing helper's update finishes (it stayed off for the whole run when the helper needed an update at start). The Studio's band shows the first play's notes with a wider view of what was just heard, so a part that arrived is on the band at once, and \"Listening and learning\" goes off where notes are.\n- **Expressive words by the second play.** A song left before its end (skipped in its outro, or the next song started early) now keeps the notes and expression of the parts that were heard, so its next play shows them from the start and learns the rest; before, nothing was kept and expression often came only on the third play.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.70-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.71-dev.1",
+  "file": "sonata-0.15.71-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.71-dev.1/sonata-0.15.71-dev.1-x86_64.AppImage",
+  "sha512": "83719c6b0d020c382a9d89912cec2aa1618a9361c9bcf6a4cd6de884801cc8ef791fe81fa7e3dca642e81487febdd7926a401ca2227492c2ba670579df80533e",
+  "size": 127590774,
+  "date": "2026-10-20T02:34:54Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.71-dev.1",
+  "notes": "### Added\n- **Songs keep refining their notes and expressions until they're complete.** A song whose sung lines still miss notes is measured again on its next plays, and each line keeps the better of its results, never a worse one: notes, pitch line and Expressive words alike. It stops once every line has notes for at least 80 % of its syllables, or once a play improves nothing (three plays at most). The lyrics view and the Studio's band say \"Refining this song: 7 lines to go\", then how many sung syllables have notes once it has settled. It runs only when the timing helper has nothing else waiting.\n- **Every sung syllable gets its note where its pitch was heard.** A short word like \"I\" or \"you\", or a syllable sung on the same pitch as the one before, used to have no note and no label on the band; now it gets one from the word timing and the pitch line, drawn faded because it is less certain. Across 48 learned songs, 80 % of sung syllables now have a note, up from 69 %.\n\n### Fixed\n- **Syllables under the notes no longer run together** (\"maybethe\"): their widths are measured in their font.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.71-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
