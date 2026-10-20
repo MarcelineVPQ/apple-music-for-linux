@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.86-dev.1] — Fixed: the first second of the first song cut off
+
+### Fixed
+- **The first second of the first song.** With look-ahead, starting playback could cut off the first second or two of the first song: Apple's player announces it twice (before and after its details load), and Sonata took that as two song changes. The second announcement now only names the song.
+
 ## [0.15.85-dev.1] — Fixed: lyrics timing after a song change and at a song's start
 
 ### Fixed
