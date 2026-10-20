@@ -50,6 +50,17 @@ const SEED_PUSHES = 3
 // COARSE_LOCK s the clock aims at its middle; until then (or when the spans disagree: a seek) only at its edge.
 const COARSE_TOL = 0.05   // s of slack on each side of a whole-second span (the read moment's jitter)
 const COARSE_LOCK = 0.35  // s: an overlap this narrow or narrower is locked on (its middle)
+// 0.15.83 (Marcy 2026-10-20, "it's the driver": the song reports' corrections at the same song times with the same
+// sizes in different songs, so the clock's own doing): the lock found the clock ~150 ms behind, trimmed it at
+// PLL_SLEW (0.5 %, 2 ms a push) and lost it 3 s later when its narrow samples left PLL_WINDOW (the wider overlap then
+// held 0): the words stayed ~150 ms late all song, with a correction counted every ~8 s. Whole-second spans stay true
+// until a discontinuity (the clock runs at 1x and cum tracks every trim), so they are kept COARSE_WINDOW ms; an
+// error the estimate agrees on, over PLL_FAST_FROM, is trimmed at up to PLL_SLEW_FAST (150 ms in about 8 s; 2 % is
+// no audible or visible speed change; still never a step back).
+const COARSE_WINDOW = 20000
+const COARSE_MAX = 48     // whole-second samples kept (20 s of 470 ms pushes)
+const PLL_SLEW_FAST = 0.02
+const PLL_FAST_FROM = 0.06
 
 // the overlap of the samples' spans, each moved by the phase trimmed since (cum): { lo, hi } or null (they disagree)
 function overlap(samples, cum) {
@@ -89,7 +100,7 @@ function localize(st, masterNowMs, localNowMs) {
   return Object.assign({}, st, { at: st.at - masterNowMs + localNowMs, seekAt: undefined })
 }
 
-const newTally = () => ({ n: 0, max: 0, maxCause: '', causes: {}, at: [] })
+const newTally = () => ({ n: 0, max: 0, maxCause: '', causes: {}, at: [], pushes: 0, coarse: 0 })
 const AT_MAX = 20   // corrections a song keeps with their song time (the song report lists when each came)
 function count(t, off, cause, songT) {
   const ms = Math.round(Math.abs(off) * 1000)
@@ -128,7 +139,7 @@ function createSongClock(opts = {}) {
   let lastRaw = null     // the last push's raw player time and its aged value: a repeated raw time keeps that value,
   let lastFresh = null   // so a frozen player (a stall while it says playing) reads as a stall, not as time running on
   const log = opts.log || null
-  let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
+  let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms (whole-second ones COARSE_WINDOW); invalidated=a discontinuity, seek, pause or new song; bound=COARSE_MAX
   let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
   // corrections over 100 ms, counted: the minute's (one log line when the minute is over, 0.15.73: was the first
   // one a minute, which hid how many came) and the song's (song-report.js)
@@ -217,17 +228,24 @@ function createSongClock(opts = {}) {
           // a whole-second sample keeps its span [v, v+1) as an offset span; a fine one is a point (lo = hi)
           const span = coarse && Number.isFinite(fresh) ? { lo: fresh - shown - COARSE_TOL, hi: fresh + 1 - shown + COARSE_TOL } : { lo: d, hi: d }
           if (d != null) samples.push({ t: n, off: d, cum, coarse, lo: span.lo, hi: span.hi })
-          samples = samples.filter((x) => n - x.t <= PLL_WINDOW).slice(-8)   // loop: HOT-PATH-OK — once a push (2/s), N <= 8
-          // whole seconds: their spans' overlap (spans that disagree: a seek or a stall, so only this push's span counts)
+          samples = samples.filter((x) => n - x.t <= (x.coarse ? COARSE_WINDOW : PLL_WINDOW))   // loop: HOT-PATH-OK — once a push (2/s), N <= COARSE_MAX
+          samples = samples.slice(samples.every((x) => x.coarse) ? -COARSE_MAX : -8)   // loop: HOT-PATH-OK — N <= COARSE_MAX, 2/s
+          // whole seconds: their spans' overlap; spans that disagree (a stray read, a seek or a stall): the oldest go
+          // until the rest agree (this push's span always does)
           let err = 0
-          if (samples.length && samples.every((x) => x.coarse)) {   // loop: HOT-PATH-OK — N <= 8, 2/s
+          let sure = false
+          if (samples.length && samples.every((x) => x.coarse)) {   // loop: HOT-PATH-OK — N <= COARSE_MAX, 2/s
             err = coarseError(samples, cum)
-            if (err == null) { samples = samples.slice(-1); err = coarseError(samples, cum) }
-          } else if (samples.length) err = median(samples.map((x) => x.off - (cum - x.cum)))   // loop: HOT-PATH-OK — N <= 8, 2/s
+            // loop: HOT-PATH-OK — N <= COARSE_MAX, only when spans disagree; ends at one sample (always agrees)
+            while (err == null) { samples = samples.slice(1); err = coarseError(samples, cum) }
+            const o = overlap(samples, cum)
+            sure = samples.length >= 3 && o.hi - o.lo <= COARSE_LOCK
+          } else if (samples.length) { err = median(samples.map((x) => x.off - (cum - x.cum))); sure = samples.length >= 3 }   // loop: HOT-PATH-OK — N <= 8, 2/s
+          const slewMax = sure && Math.abs(err) > PLL_FAST_FROM ? PLL_SLEW_FAST : PLL_SLEW
           if (samples.length >= 3 && Math.abs(err) > PLL_SNAP && !seeding) {
             next = Object.assign(keep, { anchor: shown + err, at: n, rate: 1 })   // far off and agreed on: one clean step
             samples = []
-          } else next = Object.assign(keep, { anchor: shown, at: n, rate: 1 + Math.max(-PLL_SLEW, Math.min(PLL_SLEW, err / PLL_TAU)) })
+          } else next = Object.assign(keep, { anchor: shown, at: n, rate: 1 + Math.max(-slewMax, Math.min(slewMax, err / PLL_TAU)) })
         }
       } else samples = []
       const stepped = shown != null && Math.abs(T.clockTime(next, n) - shown) > jump
@@ -237,6 +255,8 @@ function createSongClock(opts = {}) {
       // then shows it if anything still jumps)
       // (a whole-second time is in step anywhere in its second: only what lies outside it counts)
       const off = shown == null || !next.playing || !Number.isFinite(fresh) ? 0 : coarse ? (offset(fresh, shown, n, true) || 0) : fresh - shown
+      // which time the song ran on (the song report: whole seconds from MusicKit, or the element's precise time)
+      if (next.playing && Number.isFinite(fresh)) { song.pushes++; if (coarse) song.coarse++ }
       flushMinute(n)
       if (Math.abs(off) > 0.1) {
         const cause = stepped ? (gateDone ? 'new song' : 'seek or stall') : off < 0 ? 'player behind' : 'player ahead'
@@ -257,8 +277,9 @@ function createSongClock(opts = {}) {
     },
     snapshot,
     get holding() { return boundaryAt != null },
-    /** This song's corrections: { n, max (ms), causes: { cause: n }, at: [[song s, signed ms, cause]] (the first AT_MAX) } (a copy). */
-    corrections() { return { n: song.n, max: song.max, causes: Object.assign({}, song.causes), at: song.at.slice() } },
+    /** This song's corrections: { n, max (ms), causes: { cause: n }, at: [[song s, signed ms, cause]] (the first AT_MAX),
+     * pushes, coarse (playing pushes, and how many of them were whole seconds) } (a copy). */
+    corrections() { return { n: song.n, max: song.max, causes: Object.assign({}, song.causes), at: song.at.slice(), pushes: song.pushes, coarse: song.coarse } },
     time() { return clock ? T.clockTime(clock, now()) : 0 },
     get epoch() { return epoch }
   }

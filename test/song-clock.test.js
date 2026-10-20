@@ -431,3 +431,77 @@ test('whole-second player times: the clock locks onto the true phase, not up to 
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /const LYRICS_TICK_MS = 470\b/, 'the lyrics tick walks through the second')
 })
+
+// 0.15.83: Marcy's song reports 2026-10-20 ("it's the driver"): with look-ahead and whole-second times every song
+// corrected "at 0:00.0 +979, 0:00.5 +505, 0:00.9 +1032", then "3.9 +116 · 11.9 +104" and on, the same sizes at the
+// same song times in different songs: the clock's own doing. Replayed here as it happens: Apple's time floored to
+// whole seconds, look-ahead's heard clock (lookahead.js heardClock, D s behind, held at 0:00 while it fills), 470 ms
+// pushes.
+function lookaheadPlay(secs, opts = {}) {
+  const LA = require('../lookahead')
+  const D = opts.D || 3
+  let n = 100000
+  const c = C.createSongClock({ now: () => n, epochNow: () => n })
+  c.setSong('a', 240)
+  const t0 = n + (opts.phase || 0)
+  const err = []
+  // loop: NOT-WORTH — a test's pushes
+  for (let k = 0; k < secs * 1000 / 470; k++) {
+    n += 470
+    const P = (n - t0) / 1000
+    const raw = Math.floor(P)
+    const h = LA.heardClock(raw, true, D, 0)
+    c.push(h.time, h.playing, 'a', n, { coarse: true })
+    if (P - D > 0) err.push({ t: P - D, ms: (c.time() - (P - D)) * 1000, epoch: c.epoch })
+  }
+  return { c, err }
+}
+
+test('look-ahead at a song\'s start: the held 0:00 pushes are no stall; the words never stand at 0:00 (0.15.83)', () => {
+  // loop: NOT-WORTH — four phases of the player against the pushes
+  for (const phase of [0, 120, 230, 400]) {
+    const { err } = lookaheadPlay(8, { phase })
+    const first = err.slice(0, 6)
+    // was: the clock stood at 0:00 for over a second (-760 ... -1230 ms), then snapped
+    assert.ok(first.every((e) => e.ms > -480), 'phase ' + phase + ': ' + first.map((e) => Math.round(e.ms)).join(' '))
+  }
+  // the same on a resume at the paused whole second
+  let c = T.syncClock(null, 30, true, 0, true)
+  c = T.syncClock(c, 31, false, 500, true)
+  c = T.syncClock(c, 31, false, 1000, true)
+  c = T.syncClock(c, 31, true, 1500, true)
+  assert.equal(c.playing, true)
+  c = T.syncClock(c, 31, true, 2000, true)
+  assert.equal(c.playing, true, 'the second push at the resumed whole second still plays')
+})
+
+test('whole-second times with look-ahead: the lock is kept and the clock gets within 30 ms, no ~150 ms all song (0.15.83)', () => {
+  // loop: NOT-WORTH — four phases
+  for (const phase of [0, 120, 230, 400]) {
+    const { c, err } = lookaheadPlay(70, { phase })
+    const late = err.filter((e) => e.t > 20)
+    // was: -149 ms from 10 s to the end of the song
+    assert.ok(late.every((e) => Math.abs(e.ms) < 30), 'phase ' + phase + ': worst ' + Math.round(Math.max(...late.map((e) => Math.abs(e.ms)))) + ' ms')
+    // and no corrections counted after the first seconds (was one every ~8 s: 3.9, 11.9, 12.8, 20.8, 28.8)
+    const k = c.corrections()
+    assert.ok(k.at.every(([s]) => s < 12), 'phase ' + phase + ': ' + JSON.stringify(k.at))
+    assert.equal(k.coarse, k.pushes, 'the song ran on whole seconds')
+  }
+})
+
+test('a precise-time error the pushes agree on is trimmed at up to 2 %, not 0.5 % (0.15.83: "Hello", ~150 ms for 30 s)', () => {
+  let n = 0
+  const c = C.createSongClock({ now: () => n, epochNow: () => n })
+  c.setSong('a', 240)
+  let truth = 10
+  c.push(truth, true, 'a', n)
+  // the clock 150 ms behind (a late first push), then every push says where the song really is
+  // loop: NOT-WORTH — a test's pushes
+  for (let k = 0; k < 4; k++) { n += 470; truth += 0.47; c.push(truth, true, 'a', n) }
+  const behind = (truth - c.time()) * 1000
+  // loop: NOT-WORTH — a test's pushes
+  for (let k = 0; k < 25; k++) { n += 470; truth += 0.47; c.push(truth + 0.15, true, 'a', n) }
+  // 150 ms ahead in every push for ~12 s: trimmed in, never a step (at 0.5 % about 90 ms would be left)
+  assert.ok(Math.abs(truth + 0.15 - c.time()) < 0.04, 'left ' + Math.round((truth + 0.15 - c.time()) * 1000) + ' ms (started ' + Math.round(behind) + ')')
+  assert.ok(Math.abs(C.rateAt(c.snapshot(), n) - 1) <= 0.02 + 1e-9)
+})

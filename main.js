@@ -415,11 +415,20 @@ const nowPlayingScript = `(() => {
       isrc: attrs ? String(attrs.isrc || item.isrc || '') : '',
       // precise time from the playing media element (fractional seconds); MusicKit's own value
       // can be whole seconds. Used only when the two agree, so a stray element never wins.
+      // 0.15.83: every audio/video element is asked, the one playing and nearest MusicKit's time wins (Marcy's song
+      // reports 2026-10-20: "Hello" had precise times, the next song in the same session whole seconds: the page's first
+      // element is not always the one playing, e.g. the next song on a second element)
       playbackTime: (() => {
         const mkTime = mk.currentPlaybackTime || 0;
-        const el = document.getElementById('apple-music-player') || document.querySelector('audio');
-        const t = el && Number.isFinite(el.currentTime) ? el.currentTime : NaN;
-        return Number.isFinite(t) && t > 0 && Math.abs(t - mkTime) < 1.5 ? t : mkTime;
+        let best = NaN, bestScore = Infinity;
+        // loop: NOT-WORTH — Apple's page has one or two media elements, read once a tick (2/s)
+        for (const el of document.querySelectorAll('audio, video')) {
+          const t = Number.isFinite(el.currentTime) ? el.currentTime : NaN;
+          if (!(t > 0) || Math.abs(t - mkTime) >= 1.5) continue;
+          const score = (el.paused ? 10 : 0) + Math.abs(t - (Number.isInteger(mkTime) ? mkTime + 0.5 : mkTime));
+          if (score < bestScore) { best = t; bestScore = score }
+        }
+        return Number.isFinite(best) ? best : mkTime;
       })(),
       /* when that time was read (epoch ms): the views add the push's age (lyrics-timing freshTime) */
       readAt: Date.now(),

@@ -102,3 +102,11 @@ test('song report: each clock correction\'s song time, so a play shows whether t
   assert.equal(R.clockText({ n: 2, max: 1043, causes: { 'player ahead': 1, 'seek or stall': 1 }, at: [[0.4, 1043, 'seek or stall'], [65.2, -120, 'player behind']] }),
     'clock: 2 corrections (max 1043 ms; 1 player ahead, 1 seek or stall) · at 0:00.4 +1043, 1:05.2 -120')
 })
+
+test('the song report says which time the song ran on: precise, whole seconds, or a share (0.15.83)', () => {
+  const R = require('../song-report')
+  assert.equal(R.clockText({ n: 0, pushes: 200, coarse: 0 }), 'clock: no corrections · precise times')
+  assert.equal(R.clockText({ n: 0, pushes: 200, coarse: 200 }), 'clock: no corrections · whole seconds')
+  assert.match(R.clockText({ n: 1, max: 120, causes: { 'player ahead': 1 }, at: [[3.9, 120, 'player ahead']], pushes: 200, coarse: 80 }), /at 0:03\.9 \+120 · whole seconds 40%$/)
+  assert.equal(R.clockText({ n: 0 }), 'clock: no corrections')
+})

@@ -603,7 +603,12 @@ function syncClock(clock, received, isPlaying, nowMs, coarse = Number.isInteger(
   const prev = clock || {}
   const stalled = prev.last === received && prev.prev === received && (!coarse || prev.prev2 === received)
   const playing = isPlaying !== false && !stalled
-  const next = { anchor: received, at: nowMs, corr: 0, playing, last: received, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
+  // 0.15.83: only times pushed while playing count toward a stall. Look-ahead holds the heard time at the song's
+  // start (0:00, not playing) while its line fills; the first playing push is 0 too, and with whole-second times the
+  // next one as well, so those held zeros read as a frozen player: the words stood at 0:00 for over a second at
+  // every song's start (Marcy's song reports, 2026-10-20: "at 0:00.0 +979, 0:00.5 +505, 0:00.9 +1032"). A resume
+  // at the paused time had the same stand-still.
+  const next = { anchor: received, at: nowMs, corr: 0, playing, last: isPlaying !== false ? received : null, prev: prev.last, prev2: prev.prev, seekAt: prev.seekAt }
   if (!playing && prev.playing && prev.anchor != null && Number.isFinite(received)) {
     // paused: freeze where the words are when that's just past the pushed time (no step back at a pause)
     const shown = clockTime(prev, nowMs)
