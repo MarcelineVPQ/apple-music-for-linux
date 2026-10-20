@@ -145,7 +145,10 @@ function createSongClock(opts = {}) {
       let next = T.syncClock(clock, fresh, isPlaying, n)   // pause, stall, resume and the first time
       const seeding = seedLeft > 0 && clock && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
       if (seedLeft > 0) seedLeft--
-      if (seeding && next.playing && !clock.playing) {
+      // a resume after a pause (Marcy 2026-10-19: "corrected 148 ms (jump…)" at each resume with look-ahead, whose
+      // heard delay settles back over the first moments): on from where the clock stood, the small offset slewed in
+      const resumed = !seeding && clock && !clock.playing && clock.anchor != null && next.playing && shown != null && Number.isFinite(fresh) && Math.abs(fresh - shown) <= PLL_JUMP
+      if ((seeding || resumed) && next.playing && !clock.playing) {
         // the new song's player said "paused" at its first push and plays now: on from where it is, the
         // offset slewed in by the PLL below (Marcy's log: "corrected 227 ms (jump…)" at a song's start)
         clock = Object.assign({}, clock, { playing: true, at: n, rate: 1 })

@@ -335,3 +335,28 @@ test('a player frozen while it says playing holds the clock, no saw-tooth', () =
   assert.equal(epochs.size, 1, 'held: no epoch bump per push')
   assert.ok(Math.max(...times) - Math.min(...times) < 0.01, 'the clock stands still: ' + times.join(','))
 })
+
+// Marcy 2026-10-19: with look-ahead the heard time comes back ~150 ms off after a pause; that was a snap (an epoch)
+test('a resume after a pause goes on from where the clock stood; a small offset is slewed, never a step', () => {
+  let now = 0
+  const lines = []
+  const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
+  let st
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k <= 160; k++) { now = k * 500; st = clock.push(k * 0.5, true, 's', now) }
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 0; k < 6; k++) { now += 500; st = clock.push(80.2, false, 's', now) || st }   // paused
+  const e = st.epoch
+  const held = clock.time()
+  now += 500; st = clock.push(80.2 - 0.148, true, 's', now)                                   // resumed, 148 ms back
+  assert.equal(st.epoch, e, 'no discontinuity')
+  assert.ok(clock.time() >= held - 0.01, 'never a step back')
+  // loop: NOT-WORTH — a test's few pushes
+  for (let k = 1; k <= 6; k++) { now += 500; st = clock.push(80.052 + k * 0.5, true, 's', now) }
+  assert.equal(st.epoch, e)
+  assert.ok(!lines.some((l) => /snapped/.test(l)), lines.join(' | '))
+  // a real seek while paused still snaps
+  now += 500; clock.push(150, false, 's', now)
+  now += 500; st = clock.push(150.3, true, 's', now)
+  assert.ok(st.epoch > e)
+})
