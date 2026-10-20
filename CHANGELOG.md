@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.88-dev.1] — Restart now stays in sight while music plays
+
+### Changed
+- **Restart now stays in sight.** When an update is installed while music plays, Restart now is shown greyed with "Pause the music to restart now", instead of being hidden until you pause.
+
 ## [0.15.87-dev.1] — Song reports measure audio look-ahead dropped
 
 ### Changed

@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.88-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>Restart now stays in sight while music plays</p>
+      </description>
+    </release>
     <release version="0.15.87-dev.1" date="2026-10-20" type="development">
       <description>
         <p>Song reports measure audio look-ahead dropped</p>
