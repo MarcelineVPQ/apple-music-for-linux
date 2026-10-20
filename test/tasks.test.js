@@ -90,7 +90,8 @@ test('one mechanism: no other dot, badge or reminder code', () => {
   }
   assert.match(read('theme.css'), /\.task \{[^}]*background: var\(--s-warn\)/)
   // every notice main marks as a task at the top of Settings names its section unless it is page-wide
-  const pageWide = ['recovered-']
+  // apple-offline (QC 2026-10): Apple Music didn't load, a whole-app problem with no Settings section of its own
+  const pageWide = ['recovered-', 'apple-offline']
   for (const m of main.matchAll(/notices\.show\((?:Object\.assign\()?\{([^\n]*task: true[^\n]*)/g)) {
     if (pageWide.some((p) => m[1].includes(p))) continue
     if (/place: INTEGRATIONS|place: \{/.test(m[1])) continue

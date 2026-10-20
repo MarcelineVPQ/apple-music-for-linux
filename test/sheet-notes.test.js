@@ -977,6 +977,7 @@ test('main sendSheet: the same song\'s new pitch pieces go as a delta; a new son
   const env = { sheetSent: '', settings: { sheetNotes: true, lyricsPreciseTiming: true, sheetPlace: 'band' }, notesSwitch: null, notesStatusText: '',
     alignInstalled: () => true, alignPaused: () => false,
     lyricsWindow: { isDestroyed: () => false, webContents: { send: (c, m) => sent.push(m) } },
+    refineStatus: () => null,   // 0.15.71: the refine line (its own tests in notes-refine)
     sheet: { key: 'k', pitch: [], entry: null, sung: [], end: 100 } }
   const send = new Function('env', 'with (env) { ' + src + '; return sendSheet }')(env)   // eslint-disable-line no-new-func
   send()
@@ -999,7 +1000,7 @@ test('main firstPlaySection: a section\'s part replaces the streamed lines it co
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
   const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
   const env = { firstPlay: null, sheet: null, lyricsKey: '', alignHelper: null, expressiveOn: () => false,
-    getSheetStore: () => ({ get: () => null }), sheetModel: { entryValid: () => false }, firstPlayUnfinished: () => {}, console: { log () {} } }
+    getSheetStore: () => ({ get: () => null }), sheetModel: { entryValid: () => false }, firstPlayUnfinished: () => {}, refining: null, console: { log () {} } }
   const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func
   const s = { key: 'k', id: 's1', hash: 'h', title: 'T', artist: 'A' }
   const p = (tag) => ({ notes: [{ t: 1, end: 2, midi: 60 }], tag })
