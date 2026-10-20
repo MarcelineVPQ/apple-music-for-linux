@@ -25,6 +25,13 @@ const LOUD_CONF = 0.5
 const ENV_CONF = 0.6          // share of a held vowel's loudness points that were measured
 const CONTOUR_CONF = 0.6      // voiced share of a held vowel's contour
 const HOLD_MIN = 0.6          // s: a vowel held this long stretches (tuned 2026-10-18 from the mock-up's 0.45)
+// 0.15.84 (engine 0.2.11, Marcy 2026-10-20: "late" held 4-5 s in "All Along the Watchtower" drew nothing; "holding a
+// note is the number 1 reason for expressions"): look-ahead sends a vowel still sounding where its audio ends as
+// open ({ o: 1 }: held at least this long, still going) and again as it goes on, ~2-3 s before the listener. An open
+// vowel held OPEN_MIN so far is a hold: its stretch and ghost take their full size (it goes on), born over the hold
+// known so far, and a later measure of the same hold extends the one playing (sameHold, the view's extend).
+const OPEN_MIN = 0.45
+const OPEN_ASSUME = 1.0       // s: an open hold sizes its letters as at least this long
 const LETTER_S = 0.1          // s of hold per extra vowel letter
 const MAX_EXTRA = 5           // at most this many extra letters, and only as many as fit the gap after the word
 const GHOST_MIN = 0.8         // s: a held vowel of a lyric word this long ghosts; a vocalise word from HOLD_MIN
@@ -64,6 +71,7 @@ function compact(expr, lineOffset = 0) {
     if (v && Number.isInteger(v.i0) && Number.isInteger(v.i1) && v.i1 > v.i0 && num(v.t) !== null && num(v.end) >= v.t) {
       Object.assign(out, { i0: v.i0, i1: v.i1, t: r3(v.t), e: r3(v.end) })
       if (typeof v.text === 'string' && v.text.length === v.i1 - v.i0) out.x = v.text
+      if (v.open === true) out.o = 1   // still held where the helper's audio ended (engine 0.2.11)
     }
     if (num(w.loud) !== null && num(w.loud_conf) >= LOUD_CONF) out.ld = clamp(w.loud, -1, 1)
     const vb = w.vibrato
@@ -153,7 +161,7 @@ function vocaliseExpressions(doc, lines) {
 function matchWord(x, word, glued, nextT) {
   if (!x || !word || typeof word.text !== 'string') return null
   const text = word.text
-  const out = { hold: 0, extra: 0, rep: '', i0: -1, i1: -1, vt: null, ve: null, ink: 0, quiet: false, vb: null, env: null, ct: null, ghost: null, stretch: false }
+  const out = { hold: 0, extra: 0, rep: '', i0: -1, i1: -1, vt: null, ve: null, ink: 0, quiet: false, vb: null, env: null, ct: null, ghost: null, stretch: false, open: false }
   if (x.ld != null) { out.ink = clamp(((x.ld + 1) / 2 - 0.55) / 0.45, 0, 1); out.quiet = x.ld < -0.45 }
   if (x.i0 != null && x.i1 <= text.length) {
     const letters = text.slice(x.i0, x.i1)
@@ -174,12 +182,15 @@ function matchWord(x, word, glued, nextT) {
       out.vb = x.vb || null
       out.env = x.env || null
       out.ct = x.ct || null
-      if (out.hold >= HOLD_MIN) {
-        out.extra = Math.min(MAX_EXTRA, Math.round((out.hold - 0.2) / LETTER_S))
+      out.open = x.o === 1 && out.hold >= OPEN_MIN
+      // an open hold goes on: its letters are sized as at least OPEN_ASSUME long (they are born over the hold known)
+      const size = out.open ? Math.max(out.hold, OPEN_ASSUME) : out.hold
+      if (size >= HOLD_MIN) {
+        out.extra = Math.min(MAX_EXTRA, Math.round((size - 0.2) / LETTER_S))
         // the held vowel must sit in the word's last syllable (the room opens after the word)
         out.stretch = out.extra > 0 && !glued && heldInLastSyllable(word, x.i0)
       }
-      out.ghost = ghostLetters(text, letters, out.hold)
+      out.ghost = ghostLetters(text, letters, size)
     }
   }
   if (out.i0 < 0 && !out.ink && !out.quiet) return null
@@ -238,9 +249,13 @@ function lineExpressions(doc, lineIndex, words, glue) {
 const LATE_MIN = 0.3
 function lateFrom(m, now) {
   if (!m || m.vt == null || num(now) === null || !(now > m.vt)) return m
-  if (!(m.ve - now >= LATE_MIN)) return Object.assign({}, m, { stretch: false, extra: 0, ghost: null, vb: null })
-  return Object.assign({}, m, { vt: now, hold: m.ve - now })
+  // an open hold still goes on however little of it is measured past now
+  if (!m.open && !(m.ve - now >= LATE_MIN)) return Object.assign({}, m, { stretch: false, extra: 0, ghost: null, vb: null })
+  return Object.assign({}, m, { vt: now, hold: Math.max(0, m.ve - now) })
 }
+
+/** The same held vowel measured again (an open hold measured further, or closed): the one playing is extended. */
+const sameHold = (a, b) => !!(a && b && a.i0 >= 0 && a.i0 === b.i0 && a.vt != null && b.vt != null && Math.abs(a.vt - b.vt) < 0.08)
 
 /** A matched word draws something the eye sees: ink, a lighter shade, a stretch, a vibrato or a ghost. */
 const shows = (m) => !!(m && (m.ink > 0 || m.quiet || m.stretch || m.vb || m.ghost))
@@ -608,6 +623,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, lateFrom, LATE_MIN, lineExprReport, shows, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, lateFrom, LATE_MIN, OPEN_MIN, sameHold, lineExprReport, shows, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

@@ -985,3 +985,67 @@ test('view, first play: new vocalise that arrives while a ghost plays shows once
   const ghosts = list.firstChild.els().filter((g) => /^o{3,}$/.test(g.textContent))   // loop: NOT-WORTH — a test
   assert.ok(ghosts.length >= 1, 'the new vocalise ghosts')
 })
+
+// 0.15.84 (engine 0.2.11; Marcy 2026-10-20, Dave Matthews Band "All Along the Watchtower (Live at the Gorge)": "no
+// expressions when Dave held this note for like 4 or 5 seconds", "holding a note is the number 1 reason for
+// expressions"): "The hour is getting late," with "hour" held (its stretch playing) and "late" held ~4.5 s. The
+// helper now sends "late" open (still held where its audio ended) ~2 s before the listener, then longer as it goes.
+const LATE = [
+  { t: 30.0, end: 33.0, text: 'The hour is getting late', words: [{ text: 'The', t: 30.0, end: 30.2 }, { text: 'hour', t: 30.25, end: 30.6 }, { text: 'is', t: 31.5, end: 31.7 }, { text: 'getting', t: 31.75, end: 32.1 }, { text: 'late', t: 32.15, end: 32.5 }], aligned: true },
+  { t: 37.5, end: 39.0, text: 'yeah', words: [{ text: 'yeah', t: 37.5, end: 39.0 }], aligned: true }
+]
+const HOUR = { line: 0, word: 1, conf: 0.9, vowel: { i0: 0, i1: 2, text: 'ho', t: 30.3, end: 31.3 }, loud: 0.6, loud_conf: 0.9 }
+const lateHeld = (end, open) => ({ line: 0, word: 4, conf: 0.9, vowel: Object.assign({ i0: 1, i1: 2, text: 'a', t: 32.2, end }, open ? { open: true } : {}), loud: 0.7, loud_conf: 0.9,
+  vibrato: { rate: 5.5, extent: 40, t: 32.6, end: Math.min(end, 36.5), conf: 0.9 } })
+const lateView = () => view(null, false, { lines: JSON.parse(JSON.stringify(LATE)), duration: 60 })
+const live = (doc) => doc.anims.filter((a) => !a.cancelled)
+
+test('expressive: an open hold (engine 0.2.11) is a hold from OPEN_MIN, full size, born over what is known; lateFrom keeps it', () => {
+  const words = LATE[0].words
+  const open = X.matchWord(X.compact({ version: 2, words: [lateHeld(32.7, true)] }).words[0], words[4], false, null)
+  assert.equal(open.open, true)
+  assert.ok(open.stretch && open.ghost, 'held 0.5 s so far and still going: it stretches and ghosts')
+  assert.equal(open.extra, 5, 'sized as a long hold')
+  assert.equal(open.hold, 0.5, 'its letters are born over the 0.5 s known')
+  const closedShort = X.matchWord(X.compact({ version: 2, words: [lateHeld(32.7, false)] }).words[0], words[4], false, null)
+  assert.equal(closedShort.stretch, false, 'the same 0.5 s closed is no hold')
+  assert.equal(X.matchWord(X.compact({ version: 2, words: [lateHeld(32.5, true)] }).words[0], words[4], false, null).stretch, false, 'open under OPEN_MIN: not yet')
+  // the listener past the known end of an open hold: it goes on (was: too little left, only its shading)
+  const lateNow = X.lateFrom(open, 32.65)
+  assert.ok(lateNow.stretch && lateNow.ghost)
+  assert.ok(X.sameHold(open, X.matchWord(X.compact({ version: 2, words: [lateHeld(36.6, false)] }).words[0], words[4], false, null)))
+})
+
+test('view, first play (look-ahead): a held word\'s open expression applies to the sung line while another word\'s stretch plays, and is extended in place (Watchtower, 2026-10-20)', () => {
+  const { list, v, doc } = lateView()
+  const lines = () => list.els().filter((e) => e.has('line'))
+  // the line's first pass: "hour" held
+  at(v, 29.0)
+  v.express({ key: 'k1', expr: X.forView(X.compact({ version: 2, vocalise: [], words: [HOUR] }), true), final: false })
+  placeWords(list)
+  at(v, 30.6)
+  const hourAnims = live(doc).length
+  assert.ok(hourAnims > 0, '"hour" stretches')
+  // ~2 s ahead of the listener the helper sends "late" open: it must apply now, though "hour" plays (was: the next line)
+  v.express({ key: 'k1', expr: X.forView(X.compact({ version: 2, vocalise: [], words: [HOUR, lateHeld(33.1, true)] }), true), final: false })
+  relaid(list)
+  placeWords(list)
+  assert.ok(word(lines()[0], 'late').has('xs'), '"late" is laid out to stretch while "hour" still plays')
+  // "late" reached: its stretch and ghost start
+  at(v, 32.4)
+  const span = word(lines()[0], 'late')
+  const births = live(doc).filter((a) => a.el.has('xe') && span.all().includes(a.el))
+  assert.ok(births.length > 0, '"late" stretches from its onset')
+  assert.ok(list.firstChild.els().length >= 1, 'and ghosts')
+  // the helper measures the hold further (open, then closed at 36.7): extended in place, nothing starts again
+  v.express({ key: 'k1', expr: X.forView(X.compact({ version: 2, vocalise: [], words: [HOUR, lateHeld(34.5, true)] }), true), final: false })
+  v.express({ key: 'k1', expr: X.forView(X.compact({ version: 2, vocalise: [], words: [HOUR, lateHeld(36.7, false)] }), true), final: false })
+  assert.equal(word(lines()[0], 'late'), span, 'the held word keeps its element (its animations go on)')
+  assert.ok(births.every((a) => !a.cancelled), 'its letters are not born again')
+  // past the first known end (33.1 + 0.3): still held, as Dave is
+  at(v, 35.5)
+  assert.ok(births.every((a) => !a.cancelled), 'still stretched at 35.5 s (was: ended at the first measure, 33.4 s)')
+  assert.ok(list.firstChild.els().length >= 1, 'the ghost still there')
+  at(v, 38.0)
+  assert.ok(births.every((a) => a.cancelled), 'released after the hold')
+})

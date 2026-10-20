@@ -769,7 +769,9 @@ function createLyricsView(opts) {
         row.innerHTML = '<i></i><i></i><i></i>'
         dots.appendChild(row)
         container.appendChild(dots)
-        interludes.push(Object.assign({ el: dots, row, dots: [...row.children] }, gaps[g++]))
+        const gap = Object.assign({ el: dots, row, dots: [...row.children] }, gaps[g++])
+        interludes.push(gap)
+        holdGap(gap)
       }
       const el = doc.createElement('div')
       el.className = (line.t === null ? 'line plain' : 'line') + laneClass(i)
@@ -855,6 +857,14 @@ function createLyricsView(opts) {
   }
 
   // a line's words (the karaoke layer's main row) with its measured expression xl (lineExpressions; [] = none)
+  // 0.15.84: a held word sung past its line's own end (lineMain lengthens it to its measured vowel) keeps the line
+  // lit: the countdown after the line starts when the hold ends (it started at the line's lyrics end and dimmed the
+  // line mid-hold); a hold that reaches the next line leaves no countdown
+  function holdGap(g) {
+    const prev = lines[g.index - 1]
+    if (!prev || prev.t == null) return
+    g.start = Math.max(g.start, Math.min(g.end, T.lineEnd(prev, lines[g.index])))
+  }
   function lineMain(entry, line, xl) {
     const main = doc.createElement('div')
     entry.x = xl.length ? xl : null
@@ -912,15 +922,33 @@ function createLyricsView(opts) {
       if (xKey(xl) === (e.xk || '')) continue
       if (p.final && onScreen(e)) { left++; continue }
       if (live.has(i)) {
-        // the line being sung, while none of its expressions plays: its words sung already keep what they drew
-        // (the rest at the next line boundary), the word being sung and those still to come take theirs; the
-        // word being sung grows from now (lateFrom: look-ahead's line notes reach a long held word only while
-        // it is sung, 2026-10-19 "Jesus Doesn't Want Me for a Sunbeam" drew nothing at all)
-        // loop: HOT-PATH-OK — the expressions playing (≤ ~5), per line whose expression changed
-        if (xlive.some((x) => x.line === i && x.it && x.it.i >= 0)) { left++; continue }
+        // the line being sung: its words sung already keep what they drew (the rest at the next line boundary),
+        // the word being sung and those still to come take theirs; the word being sung grows from now (lateFrom:
+        // look-ahead's line notes reach a long held word only while it is sung, 2026-10-19 "Jesus Doesn't Want Me
+        // for a Sunbeam" drew nothing at all). 0.15.84: word by word, also while some of its expressions play (it
+        // waited for the next line, so a hold's expression arriving while an earlier word's played came after
+        // the hold: Marcy 2026-10-20, "late" in "All Along the Watchtower"): a word whose expression plays keeps
+        // its element and animations; the same hold measured further (an open hold, sameHold) is extended in place
         const now = litXl(e, xl)
         if (now.wait) left++
-        if (xKey(now.xl) !== (e.xk || '')) relayLine(e, line, now.xl)
+        // loop: HOT-PATH-OK — the expressions playing (≤ ~5), per line whose expression changed
+        const playing = xlive.filter((x) => x.line === i && x.it && x.it.i >= 0)
+        let out = now.xl
+        if (playing.length) {
+          // loop: NOT-WORTH — one line's measured words (0-12) x the expressions playing (≤ ~5)
+          out = out.filter((x) => !playing.some((p) => p.it.i === x.i))
+          const kept = new Set()
+          // loop: NOT-WORTH — the expressions playing (≤ ~5)
+          for (const p of playing) {
+            const raw = xl.find((x) => x.i === p.it.i)   // loop: NOT-WORTH — one line's measured words
+            // each playing expression (a word's stretch and its ghost share `it`) by its own end
+            if (raw && X.sameHold(p.it.m, raw.m)) { if (raw.m.ve > p.ve + 0.02 || raw.m.open !== p.open) extendExpression(p, raw.m) }
+            else if (xKey(raw ? [raw] : []) !== xKey([p.it])) left++
+            if (!kept.has(p.it)) { kept.add(p.it); out.push(p.it) }
+          }
+          out.sort((a, b) => a.i - b.i)   // loop: NOT-WORTH — one line's measured words (0-12), per line boundary while an expression waits
+        }
+        if (xKey(out) !== (e.xk || '')) relayLine(e, line, out, playing)
         continue
       }
       relayLine(e, line, xl)
@@ -971,12 +999,22 @@ function createLyricsView(opts) {
     return { xl: out, wait: xKey(out) !== xKey(xl) }
   }
   // one line's words again with new expression (no expression of it playing; a lit line's sung words keep theirs, litXl); the sung marks stay
-  function relayLine(e, line, xl) {
+  // playing: the expressions of this line playing now: a stretch's word keeps its element (and so its animations)
+  function relayLine(e, line, xl, playing) {
     const old = e.words
     const was = e.main
     const main = lineMain(e, line, xl)
+    const at = lineEls.indexOf(e)   // loop: NOT-WORTH — the song's lines, once per swapped line
+    for (const g of interludes) if (g.index === at + 1) holdGap(g)   // loop: NOT-WORTH — the song's countdowns (a few)
     // loop: NOT-WORTH — one line's words (~5-12), once per swapped line
     old.forEach((sp, k) => { const n = e.words[k]; if (n) for (const c of ['sung', 'now', 'hold', 'late']) n.classList.toggle(c, sp.classList.contains(c)) })
+    // loop: NOT-WORTH — the expressions playing (≤ ~5), once per swapped line
+    for (const p of playing || []) {
+      if (p.kind !== 'stretch' || !p.span) continue
+      const k = p.it.i
+      const n = e.words[k]
+      if (n && n !== p.span) { n.replaceWith(p.span); e.words[k] = p.span }
+    }
     was.replaceWith(main)
     if (!stage) {
       // the lyrics window's two plain copies (unsung and hover colours) follow the karaoke layer
@@ -1599,7 +1637,7 @@ function createLyricsView(opts) {
     const span = e.words[it.i]
     const lineIndex = lineEls.indexOf(e)
     const tl = X.stretchTimeline(m, lines[lineIndex].words[it.i].t - WORD_LEAD)
-    const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, ve: m.ve, anims: [], reset: [] }
+    const x = { kind: 'stretch', it, line: lineIndex, span, t0: tl.t0, t1: tl.t1, ve: m.ve, open: m.open, anims: [], reset: [] }
     xlive.push(x)
     const fontPx = parseFloat(doc.defaultView.getComputedStyle(span).fontSize) || 16
     // the extra letters that fit in the gap after the popped word (popRoom, once per layout): the rest stay
@@ -1662,19 +1700,49 @@ function createLyricsView(opts) {
       const coda = span.querySelector('.xc')
       if (coda) x.anims.push(coda.animate(X.codaRide(n * w * squeeze, tl.t0, tl.t1, m.vt, m.hold), o))
     }
-    // the wave: the vowel letters, then the extra letters (each at the height the voice had when it was born)
+    // the wave: the vowel letters, then the extra letters (each at the height the voice had when it was born);
+    // built again over a longer timeline when the hold is measured further (extendExpression)
     const amp = fontPx * X.WAVE_EM
     const waving = [...span.querySelectorAll('.xv')]
     // loop: NOT-WORTH — the extra letters (≤ 5), once per held word (startStretch)
     const inner = extras.map((el) => el.firstChild)
-    // loop: NOT-WORTH — the vowel and extra letters (≤ ~11), once per held word
-    waving.concat(inner).forEach((el, j) => {
-      const k = j - waving.length
-      const base = k >= 0 && m.ct ? X.contourPx(m.ct, X.bornAt(k, inner.length, m.vt, m.hold), fontPx) : 0
-      const kf = m.vb ? X.waveKeyframes(m.vb, tl.t0, tl.t1, amp, j * 0.85, base) : null
-      if (kf) x.anims.push(el.animate(kf, o))
-      else if (base) x.anims.push(el.animate(X.heldAt(base), o))   // its height, held for the timeline
-    })
+    x.rewave = (mm, t1) => {
+      const ow = AOPTS(tl.t0, t1)
+      const made = []
+      // loop: NOT-WORTH — the vowel and extra letters (≤ ~11), once per held word or per extension
+      waving.concat(inner).forEach((el, j) => {
+        const k = j - waving.length
+        const base = k >= 0 && m.ct ? X.contourPx(m.ct, X.bornAt(k, inner.length, m.vt, m.hold), fontPx) : 0
+        const kf = mm.vb ? X.waveKeyframes(mm.vb, tl.t0, t1, amp, j * 0.85, base) : null
+        if (kf) made.push(el.animate(kf, ow))
+        else if (base) made.push(el.animate(X.heldAt(base), ow))   // its height, held for the timeline
+      })
+      return made
+    }
+    x.waves = x.rewave(m, tl.t1)
+    x.anims.push(...x.waves)
+    syncOne(x, time)
+  }
+
+  // the same hold measured further (an open hold, 0.15.84): what is drawn stays (the letters born, the slide),
+  // the expression lasts to the new end, and the wave (a stretch) or the ghost's breath and wave run on to it
+  function extendExpression(x, m) {
+    const it = x.it
+    it.m = Object.assign({}, it.m, { ve: Math.max(it.m.ve, m.ve), hold: Math.max(it.m.hold, m.ve - it.m.vt), open: m.open, vb: m.vb || it.m.vb, env: m.env || it.m.env })
+    x.ve = it.m.ve
+    x.open = m.open
+    const time = shownTime !== null ? shownTime : x.t0
+    if (x.kind === 'stretch') {
+      x.t1 = it.m.ve + 0.3
+      if (!x.rewave) return
+      // loop: NOT-WORTH — one stretch's wave animations (≤ ~11), per extension (a few per hold)
+      for (const a of x.waves || []) a.cancel()
+      const made = x.rewave(it.m, x.t1)
+      x.anims = x.anims.filter((a) => !(x.waves || []).includes(a)).concat(made)   // loop: NOT-WORTH — ≤ ~14
+      x.waves = made
+    } else if (x.kind === 'ghost' && x.regrow) {
+      x.regrow(it.m)
+    }
     syncOne(x, time)
   }
 
@@ -1698,26 +1766,44 @@ function createLyricsView(opts) {
     el.className = 'xgw'
     el.style.fontSize = (plan.size * fontPx).toFixed(1) + 'px'
     const o = AOPTS(plan.t0, plan.t1)
-    const x = { kind: 'ghost', it, line: lineIndex, el, t0: plan.t0, t1: plan.t1, anims: [], reset: [] }
-    // lifetime: OK — the ghost's animations (≤ ~14) are cancelled in endExpression, its node removed (song end, setData)
-    x.anims.push(el.animate(plan.opacity, o))
-    if (plan.drift) x.anims.push(el.animate(plan.drift, o))
+    const x = { kind: 'ghost', it, line: lineIndex, el, t0: plan.t0, t1: plan.t1, ve: m.ve, open: m.open, anims: [], reset: [] }
     const gPx = plan.size * fontPx
+    const letterEls = []   // cache: OK — key=this ghost's letters; invalidated=never (the ghost's own); bound=its letters (≤ ~12), gone with the ghost
+    const births = []
     // loop: NOT-WORTH — a ghost's letters (≤ ~12), once per ghost
-    plan.letters.forEach((l, i) => {
+    plan.letters.forEach((l) => {
       const s = doc.createElement('span')
       s.className = 'xgl'
       s.textContent = l.ch
       el.appendChild(s)
+      letterEls.push(s)
       const birth = X.ghostLetterBirth(l.born, plan.t0, plan.t1)
-      if (birth) x.anims.push(s.animate(birth, o))
-      // each letter keeps the pitch it was born on: the ghost bends along the contour
-      const base = m.ct ? X.contourPx(m.ct, l.born, gPx) * 1.2 : 0
-      const wave = !still() && m.vb ? X.waveKeyframes(m.vb, plan.t0, plan.t1, gPx * 0.025, i * 0.7, base) : null
       // lifetime: OK — cancelled with the ghost in endExpression (see above)
-      if (wave) x.anims.push(s.animate(wave, o))
-      else if (base) x.anims.push(s.animate(X.heldAt(base), o))
+      if (birth) births.push(s.animate(birth, o))
     })
+    // its breath, drift and wave, over [t0, t1]: built again to a later end when the hold is measured further
+    // (extendExpression); the letters keep their births (born ones stay)
+    let flow = []
+    x.regrow = (mm) => {
+      const p2 = mm === m ? plan : X.ghostPlan(mm, '', still(), (container.clientWidth || 0) * 0.06)
+      // loop: NOT-WORTH — one ghost's flowing animations (≤ ~14), per extension
+      for (const a of flow) a.cancel()
+      x.t1 = p2.t1
+      const o2 = AOPTS(x.t0, x.t1)
+      // lifetime: OK — the ghost's animations (≤ ~14) are cancelled in endExpression, its node removed (song end, setData)
+      flow = [el.animate(p2.opacity, o2)]
+      if (p2.drift) flow.push(el.animate(p2.drift, o2))
+      // loop: NOT-WORTH — a ghost's letters (≤ ~12), once per ghost or extension
+      plan.letters.forEach((l, i) => {
+        // each letter keeps the pitch it was born on: the ghost bends along the contour
+        const base = m.ct ? X.contourPx(m.ct, l.born, gPx) * 1.2 : 0
+        const wave = !still() && mm.vb ? X.waveKeyframes(mm.vb, x.t0, x.t1, gPx * 0.025, i * 0.7, base) : null
+        if (wave) flow.push(letterEls[i].animate(wave, o2))
+        else if (base) flow.push(letterEls[i].animate(X.heldAt(base), o2))
+      })
+      x.anims = births.concat(flow)
+    }
+    x.regrow(m)
     ghostLayer.appendChild(el)
     placeGhost(el, lineEl, plan.drift ? (container.clientWidth || 0) * 0.06 : 0)
     xlive.push(x)
