@@ -16,6 +16,10 @@ See docs/RELEASING.md.
   and size, and each singer keeps their own colour as they sing (the second singer in the album's
   second colour, lines sung together in a blend of both). Before, the second singer's lines were
   pushed to the right. Background vocals, the syllable pop and Expressive words are unchanged.
+- Duet colours stay apart for colour-blind readers: when the album's two colours would look alike with
+  red-green (protanopia, deuteranopia) or blue-yellow (tritanopia) colour blindness, the second singer's
+  colour, and the colour of lines sung together, move to the nearest shade that reads as different for
+  everyone, in light and dark, with and without Glass, and in the visualizer.
 
 ## [0.15.69-dev.1] — Sonata starts again
 

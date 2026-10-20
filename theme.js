@@ -47,6 +47,94 @@
   }
   const css = (rgb, a) => 'rgba(' + rgb.map((v) => Math.round(v)).join(',') + ',' + (a === undefined ? 1 : +a.toFixed(3)) + ')'
 
+  // --- colour-vision safety (duets, 2026-10-19): the singers' colours must stay apart for everyone ---
+  // Simulated protanopia, deuteranopia and tritanopia (Machado, Oliveira & Fernandes 2009, severity 1,
+  // on linear RGB) and the CIEDE2000 difference of the results. cvdDistance(a, b): the smallest ΔE00 of
+  // a and b for normal vision and the three. Pure maths, a few µs per pair.
+  const CVD = {
+    protan: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+    deutan: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
+    tritan: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.303900]]
+  }
+  const VISIONS = ['normal', 'protan', 'deutan', 'tritan']
+  const unit = (v) => Math.max(0, Math.min(1, v))
+  function seenAs(rgb, kind) {
+    const l = rgb.map(lin)
+    const m = CVD[kind]
+    // loop: NOT-WORTH — 3 rows
+    return m ? m.map((r) => unit(r[0] * l[0] + r[1] * l[1] + r[2] * l[2])) : l
+  }
+  function labOf(l) {
+    const f = (t) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116)
+    const X = f((0.4124 * l[0] + 0.3576 * l[1] + 0.1805 * l[2]) / 0.95047)
+    const Y = f(0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2])
+    const Z = f((0.0193 * l[0] + 0.1192 * l[1] + 0.9505 * l[2]) / 1.08883)
+    return [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)]
+  }
+  function deltaE00(p, q) {
+    const rad = Math.PI / 180
+    const c7 = (c) => Math.sqrt(Math.pow(c, 7) / (Math.pow(c, 7) + 6103515625))   // 25^7
+    const G = 0.5 * (1 - c7((Math.hypot(p[1], p[2]) + Math.hypot(q[1], q[2])) / 2))
+    const a1 = p[1] * (1 + G); const a2 = q[1] * (1 + G)
+    const C1 = Math.hypot(a1, p[2]); const C2 = Math.hypot(a2, q[2])
+    const hue = (a, b) => (a === 0 && b === 0 ? 0 : (Math.atan2(b, a) / rad + 360) % 360)
+    const h1 = hue(a1, p[2]); const h2 = hue(a2, q[2])
+    let dh = 0
+    if (C1 * C2 !== 0) { dh = h2 - h1; if (dh > 180) dh -= 360; else if (dh < -180) dh += 360 }
+    const dL = q[0] - p[0]; const dC = C2 - C1; const dH = 2 * Math.sqrt(C1 * C2) * Math.sin(dh / 2 * rad)
+    const L = (p[0] + q[0]) / 2; const C = (C1 + C2) / 2
+    let H = h1 + h2
+    if (C1 * C2 !== 0) { if (Math.abs(h1 - h2) > 180) H += H < 360 ? 360 : -360; H /= 2 }
+    const T = 1 - 0.17 * Math.cos((H - 30) * rad) + 0.24 * Math.cos(2 * H * rad) + 0.32 * Math.cos((3 * H + 6) * rad) - 0.2 * Math.cos((4 * H - 63) * rad)
+    const Sl = 1 + 0.015 * (L - 50) * (L - 50) / Math.sqrt(20 + (L - 50) * (L - 50)); const Sc = 1 + 0.045 * C; const Sh = 1 + 0.015 * C * T
+    const Rt = -Math.sin(60 * Math.exp(-Math.pow((H - 275) / 25, 2)) * rad) * 2 * c7(C)
+    return Math.sqrt(Math.pow(dL / Sl, 2) + Math.pow(dC / Sc, 2) + Math.pow(dH / Sh, 2) + Rt * (dC / Sc) * (dH / Sh))
+  }
+  const cvdDistances = (a, b) => VISIONS.map((k) => deltaE00(labOf(seenAs(a, k)), labOf(seenAs(b, k))))   // loop: NOT-WORTH — 4 visions
+  const cvdDistance = (a, b) => Math.min(...cvdDistances(a, b))
+  // the targets (ΔE00, the smallest over the four visions): singer 1 and singer 2's words, and the lines
+  // sung together against either singer. 20 reads as "another colour" at lyric size; the blend sits
+  // between the two, so its target is lower. DUET_FLOOR: what every theme, album colour and Glass
+  // backdrop reaches at least (measured over the whole hue wheel, test/duet-colours.test.js): light
+  // themes darken every lyric colour to 4.5:1, which leaves less room (worst 15.1, light Glass, a
+  // magenta accent); dark themes and the visualizer reach 20.
+  const DUET_MIN = 20
+  const DUET_MIX_MIN = 9
+  const DUET_FLOOR = 15
+  // The duet's colours, distinct for every vision: singer 1 stays the album accent; singer 2 starts at its
+  // own accent (from the art), then, only when the pair is too close for some vision, the nearest hue turn
+  // (±20° steps) and/or a lightness step toward the text colour (lightness reads for every vision) that
+  // clears both floors; when nothing clears them, the candidate that comes closest. fit: the 4.5:1 fit
+  // of the surface (fitText, stageText). -> { a2, mix, pair, mixGap }
+  const TURNS = [0, 20, -20, 40, -40, 60, -60, 80, -80, 100, -100, 120, -120, 140, -140, 160, -160, 180]
+  const PUSH = [0, 0.18, 0.36, 0.54]
+  // candidates around a colour, nearest first: hue turns, then lightness steps toward the text colour
+  // (lightness reads for every vision); fitted to 4.5:1. pick(c) -> its distance; the first at `floor`
+  // wins, else the farthest.
+  function nearestApart(base, fit, toward, floor, gap) {
+    const [h, sat, l] = rgbToHsl(base[0], base[1], base[2])
+    let best = null
+    // loop: NOT-WORTH — at most 4 lightness steps × 18 turns, each a 4.5:1 fit; stops at the first that clears; once per track/theme
+    for (const push of PUSH) {
+      for (const t of TURNS) {
+        const c = t === 0 ? base : hslToRgb((h + t / 360 + 1) % 1, sat, l)
+        const f = push ? fit(mix(fit(c), toward, push)) : fit(c)
+        const d = gap(f)
+        if (!best || d > best.d) best = { f, c, d }
+        if (d >= floor) return best
+      }
+    }
+    return best
+  }
+  function duetColours(accent1, accent2, a1Text, fit, toward) {
+    // singer 2: its own accent, else the nearest candidate that clears DUET_MIN from singer 1
+    const two = nearestApart(accent2, fit, toward, DUET_MIN, (f) => cvdDistance(a1Text, f))
+    // the lines sung together: the two accents' halfway hue, else the nearest candidate that clears
+    // DUET_MIX_MIN from both singers
+    const both = nearestApart(hueBlend(accent1, two.c), fit, toward, DUET_MIX_MIN, (f) => Math.min(cvdDistance(f, a1Text), cvdDistance(f, two.f)))
+    return { a2: two.f, mix: both.f, pair: two.d, mixGap: both.d }
+  }
+
   // --- the base palette (the only literal colours in Sonata's own UI, with theme.css's first-paint copy) ---
   const BASE = {
     dark: { surface: [30, 30, 34], text: [245, 245, 247], soft: 0.18, tint: 0.16, overPage: 0.9, glass: 0.42, ok: [31, 143, 78], live: [48, 209, 88], warn: [242, 179, 61], error: [255, 150, 140] },
@@ -123,8 +211,10 @@
     }
     const accentText = fitText(accent)
     const accent2 = (palette && hexRgb(palette.accent2)) || null
-    const accent2Text = accent2 ? fitText(accent2) : accentText
-    const mixText = accent2 ? fitText(hueBlend(accent, accent2)) : accentText
+    // singer 2 and the together-blend, kept apart from singer 1 for every colour vision (duetColours)
+    const duet = accent2 ? duetColours(accent, accent2, accentText, fitText, text) : null
+    const accent2Text = duet ? duet.a2 : accentText
+    const mixText = duet ? duet.mix : accentText
     // the accent as words on a field (--s-field's tint over the card: the About hero card's eyebrow): the
     // accent text pushed further toward the text colour until 4.5:1 with the field too (0.15.42: it was
     // 3.84:1 dark / 4.32:1 light with album colour and Glass)
@@ -250,6 +340,9 @@
         accentText: Math.min(worstContrast(accentText, overLayers()), worstContrast(accentText, matLayers(), matBackdrops)),
         accent2Text: Math.min(worstContrast(accent2Text, overLayers()), worstContrast(accent2Text, matLayers(), matBackdrops)),
         mixText: Math.min(worstContrast(mixText, overLayers()), worstContrast(mixText, matLayers(), matBackdrops)),
+        // the duet colours' smallest ΔE00 over normal, protan, deutan and tritan vision (duetColours)
+        duetPair: duet ? duet.pair : null,
+        duetMix: duet ? duet.mixGap : null,
         dim: Math.min(worstContrast(dim, overLayers()), worstContrast(dim, matLayers(), matBackdrops)),
         upcoming: Math.min(worstContrast(upcoming, overLayers()), worstContrast(upcoming, matLayers(), matBackdrops)),
         fill: contrast(onBtn, fill)
@@ -372,8 +465,21 @@
     for (let i = 0; i < 20 && contrast(c, BLACK) < TARGET + 0.5; i++) c = mix(c, WHITE, 0.08)
     return '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
   }
+  // the visualizer's three sung colours (singer 1, singer 2, together) on its dark stage, the duet pair
+  // kept apart for every colour vision as in the themes (duetColours). -> ['#rrggbb' ×3] or null
+  function stageDuet(hex1, hex2) {
+    const a = hexRgb(hex1)
+    if (!a) return null
+    const lift = (c) => hexRgb(stageText(toHex(c)))
+    const one = lift(a)
+    const b = hexRgb(hex2)
+    if (!b) return [toHex(one), toHex(one), toHex(one)]
+    const d = duetColours(a, b, one, lift, WHITE)
+    return [toHex(one), toHex(d.a2), toHex(d.mix)]
+  }
+  const toHex = (c) => '#' + c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('')
 
-  const api = { stageText, hueBlend, BASE, DEFAULT_ACCENT, BAND, hexRgb, mix, lum, contrast, worstContrast, greyOf, stack, themeTokens, makeBackdrop }
+  const api = { stageText, stageDuet, hueBlend, cvdDistance, cvdDistances, DUET_MIN, DUET_MIX_MIN, DUET_FLOOR, BASE, DEFAULT_ACCENT, BAND, hexRgb, mix, lum, contrast, worstContrast, greyOf, stack, themeTokens, makeBackdrop }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataTheme = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

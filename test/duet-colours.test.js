@@ -87,7 +87,60 @@ test('the lyric views route the colours by singer; background vocals inherit the
   const lyr = fs.readFileSync(path.join(__dirname, '..', 'lyrics.html'), 'utf8')
   assert.match(lyr, /'--active-2': '--s-accent-2-text'/)
   const viz = fs.readFileSync(path.join(__dirname, '..', 'visualizer.html'), 'utf8')
-  assert.match(viz, /r\.setProperty\('--active-2', T\.stageText\(a2\)\)/)
+  assert.match(viz, /T\.stageDuet\(p\.accent, p\.accent2\)/)
+  assert.match(viz, /r\.setProperty\('--active-2', two\)/)
   const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8')
   assert.match(main, /palette: on \? \{ accent: lastPalette\.accent, accent2: lastPalette\.accent2 \} : null/)
+})
+
+// Colour-vision safety (2026-10-19): the singers' colours stay apart for normal, protan, deutan and
+// tritan vision (Machado 2009 simulation, CIEDE2000), in light and dark, plain and Glass (two backdrop
+// bands each), for every album hue and every distance of the second hue, and on the visualizer's stage.
+test('duet colours: distinct for every colour vision, every theme, album colour and Glass', () => {
+  const pairs = []
+  function hsl(h) { return P.hslToRgb(((h % 360) + 360) % 360, 0.8, 0.5) }
+  // loop: NOT-WORTH — test sweep
+  for (let h = 0; h < 360; h += 15) {
+    for (const gap of [60, 120, 180]) pairs.push(P.extractPalette(art((x) => (x < 22 ? hsl(h) : hsl(h + gap))), { bgra: true }))
+    pairs.push(P.extractPalette(art(() => hsl(h)), { bgra: true }))   // one-colour art: the fallback turn
+  }
+  const bds = { dark: [{ lumMin: 0.005, lumMax: 0.08 }, { lumMin: 0.02, lumMax: 0.2 }], light: [{ lumMin: 0.5, lumMax: 0.85 }, { lumMin: 0.3, lumMax: 0.95 }] }
+  const rgb = (v) => v.match(/[\d.]+/g).slice(0, 3).map(Number)
+  let darkWorst = Infinity
+  for (const dark of [false, true]) {
+    for (const glass of [false, true]) {
+      for (const backdrop of glass ? bds[dark ? 'dark' : 'light'] : [null]) {
+        for (const p of pairs) {
+          const t = T.themeTokens({ dark, palette: { accent: p.accent, accent2: p.accent2 }, glass, backdrop })
+          const a = rgb(t.vars['--s-accent-text']); const b = rgb(t.vars['--s-accent-2-text']); const m = rgb(t.vars['--s-accent-mix-text'])
+          const where = p.accent + '/' + p.accent2 + ' dark=' + dark + ' glass=' + glass
+          assert.ok(T.cvdDistance(a, b) >= T.DUET_FLOOR, 'singers too close for some vision: ' + T.cvdDistances(a, b).map((d) => d.toFixed(1)) + ' ' + where)
+          assert.ok(Math.min(T.cvdDistance(m, a), T.cvdDistance(m, b)) >= T.DUET_MIX_MIN - 0.5, 'together too close to a singer: ' + where)
+          assert.ok(Math.abs(t.contrast.duetPair - T.cvdDistance(a, b)) < 1, "contrast.duetPair reports the pair")
+          for (const k of ['accentText', 'accent2Text', 'mixText']) assert.ok(t.contrast[k] >= 4.5, k + ' ' + where)
+          if (dark) darkWorst = Math.min(darkWorst, T.cvdDistance(a, b))
+        }
+      }
+    }
+  }
+  assert.ok(darkWorst >= T.DUET_MIN - 0.5, 'dark themes reach the full target: ' + darkWorst.toFixed(1))
+  for (const p of pairs) {
+    const [a, b, m] = T.stageDuet(p.accent, p.accent2).map(T.hexRgb)
+    assert.ok(T.cvdDistance(a, b) >= T.DUET_MIN - 0.5, 'stage ' + p.accent + '/' + p.accent2)
+    assert.ok(Math.min(T.cvdDistance(m, a), T.cvdDistance(m, b)) >= T.DUET_MIX_MIN - 0.5, 'stage together ' + p.accent)
+    for (const c of [a, b, m]) assert.ok(T.contrast(c, [0, 0, 0]) >= 4.5)
+  }
+})
+
+test('duet colours: an already distinct pair is left as the art gives it (red and blue)', () => {
+  const t = T.themeTokens({ dark: true, palette: { accent: '#e22831', accent2: '#2845e2' } })
+  const plain = T.themeTokens({ dark: true, palette: { accent: '#2845e2' } })
+  assert.equal(t.vars['--s-accent-2-text'], plain.vars['--s-accent-text'])
+})
+
+test('cvd simulation: red and green collapse for deutan, stay apart for tritan; identical colours are 0', () => {
+  const [normal, protan, deutan, tritan] = T.cvdDistances([200, 40, 40], [60, 150, 40])
+  assert.ok(normal > 40 && tritan > 30, normal + ' ' + tritan)
+  assert.ok(deutan < normal / 2 && protan < normal / 2, deutan + ' ' + protan)
+  assert.equal(T.cvdDistance([10, 20, 30], [10, 20, 30]), 0)
 })
