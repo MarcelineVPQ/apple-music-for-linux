@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.76-dev.1",
-  "file": "sonata-0.15.76-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.76-dev.1/sonata-0.15.76-dev.1-x86_64.AppImage",
-  "sha512": "9e7cfc693fa5677c0055d5166f5c184fa02feb84295543ffbc193c1ca14bb30beda0493f46bff2eee72590e95e7b3903927ab98cd960f6bcb22f8b7784a3eaf3",
-  "size": 127652313,
-  "date": "2026-10-20T05:15:19Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.76-dev.1",
-  "notes": "### Fixed\n- **Expressive words on a first play's held last words.** With look-ahead on, a line's long held last word (for example in Nirvana's \"Jesus Doesn't Want Me for a Sunbeam\") could get its expression only while it was already being sung, and then drew nothing for the whole song. It now stretches from that moment on; when too little of the note is left, it shows only its shading. The song report counts a line's Expressive words once the line has been sung.\n- **Refrains labelled \"Verse 8, 9, 10\".** When the lyrics name every part of a song the same (Nirvana's MTV Unplugged names every part \"Verse\"), Sonata now works out the sections from the song itself instead, and shows none where it can't tell.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.76-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.77-dev.1",
+  "file": "sonata-0.15.77-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.77-dev.1/sonata-0.15.77-dev.1-x86_64.AppImage",
+  "sha512": "57fbbad5ca2afd4eb6be2fa6a6f341e2b95c891fd47be98d8c7ec2aac80fc5ce947cf9816ba233971c737f7ee6ace4ed53316bc614ffccf9f8765658dcdf6b7d",
+  "size": 127652178,
+  "date": "2026-10-20T05:24:12Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.77-dev.1",
+  "notes": "### Fixed\n- **Lyrics up to a second late on some songs.** When Apple Music reports a song's position only to the whole second, the words, notes and Expressive words could run up to a second behind the singing for the whole song. Sonata now works out the exact position from those reports within the first seconds and stays on it.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.77-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
