@@ -310,7 +310,8 @@ function createDelayLine(socketPath, deps) {
  */
 function createLookahead(deps) {
   const log = deps.log || (() => {})
-  let phase = 'off'          // off | starting | on | failed
+  let phase = 'off'          // off | starting | on | stopping (stop() until the helper exits) | failed
+  let startAfterStop = false // start() came while the old helper was still exiting (QC 2026-10 #9)
   let failure = ''
   let child = null
   let line = null
@@ -342,6 +343,8 @@ function createLookahead(deps) {
 
   function start() {
     if (phase === 'starting' || phase === 'on') return
+    // a quick off and on: the old helper still owns the socket; this start runs when it has exited (gone)
+    if (phase === 'stopping') { startAfterStop = true; return }
     stopping = false
     phase = 'starting'
     failure = ''
@@ -419,7 +422,12 @@ function createLookahead(deps) {
     if (child !== c) return
     child = null
     if (line) { line.close(); line = null }
-    if (stopping) { phase = 'off'; changed(); return }
+    if (stopping) {
+      phase = 'off'
+      changed()
+      if (startAfterStop) { startAfterStop = false; start() }
+      return
+    }
     fail(exitText(code, signal))
     if (restarts < MAX_RESTARTS) {
       restarts++
@@ -604,7 +612,9 @@ function createLookahead(deps) {
     }
     heardUs = 0
     song = { ms: 0, why: 'off', anchor: null, key: '' }
-    phase = child ? phase : 'off'
+    // the helper's exit (gone) ends it: meanwhile no page event routes the stream back onto its sink
+    phase = child ? 'stopping' : 'off'
+    startAfterStop = false
     changed()
   }
 

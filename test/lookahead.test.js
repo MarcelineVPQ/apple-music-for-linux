@@ -576,3 +576,25 @@ test('delay line (QC #3): a late reply is dropped, never taken by the next comma
   assert.equal(f.heard_us, 3021333)
   line.close()
 })
+
+test('controller (QC #9): a quick off and on starts again once the old helper exits; nothing routes meanwhile', async () => {
+  const w = fakeWorld()
+  w.la.start()
+  await settle()
+  assert.equal(w.la.phase, 'on')
+  const helper = w.children.find((c) => c.bin === '/app/sonata-lookahead')   // loop: NOT-WORTH — a test
+  w.la.stop()
+  assert.equal(w.la.phase, 'stopping')
+  await settle()                                       // its route back to the default device
+  w.la.start()                                         // switched on again before the old helper is gone
+  const moves = w.execs.length
+  w.la.pageEvent({ ev: 'play' })                       // no route onto the dying sink
+  await settle()
+  assert.equal(w.execs.length, moves)
+  helper.emit('exit', 0, null)
+  await settle()
+  await settle()
+  assert.equal(w.la.phase, 'on', 'running again with the switch on')
+  assert.equal(w.children.filter((c) => c.bin === '/app/sonata-lookahead').length, 2)   // loop: NOT-WORTH — a test
+  w.la.stop()
+})

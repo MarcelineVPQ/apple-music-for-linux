@@ -14,6 +14,7 @@ See docs/RELEASING.md.
 - **Expressive words no longer say "measuring" when nothing runs.** A song whose end-of-song measurement was dropped (the next song came first on a slow PC), skipped while a game ran, or whose timing failed kept saying it was measuring every time it came back that session. The timing helper is now also told to drop that song's kept audio parts.
 - **No doubled vocalise ghosts on a replay.** Playing a song again after leaving it part-way could draw its wordless vocalise ghosts twice (stacked, more opaque), and lyrics that changed source in between could get another text's expression.
 - **Wordless vocalise that arrives during a ghost is no longer lost.** On a first play, the vocalise ghosts measured while another "ooo" was showing never appeared for the rest of the song.
+- **Look-ahead switched off and quickly on again runs again.** It stayed off with the switch on (also after Precise timing off and on), and the audio could be moved back onto the closing look-ahead device for a moment.
 
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 
