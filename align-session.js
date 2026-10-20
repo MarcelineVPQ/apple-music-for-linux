@@ -803,6 +803,34 @@ function givenNotesMessages(id, song, raw, syllables, pcm, opts = {}) {
  * every section was aligned) and sent to the views. A section that wasn't heard (seek) is left out;
  * a partial entry is completed on a later play.
  */
+// A streamed line's notes are measured on the engine's own alignment of that line. In a song with repeated choruses
+// it can place a line at another repeat (Marcy 2026-10-19, "After Midnight": the band showed syllables of other
+// parts at the playhead), and then its notes are another part's audio too. -> whether the part sits on its line's
+// own span in the lyrics (Apple's words or line times: STREAM_FIT_S of slack, at least half of it inside), or
+// true when the lyrics give no time to check against. A part that doesn't fit is dropped (the pass after the song
+// measures it on the right audio).
+const STREAM_FIT_S = 1.5
+function streamPartFits(part, raw, i) {
+  const line = raw && raw[i]
+  if (!line || line.t == null || !part) return true
+  // loop: NOT-WORTH — one streamed line's syllables and notes (≤ ~40 each), once per streamed line
+  const syl = Array.isArray(part.syllables) ? part.syllables.filter((y) => Number.isFinite(y.t)) : []
+  const notes = Array.isArray(part.notes) ? part.notes.filter((n) => Number.isFinite(n.t)) : []
+  const xs = syl.length ? syl : notes
+  if (!xs.length) return true
+  // loop: NOT-WORTH — one streamed line's syllables or notes (≤ ~40), once per streamed line
+  const a = Math.min(...xs.map((y) => y.t))
+  // loop: NOT-WORTH — as above
+  const b = Math.max(...xs.map((y) => (Number.isFinite(y.end) ? y.end : y.t)))
+  const words = Array.isArray(line.words) && line.words.length ? line.words : null
+  const r0 = words ? words[0].t : line.t
+  const r1 = words ? words[words.length - 1].end : T.lineEnd(line, raw[i + 1])
+  if (!Number.isFinite(r0) || !Number.isFinite(r1)) return true
+  if (Math.abs(a - r0) > STREAM_FIT_S + Math.max(0, (r1 - r0) * 0.25)) return false
+  const inside = Math.max(0, Math.min(b, r1 + STREAM_FIT_S) - Math.max(a, r0 - STREAM_FIT_S))
+  return inside >= 0.5 * Math.max(0.05, b - a)
+}
+
 function createAlignSession(deps) {
   const rate = deps.sampleRate || RATE
   const latency = deps.latency == null ? MONITOR_LATENCY : deps.latency
@@ -886,6 +914,7 @@ function createAlignSession(deps) {
   function onStreamMessage(s, msg) {
     // first play's notes, line by line (engine feature "stream-notes"): like a section's, ahead of the delayed listener
     if (msg.type === 'notes') {
+      if (msg.notes && Number.isInteger(msg.line) && !streamPartFits(msg.notes, s.raw, msg.line)) { log('stream of "' + s.title + '": the notes of line ' + (msg.line + 1) + ' were measured at another part of the song: dropped'); return }
       if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true }) }
       return
     }
@@ -1433,5 +1462,5 @@ module.exports = {
   GIVEN_REACH_S, END_SLACK, fitToSong, alignedKey, findAligned, lyricsHash, validEntry, canAlign, untimed, canAlignPlain, plainTimed, canGiveNotes, givenSyllables, sectionGiven, separateMessages, givenNotesMessages, lyricSpan, applyAligned, prepareLines, sections, sectionRequest, finalMessages, sectionResult, mergeEntry, mergeWhole, withOffset,
   MAX_FILLS, refillSections,
   createSongBuffer, requestLines, alignMessages, entryFromResult, rejectedNote, createAlignSession,
-  STREAM_HOP, toS16, streamedMessage
+  STREAM_HOP, toS16, streamedMessage, streamPartFits, STREAM_FIT_S
 }

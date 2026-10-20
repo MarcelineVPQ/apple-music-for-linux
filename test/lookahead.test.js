@@ -630,3 +630,22 @@ test('main (0.15.70): look-ahead learns with no view open; the status says why i
   const after = main.slice(main.indexOf('function helperAfter('), main.indexOf('function helperStart('))
   assert.ok(after.indexOf('lookaheadPong = null') >= 0 && after.indexOf('lookaheadPong = null') < after.indexOf('applyLookahead()'))
 })
+
+// Marcy 2026-10-19 ("After Midnight"): streamed line notes the engine placed at another chorus repeat are dropped
+test('streamPartFits: a streamed line\'s notes must sit on that line\'s own span (Apple words or line times)', () => {
+  const W = (t, end, text) => ({ t, end, text })
+  const raw = [
+    { t: 10, text: 'everything good happens', words: [W(10, 10.6, 'everything'), W(10.6, 11, 'good'), W(11, 12, 'happens')] },
+    { t: 40, text: 'can\'t be a good girl' },
+    { t: 44, text: 'after midnight' }
+  ]
+  const part = (a, b) => ({ syllables: [{ t: a, end: a + 0.5 }, { t: b - 0.5, end: b }], notes: [{ t: a, end: b, midi: 60 }] })
+  assert.equal(AS.streamPartFits(part(10.1, 11.9), raw, 0), true, 'on its Apple word times')
+  assert.equal(AS.streamPartFits(part(70.1, 71.9), raw, 0), false, 'another repeat of the chorus')
+  assert.equal(AS.streamPartFits(part(40.3, 43.5), raw, 1), true, 'on its line time')
+  assert.equal(AS.streamPartFits(part(44.2, 46), raw, 1), false, 'the next line\'s audio')
+  assert.equal(AS.streamPartFits(part(5, 6), [{ t: null, text: 'x' }], 0), true, 'nothing to check against')
+  assert.equal(AS.streamPartFits({ syllables: [] , notes: [] }, raw, 0), true)
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'align-session.js'), 'utf8')
+  assert.match(src, /!streamPartFits\(msg\.notes, s\.raw, msg\.line\)\) \{ log\(/)
+})
