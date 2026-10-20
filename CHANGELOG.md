@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.79-dev.1] — Fixed: first-play notes on songs learned only in part
+
+### Fixed
+- **First-play notes on songs learned only in part.** With look-ahead on, a song whose words Sonata had learned on an earlier play, with a line or two missed, but whose sheet notes it hadn't yet, showed each part's notes only after that part had been heard. It now plays like a first play: the notes arrive line by line before you hear them, the words you already have stay as they are, and the missed lines are filled in.
+
 ## [0.15.78-dev.1] — Fixed: sheet notes in each singer's colour
 
 ### Fixed

@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.79-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>Fixed: first-play notes on songs learned only in part</p>
+      </description>
+    </release>
     <release version="0.15.78-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Fixed: sheet notes in each singer's colour</p>
