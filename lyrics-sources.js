@@ -151,20 +151,29 @@ function mergeSyllables(syllables, everySpan) {
 function parseTtml(ttml) {
   const agents = ttmlAgents(ttml)
   const raw = []
+  // the stanzas (<div>s) and the part Apple names for each (itunes:songPart, lyrics-sections.js)
+  const divs = [...String(ttml || '').matchAll(/<div\b([^>]*)>/g)].map((m) => ({ at: m.index, attrs: tagAttrs(m[1]) }))
   const re = /<p\b([^>]*)>([\s\S]*?)<\/p>/g
   let match
+  let div = -1
+  let seen = -1
   // loop: NOT-WORTH — the song's lines (tens to ~100), once per song
   while ((match = re.exec(ttml))) {
     const attrs = tagAttrs(match[1])
+    // loop: NOT-WORTH — moves forward through the song's few <div>s once
+    while (div + 1 < divs.length && divs[div + 1].at < match.index) div++
     if (attrs.begin === undefined) continue
-    raw.push({ attrs, inner: match[2], syl: ttmlSyllables(match[2]) })
+    const first = div > seen
+    seen = div
+    const part = first && div >= 0 ? (divs[div].attrs['itunes:songPart'] || divs[div].attrs['itunes:song-part'] || '') : ''
+    raw.push({ attrs, inner: match[2], syl: ttmlSyllables(match[2]), brk: first && div > 0 && raw.length > 0, part })
   }
   // whitespace between spans separates words; a document without any is word-per-span
   const multi = raw.filter((r) => r.syl.main.length > 1)
   const everySpan = multi.length > 0 && !multi.some((r) => r.syl.main.slice(1).some((s) => s.newWord || /^\s/.test(s.text)))
   const lines = []
   // loop: NOT-WORTH — the song's lines, once per song
-  for (const { attrs, inner, syl } of raw) {
+  for (const { attrs, inner, syl, brk, part } of raw) {
     const words = mergeSyllables(syl.main, everySpan)
     const bg = mergeSyllables(syl.bg, everySpan)
     let text
@@ -182,6 +191,8 @@ function parseTtml(ttml) {
     if (agent) line.agent = agent === 'v1000' || agents[agent] === 'group' ? 'group' : agent
     if (words.length) line.words = words
     if (bg.length) line.bg = bg
+    if (brk) line.brk = true      // a new stanza starts here
+    if (part) line.part = part    // Apple's name for the stanza ("Verse", "Chorus")
     lines.push(line)
   }
   return lines
@@ -258,7 +269,17 @@ function lrclibLines(hit) {
     if (lines.length) return lines
   }
   if (hit.plainLyrics) {
-    return hit.plainLyrics.split(/\r?\n/).map((t) => t.trim()).filter(Boolean).map((text) => ({ t: null, text }))
+    // a blank line between stanzas marks the next line (brk, lyrics-sections.js)
+    const out = []
+    let gap = false
+    // loop: NOT-WORTH — the lyrics' lines, once per song
+    for (const raw of hit.plainLyrics.split(/\r?\n/)) {
+      const text = raw.trim()
+      if (!text) { gap = out.length > 0; continue }
+      out.push(gap ? { t: null, text, brk: true } : { t: null, text })
+      gap = false
+    }
+    return out
   }
   return []
 }

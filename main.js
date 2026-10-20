@@ -19,6 +19,7 @@ const sheetModel = require('./sheet-notes-model')
 const lyricsTiming = require('./lyrics-timing')
 const sheetStoreLib = require('./sheet-notes-store')
 const expressive = require('./lyrics-expressive')
+const songSections = require('./lyrics-sections')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const versionDisplay = require('./version-display');   // every version, channel and product name people read
@@ -793,6 +794,8 @@ function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
 function expressiveSetting() { return settings.expressiveWords == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveWords }
 function expressiveOn() { return expressiveSetting() && preciseTimingOn() }
 // Wordless vocalise ghosts (its sub-switch): null = this build's default, as Expressive words
+// Settings → Lyrics & Studio → Show song sections (lyrics-sections.js): null = on on Development builds
+function sectionsSetting() { return settings.songSections == null ? expressive.defaultOn(app.getVersion()) : !!settings.songSections }
 function vocaliseSetting() { return settings.expressiveVocalise == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveVocalise }
 // the song's measured expression for the view, or undefined (the field is left out: today's payload)
 // cache: OK — key=the song's lyrics key; invalidated=a new key; bound=one string (one log line per song shown)
@@ -1351,7 +1354,9 @@ async function lyricsTick() {
     // the lines are shown untimed (versionNote)
     const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry, instrumental: got.instrumental || null }
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
-    const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
+    // the song's sections from its lyrics (lyrics-sections.js): always in the data (for later uses), shown when the switch is on
+    const sections = songSections.withSingers(songSections.songSections(lines, { title: state.title }), lines, got.singers || null, { artist: state.artist })
+    const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, sections, showSections: sectionsSetting(), source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
     // Expressive words: the song's measured expression, only when on and kept for these lyrics (else no field)
     const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base, key)
     if (expr) data.expr = expr
@@ -3104,7 +3109,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'songSections', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental graphics (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -3127,6 +3132,7 @@ function setSetting(key, value) {
   // Expressive words: the panel's switch shows this build's default until it is chosen (null stays null)
   if (key === 'expressiveWords' && (value === null || value === expressiveSetting()) && settings[key] == null) return
   if (key === 'expressiveVocalise' && (value === null || value === vocaliseSetting()) && settings[key] == null) return
+  if (key === 'songSections' && (value === null || value === sectionsSetting()) && settings[key] == null) return
   settings[key] = value
   if (key === 'autoInstallUpdates') { settings.updatesAsked = true; notices.clear('ask-auto') }
   saveSettings()
@@ -3167,7 +3173,7 @@ function setSetting(key, value) {
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'lookahead') applyLookahead()   // the choice (lookaheadDelay) applies from the next song
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
-  if (key === 'expressiveWords' || key === 'expressiveVocalise') lyricsKey = null   // the song again, with or without its expression
+  if (key === 'expressiveWords' || key === 'expressiveVocalise' || key === 'songSections') lyricsKey = null   // the song again, with or without its expression
   if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel' || key === 'expressiveWords') {
     // the only download: when a notes switch the user chose becomes active (the developer log on the
     // Development channel, Sheet notes in the Studio, Expressive words turned on; Precise word timing on)
@@ -3906,6 +3912,7 @@ function panelSnapshot() {
     theme: themePref,
     expressiveWords: expressiveSetting(),   // this build's default until chosen
     expressiveVocalise: vocaliseSetting(),
+    songSections: sectionsSetting(),
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),

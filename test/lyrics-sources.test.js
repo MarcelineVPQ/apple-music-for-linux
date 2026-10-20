@@ -20,7 +20,7 @@ test('parseTtml: begin clock formats and entities', () => {
 
 test('lrclibLines: synced preferred, plain gets t null, instrumental empty', () => {
   assert.deepEqual(L.lrclibLines({ syncedLyrics: '[00:01.00] a', plainLyrics: 'a' }), [{ t: 1, text: 'a' }])
-  assert.deepEqual(L.lrclibLines({ plainLyrics: 'one\n\n two ' }), [{ t: null, text: 'one' }, { t: null, text: 'two' }])
+  assert.deepEqual(L.lrclibLines({ plainLyrics: 'one\n\n two ' }), [{ t: null, text: 'one' }, { t: null, text: 'two', brk: true }])
   assert.deepEqual(L.lrclibLines({ instrumental: true, plainLyrics: 'x' }), [])
   assert.deepEqual(L.lrclibLines(null), [])
 })
