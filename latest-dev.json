@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.64-dev.1",
-  "file": "sonata-0.15.64-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.64-dev.1/sonata-0.15.64-dev.1-x86_64.AppImage",
-  "sha512": "1ba107dd543d2f070462eff674f9628941896b344102f8ebb4c0f506c83396402c6eb8c1a7da08c786e91ef2581d6c298986f2d5167b2dd2236b222dd7d8046b",
-  "size": 127570362,
-  "date": "2026-10-20T00:36:33Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.64-dev.1",
-  "notes": "### Fixed\n\n- The sheet-notes band, the interlude dots and Expressive effects no longer speed up and slow down a\n  little to meet the words. The song clock now runs like a studio's house clock: at exactly 1x, its\n  phase taken from the median of Apple's time pushes over the last 3 s (a late or stray push is\n  outvoted) and trimmed by at most 0.5 % speed, which nobody can see. Only an error over 250 ms, a seek\n  or a new song moves it in one clean step; it still never runs backwards.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.64-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.65-dev.1",
+  "file": "sonata-0.15.65-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.65-dev.1/sonata-0.15.65-dev.1-x86_64.AppImage",
+  "sha512": "eab38299ab3d5cbc5d900e95c447227ec23eacdef8b86ab6a274d795c2a57354bf284cccb22db6f4d8257f61c5419c924ef883154430a45db2d3f60b76384eff",
+  "size": 127574399,
+  "date": "2026-10-20T00:59:12Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.65-dev.1",
+  "notes": "### Added\n\n- **Intel laptops: Precise timing runs on Intel graphics (OpenVINO).** Settings → Precise timing → Build for\n  has a new choice, *Intel (OpenVINO, new)*, and Auto picks it on a computer with Intel graphics (Iris Xe, UHD)\n  and no NVIDIA or AMD card, and on an Intel processor without a usable graphics card. On the processor alone it\n  measured about 1.5 times as fast as *Processor only*, with the same word timings; on Intel graphics it should\n  be faster still, not yet measured on a real laptop. A helper set to *Processor only* moves to it with its next\n  Update (on Auto), or with *Rebuild for Intel (OpenVINO)*. The first song after that prepares the models for the\n  computer once (a few minutes). While the helper is slower than the music, first plays are timed after the song\n  as before; once it has shown it keeps up on Intel graphics, first plays are timed while they play. Needs helper\n  0.2.6-dev.1, which this version asks for.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.65-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
