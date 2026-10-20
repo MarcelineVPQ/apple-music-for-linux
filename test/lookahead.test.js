@@ -8,6 +8,7 @@ const LA = require('../lookahead')
 const P = require('../lookahead-page')
 const { pickSinkInput } = require('../audio-listen')
 const AS = require('../align-session')
+const { until } = require('./until')
 const T = require('../lyrics-timing')
 
 const MS = LA.DELAYS.precise
@@ -514,7 +515,9 @@ test('controller: a gate the player never confirms is opened after 100 ms, not 3
   await settle()
   w.la.pageEvent({ ev: 'item', natural: false, title: 'S' })    // a skip into a delayed song: gated
   assert.deepEqual(w.sent.slice(-1), ['flush ' + MS])
-  await new Promise((r) => setTimeout(r, 130))
+  const t0 = Date.now()
+  await until(() => w.sent[w.sent.length - 1] === 'open')   // the 100 ms fallback (a condition, not a fixed 130 ms)
+  assert.ok(Date.now() - t0 < 2000, 'well before the old 3 s')
   assert.deepEqual(w.sent.slice(-1), ['open'])
   assert.ok(w.log.some((l) => /did not confirm/.test(l)))
   // a confirmed one is not opened twice

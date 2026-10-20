@@ -406,7 +406,8 @@ function play(env, from, to) {
     for (let k = 0; k < 5; k++) if (env.s.recording) env.s._onChunk(chunk, (t + (k + 1) * 0.1) * 1000, null)
   }
 }
-const settle = () => new Promise((r) => setTimeout(r, 15))
+// the fakes' jobs settle in microtasks and immediates: drained, no fixed wall-clock wait (QC 2026-10 flake)
+const settle = () => require('./until').drain()
 
 test('session, first play: each section\'s pitch line right after its words (same job, so the order holds), not for the whole-song job', async () => {
   const env = setup()
