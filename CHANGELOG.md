@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.80-dev.1] — Song reports show when the clock corrected itself
+
+### Changed
+- **Song reports show when the clock corrected itself.** Each song's report in the log now lists the moment in the song, size and cause of each correction the song clock made (up to 20 a song), not only how many there were.
+
 ## [0.15.79-dev.1] — Fixed: first-play notes on songs learned only in part
 
 ### Fixed
