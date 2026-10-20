@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+- **Song sections: verse, chorus and bridge labels from the lyrics.** A small, quiet label ("Verse 1", "Pre-chorus", "Chorus", "Bridge") above the first line of each section in the lyrics window and the Studio, worked out from the parts of the lyrics that repeat (Apple's own part names when its lyrics carry them). A song with no clear repeats gets no labels rather than wrong ones. Settings → Lyrics & Studio → Show song sections (on by default on Development builds).
+
 ## [0.15.69-dev.1] — Sonata starts again
 
 ### Fixed

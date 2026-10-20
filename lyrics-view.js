@@ -33,6 +33,7 @@ const C = require('./song-clock')
 const S = require('./lyrics-syllables')
 const X = require('./lyrics-expressive')
 const { createInfoTip } = require('./info-tip')
+const SEC = require('./lyrics-sections')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
 // A jump (a seek, a track change, a resume after sleep) snaps the list straight to the line: more than
@@ -719,8 +720,21 @@ function createLyricsView(opts) {
       createInfoTip(doc, lead).set(vnote.info)
       container.appendChild(lead)
     }
+    // song sections (lyrics-sections.js; the lyrics window and the Studio only: opts.sections): a quiet label
+    // above each section's first line, laid out once with the lines (it never moves while the song plays)
+    const sectionAt = new Map()
+    if (opts.sections && data.showSections && Array.isArray(data.sections)) {
+      // loop: NOT-WORTH — the song's sections, once per track
+      for (const s of data.sections) if (s && s.label && Number.isInteger(s.start)) sectionAt.set(s.start, SEC.labelText(s))
+    }
     // loop: NOT-WORTH — the song's lines (and the countdowns before them), once per track
     lines.forEach((line, i) => {
+      if (sectionAt.has(i)) {
+        const sec = doc.createElement('div')
+        sec.className = 'sect'   // one place for every singer: the label is the song's, not a singer's
+        sec.textContent = sectionAt.get(i)
+        container.appendChild(sec)
+      }
       while (g < gaps.length && gaps[g].index === i) {
         const dots = doc.createElement('div')
         dots.className = 'dots ' + (sides[i] || 'plainside')

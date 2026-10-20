@@ -54,6 +54,7 @@
       "lyrics-timing.js",
       "song-clock.js",
       "lyrics-view.js",
+      "lyrics-sections.js",
       "stage-model.js",
       "song-actions.js",
       "stage-ui.js",

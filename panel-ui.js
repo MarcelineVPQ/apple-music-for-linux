@@ -521,7 +521,10 @@
           // its sub-switch, for judging on Development builds: a neutral "ooo" where a held note has no lyric word
           switchRow('expressiveVocalise', 'Wordless vocalise ghosts', 'A faint “ooo” where a held note has no word',
             { hidden: (v) => devOnly(v) || !preciseReady(v), disabled: (v) => !v.expressiveWords, why: 'Needs Expressive words (above) on',
-              info: 'A faint "ooo" behind the lyrics where a held note has no lyric word (an intro\'s "ooh"), only where it was measured.' })
+              info: 'A faint "ooo" behind the lyrics where a held note has no lyric word (an intro\'s "ooh"), only where it was measured.' }),
+          // song sections (lyrics-sections.js): on by default on Development builds (main sends the effective value)
+          switchRow('songSections', 'Show song sections', 'Verse, chorus and bridge labels above the lyrics',
+            { info: 'Sonata reads the lyrics for the parts that repeat and labels the song\'s sections: Verse 1, Pre-chorus, Chorus, Bridge. A song with no clear repeats gets no labels, rather than wrong ones.' })
         ]),
         group('In the Studio', [
           actionRow('Sheet notes in the Studio', () => 'Needs Precise timing', [{ label: 'Set up Precise timing', action: 'show-timing' }],
