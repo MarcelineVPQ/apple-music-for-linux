@@ -20,6 +20,7 @@ const notesRefine = require('./notes-refine')
 const lyricsTiming = require('./lyrics-timing')
 const sheetStoreLib = require('./sheet-notes-store')
 const expressive = require('./lyrics-expressive')
+const songSections = require('./lyrics-sections')
 const { createCssReplacer } = require('./css-replacer');
 const updateFeed = require('./update-feed');
 const versionDisplay = require('./version-display');   // every version, channel and product name people read
@@ -27,6 +28,7 @@ const railModel = require('./rail-model');
 const panelModel = require('./panel-model');
 const settingsStore = require('./settings-store');
 const noticesModel = require('./notices-model');
+const tasksModel = require('./tasks-model');
 const updaterLib = require('./updater');
 const aboutDataLib = require('./about-data');
 const curiousSamplerLib = require('./curious-sampler')
@@ -828,6 +830,8 @@ function sheetNotesOn() { return !!settings.sheetNotes && preciseTimingOn() }
 function expressiveSetting() { return settings.expressiveWords == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveWords }
 function expressiveOn() { return expressiveSetting() && preciseTimingOn() }
 // Wordless vocalise ghosts (its sub-switch): null = this build's default, as Expressive words
+// Settings → Lyrics & Studio → Show song sections (lyrics-sections.js): null = on on Development builds
+function sectionsSetting() { return settings.songSections == null ? expressive.defaultOn(app.getVersion()) : !!settings.songSections }
 function vocaliseSetting() { return settings.expressiveVocalise == null ? expressive.defaultOn(app.getVersion()) : !!settings.expressiveVocalise }
 // the song's measured expression for the view, or undefined (the field is left out: today's payload)
 // cache: OK — key=the song's lyrics key; invalidated=a new key; bound=one string (one log line per song shown)
@@ -1520,7 +1524,9 @@ async function lyricsTick() {
     // the lines are shown untimed (versionNote)
     const lookup = { lrclib: got.lrclib || null, apple: got.apple || '', appleError: got.appleError || '', none: got.none || '', lrclibOn: !!settings.lrclibFallback, retry, instrumental: got.instrumental || null }
     const version = plain && !prep.placed ? Object.assign({ precise }, typeof plain === 'object' ? plain : {}) : null
-    const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
+    // the song's sections from its lyrics (lyrics-sections.js): always in the data (for later uses), shown when the switch is on
+    const sections = songSections.withSingers(songSections.songSections(lines, { title: state.title }), lines, got.singers || null, { artist: state.artist })
+    const data = { key, title: state.title, artist: state.artist, album: state.album, duration: state.duration, lines, writers, sections, showSections: sectionsSetting(), source: got.source, lang: got.lang || '', status, lookup, version, appleFailed: !!got.appleFailed, estimate: !!settings.estimatedWordTiming, refined, aligned: prep.aligned, onset, alignState: alignNote }
     // Expressive words: the song's measured expression, only when on and kept for these lyrics (else no field)
     const expr = expressiveFor(state.title, state.artist, plain ? prep.lines : base, key)
     if (expr) data.expr = expr
@@ -3263,7 +3269,12 @@ function disconnectLastFm() {
 
 // --- notices and toasts (notices-model.js): the side panel draws the notices, the toast view the toasts ---
 // lifetime: one model for the app's life; its notices are bounded (one per id, ≤ ~8 ids) and its toasts (≤ 3)
+// the one task registry (tasks-model.js): every "needs the user" state, notices' included; its dots are
+// the rail's and the panel's, a press on the rail item opens the first waiting section
+// lifetime: one registry for the app's life; one entry per task id (≤ ~12)
+const tasks = tasksModel.createTasks({ onChange: () => { pushPanel(); pushRail() } })
 const notices = noticesModel.createNotices({
+  tasks,
   dismissed: [],
   saveDismissed: (keys) => { settings.dismissedNotices = keys; saveSettings() },
   windowShown: () => mainAlive() && mainWindow.isVisible(),
@@ -3340,7 +3351,7 @@ function noticeAction(id, action) {
 
 // --- settings: what the panel may change, each checked (settings-store.js), and what a change does ---
 const PANEL_SETTABLE = ['notifications', 'closeToTray', 'launchAtLogin', 'startMinimized', 'miniAlwaysOnTop', 'lyricsAlwaysOnTop', 'adaptiveColor', 'glass',
-  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
+  'lrclibFallback', 'lyricsArtSpin', 'lyricsArtSpinSpeed', 'estimatedWordTiming', 'expressiveWords', 'expressiveVocalise', 'songSections', 'lyricsListenRefine', 'lyricsPreciseTiming', 'alignGamingPause', 'sungNotesLog', 'sheetNotes', 'sheetPlace', 'updateChannel', 'checkForUpdates', 'autoInstallUpdates', 'globalShortcuts', 'alignAutoUpdate', 'alignBackend', 'lookahead', 'lookaheadDelay',
   ...require('./gfx-model').EXPERIMENTS.map((e) => e.key)]   // Settings → Experimental graphics (a restart switch applies at the next start)
 function setSetting(key, value) {
   // the setlist.fm key: the panel may set or clear it, never read it back (the panel only learns whether one is saved)
@@ -3363,6 +3374,7 @@ function setSetting(key, value) {
   // Expressive words: the panel's switch shows this build's default until it is chosen (null stays null)
   if (key === 'expressiveWords' && (value === null || value === expressiveSetting()) && settings[key] == null) return
   if (key === 'expressiveVocalise' && (value === null || value === vocaliseSetting()) && settings[key] == null) return
+  if (key === 'songSections' && (value === null || value === sectionsSetting()) && settings[key] == null) return
   settings[key] = value
   if (key === 'autoInstallUpdates') { settings.updatesAsked = true; notices.clear('ask-auto') }
   saveSettings()
@@ -3406,7 +3418,7 @@ function setSetting(key, value) {
   else if (key === 'globalShortcuts') { shortcutError = ''; applyShortcuts() }
   else if (key === 'lookahead') applyLookahead()   // the choice (lookaheadDelay) applies from the next song
   else if (key === 'expGlowDither') { if (applyCustomCss) applyCustomCss() }
-  if (key === 'expressiveWords' || key === 'expressiveVocalise') lyricsKey = null   // the song again, with or without its expression
+  if (key === 'expressiveWords' || key === 'expressiveVocalise' || key === 'songSections') lyricsKey = null   // the song again, with or without its expression
   if (key === 'sungNotesLog' || key === 'sheetNotes' || key === 'lyricsPreciseTiming' || key === 'updateChannel' || key === 'expressiveWords') {
     // the only download: when a notes switch the user chose becomes active (the developer log on the
     // Development channel, Sheet notes in the Studio, Expressive words turned on; Precise word timing on)
@@ -3678,7 +3690,7 @@ function helperAfter(kind, job) {
   if (!shuttingDown) {
     clearHelperJob()
     if (helperResumed) {
-      if (job && job.phase === 'failed') notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(kind, 'failed')))
+      if (job && job.phase === 'failed') notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(kind, 'failed')))
       else notices.clear('helper-resume')
       if (ok) toast('The Precise timing helper is ready.')
     }
@@ -3751,12 +3763,12 @@ function helperResume() {
   if (!d.resume) {
     clearHelperJob()
     console.log('helper: an interrupted job is not resumed (' + (m ? d.why : 'unreadable marker') + ')')
-    if (m) notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'failed')))
+    if (m) notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'failed')))
     return
   }
   console.log('helper: continuing the interrupted ' + m.kind + ' (step ' + (m.step || '?') + ', try ' + (m.tries + 1) + ')')
   helperResumed = true
-  notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', task: true, actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'running')))
+  notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', task: true, taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'running')))
   if (m.kind === 'remove') {
     helperJob = { kind: 'remove', o: m.opts, tries: m.tries + 1 }
     writeHelperJob(m.step)
@@ -3960,6 +3972,11 @@ let railBoundsKey = ''    // the last bounds applied, as JSON
 // cache: OK — key=none (two shipped files); invalidated=never (shipped); bound=one string (tens of KB)
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
+// the helper's task (a dot on Settings and on Precise timing until it's updated or repaired), from the
+// same state the rail shows
+function syncHelperTask(precise) {
+  tasks.set('helper', { page: 'settings', section: 'timing', level: 'task', text: helperModel.taskOf(precise) })
+}
 function railPrecise() {
   if (helperInstaller && helperInstaller.busy) return 'installing'
   if (!settings.lyricsPreciseTiming) return 'off'
@@ -4009,6 +4026,8 @@ function themeState() {
   }
 }
 function railSnapshot() {
+  const precise = railPrecise()
+  syncHelperTask(precise)   // before the dots below read the registry
   const layout = railModel.railLayout(contentSize()[0], !!settings.railPinned)
   return {
     pinned: !!settings.railPinned,
@@ -4019,12 +4038,12 @@ function railSnapshot() {
     open: { lyrics: !!lyricsWindow, stage: !!lyricsWindow && !!settings.lyricsStage, liner: !!linerWindow, visualizer: !!vizWindow, mini: !!miniWindow },
     song: railSong,   // a song is playing or paused (the rail's Liner Notes says when there's none)
     panel: { shown: !!settings.panelShown, page: settings.panelPage },
-    reminders: notices.reminders().pages,
+    reminders: tasks.dots().pages,
     keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, liner: '', visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     discordRetryS: NOW_PLAYING_MS * DISCORD_RETRY_TICKS / 1000,
-    precise: railPrecise(),
+    precise,
     channel: settings.updateChannel,
     version: app.getVersion(),
     theme: themeState()
@@ -4086,7 +4105,7 @@ function createPanelView() {
 function accOf(page) {
   const stored = { open: (settings.panelOpen || {})[page], pins: (settings.panelPins || {})[page] }
   if (stored.open === undefined) {
-    const rem = notices.reminders().sections
+    const rem = tasks.dots().sections
     // loop: HOT-PATH-OK — per pushPanel (5 s tick), only for a page with no stored open section; N ≤ ~12
     stored.open = panelModel.sectionIds(page).find((id) => rem[page + '/' + id]) || null
   }
@@ -4140,9 +4159,10 @@ function hidePanel() {
   if (hadFocus) focusRail()
 }
 // a rail item for a panel page: the page shown -> hide; otherwise show it with that page
+// (a task waiting there: the page opens at its section, expanded and scrolled to: tasks-model.js target)
 function togglePanelPage(page) {
   if (settings.panelShown && settings.panelPage === page && panelAlive()) hidePanel()
-  else showPanel(page)
+  else showPanel(page, tasks.target(page) || undefined)
 }
 // About read on demand (CHANGELOG.md and BACKLOG.md ship in the app); kept for the run
 // error: NOT-WORTH — a missing file reads as empty: About says so ("nothing listed")
@@ -4163,6 +4183,7 @@ function panelSnapshot() {
     theme: themePref,
     expressiveWords: expressiveSetting(),   // this build's default until chosen
     expressiveVocalise: vocaliseSetting(),
+    songSections: sectionsSetting(),
     version: app.getVersion(),
     appImage: !!appImagePath,
     alignInstalled: alignInstalled(),
@@ -4208,7 +4229,7 @@ function panelSnapshot() {
     acc: { settings: accOf('settings'), about: accOf('about') },
     v,
     notices: notices.visible(),
-    reminders: notices.reminders(),
+    reminders: tasks.dots(),
     // the hero card's version and channel are live (the channel can change while About is cached)
     about: shownAbout || aboutCache ? Object.assign({ hero: aboutDataLib.hero(app.getVersion(), settings.updateChannel, !!appImagePath) }, aboutData()) : null,
     theme: themeState(),
@@ -4221,7 +4242,7 @@ function startGfx() {
   gfx.ready({
     settings: () => settings,
     turnOff: (key) => { if (settings[key] === true) { settings[key] = false; saveSettings() } },
-    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-back-on', label: 'Turn back on' }, { id: 'gfx-show', label: 'Open Experimental' }] }),
+    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', taskSection: 'experimental', text, actions: [{ id: 'gfx-back-on', label: 'Turn back on' }, { id: 'gfx-show', label: 'Open Experimental' }] }),
     changed: () => pushPanel(),
     screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
   })
@@ -4951,7 +4972,7 @@ function onUpdateState() {
   if (st.phase === 'failed' && st.during === 'install') lastInstallFailure = { version: st.version, detail: st.detail }
   else if (st.phase === 'ready') lastInstallFailure = null
   const n = updaterLib.updateNotice(st, { playing: lastPlaying, lastFailure: lastInstallFailure, helperBusy: !!(helperInstaller && helperInstaller.busy) })
-  if (n) notices.show(Object.assign({ place: 'top', page: 'settings' }, n))
+  if (n) notices.show(Object.assign({ place: 'top', page: 'settings', taskSection: 'updates' }, n))
   else if (st.phase !== 'checking') notices.clear('update')
   // Install updates automatically: an offered (newer) update downloads, checks and installs by itself
   // (not again by itself after that version failed: Try again is the user's)
@@ -4999,12 +5020,12 @@ function showWhatsNew() {
   const v = updaterLib.updatedSince(last, app.getVersion())
   if (!v) { if (settings.lastRunVersion !== app.getVersion()) { settings.lastRunVersion = app.getVersion(); saveSettings() } return }
   notices.show({
-    id: 'whatsnew', place: 'top', page: 'about', task: true, kind: 'info',
+    id: 'whatsnew', place: 'top', page: 'about', task: true, taskSection: 'whatsnew', kind: 'info',
     text: updaterLib.updatedText(v),
     actions: [{ id: 'whatsnew-see', label: 'See what\'s new', primary: true }]
   })
 }
-// About → What's new shown (or the notice dismissed): it was seen
+// About → App changes shown (or the notice dismissed): it was seen
 function seenWhatsNew(dismissed) {
   if (!notices.has('whatsnew')) return
   const shown = settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), 'whatsnew')
@@ -5096,7 +5117,7 @@ function pruneOldAppImages() {
 }
 
 // Check for updates automatically (Settings → Updates, on by default): 20 s after start, then every 2 h.
-// Off: no timer and nothing online at start; only Check now (or the tray's Check for Updates…) goes online.
+// Off: no timer and nothing online at start; only Check for updates (or the tray's Check for Updates…) goes online.
 // loop: NOT-WORTH — update check · 20 s one-shot, then every 2 h · AppImage builds with checks on only · stopped when
 // checks are turned off, and on app exit · cost two small HTTPS GETs per 2 h (feed + .sig), a download
 // only when a new version is offered and installed; updater.js's busy flag stops overlaps

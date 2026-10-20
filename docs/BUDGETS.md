@@ -74,6 +74,11 @@ dense words in the next.
 
 ## Last measurement
 
+**QC check: 0.15.69-dev.1 + the qc-checks branch** (2026-10-19, packaged `dist/linux-unpacked`, isolated copy,
+software GL): `tools/check_budgets.sh` quick and `--soak` both PASS. Tray hidden 0.15 % idle / 0.02 % playing;
+shown idle 0 %, playing 0.05 %; lyrics playing 2.9 % (28.6 frames/s); visualizer 8.4–10.4 %; memory after the run
+354 MB (quick) / 373 MB (soak) PSS of 400; soak growth 5.82 MB / 30 min (limit 10), listener growth 0.
+
 **Baseline: 0.15.38-dev.1** (ff32984, Electron 42.3.3+wvcus castlabs), 2026-10-17, quick mode, from source
 (`node_modules/electron` + the tree) on the isolated copy above (Xvfb 1920 x 1080, software GL). Other test
 copies ran on the machine at the same time, so treat ±0.2 % as noise.

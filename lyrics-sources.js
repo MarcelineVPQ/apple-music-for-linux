@@ -52,6 +52,22 @@ function ttmlAgents(ttml) {
   return agents
 }
 
+/**
+ * The singers' names Apple gives, when it does: <ttm:agent xml:id="v1"><ttm:name type="full">Name</ttm:name>
+ * </ttm:agent> -> { v1: 'Name' } (lyrics-lanes.js name tags); {} when none has a name.
+ */
+function ttmlAgentNames(ttml) {
+  const names = {}
+  // loop: NOT-WORTH — the song's singers (1-3), once per song
+  for (const m of String(ttml || '').matchAll(/<ttm:agent\b([^>]*)>([\s\S]*?)<\/ttm:agent>/g)) {
+    const id = tagAttrs(m[1])['xml:id']
+    const name = /<ttm:name\b[^>]*>([\s\S]*?)<\/ttm:name>/.exec(m[2])
+    const text = name ? decodeEntities(name[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() : ''
+    if (id && text) names[id] = text
+  }
+  return names
+}
+
 // One <p>'s inner markup -> timed spans ("syllables") per track, main and background
 // (inside <span ttm:role="x-bg">). newWord marks whitespace before the syllable: adjacent
 // spans with nothing between them are syllables of one word.
@@ -138,20 +154,29 @@ function mergeSyllables(syllables, everySpan) {
 function parseTtml(ttml) {
   const agents = ttmlAgents(ttml)
   const raw = []
+  // the stanzas (<div>s) and the part Apple names for each (itunes:songPart, lyrics-sections.js)
+  const divs = [...String(ttml || '').matchAll(/<div\b([^>]*)>/g)].map((m) => ({ at: m.index, attrs: tagAttrs(m[1]) }))
   const re = /<p\b([^>]*)>([\s\S]*?)<\/p>/g
   let match
+  let div = -1
+  let seen = -1
   // loop: NOT-WORTH — the song's lines (tens to ~100), once per song
   while ((match = re.exec(ttml))) {
     const attrs = tagAttrs(match[1])
+    // loop: NOT-WORTH — moves forward through the song's few <div>s once
+    while (div + 1 < divs.length && divs[div + 1].at < match.index) div++
     if (attrs.begin === undefined) continue
-    raw.push({ attrs, inner: match[2], syl: ttmlSyllables(match[2]) })
+    const first = div > seen
+    seen = div
+    const part = first && div >= 0 ? (divs[div].attrs['itunes:songPart'] || divs[div].attrs['itunes:song-part'] || '') : ''
+    raw.push({ attrs, inner: match[2], syl: ttmlSyllables(match[2]), brk: first && div > 0 && raw.length > 0, part })
   }
   // whitespace between spans separates words; a document without any is word-per-span
   const multi = raw.filter((r) => r.syl.main.length > 1)
   const everySpan = multi.length > 0 && !multi.some((r) => r.syl.main.slice(1).some((s) => s.newWord || /^\s/.test(s.text)))
   const lines = []
   // loop: NOT-WORTH — the song's lines, once per song
-  for (const { attrs, inner, syl } of raw) {
+  for (const { attrs, inner, syl, brk, part } of raw) {
     const words = mergeSyllables(syl.main, everySpan)
     const bg = mergeSyllables(syl.bg, everySpan)
     let text
@@ -170,6 +195,8 @@ function parseTtml(ttml) {
     if (agent) line.agent = agent === 'v1000' || agents[agent] === 'group' ? 'group' : agent
     if (words.length) line.words = words
     if (bg.length) line.bg = bg
+    if (brk) line.brk = true      // a new stanza starts here
+    if (part) line.part = part    // Apple's name for the stanza ("Verse", "Chorus")
     lines.push(line)
   }
   return lines
@@ -247,8 +274,17 @@ function lrclibLines(hit) {
     if (lines.length) return lines
   }
   if (hit.plainLyrics) {
-    // loop: NOT-WORTH — plain lyrics' lines (≤ ~150), once per LRCLIB hit parsed (per lookup)
-    return hit.plainLyrics.split(/\r?\n/).map((t) => t.trim()).filter(Boolean).map((text) => ({ t: null, text }))
+    // a blank line between stanzas marks the next line (brk, lyrics-sections.js)
+    const out = []
+    let gap = false
+    // loop: NOT-WORTH — the lyrics' lines, ≤ ~150, once per LRCLIB hit parsed (per lookup)
+    for (const raw of hit.plainLyrics.split(/\r?\n/)) {
+      const text = raw.trim()
+      if (!text) { gap = out.length > 0; continue }
+      out.push(gap ? { t: null, text, brk: true } : { t: null, text })
+      gap = false
+    }
+    return out
   }
   return []
 }
@@ -468,9 +504,10 @@ function retryPlan(error, tries, rand = Math.random) {
 const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // what a result carries beyond its lines: the language and the writers, only when there are some
-function withExtras(result, lang, writers) {
+function withExtras(result, lang, writers, singers) {
   if (lang) result.lang = lang
   if (writers && writers.length) result.writers = writers
+  if (singers && Object.keys(singers).length) result.singers = singers
   return result
 }
 
@@ -499,7 +536,7 @@ function createLyricsResolver(deps) {
       const stored = found.entry
       const usable = stored && stored.lines && stored.lines.length && (stored.source !== 'lrclib' || deps.lrclibEnabled())
       const stale = usable && stored.source === 'apple' && stored.parse !== TTML_PARSE
-      if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers)
+      if (usable && !stale) return withExtras({ lines: stored.lines, source: stored.source }, stored.lang, stored.writers, stored.singers)
       // an instrumental verdict played before: instant, nothing asked
       if (stored && stored.instrumental && !(stored.lines && stored.lines.length)) return { lines: [], source: stored.source || '', instrumental: stored.instrumental }
       const remember = (result) => {
@@ -518,7 +555,7 @@ function createLyricsResolver(deps) {
           const ttml = await deps.fetchApple(state)
           appleFailed = ''
           const lines = ttml ? parseTtml(ttml) : []
-          if (lines.length) return remember(withExtras({ lines, source: 'apple' }, ttmlLang(ttml), ttmlSongwriters(ttml)))
+          if (lines.length) return remember(withExtras({ lines, source: 'apple' }, ttmlLang(ttml), ttmlSongwriters(ttml), ttmlAgentNames(ttml)))
           break
         } catch (e) {
           // error: SHOWN — a failed Apple lookup (page mid-navigation, Apple's API erring) is tried again; then
@@ -530,7 +567,7 @@ function createLyricsResolver(deps) {
         }
       }
       if (appleFailed && deps.log) deps.log('apple lyrics lookup failed: ' + appleFailed)
-      if (stale) return withExtras({ lines: stored.lines, source: 'apple' }, stored.lang, stored.writers)   // Apple unreachable now: the older parse
+      if (stale) return withExtras({ lines: stored.lines, source: 'apple' }, stored.lang, stored.writers, stored.singers)   // Apple unreachable now: the older parse
       if (state.title && deps.lrclibEnabled()) {
         try {
           const lines = await deps.fetchLrclib(state)
@@ -567,4 +604,4 @@ function createLyricsResolver(deps) {
   }
 }
 
-module.exports = { HIT_NEAR_S, instrumentalTitle, instrumentalHit, rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }
+module.exports = { HIT_NEAR_S, instrumentalTitle, instrumentalHit, rankHits, hitProblem, APPLE_RETRY_MS, NONE_TTL_MS, LRCLIB_RETRY_S, LRCLIB_MAX_TRIES, APPLE_RETRY_S, RETRY_JITTER, retryPlan, parseTtml, parseTtmlClock, ttmlLang, ttmlSongwriters, ttmlAgentNames, parseLrc, lrcWords, lrclibLines, cleanAlbum, isLive, pickHit, fetchLrclib, createLyricsResolver }

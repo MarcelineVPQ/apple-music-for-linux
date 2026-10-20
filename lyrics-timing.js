@@ -125,26 +125,6 @@ function nextChange(lines, time, lead = 0) {
   return best
 }
 
-// 'v2' < 'v10'
-function agentOrder(a, b) {
-  return (parseInt(a.replace(/\D/g, ''), 10) || 0) - (parseInt(b.replace(/\D/g, ''), 10) || 0) || (a < b ? -1 : a > b ? 1 : 0)
-}
-
-/**
- * Duet layout per line: '' when one singer (layout as before), else 'left' for the first
- * singer (v1), 'right' for the second, alternating after that; 'center' for lines sung
- * together (agent 'group') or without a singer mark.
- */
-function lineSides(lines) {
-  // loop: NOT-WORTH — the song's lines (≤ ~150) + sort of ≤ a few singers, once per 'lyrics-data' (per song) in the view
-  const singers = [...new Set(lines.map((l) => l.agent).filter((a) => a && a !== 'group'))].sort(agentOrder)
-  if (singers.length < 2) return lines.map(() => '')
-  return lines.map((l) => {
-    if (!l.agent || l.agent === 'group') return 'center'
-    return singers.indexOf(l.agent) % 2 ? 'right' : 'left'
-  })
-}
-
 function hasWordTiming(lines) {
   // loop: NOT-WORTH — the song's lines (≤ ~150), stops at the first word-timed one; per song / per estimate
   return !!lines && lines.some((l) => (l.words && l.words.length) || (l.bg && l.bg.length))
@@ -708,7 +688,7 @@ module.exports = {
   INTERLUDE_MIN, LRC_LINE_GUESS, LINE_LEAD, LAST_HOLD, HOLD_GAP, HOLD_OVER, SUSTAIN_AFTER, copyWord, boundHolds,
   MOVE_HOLD, MOVE_SHORT, reattributeHolds,
   lineEnd, findInterludes, interludeAt, interludeProgress, wordPos, latestLine, liveLines, nextChange,
-  lineSides, hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime, freshTime, SLEW_BACK, SLEW_AHEAD, SLEW_RATE,
+  hasWordTiming, estimateWords, splitWords, wordGlue, syllables, wordWeight, syncClock, seekClock, clockTime, freshTime, SLEW_BACK, SLEW_AHEAD, SLEW_RATE,
   PACE, songPace, learnedPace, learnedOnset, robustOnset, shownOnset, ONSET_MIN, ONSET_MAX, ONSET_MIN_LINES, ONSET_Q, ONSET_STEP, ONSET_LATE_SHARE, ONSET_LATE_MAX, estimateLine, estimateLineAt, repace, repeatKey, reuseRepeats
 }
 // the track-change gate (0.15.42), on its own line so it merges beside other branches' exports

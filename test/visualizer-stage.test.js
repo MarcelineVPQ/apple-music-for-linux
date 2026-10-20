@@ -10,11 +10,11 @@ const shared = fs.readFileSync(path.join(__dirname, '..', 'lyrics-view.css'), 'u
 test('stage: every side of the dots row is centred, its pop grows from the middle', () => {
   const rule = viz.match(/([^{}]*#lyrics \.dots[^{}]*)\{\s*justify-content:\s*center;\s*\}/)
   assert.ok(rule, 'a #lyrics .dots justify-content:center rule')
-  for (const side of ['#lyrics .dots,', '#lyrics .dots.left', '#lyrics .dots.right', '#lyrics .dots.plainside']) assert.ok(rule[1].includes(side), side)
-  assert.match(viz, /#lyrics \.dots \.row, #lyrics \.dots\.right \.row \{ transform-origin: 50% 50%; \}/)
+  for (const side of ['#lyrics .dots,', '#lyrics .dots.plainside']) assert.ok(rule[1].includes(side), side)
+  assert.match(viz, /#lyrics \.dots \.row \{ transform-origin: 50% 50%; \}/)
 })
 
-test('lyrics window untouched: the shared CSS still puts the dots at the line\'s side', () => {
-  assert.match(shared, /\.dots\.left, \.dots\.plainside \{ justify-content: flex-start; \}/)
-  assert.match(shared, /\.dots\.right \{ justify-content: flex-end; \}/)
+test('lyrics window untouched: the shared CSS still starts the dots at the line\'s start (every singer alike)', () => {
+  assert.match(shared, /\.dots\.plainside \{ justify-content: flex-start; \}/)
+  assert.doesNotMatch(shared, /\.dots\.(left|right|center)\b/)
 })

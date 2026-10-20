@@ -1,4 +1,4 @@
-// Sheet notes in the Studio (Sonata's +1, Settings → Precise timing → "Sheet notes in the Studio",
+// Sheet notes in the Studio (Sonata's +1, Settings → Lyrics & Studio → "Sheet notes in the Studio",
 // Experimental, off by default): the sung melody above the lyrics, playing out live on the lyrics clock.
 // This file is the pure logic, no DOM and no Electron (tested in test/sheet-notes.test.js with saved
 // fixtures); sheet-notes-ui.js only draws what it decides.

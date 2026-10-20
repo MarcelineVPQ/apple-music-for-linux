@@ -199,17 +199,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 /* the lock (DS5's bottom corner): a small icon button under the icons' column, 32 px to hit.
    Locked, the rail stays icons only: hover and keyboard focus no longer open it. */
 /* an open task on a panel page: a dot on the item's icon (the tooltip and aria-description say what) */
-.ic .task {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--s-warn);
-  box-shadow: 0 0 0 2px var(--s-surface);
-}
-.ic .task[hidden] { display: none; }
+.ic .task { top: 0; right: 0; }   /* its look is theme.css .task (tasks-model.js) */
 .lockbtn {
   display: grid;
   place-items: center;

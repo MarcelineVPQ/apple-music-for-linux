@@ -29,6 +29,7 @@ node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy]   # the do
 tools/isolated.sh start|run|stop                        # an isolated copy for checks (see Test runs)
 node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|a11y|stage|liner|experimental|every> --cdp … --insp … --display :N --out DIR
 tools/check_budgets.sh [--soak]                         # resource budgets on its own isolated copy (docs/BUDGETS.md)
+tools/smoke-start.sh [dist/…AppImage]                   # release startup smoke: the built app, isolated, 20 s, fails on an exception/Uncaught/crash
 node tools/rail-check.js <matrix|keys|loops|perf> …     # the rail's own checks (same isolated copy)
 node tools/drift-check/drift-check.js …                 # word-timing accuracy (docs/LYRIC-TIMING.md)
 ```
@@ -71,6 +72,10 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   enters this repository (gate: `test/engine-boundary.test.js`); CI tests against the fake helper only. One helper process at most, quits after 10 min idle while a lyric view is open (2 min
   when none is); only word times are cached. Lyrics and timing entries are keyed by the recording's ISRC
   (`recording-id.js`; `title|artist` without one) and refused when its length differs by > 1.5 s.
+- **Tasks** (one mechanism, Marcy 2026-10-19): anything that needs the user registers in `tasks-model.js`
+  (id, page, section, level, text); the rail item's dot, the section header's dot and a press on the rail
+  item opening that section all read it, one look (`theme.css` `.task`). Task and error notices register
+  themselves (`notices-model.js`, `taskSection`); never draw a dot or badge of your own (`test/tasks.test.js`).
 - **Theme**: `theme.js` computes every `--s-*` token (light/dark, album accent, Glass backdrop, contrast
   raised until text reaches 4.5:1), `theme-apply.js` writes them in each page, `theme.css` holds the
   first-paint defaults (the only CSS with literal colours).
@@ -160,7 +165,7 @@ The UI checker runs against Apple's logged-out page (nothing plays); `SONATA_TES
 stands in for album art, and `tools/stand-in.js` (a stand-in MusicKit in the test copy's page, a looped set of
 local test tracks, no sound) plays a song for `every` and the budget check. Gate levels: every change: `npm test`
 + `npm run gates`; every dev release: the UI checker phases on an isolated copy, `tools/check_budgets.sh` (quick)
-and a packaged AppImage smoke start; a stable release candidate: all of that plus `tools/check_budgets.sh --soak`
+and the startup smoke (`tools/smoke-start.sh` on the built app); a stable release candidate: all of that plus `tools/check_budgets.sh --soak`
 and Marcy's own QC. Use your own `--display`/ports: `tools/isolated.sh start` refuses a display in use.
 
 ## Releases (Marcy says "release"; never commit or push unless asked)

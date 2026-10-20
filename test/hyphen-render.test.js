@@ -159,3 +159,22 @@ test('lyrics-view.css: the joint has no word gap or bold-width slack; the pop ru
   assert.match(css, /\.line\.active \.w\.now \{[^}]*transform: scale\(min\(1\.1, var\(--pop-max, 1\.1\)\)\);/)
   assert.match(css, /\.line\.active \.w\.now \.s\.now \{ transform: translateY\(-0\.24em\) scale\(min\(1\.12, var\(--pop-max, 1\.12\)\)\);/)
 })
+
+// song section labels (lyrics-sections.js): laid out once above a section's first line, only where the page
+// asks for them (the lyrics window and the Studio) and the setting is on; never in the line rows themselves
+test('song section labels: above the section\'s first line, only with opts.sections and showSections', () => {
+  const lines = [{ t: 1, end: 2, text: 'aa bb' }, { t: 3, end: 4, text: 'cc dd' }, { t: 5, end: 6, text: 'ee ff' }]
+  const sections = [{ start: 0, end: 2, kind: 'verse', n: 1, label: 'Verse 1' }, { start: 2, end: 3, kind: 'chorus', label: 'Chorus', singers: 'Sophie & Sky' }]
+  const show = (sectionsOpt, showSections) => {
+    const doc = makeDoc()
+    const list = new El(doc, 'div')
+    const view = createLyricsView({ container: list, layout: 'scroll', sections: sectionsOpt, onSeek: () => {} })
+    view.setData({ title: 'x', artist: 'y', duration: 10, lines, sections, showSections })
+    return list.els().map((e) => (e.has('sect') ? '[' + e.textContent + ']' : e.has('line') ? 'line' : null)).filter(Boolean)
+  }
+  assert.deepEqual(show(true, true), ['[Verse 1]', 'line', 'line', '[Chorus — Sophie & Sky]', 'line'])
+  assert.deepEqual(show(true, false), ['line', 'line', 'line'])     // Settings → Show song sections off
+  assert.deepEqual(show(false, true), ['line', 'line', 'line'])     // the visualizer's stage: never
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'lyrics.html'), 'utf8'), /sections: true,/)
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '..', 'visualizer.html'), 'utf8'), /sections: true/)
+})

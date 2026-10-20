@@ -10,6 +10,10 @@
 //   otherwise  — closes now; shown again only when the caller shows it again.
 // task: true — an open task: a dot on its section and on its rail item while the panel doesn't show
 // it. The dot follows the task, not the dismissal: it stays until the caller clears the notice.
+// An error notice is a task too (level 'error'): something went wrong that the user should see.
+// Both register in the one task registry (tasks-model.js, opts.tasks) as 'notice:<id>', at the notice's
+// section, or at taskSection for a notice shown at the top that is about one section (the helper's
+// interrupted install: Precise timing).
 //
 // Toast: a short confirmation or event ("Last.fm connected"), bottom right of Apple's page, gone
 // after a few seconds (paused while pointed at or focused, in the toast view). Never for an error or
@@ -47,6 +51,12 @@
     let nextToast = 1
     let version = 0
     const changed = () => { version++; onChange() }
+    // the one task registry (tasks-model.js); a private one when none is given (tests)
+    const tasks = o.tasks || require('./tasks-model').createTasks()
+    function register(n) {
+      if (n.task || n.kind === 'error') tasks.set('notice:' + n.id, { page: n.page, section: n.place !== 'top' ? n.place.section : n.taskSection, level: n.kind === 'error' ? 'error' : 'task', text: n.text })
+      else tasks.clear('notice:' + n.id)
+    }
 
     function show(n) {
       if (!n || typeof n.id !== 'string' || !n.text) return
@@ -62,16 +72,19 @@
         task: !!n.task,
         page: (n.place && n.place !== 'top' && n.place.page) || (n.page === 'about' ? 'about' : 'settings'),
         place: n.place && n.place !== 'top' ? { page: n.place.page, section: n.place.section } : 'top',
+        taskSection: typeof n.taskSection === 'string' ? n.taskSection : '',
         role: n.kind === 'error' ? 'alert' : 'status'
       }
       const at = notices.findIndex((x) => x.id === notice.id)
       if (at >= 0 && JSON.stringify(notices[at]) === JSON.stringify(notice)) return
       if (at >= 0) notices = notices.map((x, i) => (i === at ? notice : x))
       else notices = notices.concat([notice])
+      register(notice)
       changed()
     }
     function clear(id) {
       const next = notices.filter((x) => x.id !== id)
+      tasks.clear('notice:' + id)
       if (next.length !== notices.length) { notices = next; changed() }
     }
     function has(id) { return notices.some((x) => x.id === id) }
@@ -96,19 +109,9 @@
     }
     const visible = () => notices.filter((n) => !(n.dismissKey && dismissed.includes(n.dismissKey)))
 
-    // the dots: per page (rail item) and per section, from the open tasks (dismissed or not)
-    function reminders() {
-      const pages = {}
-      const sections = {}
-      // loop: NOT-WORTH — N ≤ ~6 notices; on change
-      for (const n of notices) {
-        if (!n.task) continue
-        const page = n.page
-        pages[page] = pages[page] ? pages[page] + '\n' + n.text : n.text
-        if (n.place !== 'top') sections[page + '/' + n.place.section] = n.text
-      }
-      return { pages, sections }
-    }
+    // the dots: the task registry's (tasks-model.js dots: pages, sections, targets); a task notice's
+    // stays while the notice exists, dismissed or not
+    const reminders = () => tasks.dots()
 
     // --- toasts ---
     function toast(text, t) {

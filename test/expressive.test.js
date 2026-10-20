@@ -280,10 +280,10 @@ const EXPR = { version: 2, words: [
 
 // rowW: the rows' width (px); the words sit 60 px apart, 40 px wide (the gap after a line's last word is
 // what's left of the row)
-function view(expr, reduce, data = {}, rowW = 1000) {
+function view(expr, reduce, data = {}, rowW = 1000, duet) {
   const doc = makeDoc(reduce)
   const list = new El(doc, 'div')
-  const v = createLyricsView({ container: list, layout: 'scroll', onSeek: () => {} })
+  const v = createLyricsView({ container: list, layout: 'scroll', onSeek: () => {}, duet })
   const d = Object.assign({ key: 'k1', title: 'Song', artist: 'Artist', duration: 60, lines: JSON.parse(JSON.stringify(HELD)), lang: 'en-US', aligned: true }, data)
   if (expr) d.expr = expr
   v.setData(d)
@@ -433,6 +433,22 @@ for (const [name, rowW, off, right] of [
       assert.equal(word(list, t).style['--xn'], '0px', t)
       assert.equal(word(list, t).style['--xn-t'], '0.3s ease 0s', t)
     }
+  })
+}
+
+// a duet (0.15.68): the held word stretches the same in the default one column (per-singer colour) and inside
+// a singer's lane (lanes forced on; the lane is the row, so the room rules apply per lane)
+for (const duet of [undefined, { lanes: true }]) {
+  test('view: Expressive inside a duet ' + (duet ? 'lane' : 'column') + ': the held word stretches and the row slides as alone', () => {
+    const lines = JSON.parse(JSON.stringify(HELD)).map((l, i) => Object.assign(l, { agent: i ? 'v2' : 'v1' }))
+    const r = view(X.forView(X.compact(EXPR), true), false, { lines }, 222, duet)
+    const solo = placed(222, 0)
+    const line = r.list.all().find((e) => e.has('line'))
+    assert.ok(duet ? line.has('lane') && line.has('tagged') : line.has('singer-1'), line.className)
+    at(r.v, 1.8)
+    at(solo.v, 1.8)
+    fullStretch(r.list)
+    for (const t of ['take', 'me', 'home', 'tonight']) assert.equal(xn(r.list, t), xn(solo.list, t), t)   // loop: test only
   })
 }
 

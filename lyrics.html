@@ -205,6 +205,8 @@
   .line:hover:not(.active) > .ly-hov,
   .line.active > .ly-main { opacity: 1; z-index: 0; transition: none; }
   .line.plain { color: var(--s-text); cursor: default; }
+  /* a singer's name tag (lyrics-lanes.js, lanes on only): the soft text (4.5:1) */
+  .line { --tag: var(--s-soft); }
   /* the sung line's words not reached yet (0.15.37): the theme's faded colour, >= 4.5:1 on the card in
      every theme, album colour and Glass (theme.js --s-upcoming), instead of lyrics-view.css's opacity
      0.4, which left them 1.7-3:1 (near-white on the light card). Sung words take the singer's colour.
@@ -223,6 +225,11 @@
   .line .bgv { opacity: 1; }
   .line.active > :where(.ly-main) .bgv .w:not(.sung):not(.now), .line.active > .ly-main .bgv::before { color: var(--fg-dim); }
   /* the songwriter credit after the last line (lyrics-view.js writtenBy): quiet, like a booklet's credit */
+  /* a song section's label ("Chorus", lyrics-sections.js) above its first line: small, quiet, the soft
+     text (4.5:1); static, laid out with the lines; no frames */
+  .sect { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-soft); padding: 14px 0 0; pointer-events: none; user-select: none; }
+  .sect:first-child { padding-top: 0; }
+  body.stage .sect { font-size: 12px; }
   #credits {
     padding: 22px 0 0;
     font-size: 12px;
@@ -895,7 +902,7 @@
   // Settings → "Spin album art like a record" on (off by default), art shown, window visible and
   // music playing · paused via animation-play-state when hidden or paused · cost in docs/PERFORMANCE.md
   let spin = false
-  let relaxed = true      // Settings → Record speed: Relaxed (default, ¼ of true speed) or True
+  let relaxed = true      // Settings → Appearance → Record speed: Relaxed (default, ¼ of true speed) or True
   let single = false
   function applyTurn() {
     const turn = (single ? 60 / 45 : 60 / (100 / 3)) * (relaxed ? 4 : 1)
@@ -1037,6 +1044,7 @@
     anchor: () => (document.body.classList.contains('stage') ? 0.34 : 0.5),
     notes: true,
     credits: true,
+    sections: true,   // song section labels (lyrics-sections.js; Settings → Show song sections)
     onSeek: (t) => ipcRenderer.send('lyrics-command', 'seek', t),
     // Expressive words' line: Install / Show open Settings → Precise timing (main.js 'expressive')
     onExpressive: () => ipcRenderer.send('lyrics-command', 'expressive'),

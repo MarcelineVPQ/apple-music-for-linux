@@ -268,11 +268,11 @@
         }
         return { text: fitParts('Installed: ', parts, card), info: full + '. The helper is installed in ' + where + ' (about ' + (s.diskText || bytesText((EXPECTED_VENV[s.backend] || EXPECTED_VENV.cuda) + 1.4e9)) + ' with its Python packages and models). Remove deletes it; the models can stay for a later install.' + newer + (s.incompatible ? ' A newer helper (' + s.incompatible + ') is out but ' + s.incompatibleWhy + '.' : ''), level: 'ok' }
       }
-      case 'update': return { text: 'Needs an update', info: 'This Sonata needs helper ' + (s.want || s.min || '') + ' or newer' + (s.py && s.wantPy && s.py !== s.wantPy ? ' on Python ' + s.wantPy + ' (the installed one is on ' + s.py + ')' : '') + '. Update keeps the downloaded models and rebuilds the Python packages only when they changed.', level: 'warn' }
+      case 'update': return { text: 'Needs an update', info: 'This Sonata needs helper ' + (V.short(s.want || s.min || '') || '') + ' or newer' + (s.py && s.wantPy && s.py !== s.wantPy ? ' on Python ' + s.wantPy + ' (the installed one is on ' + s.py + ')' : '') + '. Update keeps the downloaded models and rebuilds the Python packages only when they changed.', level: 'warn' }
       case 'broken': return { text: 'Needs a repair: its Python is gone', info: 'The helper\'s Python (' + (s.target || 'its interpreter') + ') was removed. Repair rebuilds the Python packages and keeps the downloaded models.', level: 'warn' }
       case 'sandboxed': return { text: 'Needs a repair: its Python is inside another app', info: 'The helper works, but its Python lives inside another app (' + (s.target || '') + '), so that app\'s next update breaks it. Repair rebuilds it on a Python of its own and keeps the models.', level: 'warn' }
       case 'stray': return { text: 'Installed in the wrong place', info: 'The helper was installed inside another app\'s folder (' + (s.target || '') + '), where Sonata doesn\'t look. Install puts it in ' + where + '.', level: 'warn' }
-      default: return { text: 'Not installed', info: 'Precise word timing needs the helper: a separate download (helper ' + (s.min || '') + ' or newer, with its own licence, shown before anything is installed). It takes about 9 GB with its Python packages (PyTorch for NVIDIA; other builds under Build for) and models, goes into ' + where + ', and every download is checked (size, checksum and signature). Remove deletes it again.' + (s.models ? ' The models downloaded before are still in ' + where + '/models: Install uses them, Delete the models removes them.' : ''), level: 'off' }
+      default: return { text: 'Not installed', info: 'Precise word timing needs the helper: a separate download (helper ' + (V.short(s.min || '') || '') + ' or newer, with its own licence, shown before anything is installed). It takes about 9 GB with its Python packages (PyTorch for NVIDIA; other builds under Build for) and models, goes into ' + where + ', and every download is checked (size, checksum and signature). Remove deletes it again.' + (s.models ? ' The models downloaded before are still in ' + where + '/models: Install uses them, Delete the models removes them.' : ''), level: 'off' }
     }
   }
 
@@ -394,7 +394,17 @@
     return { kind: 'info', text: 'The helper ' + n + ' was interrupted — continuing…', detail: (V ? V.NAME : 'Sonata') + ' was closed while the Precise timing helper was ' + VERB[JOB_KINDS.includes(kind) ? kind : 'install'] + '; it picks up where it stopped. Cancel it in Settings → Precise timing.' }
   }
 
-  const api = { JOB_KINDS, RESUME_TRIES, jobMarker, parseMarker, resumeDecision, quitAsk, resumeNotice, STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
+  // The Precise timing helper's task (tasks-model.js: a dot on the rail's Settings item and on the Precise
+  // timing header, a press there opens that section): main.js railPrecise's state -> its words, or '' when
+  // nothing waits (cleared once the update, repair or install is done).
+  const TASK_TEXT = {
+    update: 'The Precise timing helper needs an update',
+    repair: 'The Precise timing helper needs a repair',
+    available: 'A Precise timing helper update is available'
+  }
+  const taskOf = (precise) => TASK_TEXT[precise] || ''
+
+  const api = { TASK_TEXT, taskOf, JOB_KINDS, RESUME_TRIES, jobMarker, parseMarker, resumeDecision, quitAsk, resumeNotice, STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataHelperInstallModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

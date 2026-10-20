@@ -7,6 +7,27 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+- **Song sections: verse, chorus and bridge labels from the lyrics.** A small, quiet label ("Verse 1", "Pre-chorus", "Chorus", "Bridge") above the first line of each section in the lyrics window and the Studio, worked out from the parts of the lyrics that repeat (Apple's own part names when its lyrics carry them). A song with no clear repeats gets no labels rather than wrong ones. Settings → Lyrics & Studio → Show song sections (on by default on Development builds).
+
+- **One "waiting for you" dot everywhere.** When the Precise timing helper needs an update or a repair, or
+  has an update available, a small yellow dot now shows on the rail's Settings item and on the Precise
+  timing section, so you notice without opening Settings; pressing Settings then opens it at Precise
+  timing, expanded. The dot goes when the update or repair is done. The same dot, from the same place,
+  now marks every other thing that waits for you: an app update, an interrupted helper install, graphics
+  switched off after a crash, a Last.fm or Discord connection problem, a repaired settings file and
+  What's new; each press on the rail item opens the section it is about.
+
+### Changed
+- Duets read as one column now: every singer's lines sit in the same place, with the same alignment
+  and size, and each singer keeps their own colour as they sing (the second singer in the album's
+  second colour, lines sung together in a blend of both). Before, the second singer's lines were
+  pushed to the right. Background vocals, the syllable pop and Expressive words are unchanged.
+- Duet colours stay apart for colour-blind readers: when the album's two colours would look alike with
+  red-green (protanopia, deuteranopia) or blue-yellow (tritanopia) colour blindness, the second singer's
+  colour, and the colour of lines sung together, move to the nearest shade that reads as different for
+  everyone, in light and dark, with and without Glass, and in the visualizer.
+
 ### Fixed
 - **Look-ahead in album play starts with the song.** The timing helper does one job at a time, so the last song's end-of-song measurement made the next song's look-ahead wait 16-20 s, past most songs' first lines; that measurement now waits until the next song's look-ahead is running.
 - **Look-ahead survives a pause.** Pausing a song while look-ahead streamed it could end the timing helper a couple of minutes later (another part's job, waiting its turn behind the stream, was taken for a hung helper), so the song fell back to section timing with a mismatched notes band. Waiting jobs now wait, and a paused stream stays open.
@@ -34,6 +55,10 @@ See docs/RELEASING.md.
 - **HDR glow makes less garbage per sung word.** Its measuring and painting canvases and its graphics texture are now reused instead of made anew for every word.
 - **The Studio's notes band gets only the new pitch line parts.** With look-ahead each line's pitch made Sonata send the whole song's pitch so far again, more for every line.
 - The Montage's photo cache no longer counts photos that vanished from its folder, which made it drop others too early.
+- Settings → Precise timing names the helper version it needs the way every other version is shown
+  ("0.2.7 Dev", not "0.2.7-dev.1").
+- Screen readers hear every Settings switch's state from the moment it appears (a switch could be
+  announced without on or off).
 
 ## [0.15.71-dev.1] — Songs keep refining their notes and expressions until they're complete
 

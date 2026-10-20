@@ -32,7 +32,9 @@ const T = require('./lyrics-timing')
 const C = require('./song-clock')
 const S = require('./lyrics-syllables')
 const X = require('./lyrics-expressive')
+const L = require('./lyrics-lanes')
 const { createInfoTip } = require('./info-tip')
+const SEC = require('./lyrics-sections')
 
 const WORD_LEAD = 0.05    // s: words light up a touch early to cover the IPC hop
 // A jump (a seek, a track change, a resume after sleep) snaps the list straight to the line: more than
@@ -44,14 +46,15 @@ const JUMP_LINES = 2
 /**
  * Lines and layout facts for a 'lyrics-data' payload (estimated word timing when asked for, estimated
  * syllables for timed words). hyphenate: the lyrics language's hyphenator (null: no syllables).
+ * duet: how a song with more than one singer is drawn (lyrics-lanes.js duetPlan; duetOpts overrides its flags).
  */
-function prepare(data) {
+function prepare(data, duetOpts) {
   const raw = (data && Array.isArray(data.lines)) ? data.lines : []
   const words = learnFrom(data && data.estimate ? T.estimateWords(raw) : raw, data && data.onset)
   const hyphenate = S.hyphenatorFor(data && data.lang)
   const split = hyphenate ? words.map((l) => S.lineWithSyllables(l, hyphenate)) : words
   const lines = split.every((l, i) => l === words[i]) ? words : split
-  return { lines, hyphenate, wordTimed: T.hasWordTiming(lines), sides: T.lineSides(lines), gaps: T.findInterludes(lines) }
+  return { lines, hyphenate, wordTimed: T.hasWordTiming(lines), duet: L.duetPlan(lines, duetOpts), gaps: T.findInterludes(lines) }
 }
 
 /**
@@ -657,7 +660,7 @@ function createLyricsView(opts) {
   // their onclick closures are dropped per track
   function setData(data) {
     const prevKey = songKey
-    const prep = prepare(data)
+    const prep = prepare(data, opts.duet)
     lines = prep.lines
     hyphenate = prep.hyphenate
     songKey = data.key || ((data.title || '') + '|' + (data.artist || ''))
@@ -712,7 +715,17 @@ function createLyricsView(opts) {
       return
     }
     wordTimed = prep.wordTimed
-    const sides = prep.sides
+    // more than one singer (lyrics-lanes.js): by default one column, the sung colour per singer (voice);
+    // with lanes on, each singer's own column and a name tag at each singer change
+    const duet = prep.duet
+    const tags = L.tagAt(duet.who)
+    const labels = duet.lanes ? L.singerLabels(duet.singers, data.singers, data.artist) : null
+    container.classList.toggle('lanes', duet.lanes > 1)
+    if (duet.lanes > 1) container.style.setProperty('--lanes', String(duet.lanes)); else container.style.removeProperty('--lanes')
+    laneCount = duet.lanes
+    fitLanes()
+    const laneClass = (i) => (duet.voice[i] ? ' ' + duet.voice[i] : '') + (duet.lane && duet.lane[i] >= 0 && duet.lanes > 1 ? ' lane' : '')
+    const setLane = (el, i) => { if (duet.lane && duet.lane[i] >= 0 && duet.lanes > 1) el.style.setProperty('--lane', String(duet.lane[i])) }
     const gaps = prep.gaps
     let g = 0
     container.innerHTML = ''
@@ -731,11 +744,25 @@ function createLyricsView(opts) {
       createInfoTip(doc, lead).set(vnote.info)
       container.appendChild(lead)
     }
+    // song sections (lyrics-sections.js; the lyrics window and the Studio only: opts.sections): a quiet label
+    // above each section's first line, laid out once with the lines (it never moves while the song plays)
+    const sectionAt = new Map()
+    if (opts.sections && data.showSections && Array.isArray(data.sections)) {
+      // loop: NOT-WORTH — the song's sections, once per track
+      for (const s of data.sections) if (s && s.label && Number.isInteger(s.start)) sectionAt.set(s.start, SEC.labelText(s))
+    }
     // loop: NOT-WORTH — the song's lines (and the countdowns before them), once per track
     lines.forEach((line, i) => {
+      if (sectionAt.has(i)) {
+        const sec = doc.createElement('div')
+        sec.className = 'sect'   // one place for every singer: the label is the song's, not a singer's
+        sec.textContent = sectionAt.get(i)
+        container.appendChild(sec)
+      }
       while (g < gaps.length && gaps[g].index === i) {
         const dots = doc.createElement('div')
-        dots.className = 'dots ' + (sides[i] || 'plainside')
+        dots.className = 'dots plainside' + laneClass(i)
+        setLane(dots, i)
         const row = doc.createElement('div')
         row.className = 'row'
         row.innerHTML = '<i></i><i></i><i></i>'
@@ -744,10 +771,13 @@ function createLyricsView(opts) {
         interludes.push(Object.assign({ el: dots, row, dots: [...row.children] }, gaps[g++]))
       }
       const el = doc.createElement('div')
-      el.className = (line.t === null ? 'line plain' : 'line') + (sides[i] ? ' ' + sides[i] : '')
+      el.className = (line.t === null ? 'line plain' : 'line') + laneClass(i)
+      setLane(el, i)
+      // the singer's name tag (lanes on): drawn by lyrics-view.css .line.tagged::before, read by screen readers
+      if (labels && tags[i]) { el.classList.add('tagged'); el.dataset.singer = labels[duet.who[i]] }
       const ly = doc.createElement('div')   // the line's content (the FLIP slide target in the stage)
       ly.className = 'ly'
-      const entry = { el, ly, side: sides[i], words: [], bg: [], pos: null, bgPos: null, bgKey: null, main: null, x: null }
+      const entry = { el, ly, side: '', words: [], bg: [], pos: null, bgPos: null, bgKey: null, main: null, x: null }
       if (line.words && line.words.length) {
         // Expressive words: the line's measured words (none: the plain karaoke, as before)
         const xl = xdoc && line.t !== null ? X.lineExpressions(xdoc, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
@@ -1143,6 +1173,7 @@ function createLyricsView(opts) {
   }
   // lifetime: OK — one resize listener per view; views live as long as their window (the row edges change)
   doc.defaultView.addEventListener('resize', () => {
+    fitLanes()
     // loop: NOT-WORTH — the song's lines, once per resize
     for (const e of lineEls) { delete e.words.origins; delete e.bg.origins; delete e.words.fit; delete e.bg.fit; e.bgKey = null }
     // the backing rows again, once per frame of a resize (rows wrap differently)
@@ -1150,6 +1181,12 @@ function createLyricsView(opts) {
     if (!bgFrame) bgFrame = requestAnimationFrame(() => { bgFrame = 0; placeBacking() })
   })
   let bgFrame = 0
+  // lanes too narrow for a line (a narrow window, the visualizer's stage): one column, name tags kept
+  // (lyrics-lanes.js collapsed); read once per song laid out and per resize, never per frame
+  let laneCount = 0
+  function fitLanes() {
+    container.classList.toggle('lane-one', laneCount > 1 && (stage || L.collapsed(container.clientWidth || 0, laneCount)))
+  }
 
   // the popping syllable of a word at a row's edge grows inward too (first syllable at the left
   // edge, last at the right edge)

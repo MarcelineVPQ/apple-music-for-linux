@@ -1,4 +1,4 @@
-// A small Markdown reader for Sonata's own texts (CHANGELOG.md sections in About → What's new):
+// A small Markdown reader for Sonata's own texts (CHANGELOG.md sections in About → App changes):
 // headings, paragraphs, bullet lists, **bold**, *italic*, `code` and [links](https://…). Pure: text in,
 // a tree out. panel-ui.js builds DOM nodes from the tree (textContent only, never HTML strings), so
 // nothing in a text can inject markup. Links keep only http(s) targets; anything else stays plain text.

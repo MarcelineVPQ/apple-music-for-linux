@@ -674,8 +674,8 @@ async function lyrics() {
     const active = a.texts.filter((t) => /Line number 3/.test(t.text))
     check(tag + ' the current line is there', active.length >= 1)
     judge(tag, a, { minHit: 24 })
-    // a duet (0.15.33): singer 1 left, singer 2 right, both together centred; each sings in its own
-    // colour, each >= 4.5:1, and the sides differ too (colour is never the only cue)
+    // a duet: one column (0.15.68; before, singer 1 left, singer 2 right, together centred); each sings in
+    // its own colour, each >= 4.5:1, kept apart for colour-blind readers (theme.js duetColours)
     const word = (t, text) => text.split(' ').map((w, i) => ({ t: t + i * 0.5, end: t + i * 0.5 + 0.45, text: w }))
     const duet = Object.assign({}, data, { title: 'Duet check', lines: [
       { t: 0, end: 4, text: 'First singer sings here', agent: 'v1', words: word(0, 'First singer sings here') },
@@ -689,7 +689,9 @@ async function lyrics() {
     duet.lines[1].bg = word(5.6, '(oh yeah)')
     duet.lines[2].bg = word(12.6, '(now now)')
     await send('lyrics-data', duet); await sleep(500)
-    judgeBacking(tag + ' duet', await page.ev(BG_PLACES), { 0: { word: 2 }, 1: { word: 1 }, 2: { word: 4, after: true } })
+    // one column since 0.15.68 (lyrics-lanes.js duetPlan): every line start-aligned, so the lines sung together place
+    // their backing at the word it comes in on, like the singers' lines
+    judgeBacking(tag + ' duet', await page.ev(BG_PLACES), { 0: { word: 2 }, 1: { word: 1 }, 2: { word: 4 } })
     const seen = {}
     for (const [who, t] of [['singer 1', 1.2], ['singer 2', 6.2], ['together', 11.2]]) {
       await send('lyrics-time', t, true); await sleep(600)
@@ -715,7 +717,8 @@ async function lyrics() {
     }
     await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => w.getTitle().includes('Lyrics')); w.setBounds({ x: 0, y: 0, width: 380, height: 560 }); return true })()`)
     await send('lyrics-data', duet); await sleep(400)
-    check(tag + ' duet: the singers sit on their own sides (left, right, centre)', seen['singer 1'] && seen['singer 1'].side === 'left' && seen['singer 2'].side === 'right' && seen['together'].side === 'center', seen)
+    // one column (Marcy 2026-10-19): no singer is pushed to a side; the colour is the per-singer difference (next check)
+    check(tag + ' duet: one column, no singer on a side of their own', ['singer 1', 'singer 2', 'together'].every((k) => seen[k] && seen[k].side === ''), seen)
     if (process.env.SONATA_TEST_ARTWORK || LABEL.includes('artwork')) {
       check(tag + ' duet: three different colours for singer 1, singer 2 and together', new Set(Object.values(seen).map((x) => x && x.color)).size === 3, seen)
     }
@@ -2477,7 +2480,7 @@ async function every() {
   const standIn = async (o) => { try { return await apple.ev(STAND_IN.installScript(o)) } catch (e) { apple = await target('music.apple.com'); return apple.ev(STAND_IN.installScript(o)) } }
   check('stand-in player installed and playing', (await standIn({ playing: true, seek: 20 })).playing)
   // notices and a toast to look at: Discord and Last.fm "set up" notices in Integrations (a fresh HOME has
-  // neither configured: no network, no Discord), and "Check now" from source says so in a toast
+  // neither configured: no network, no Discord), and "Check for updates" from source says so in a toast
   // (track notifications off: the copy's private D-Bus has no notification server, and libnotify then
   // blocks the main process ~25 s per track change while D-Bus tries to start one)
   await setPanel(mp, true, 'settings')
@@ -2505,7 +2508,7 @@ async function every() {
     }
     await mp.ev(`(() => { const v = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes('panel.html')); ${E}.ipcMain.emit('panel:command', { sender: v.webContents, senderFrame: { parent: null } }, 'action', 'check-now'); return true })()`)
     const toastUp = await waitFor(async () => (await mp.ev(LAYOUT)).toast, 4000)
-    check('every-' + t + ' a toast shows ("Check now" from source)', !!toastUp)
+    check('every-' + t + ' a toast shows ("Check for updates" from source)', !!toastUp)
     if (toastUp) { const toast = await target('toast.html'); await sleep(500); await audit('every-' + t + '-toast', toast, 'body', 'toast', { minHit: 24, shot: { width: W, height: H } }); toast.c.close() }
     await setPanel(mp, false)
     rail.c.close()
