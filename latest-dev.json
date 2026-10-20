@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.81-dev.1",
-  "file": "sonata-0.15.81-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.81-dev.1/sonata-0.15.81-dev.1-x86_64.AppImage",
-  "sha512": "4511964a263242ea144acbf4a8db88c445bb60aad55054e00626f4d472c5bdfcdbae58d2e6943bcf3c7f9953c347afda5dbdaac0bb151a2924ce3cbdfce5ed68",
-  "size": 127656274,
-  "date": "2026-10-20T15:44:52Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.81-dev.1",
-  "notes": "### Added\n- **Check for updates on the Helper row.** Settings → Precise timing → Helper has a Check for updates button: it asks for a newer helper at once and says the answer in the row (\"Up to date: helper 0.2.10 Dev\", or Update available). It works with automatic checks off too.\n\n### Changed\n- **Helper updates arrive sooner on Development.** Sonata now looks for a newer helper every hour on the Development channel (every 6 hours on Stable), instead of every 6 hours on both.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.81-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.82-dev.1",
+  "file": "sonata-0.15.82-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.82-dev.1/sonata-0.15.82-dev.1-x86_64.AppImage",
+  "sha512": "723787d96e6eafdaf1fe0b356dfe8e5c2beb32f90ff3dd5d45868d3e76ce66c1ff49f1ea5fe47f02a635d93c291462009088557dc582916792766637bc1f2e24",
+  "size": 127656251,
+  "date": "2026-10-20T15:51:52Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.82-dev.1",
+  "notes": "### Changed\n- **One Check for updates for Sonata and the helper.** Settings → Updates → Check for updates (and the tray's Check for Updates…) now checks the Precise timing helper too: \"Sonata 0.15.82 Dev and helper 0.2.10 Dev are up to date\", or that a newer helper is available. The Helper row shows the answer; its own button from 0.15.81 is gone.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.82-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
