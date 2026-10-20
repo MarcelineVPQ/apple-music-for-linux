@@ -4741,7 +4741,7 @@ function showWhatsNew() {
     actions: [{ id: 'whatsnew-see', label: 'See what\'s new', primary: true }]
   })
 }
-// About → What's new shown (or the notice dismissed): it was seen
+// About → App changes shown (or the notice dismissed): it was seen
 function seenWhatsNew(dismissed) {
   if (!notices.has('whatsnew')) return
   const shown = settings.panelShown && settings.panelPage === 'about' && panelModel.isOpen(accOf('about'), 'whatsnew')
@@ -4833,7 +4833,7 @@ function pruneOldAppImages() {
 }
 
 // Check for updates automatically (Settings → Updates, on by default): 20 s after start, then every 2 h.
-// Off: no timer and nothing online at start; only Check now (or the tray's Check for Updates…) goes online.
+// Off: no timer and nothing online at start; only Check for updates (or the tray's Check for Updates…) goes online.
 // loop: NOT-WORTH — update check · 20 s one-shot, then every 2 h · AppImage builds with checks on only · stopped when
 // checks are turned off, and on app exit · cost two small HTTPS GETs per 2 h (feed + .sig), a download
 // only when a new version is offered and installed; updater.js's busy flag stops overlaps

@@ -99,7 +99,7 @@ function statusLine(st, current, channel) {
   }
 }
 
-// The toast after Check now found nothing newer: "Sonata 0.15.45 Dev is up to date (Development)."
+// The toast after Check for updates found nothing newer: "Sonata 0.15.45 Dev is up to date (Development)."
 const upToDateText = (current, channel) => V.full(current) + ' is up to date (' + V.channelName(channel) + ').'
 // The notice once after an update: "Updated to Sonata 0.15.45 Dev."
 const updatedText = (version) => 'Updated to ' + V.full(version) + '.'
@@ -140,7 +140,7 @@ function createUpdater(deps) {
         ? { phase: 'up-to-date', version: d.version, at: d.now() }
         : { phase: 'available', version: f.version, size: f.size || 0, notes: f.notes || '', notesUrl: f.notesUrl || '', older: returningToStable && !isNewerVersion(f.version, d.version) }
     } catch (e) {
-      // error: SHOWN — the Updates status line always; a notice when the user asked (Check now, Back to stable)
+      // error: SHOWN — the Updates status line always; a notice when the user asked (Check for updates, Back to stable)
       d.log('update check failed: ' + e.message)
       next = { phase: 'failed', during: 'check', detail: e.message, shown: !!o.interactive }
     } finally { busy = false }

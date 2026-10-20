@@ -899,7 +899,7 @@
   // Settings → "Spin album art like a record" on (off by default), art shown, window visible and
   // music playing · paused via animation-play-state when hidden or paused · cost in docs/PERFORMANCE.md
   let spin = false
-  let relaxed = true      // Settings → Record speed: Relaxed (default, ¼ of true speed) or True
+  let relaxed = true      // Settings → Appearance → Record speed: Relaxed (default, ¼ of true speed) or True
   let single = false
   function applyTurn() {
     const turn = (single ? 60 / 45 : 60 / (100 / 3)) * (relaxed ? 4 : 1)

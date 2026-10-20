@@ -2477,7 +2477,7 @@ async function every() {
   const standIn = async (o) => { try { return await apple.ev(STAND_IN.installScript(o)) } catch (e) { apple = await target('music.apple.com'); return apple.ev(STAND_IN.installScript(o)) } }
   check('stand-in player installed and playing', (await standIn({ playing: true, seek: 20 })).playing)
   // notices and a toast to look at: Discord and Last.fm "set up" notices in Integrations (a fresh HOME has
-  // neither configured: no network, no Discord), and "Check now" from source says so in a toast
+  // neither configured: no network, no Discord), and "Check for updates" from source says so in a toast
   // (track notifications off: the copy's private D-Bus has no notification server, and libnotify then
   // blocks the main process ~25 s per track change while D-Bus tries to start one)
   await setPanel(mp, true, 'settings')
@@ -2505,7 +2505,7 @@ async function every() {
     }
     await mp.ev(`(() => { const v = ${E}.BaseWindow.getAllWindows().find((w) => w.contentView && w.contentView.children.length >= 2).contentView.children.find((v) => v.webContents.getURL().includes('panel.html')); ${E}.ipcMain.emit('panel:command', { sender: v.webContents, senderFrame: { parent: null } }, 'action', 'check-now'); return true })()`)
     const toastUp = await waitFor(async () => (await mp.ev(LAYOUT)).toast, 4000)
-    check('every-' + t + ' a toast shows ("Check now" from source)', !!toastUp)
+    check('every-' + t + ' a toast shows ("Check for updates" from source)', !!toastUp)
     if (toastUp) { const toast = await target('toast.html'); await sleep(500); await audit('every-' + t + '-toast', toast, 'body', 'toast', { minHit: 24, shot: { width: W, height: H } }); toast.c.close() }
     await setPanel(mp, false)
     rail.c.close()
