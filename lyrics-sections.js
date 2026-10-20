@@ -94,10 +94,15 @@ function timingBreaks(lines) {
 
 // Apple's own part names (itunes:songPart) -> sections; null when the TTML gave none
 function appleSections(lines) {
+  // cache: NOT-WORTH — key=line index; invalidated=each call (local to one analysis of a song's lyrics); bound=the song's parts (~5-15)
   const marks = []
   // loop: NOT-WORTH — the song's lines, once per song laid out
   lines.forEach((l, i) => { if (l && typeof l.part === 'string' && l.part) marks.push({ start: i, part: l.part.toLowerCase().replace(/[^a-z]/g, '') }) })
   if (!marks.length) return null
+  // every part given the same name says nothing ("Jesus Doesn't Want Me for a Sunbeam": ten parts, all "Verse",
+  // the refrain read "Verse 8, 9, 10"; 2026-10-19): the repetition decides instead
+  // loop: NOT-WORTH — the song's parts (~5-15), once per song's lyrics (main.js lyrics lookup on a track change), not per tick
+  if (marks.length > 2 && marks.every((m) => m.part === marks[0].part)) return null
   const KIND = { verse: 'verse', chorus: 'chorus', prechorus: 'pre-chorus', bridge: 'bridge', intro: 'intro', outro: 'outro', refrain: 'chorus', hook: 'chorus', postchorus: 'chorus' }
   let verses = 0
   const out = []
@@ -248,8 +253,7 @@ function analyse(idx, cls, brk, w, sung, title) {
   const titled = repeated.filter((K) => K.segs.some(hasTitle))
   // loop: NOT-WORTH — the song's lines, sections or singers (≤ ~150), once per song's lyrics (main.js lyrics lookup on a track change), not per tick
   const pick = (titled.length ? titled : repeated).sort((x, y) => y.segs.length - x.segs.length || y.cls.length - x.cls.length)[0]
-  if (!pick || !(pick.segs.length >= 3 || pick.cls.length >= 3)) return null
-  // the chorus family: the chorus kind and the kinds glued to it
+  if (!pick || !(pick.segs.length >= 3 || pick.cls.length >= 3)) return null  // the chorus family: the chorus kind and the kinds glued to it
   const family = new Set([pick])
   const pre = new Set()
   const split = new Set()   // kinds holding the title after 2+ lines: those lines are the pre-chorus

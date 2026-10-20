@@ -98,6 +98,12 @@ test("Apple's own part names (itunes:songPart) are used as given", () => {
   assert.deepEqual(labels(lines), ['Verse 1@0', 'Chorus@4', 'Verse 2@8', 'Chorus@12'])
 })
 
+test("Apple naming every part the same (all \"Verse\") says nothing: the repetition decides (Sunbeam, 2026-10-19)", () => {
+  const lines = song([V1, C, V2, C, V3, C])
+  for (const i of [0, 4, 8, 12, 16, 20]) lines[i].part = 'Verse'
+  assert.deepEqual(labels(lines), ['Verse 1@0', 'Chorus@4', 'Verse 2@8', 'Chorus@12', 'Verse 3@16', 'Chorus@20'])
+})
+
 test('sections end where the next starts; the last at the song end', () => {
   const secs = S.songSections(song([V1, C, V2, C]))
   assert.deepEqual(secs.map((s) => [s.start, s.end]), [[0, 4], [4, 8], [8, 12], [12, 16]])
