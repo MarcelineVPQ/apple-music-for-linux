@@ -357,6 +357,7 @@ function createAlignHelper(opts, deps = {}) {
     if (!p) return
     pending.delete(id)
     if (p.timer) clearT(p.timer)
+    if (opts.onFail) opts.onFail(err, p.kind)   // the song report counts failed jobs (song-report.js)
     p.reject(err)
     armIdle()
   }
@@ -531,7 +532,7 @@ function createAlignHelper(opts, deps = {}) {
       try { c = ensure() } catch (e) { reject(e); return }
       if (idle) { clearT(idle); idle = null }
       idleSince = 0
-      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null, stream: !!isStream })
+      pending.set(id, { resolve, reject, timer: null, ms, progress: progress || null, stream: !!isStream, kind: messages.length && messages[messages.length - 1] ? messages[messages.length - 1].cmd : '' })
       touch(id)
       write(c, messages).catch((e) => fail(id, e))   // error: PASSES-ON — the job's promise rejects
     })

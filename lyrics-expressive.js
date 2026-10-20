@@ -227,6 +227,35 @@ function lineExpressions(doc, lineIndex, words, glue) {
   return out
 }
 
+/** A matched word draws something the eye sees: ink, a lighter shade, a stretch, a vibrato or a ghost. */
+const shows = (m) => !!(m && (m.ink > 0 || m.quiet || m.stretch || m.vb || m.ghost))
+
+/**
+ * The song report's view of one line (song-report.js): the measured words the helper sent for it, how many
+ * of them the view can draw, and why the rest can't, counted by reason. Same checks as matchWord.
+ * -> { measured, drawable, skip: { reason: n } }
+ */
+function lineExprReport(doc, lineIndex, words, glue) {
+  const out = { measured: 0, drawable: 0, skip: {} }
+  if (!doc || !Array.isArray(doc.words) || !Array.isArray(words)) return out
+  const no = (why) => { out.skip[why] = (out.skip[why] || 0) + 1 }
+  // loop: NOT-WORTH — the song's expr words (≤ ~600) once per line lit (every few seconds), then the line's (0-3)
+  for (const x of doc.words) {
+    if (x.l !== lineIndex) continue
+    out.measured++
+    const w = words[x.w]
+    const next = words[x.w + 1]
+    const m = w ? matchWord(x, w, !!(glue && glue[x.w + 1]), next ? next.t : null) : null
+    if (shows(m)) { out.drawable++; continue }
+    if (!w || typeof w.text !== 'string') no('words differ')
+    else if (x.i0 == null && x.ld == null) no('no vowel data')
+    else if (x.i0 != null && (x.i1 > w.text.length || (x.x != null && x.x !== w.text.slice(x.i0, x.i1)))) no('words differ')
+    else if (x.i0 != null && (!m || m.i0 < 0)) no('wrong repeat')
+    else no('below threshold')
+  }
+  return out
+}
+
 // --- the keyframes (Web Animations on the compositor: transform and opacity only) ---
 // Every timeline below runs in song time from t0 (ms = (song time - t0) * 1000); the view keeps it in
 // step with the lyrics clock, as it does the countdown dots.
@@ -564,6 +593,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, lineExprReport, shows, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

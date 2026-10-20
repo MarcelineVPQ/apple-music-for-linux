@@ -134,7 +134,7 @@ test('Refine by listening: Apple word timing and aligned words are never moved',
   assert.equal(V.refinedLine(after, msg(after), 'k'), null, 'refined once: never moved again this play')
 })
 
-test('a correction over 100 ms is logged with its size and cause, at most once a minute', () => {
+test('corrections over 100 ms are counted: one line a minute with the count, the largest and the causes', () => {
   let now = 0
   const lines = []
   const clock = C.createSongClock({ now: () => now, epochNow: () => now, log: (m) => lines.push(m) })
@@ -142,13 +142,22 @@ test('a correction over 100 ms is logged with its size and cause, at most once a
   for (; now <= 2000; now += 500) clock.push(now / 1000, true, 'k', now)
   clock.push(now / 1000 - 0.3, true, 'k', now)   // the player 300 ms behind: eased
   now += 500
-  clock.push(now / 1000 - 0.3, true, 'k', now)   // again within the minute: not logged
-  assert.equal(lines.length, 1)
-  assert.match(lines[0], /song clock: corrected -\d+ ms \(player behind: eased, never back\)/)
+  clock.push(now / 1000 - 0.3, true, 'k', now)   // again within the minute: counted, not logged yet
+  assert.equal(lines.length, 0)
   now += 61000
-  clock.push(now / 1000 + 30, true, 'k', now)    // a jump: snapped
-  assert.equal(lines.length, 2)
-  assert.match(lines[1], /jump: a seek or a stall, snapped/)
+  clock.push(now / 1000 + 30, true, 'k', now)    // the minute is over: its line, then a jump (snapped) starts the next
+  assert.equal(lines.length, 1)
+  assert.match(lines[0], /^song clock: 2 corrections in the last minute \(largest \d+ ms, player behind; 2 player behind\)$/)
+  const c = clock.corrections()
+  assert.equal(c.n, 3)
+  assert.ok(c.max >= 30000)
+  assert.deepEqual(c.causes, { 'player behind': 2, 'seek or stall': 1 })
+  clock.setSong('next', 200)
+  assert.equal(clock.corrections().n, 0, 'a new song starts its own count')
+})
+
+test('minuteLine: one correction reads in the singular, without a cause list', () => {
+  assert.equal(C.minuteLine({ n: 1, max: 140, maxCause: 'player ahead', causes: { 'player ahead': 1 } }), 'song clock: 1 correction in the last minute (largest 140 ms, player ahead)')
 })
 
 test('every clocked consumer is on the song clock: no 60 ms snap-back left in the views', () => {
@@ -237,7 +246,7 @@ test('a song boundary: the new song\'s time before its name never snaps the old 
   const newEpochs = new Set(seen.filter((s) => s.key === 'new').map((s) => s.epoch))   // loop: NOT-WORTH — a test
   assert.equal(newEpochs.size, 1, 'exactly one epoch into the new song')
   assert.ok(seen.every((s) => s.key === 'old' ? s.epoch === oldEpoch : s.epoch > oldEpoch))   // loop: NOT-WORTH — a test
-  assert.ok(!lines.some((l) => /snapped/.test(l)), 'no snap logged: ' + lines.join(' | '))   // loop: NOT-WORTH — a test
+  assert.ok(!clock.corrections().causes['seek or stall'], 'no snap counted: ' + JSON.stringify(clock.corrections()))   // loop: NOT-WORTH — a test
   assert.ok(Math.abs(a.at(now) - (1.1 + 11 * 0.5)) < 0.05, 'on the new song')
 })
 
@@ -279,7 +288,7 @@ test('a new song\'s first push 227 ms off (or paused, then playing): no visible 
         lastAt = now + f * 100
       }
     }
-    assert.ok(!lines.some((l) => /jump/.test(l)), lines.join(' | '))   // loop: NOT-WORTH — a test
+    assert.ok(!clock.corrections().causes['seek or stall'], JSON.stringify(clock.corrections()))
   }
 })
 

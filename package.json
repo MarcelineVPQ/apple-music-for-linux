@@ -53,6 +53,7 @@
       "recording-id.js",
       "lyrics-timing.js",
       "song-clock.js",
+      "song-report.js",
       "lyrics-view.js",
       "lyrics-lanes.js",
       "lyrics-sections.js",

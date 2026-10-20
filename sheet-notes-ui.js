@@ -439,6 +439,9 @@ function createSheetBand(opts) {
     // the room the sung line opens for the staff: only "Over the sung line" with something to draw
     get room() { return M.placement(st, m.band, true).room },
     get on() { return !!st.on },
+    // the song report (song-report.js): whether the staff draws notes for this line now (the caller checks the Studio shows)
+    // loop: NOT-WORTH — the song's notes (hundreds), once per line lit (every few seconds), stops at the first
+    hasNotes(line) { return m.band === 'notes' && !!doc2 && Array.isArray(doc2.notes) && doc2.notes.some((n) => n && n.line === line) },
     // for the UI checker: what is drawn and running
     debug() { return { mode: m.band, place: root.classList.contains('over') ? 'over' : 'band', label: label.textContent, msg: msg.textContent, info: info.info, listening: !!live, notes: items.length, paths: strip.querySelectorAll('path.pl').length, anim: anim ? anim.playState : 'none', wake: !!wake, gate: gated ? gated.song : null, clef: lay ? lay.clef : null } }
   }

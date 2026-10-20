@@ -63,6 +63,20 @@ function localize(st, masterNowMs, localNowMs) {
   return Object.assign({}, st, { at: st.at - masterNowMs + localNowMs, seekAt: undefined })
 }
 
+const newTally = () => ({ n: 0, max: 0, maxCause: '', causes: {} })
+function count(t, off, cause) {
+  const ms = Math.round(Math.abs(off) * 1000)
+  t.n++
+  t.causes[cause] = (t.causes[cause] || 0) + 1
+  if (ms > t.max) { t.max = ms; t.maxCause = cause }
+}
+/** "song clock: 23 corrections in the last minute (largest 512 ms, seek or stall; 20 player ahead, 3 seek or stall)" */
+function minuteLine(t) {
+  // loop: NOT-WORTH — at most 4 causes, once a minute
+  const by = Object.keys(t.causes).sort((a, b) => t.causes[b] - t.causes[a]).map((c) => t.causes[c] + ' ' + c).join(', ')
+  return 'song clock: ' + t.n + ' correction' + (t.n === 1 ? '' : 's') + ' in the last minute (largest ' + t.max + ' ms, ' + t.maxCause + (t.n > 1 ? '; ' + by : '') + ')'
+}
+
 /**
  * createSongClock({ now() ms (the clock's base), epochNow() epoch ms (for readAt), jump (s), log(line) })
  * -> { setSong(key, duration), push(t, isPlaying, key, readAt, info) -> snapshot | null, seek(t), snapshot(), time(), epoch, holding }
@@ -88,7 +102,10 @@ function createSongClock(opts = {}) {
   const log = opts.log || null
   let samples = []   // cache: OK — key=this song's pushes in the last PLL_WINDOW ms; invalidated=a discontinuity, seek, pause or new song; bound=8
   let cum = 0        // s of phase trimmed so far (the integral of rate - 1)
-  let loggedAt = -Infinity   // cache: OK — key=the last correction logged; invalidated=each logged line; bound=one number
+  // corrections over 100 ms, counted: the minute's (one log line when the minute is over, 0.15.73: was the first
+  // one a minute, which hid how many came) and the song's (song-report.js)
+  let minute = null   // cache: OK — key=the minute since its first correction; invalidated=its line logged; bound=one tally
+  let song = newTally()   // cache: OK — key=this song; invalidated=setSong (a new song); bound=one tally (causes: 4 keys)
 
   function snapshot() {
     if (!clock) return null
@@ -104,6 +121,12 @@ function createSongClock(opts = {}) {
     lastRaw = lastFresh = null
     boundaryAt = null
     seedLeft = 0
+    song = newTally()
+  }
+  function flushMinute(n) {
+    if (!minute || n - minute.since < 60000) return
+    if (log) log(minuteLine(minute))
+    minute = null
   }
   // the phase detector: this push's offset from the shown time (null: no information), as syncClock reads it
   function offset(fresh, shown, n, coarse) {
@@ -179,9 +202,12 @@ function createSongClock(opts = {}) {
       // then shows it if anything still jumps)
       // (a whole-second time is in step anywhere in its second: only what lies outside it counts)
       const off = shown == null || !next.playing || !Number.isFinite(fresh) ? 0 : coarse ? (offset(fresh, shown, n, true) || 0) : fresh - shown
-      if (log && Math.abs(off) > 0.1 && n - loggedAt >= 60000) {
-        loggedAt = n
-        log('song clock: corrected ' + Math.round(off * 1000) + ' ms (' + (stepped ? (gateDone ? 'first time of a new song' : 'jump: a seek or a stall, snapped') : off < 0 ? 'player behind: eased, never back' : 'player ahead: eased') + ')' + (Number.isFinite(readAt) ? ', push ' + Math.round(epochNow() - readAt) + ' ms old' : ''))
+      flushMinute(n)
+      if (Math.abs(off) > 0.1) {
+        const cause = stepped ? (gateDone ? 'new song' : 'seek or stall') : off < 0 ? 'player behind' : 'player ahead'
+        if (!minute) minute = Object.assign(newTally(), { since: n })
+        count(minute, off, cause)
+        count(song, off, cause)
       }
       gateDone = false
       clock = next
@@ -196,6 +222,8 @@ function createSongClock(opts = {}) {
     },
     snapshot,
     get holding() { return boundaryAt != null },
+    /** This song's corrections: { n, max (ms), causes: { cause: n } } (a copy). */
+    corrections() { return { n: song.n, max: song.max, causes: Object.assign({}, song.causes) } },
     time() { return clock ? T.clockTime(clock, now()) : 0 },
     get epoch() { return epoch }
   }
@@ -237,4 +265,4 @@ function follow(a, wantMs, clockRate, epoch, paused) {
   if (a.playbackRate !== fit.rate) a.playbackRate = fit.rate
 }
 
-module.exports = { createSongClock, timeAt, rateAt, localize, followRate, follow, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX, PLL_SLEW, PLL_SNAP }
+module.exports = { createSongClock, minuteLine, timeAt, rateAt, localize, followRate, follow, FOLLOW_SNAP, FOLLOW_MIN, FOLLOW_MAX, PLL_SLEW, PLL_SNAP }

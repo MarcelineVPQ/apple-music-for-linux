@@ -1353,7 +1353,7 @@ function createLyricsView(opts) {
     for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current') }
     for (const i of next) {
       const e = lineEls[i]
-      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null; if (keys) e.el.setAttribute('aria-current', 'true') }
+      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null; if (keys) e.el.setAttribute('aria-current', 'true'); if (opts.onLineLit) opts.onLineLit(i, litReport(i)) }
       if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos, e.side)
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
@@ -1409,6 +1409,21 @@ function createLyricsView(opts) {
     // after the scroll target is taken (it reads positions with transforms); reduced motion: no slide
     // loop: NOT-WORTH — the elements a dots row moved (at most the window's lines), per open/close
     if (slides && !still() && !jump) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
+  }
+
+  // the song report (song-report.js, through opts.onLineLit): when a line lights, what its Expressive words drew
+  // against what the helper measured for it; a word the view could draw but didn't came after the line lit
+  // (its expression waits for the next boundary: "line already sung"). Once per line lit, not per frame.
+  function litReport(i) {
+    const e = lineEls[i]
+    const line = lines[i]
+    const d = xpend ? xpend.expr : xdoc
+    const r = X.lineExprReport(d, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null)
+    // loop: NOT-WORTH — the line's drawn words (0-3), once per line lit
+    const drawn = e && e.x ? e.x.filter((x) => X.shows(x.m)).length : 0
+    const late = Math.max(0, r.drawable - drawn)
+    if (late) r.skip['line already sung'] = (r.skip['line already sung'] || 0) + late
+    return { m: r.measured, d: Math.min(drawn, r.measured), s: r.skip }
   }
 
   const rect = (el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height } }

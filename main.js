@@ -11,6 +11,14 @@ const { createListenSession } = require('./listen-session')
 // the one song clock (song-clock.js, 0.15.62): every lyric consumer runs on its pushes (epoch-ms base)
 // lifetime: NOT-WORTH — one for the app's life, plain state (no timer, no listener)
 const songClock = require('./song-clock').createSongClock({ now: () => Date.now(), log: (m) => console.log(m) })
+// the song report (song-report.js): one journal entry per song shown in a lyric view, at its end; the per-line
+// draw lines only with the developer log (Sung notes, a Development build)
+// lifetime: OK — one keeper for the app's life; its one-shot timer is flushed at quit
+const songReport = require('./song-report').createSongReport({
+  log: (m) => console.log(m),
+  clock: () => songClock.corrections(),
+  devLog: () => !!settings.sungNotesLog && updateFeed.isDevVersion(app.getVersion())
+})
 const alignSessionLib = require('./align-session')
 const alignHelperLib = require('./align-helper')
 const gameGuardLib = require('./game-guard')
@@ -682,7 +690,7 @@ function getAlignHelper() {
   // warm: while a lyric view (lyrics window, Studio, visualizer) is open the idle helper stays 10 min, else 2 (align-helper.js)
   // want: a notes job also asks for the measured expression while Expressive words is on (when the helper serves it)
   // cpu: a processor-only helper runs below playback with cores left free, and quits sooner (align-helper.js HELPER_NICE)
-  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, cpu: alignCpuOnly, want: () => (expressiveOn() ? ['expr'] : []), onResult: (msg) => helperSpeed.record(msg && msg.stats), log: (m) => console.log('align:', m) })
+  if (!alignHelper) alignHelper = alignHelperLib.createAlignHelper({ paths: alignPaths, warm: () => lyricViews().length > 0, cpu: alignCpuOnly, want: () => (expressiveOn() ? ['expr'] : []), onResult: (msg) => helperSpeed.record(msg && msg.stats), onFail: (e, kind) => { if (!(e && /^(cancelled|dropped|paused)$/.test(e.code || ''))) songReport.helper(e && /timed out/.test(e.message || '') ? 'timeout' : kind === 'stream' ? 'stream' : 'failure') }, log: (m) => console.log('align:', m) })
   return alignHelper
 }
 // Processor only (0.15.59): the helper's last pong ran on the CPU, or (before one) the installed build is the CPU one.
@@ -712,7 +720,15 @@ function getAlignSession() {
       // look-ahead runs: the next song's stream goes to the helper before the last song's whole-song pass
       streamFirst: () => lookaheadRuns(),
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
-      send: sendLyrics,
+      send: (channel, msg) => {
+        // look-ahead's streamed words: when each line's words came, for the song report's lead
+        if (channel === 'lyrics-stream' && msg && msg.lines && typeof msg.lines === 'object') {
+          // loop: NOT-WORTH — one message's lines (one or two per hop)
+          const got = Object.entries(msg.lines).map(([k, l]) => ({ i: Number(k), start: l && Array.isArray(l.words) && l.words[0] && l.words[0].index === 0 ? l.words[0].t : undefined }))
+          songReport.arrived(msg.key, 'words', got, songClock.time())
+        }
+        sendLyrics(channel, msg)
+      },
       now: () => performance.now(),
       log: (m) => console.log('align:', m),
       engine: alignEngineVersion(),
@@ -960,6 +976,7 @@ function notesRefineDue(title, artist, hash) {
   const due = notesRefine.refineDue(e)
   if (!due || (alignSession && alignSession.waiting)) return false
   refining = { id: title + '|' + artist, below: due.below.length, status: notesRefine.statusText(notesRefine.quality(e), true) }
+  songReport.mark(refining.id, 'refine play')
   const id = refining.id + '|' + due.play
   if (refineLogged !== id) { refineLogged = id; console.log('align: ' + notesRefine.logStart(title, due)) }
   return true
@@ -1142,6 +1159,14 @@ function firstPlaySection(s, part, sec) {
   if (sec.stream) firstPlay.streamed.add(sec.from); else firstPlay.streamed.delete(sec.from)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
+  // the song report: when this section's notes and expression came (master clock), per line
+  const at = songClock.time()
+  const secLines = []
+  // loop: NOT-WORTH — a section's lines (≤ ~20), once per section
+  for (let i = sec.from; i <= (sec.stream ? sec.from : sec.to); i++) secLines.push(i)
+  if (part.notes.length) songReport.arrived(s.key, 'notes', secLines, at)
+  // loop: NOT-WORTH — the section's expr words (≤ ~60), once per section
+  if (part.expr && Array.isArray(part.expr.words)) songReport.arrived(s.key, 'expr', [...new Set(part.expr.words.map((w) => w && w.line))], at)
   // Expressive words: the section's expression, merged (each line comes from one section); a refine play of a learned
   // song keeps drawing its learned expression (the refined lines arrive with the merge, sheetNotesDone)
   const learned = !!(refining && refining.id === s.title + '|' + s.artist)
@@ -1258,6 +1283,19 @@ function lookaheadStatusText() {
   const st = alignSession ? alignSession.streamState : ''
   if (lookahead.phase === 'on' && lookahead.song.ms > 0 && /^failed/.test(st)) return Math.round(lookahead.song.ms / 100) / 10 + ' s behind, but timed in sections: ' + st.replace(/^failed: /, '')
   return lookahead.status()
+}
+// the song report's look-ahead: "3 s (cuda)" while this song is delayed, else 'off'
+function lookaheadText() {
+  if (!lookahead || lookahead.phase !== 'on' || !(lookahead.song.ms > 0)) return 'off'
+  return Math.round(lookahead.song.ms / 100) / 10 + ' s (' + (alignRunDevice || 'cpu') + ')'
+}
+// the song report's play kind: what the song had learned when it started
+function playKind(title, artist) {
+  if (!sheetNotesOn() && !expressiveOn()) return 'notes off'
+  let e = null
+  // error: NOT-WORTH — a store read that throws: reported as a first play
+  try { e = getSheetStore().get(title, artist) } catch (err) {}
+  return !e || !Array.isArray(e.notes) ? 'first play' : e.partial ? 'first play (continued)' : 'learned'
 }
 // the views' note while look-ahead delays this song: "Getting ready" while the line fills, then how far behind
 function lookaheadNote() {
@@ -1569,6 +1607,9 @@ async function lyricsTick() {
     if (expr) data.expr = expr
     sendLyrics('lyrics-data', data)
     exprNoteSent = ''   // the view laid the song out anew: its Expressive words line again (sendExprNote below)
+    // loop: NOT-WORTH — the song's lines, once per song laid out
+    if (lines.length && lines[0].t != null) songReport.begin({ key, id: state.title + '|' + state.artist, title: state.title, version: app.getVersion(), engine: installedEngineVersion(), kind: playKind(state.title, state.artist), lookahead: lookaheadText(), starts: lines.map((l) => (l && Number.isFinite(l.t) ? l.t : null)) })
+    else if (songReport.key && songReport.key !== key) songReport.end()
     if (precise) ensureNotesModel()
     setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)
     if (precise) logNotesPlan(key, state.title, state.artist, plain ? prep.lines : base)
@@ -1599,6 +1640,12 @@ async function lyricsTick() {
   songClock.setSong(key, state.duration)
   const clockNow = Date.now() - readAt < 1000 ? songClock.push(heard.playbackTime, heard.isPlaying, key, readAt, { repeatOne: state.repeat === 1, coarse: Number.isInteger(state.playbackTime) }) : null
   if (clockNow) sendLyrics('lyrics-time', clockNow)
+  if (songReport.key === key) {
+    const heardT = songClock.time()
+    songReport.heard(key, heardT)
+    songReport.setLookahead(key, lookaheadText())
+    if (state.duration > 0 && heardT >= state.duration - 1) songReport.end()   // played to its end: the report now
+  }
   if (stageShowing()) stageTick(heard, key)
   if (lookahead) lookahead.tick().then(sendAlignNote, () => {})   // error: NOT-WORTH — tick() never rejects (a failed stat is logged inside)
   // the refiner and the recorder hear the player's own stream: on the song clock (rebased to their
@@ -2173,6 +2220,7 @@ ipcMain.on('lyrics-command', (event, command, value) => {
     ]).popup({ window: lyricsWindow })
   }
   else if (command === 'expressive') showPanel('settings', 'timing')   // the Expressive words line's Install / Show
+  else if (command === 'draws') { if (lyricsWindow && !lyricsWindow.isDestroyed() && event.sender === lyricsWindow.webContents) songReport.drawn(value) }   // the song report's draw side (checked: song-report.js cleanRows)
   else if (command === 'seek') {
     const seconds = Math.max(0, Number(value) || 0)
     if (!lookahead || lookahead.phase !== 'on') songClock.seek(seconds)   // the master knows at once (stale pushes dropped)
@@ -5271,6 +5319,8 @@ app.whenReady().then(async () => {
   // lifetime: NOT-WORTH — registered once, for the app's life
   app.on('before-quit', () => {
     shuttingDown = true   // the helper job's marker stays: it continues at the next start
+    songReport.end()
+    songReport.flush()   // the song playing at quit: its report so far
     gfx.stop()
     stopDesktopScheme()
     if (shortcuts) shortcuts.stop()
