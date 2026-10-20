@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.69-dev.1",
-  "file": "sonata-0.15.69-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.69-dev.1/sonata-0.15.69-dev.1-x86_64.AppImage",
-  "sha512": "3676929d7670372302f5d2ae05b64d267c2e78600b88122b73fe6ae70b7fd9706bd1a5860d097fda14de1737b5a417119c14d4626f8b125494f483270ccb8d64",
-  "size": 127578441,
-  "date": "2026-10-20T01:29:56Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.69-dev.1",
-  "notes": "### Fixed\n- **Sonata starts again.** 0.15.68 quit right after starting (a startup step ran before the part it needs was loaded), so Restart after the update seemed to do nothing. A new check now stops a build like that from shipping.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.69-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.70-dev.1",
+  "file": "sonata-0.15.70-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.70-dev.1/sonata-0.15.70-dev.1-x86_64.AppImage",
+  "sha512": "d8a2a7c9e77f566ae13a7d891de13ca7c676c70d31ed6b4f7abdee531e1df3877a2966e298c79986d16fd737a1e7577e0c98ebf4640ad23061a682aa184714b0",
+  "size": 127582628,
+  "date": "2026-10-20T02:01:12Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.70-dev.1",
+  "notes": "### Fixed\n- **First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive.** A song with Apple's own word timing but no notes yet is now a first play for look-ahead (it plays 3 s behind, and each line's notes and Expressive words arrive before you hear it); before, such songs were never delayed. Look-ahead also starts once the timing helper's update finishes (it stayed off for the whole run when the helper needed an update at start). The Studio's band shows the first play's notes with a wider view of what was just heard, so a part that arrived is on the band at once, and \"Listening and learning\" goes off where notes are.\n- **Expressive words by the second play.** A song left before its end (skipped in its outro, or the next song started early) now keeps the notes and expression of the parts that were heard, so its next play shows them from the start and learns the rest; before, nothing was kept and expression often came only on the third play.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.70-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
