@@ -80,9 +80,11 @@ function learnState(lyrics, aligned, canAlign, hasWords, notesMissing) {
 
 /**
  * The delay for a song, decided once at its start (never mid-song): first plays only.
- * s: { on, ok (helper running, stream routed), video, viewOpen (a lyric view: lyrics window, Studio,
- * visualizer), learn (learnState), engine ('ready' | 'old' | 'cpu' | 'off' | 'unknown' | 'busy'),
- * gpuBusy (a game or other work on the graphics card), ms (the chosen delay) }
+ * s: { on, ok (helper running, stream routed), video, learn (learnState), engine ('ready' | 'old' | 'cpu' | 'off' |
+ * 'unknown' | 'busy'), gpuBusy (the gaming guard's pause: 'game' | 'gpu' (other work on the graphics card) | false),
+ * ms (the chosen delay) }
+ * 0.15.70 (Marcy): every song not learned yet gets it, with or without a lyrics window or the Studio open (the
+ * song is learned either way: main's feed runs while look-ahead does); only real reasons say no.
  * -> { ms, why }   why says what the status line tells
  */
 function decide(s) {
@@ -91,8 +93,7 @@ function decide(s) {
   if (s.video) return { ms: 0, why: 'video' }
   if (s.learn === 'learned') return { ms: 0, why: 'learned' }
   if (s.learn === 'nothing') return { ms: 0, why: 'nothing' }
-  if (!s.viewOpen) return { ms: 0, why: 'no-view' }
-  if (s.gpuBusy) return { ms: 0, why: 'gpu-busy' }
+  if (s.gpuBusy) return { ms: 0, why: s.gpuBusy === 'game' ? 'gaming' : 'gpu-busy' }
   if (s.engine !== 'ready') return { ms: 0, why: 'engine-' + (s.engine || 'unknown') }
   return { ms: s.ms, why: s.learn === 'unknown' ? 'first' : s.learn }
 }
@@ -114,8 +115,10 @@ const WHY_TEXT = {
   learned: 'No delay: this song is learned',
   nothing: 'No delay: nothing to learn in this song',
   video: 'No delay: music videos are never delayed',
-  'no-view': 'No delay: no lyrics window is open',
-  'gpu-busy': 'No delay: graphics card busy (section timing instead)',
+  gaming: 'No delay: a game is running (Precise timing paused)',
+  'gpu-busy': 'No delay: the graphics card is busy (Precise timing paused)',
+  updating: 'No delay: the timing helper is being updated',
+  'needs-precise': 'No delay: needs Precise word timing on',
   'engine-cpu': 'No delay: needs a graphics card (section timing instead)',
   'engine-old': 'No delay: the timing helper needs an update',
   'engine-off': 'No delay: needs Precise word timing on',

@@ -32,19 +32,21 @@ test('decide: music videos are never delayed', () => {
   assert.deepEqual(LA.decide(Object.assign({}, base, { video: true, learn: 'unknown' })), { ms: 0, why: 'video' })
 })
 
-test('decide: no GPU, a busy GPU, an old or stopped engine, no view, switch off: no delay, and why', () => {
-  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: true })).why, 'gpu-busy')
+test('decide: no GPU, a busy GPU, a game, an old or stopped engine, switch off: no delay, and why', () => {
+  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: 'gpu' })).why, 'gpu-busy')
+  assert.equal(LA.decide(Object.assign({}, base, { gpuBusy: 'game' })).why, 'gaming')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'cpu' })).why, 'engine-cpu')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'old' })).why, 'engine-old')
   assert.equal(LA.decide(Object.assign({}, base, { engine: 'off' })).why, 'engine-off')
-  assert.equal(LA.decide(Object.assign({}, base, { viewOpen: false })).why, 'no-view')
+  // 0.15.70: no lyric view open is no reason (the song is learned without one)
+  assert.equal(LA.decide(Object.assign({}, base, { viewOpen: false })).ms, MS)
   assert.equal(LA.decide(Object.assign({}, base, { on: false })).why, 'off')
   assert.equal(LA.decide(Object.assign({}, base, { ok: false })).why, 'unavailable')
   // every refusal is 0 ms
-  for (const k of [{ gpuBusy: true }, { engine: 'cpu' }, { viewOpen: false }, { on: false }]) assert.equal(LA.decide(Object.assign({}, base, k)).ms, 0)
+  for (const k of [{ gpuBusy: 'gpu' }, { gpuBusy: 'game' }, { engine: 'cpu' }, { on: false }]) assert.equal(LA.decide(Object.assign({}, base, k)).ms, 0)
   // a status line for each, the first play's naming its delay
   assert.equal(LA.statusText('first', 3000), 'This song plays 3 s behind: its first play')
-  for (const why of ['learned', 'nothing', 'video', 'no-view', 'gpu-busy', 'engine-cpu', 'engine-old', 'engine-off']) {
+  for (const why of ['learned', 'nothing', 'video', 'gaming', 'gpu-busy', 'engine-cpu', 'engine-old', 'engine-off', 'engine-unknown', 'updating', 'needs-precise']) {
     const t = LA.statusText(why, 0)
     assert.ok(t && t.length <= 60, why + ': ' + t)   // the visible line's limit (the ⓘ rule)
   }
@@ -96,7 +98,7 @@ test('learnState + decide (0.15.70): a song is learned only with its notes and e
   }
   assert.deepEqual(LA.decide(Object.assign({}, base, { learn: 'notes' })), { ms: LA.DELAYS.precise, why: 'notes' })
   // the delay still needs the GPU free and the engine ready
-  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', gpuBusy: true })).ms, 0)
+  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', gpuBusy: 'gpu' })).ms, 0)
   assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', engine: 'cpu' })).ms, 0)
   const t = LA.statusText('notes', 3000)
   assert.equal(t, 'This song plays 3 s behind: learning its notes')
@@ -597,4 +599,34 @@ test('controller (QC #9): a quick off and on starts again once the old helper ex
   assert.equal(w.la.phase, 'on', 'running again with the switch on')
   assert.equal(w.children.filter((c) => c.bin === '/app/sonata-lookahead').length, 2)   // loop: NOT-WORTH — a test
   w.la.stop()
+})
+
+// Marcy (2026-10-19): every song not learned yet gets look-ahead; a view open or not never decides it
+test('decide: the table: view open/closed x learned/unlearned x helper ready/not x graphics card busy', () => {
+  const learns = { first: MS, notes: MS, unknown: MS, learned: 0, nothing: 0 }
+  // loop: NOT-WORTH — a test's 5 x 2 x 4 x 3 cases
+  for (const learn of Object.keys(learns)) {
+    for (const viewOpen of [true, false]) {
+      for (const engine of ['ready', 'unknown', 'old', 'cpu']) {
+        for (const gpuBusy of [false, 'gpu', 'game']) {
+          const d = LA.decide(Object.assign({}, base, { learn, viewOpen, engine, gpuBusy }))
+          const plain = learns[learn] === 0
+          const want = plain ? { ms: 0, why: learn } : gpuBusy ? { ms: 0, why: gpuBusy === 'game' ? 'gaming' : 'gpu-busy' }
+            : engine !== 'ready' ? { ms: 0, why: 'engine-' + engine } : { ms: MS, why: learn === 'unknown' ? 'first' : learn }
+          assert.deepEqual(d, want, JSON.stringify({ learn, viewOpen, engine, gpuBusy }))
+          assert.ok(d.ms || plain || LA.statusText(d.why, 0), 'a refusal says why')
+        }
+      }
+    }
+  }
+})
+
+test('main (0.15.70): look-ahead learns with no view open; the status says why it is off; helper ready re-asks', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.doesNotMatch(main, /viewOpen: lyricViews\(\)/)
+  assert.match(main, /function lyricsFeedWanted\(\) \{ return lyricViews\(\)\.length > 0 \|\| lookaheadRuns\(\) \}/)
+  assert.match(main, /if \(lookaheadWanted\(\) && preciseTimingOn\(\) && !lookaheadPong\) askAlignStatus\(\)/)
+  assert.match(main, /statusText\(helperJob \? 'updating' : !preciseTimingOn\(\) \? 'needs-precise' : 'off', 0\)/)
+  const after = main.slice(main.indexOf('function helperAfter('), main.indexOf('function helperStart('))
+  assert.ok(after.indexOf('lookaheadPong = null') >= 0 && after.indexOf('lookaheadPong = null') < after.indexOf('applyLookahead()'))
 })

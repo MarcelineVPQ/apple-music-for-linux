@@ -1049,7 +1049,8 @@ function firstPlayOf(key, hash) { return firstPlay && firstPlay.key === key && f
 function sectionNotesWanted() {
   // alignSlow (0.15.65, helper-speed.js): processor only, unless the helper has shown it keeps up with the music
   if (!getNotesSwitch().wanted() || alignSlow() || !alignHelper || !alignHelper.serves('section-notes')) return false
-  return (expressiveOn() && lyricViews().length > 0) || (sheetNotesOn() && stageShowing())
+  // look-ahead on: every song not learned yet is learned as it plays, with or without a view (lookaheadDecide)
+  return (expressiveOn() && (lyricViews().length > 0 || lookaheadRuns())) || (sheetNotesOn() && (stageShowing() || lookaheadRuns()))
 }
 function firstPlaySection(s, part, sec) {
   if (!part || !Array.isArray(part.notes)) return
@@ -1137,6 +1138,8 @@ const LEARNS_AFTER_NOTE = 'Precise timing after this song, to keep playback smoo
 // Settings' line under the switch: what the song playing now got; a delayed song whose stream the helper
 // refused says its timing comes in sections
 function lookaheadStatusText() {
+  // the switch on but the helper not running: why (an update or install of the timing helper, Precise timing off)
+  if (settings.lookahead && !lookaheadWanted()) return lookaheadLib.statusText(helperJob ? 'updating' : !preciseTimingOn() ? 'needs-precise' : 'off', 0)
   if (!lookahead) return ''
   const st = alignSession ? alignSession.streamState : ''
   if (lookahead.phase === 'on' && lookahead.song.ms > 0 && /^failed/.test(st)) return Math.round(lookahead.song.ms / 100) / 10 + ' s behind, but timed in sections: ' + st.replace(/^failed: /, '')
@@ -1249,8 +1252,8 @@ function lookaheadDecide(item) {
   const streamsNotes = !!(lookaheadPong && Array.isArray(lookaheadPong.features) && lookaheadPong.features.includes('stream-notes'))
   const learn = lookaheadLib.learnState(lyr, aligned, alignSessionLib.canAlign, lyricsTiming.hasWordTiming, needsNotes && streamsNotes)
   const d = lookaheadLib.decide({
-    on: true, ok: true, video: !!item.video, viewOpen: lyricViews().length > 0, learn,
-    engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused(),
+    on: true, ok: true, video: !!item.video, learn,
+    engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused() ? (gameGuard.state && gameGuard.state.reason === 'gpu' ? 'gpu' : 'game') : false,
     ms: lookaheadLib.delayOf(settings.lookaheadDelay)
   })
   console.log('look-ahead: "' + item.title + '": ' + (d.ms && d.why === 'notes' ? 'first play delayed ' + d.ms / 1000 + ' s (needs notes/expression)' : d.ms ? d.ms + ' ms (' + d.why + ')' : 'no delay (' + d.why + ')'))
@@ -1291,13 +1294,17 @@ function applyLookahead() {
     lookaheadAskEngine()
     getLookahead().start()
     injectLookahead()
-  } else if (lookahead) lookahead.stop()
+    startLyricsFeed()   // the songs are learned with or without a lyric view (lyricsFeedWanted)
+  } else {
+    if (lookahead) lookahead.stop()
+    stopLyricsFeedIfIdle()
+  }
 }
 // whether the engine can stream is in its pong: asked once when look-ahead starts or a lyric view opens
 // (the helper starts then anyway for Precise word timing), never per song
 function lookaheadAskEngine() {
   // error: NOT-WORTH — askAlignStatus catches inside (the helper's error is Settings' status line)
-  if (lookaheadWanted() && preciseTimingOn() && !lookaheadPong && lyricViews().length) askAlignStatus()
+  if (lookaheadWanted() && preciseTimingOn() && !lookaheadPong) askAlignStatus()
 }
 // the views' clock: the heard (delayed) position while look-ahead runs, else the player's own
 function heardState(state) {
@@ -1326,17 +1333,24 @@ function sendLyrics(channel, ...args) {
   for (const w of lyricViews()) w.webContents.send(channel, ...args)
 }
 // a view joined (its page just loaded): resend the song and the art on the next tick
+// the lyrics feed runs while a lyric view is open, or while look-ahead runs (it learns songs with no view open:
+// the recorder and the stream need the song and its clock; nothing is sent while no view exists)
+function lyricsFeedWanted() { return lyricViews().length > 0 || lookaheadRuns() }
+// look-ahead's helper is running or starting (no file checks: called per tick)
+function lookaheadRuns() { return !!(lookahead && (lookahead.phase === 'on' || lookahead.phase === 'starting')) }
 function startLyricsFeed() {
   lyricsKey = null
   lyricsArt = null
   vizArt = null
-  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
+  // loop: HOT-PATH-OK — lyrics now-playing poll · 500 ms · runs while the lyrics window or the visualizer exists (also when minimized or paused), or while look-ahead runs (0.15.70: it learns songs with no view open; nothing is sent then) · stops when the last of them closes (stopLyricsFeedIfIdle; and main 'close') · cost 2 executeJavaScript/s + 1 IPC send per view per tick; one lyrics lookup per track change (cached, see lyrics-sources.js). One poll for both views (the visualizer had its own 300 ms poll before 0.15.22).
   if (!lyricsPoll) lyricsPoll = setInterval(lyricsTick, 500)
   if (alignHelper) alignHelper.viewsChanged()   // an idle helper now keeps the longer limit
   lookaheadAskEngine()
 }
 function stopLyricsFeedIfIdle() {
   if (lyricViews().length) return
+  // the last view closed with look-ahead on: the feed goes on for it; listening (Level 1) is for the views only
+  if (lyricsFeedWanted()) { if (listenSession) listenSession.stop(); return }
   clearInterval(lyricsPoll)
   lyricsPoll = null
   lyricsRetry = null
@@ -1347,12 +1361,12 @@ function stopLyricsFeedIfIdle() {
 
 // error: NOT-WORTH — a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer
 async function lyricsTick() {
-  if (!mainAlive() || !lyricViews().length) return
+  if (!mainAlive() || !lyricsFeedWanted()) return
   let state
   try {
     state = await appleWC().executeJavaScript(nowPlayingScript)
   } catch (e) { return }
-  if (!state || !state.ok || !lyricViews().length) return
+  if (!state || !state.ok || !lyricsFeedWanted()) return
   const sampledAt = Date.now()   // when state.playbackTime was read (a lyrics lookup below may take a while)
 
   // one recording (title|artist plus its ISRC, else its length): a live cut titled like the studio one is a new song
@@ -1479,7 +1493,7 @@ async function lyricsTick() {
   // they wait too: the new song's opening is never recorded at the old position)
   const master = heard.playerTime || songClock.holding ? null : songClock.snapshot()
   const playerClock = heard.playerTime ? null : master ? require('./song-clock').localize(master, Date.now(), performance.now()) : { anchor: null, playing: false }
-  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine, playerClock)
+  if (listenSession) listenSession.tick(state.playbackTime, state.isPlaying, !!settings.lyricsListenRefine && lyricViews().length > 0, playerClock)
   if (alignSession) alignSession.tick(state.playbackTime, state.isPlaying, preciseTimingOn(), playerClock)
   alignGuardTick()
   vizAudioTick(state.isPlaying)
@@ -3562,6 +3576,7 @@ function helperAfter(kind, job) {
   alignStatusText = ''
   aboutCache = null
   alignInstalled(true)
+  lookaheadPong = null   // the new engine answers its own pong: whether it streams is asked again (lookaheadAskEngine)
   // 0.15.70: a helper that needed its update at start kept look-ahead off for the whole run (lookaheadWanted needs
   // the helper installed); now it starts (or stops) with the helper's new state
   applyLookahead()

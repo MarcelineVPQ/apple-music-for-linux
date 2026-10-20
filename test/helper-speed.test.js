@@ -52,3 +52,15 @@ test('speed: another build or device starts the measurement over; only the last 
   for (let i = 0; i < 10; i++) sp.record(job(10, 240))
   assert.equal(sp.state().ratios.length, S.KEEP)
 })
+
+test('speed: a graphics card\'s helper (CUDA) logs no processor decision', () => {
+  const logs = []
+  const sp = S.createHelperSpeed({ log: (m) => logs.push(m) })
+  sp.learnPong({ type: 'pong', device: 'cuda', backend: 'torch', gpu: 'NVIDIA GeForce RTX 4070' })
+  sp.record(job(30, 240))
+  sp.fast()
+  assert.deepEqual(logs, [])
+  sp.learnPong(pong('CPU'))                           // OpenVINO on the processor: its decision is logged
+  sp.record(job(300, 240))
+  assert.match(logs.join('\n'), /on the processor → first plays timed after the song/)
+})

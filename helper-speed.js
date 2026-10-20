@@ -33,12 +33,14 @@ function createHelperSpeed(opts = {}) {
   let key = ''
   let ratios = []
   let gpu = false
+  let decides = false   // the decision applies to this helper (OpenVINO or the processor), not to a CUDA/ROCm/XPU one
   let last = null       // the last decision logged
   function learnPong(pong) {
     const p = pong || {}
     const ov = p.backend === 'openvino' && p.openvino && typeof p.openvino === 'object' ? p.openvino : null
     const k = String(p.backend || '') + '/' + String(p.device || '') + '/' + (ov ? String(ov.device || '') : '')
     gpu = !!(ov && ov.device === 'GPU')
+    decides = !!ov || String(p.device || '') === 'cpu'
     if (k !== key) { key = k; ratios = []; last = null }
   }
   function median() {
@@ -51,7 +53,9 @@ function createHelperSpeed(opts = {}) {
   function fast() {
     const m = median()
     const yes = gpu && m != null && m < FAST_BELOW
-    if (yes !== last && (m != null || last != null)) {
+    // logged only for a helper it decides for: a graphics card's helper does section work anyway (QC 2026-10:
+    // "on the processor → first plays timed after the song" was printed on a CUDA helper)
+    if (decides && yes !== last && (m != null || last != null)) {
       last = yes
       log('helper speed: ' + (m == null ? 'not measured' : m.toFixed(2) + ' s of work per s of audio (median of ' + ratios.length + ')') +
         (gpu ? ' on Intel graphics' : ' on the processor') + ' → first plays ' + (yes ? 'section by section while they play' : 'timed after the song'))
