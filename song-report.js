@@ -90,8 +90,12 @@ function clockText(c) {
   if (!c || !c.n) return 'clock: no corrections'
   // loop: NOT-WORTH — at most 4 causes
   const by = Object.keys(c.causes || {}).sort((a, b) => c.causes[b] - c.causes[a]).map((k) => c.causes[k] + ' ' + k).join(', ')
-  return 'clock: ' + c.n + ' correction' + (c.n === 1 ? '' : 's') + ' (max ' + c.max + ' ms' + (by ? '; ' + by : '') + ')'
+  // when each came (song time, signed ms: + the player ahead of the words): at a song's start, or spread through it
+  // loop: NOT-WORTH — at most AT_MAX (20) corrections, once per song
+  const at = Array.isArray(c.at) && c.at.length ? ' · at ' + c.at.map(([s, ms]) => fmtAt(s) + ' ' + (ms > 0 ? '+' : '') + ms).join(', ') : ''
+  return 'clock: ' + c.n + ' correction' + (c.n === 1 ? '' : 's') + ' (max ' + c.max + ' ms' + (by ? '; ' + by : '') + ')' + at
 }
+const fmtAt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + '.' + Math.floor((s * 10) % 10)
 
 function helperText(h) {
   const parts = []

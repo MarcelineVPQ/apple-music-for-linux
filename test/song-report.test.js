@@ -97,3 +97,8 @@ test('the draw side is wired: the view reports each line lit, the window batches
   assert.match(read('lyrics.html'), /ipcRenderer\.send\('lyrics-command', 'draws', \{ key: drawKey, rows: drawRows \}\)/)
   assert.match(read('main.js'), /command === 'draws'\) \{ if \(lyricsWindow && !lyricsWindow\.isDestroyed\(\) && event\.sender === lyricsWindow\.webContents\) songReport\.drawn\(value\)/)
 })
+
+test('song report: each clock correction\'s song time, so a play shows whether they come at its start', () => {
+  assert.equal(R.clockText({ n: 2, max: 1043, causes: { 'player ahead': 1, 'seek or stall': 1 }, at: [[0.4, 1043, 'seek or stall'], [65.2, -120, 'player behind']] }),
+    'clock: 2 corrections (max 1043 ms; 1 player ahead, 1 seek or stall) · at 0:00.4 +1043, 1:05.2 -120')
+})

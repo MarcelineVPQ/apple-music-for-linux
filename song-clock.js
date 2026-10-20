@@ -89,9 +89,11 @@ function localize(st, masterNowMs, localNowMs) {
   return Object.assign({}, st, { at: st.at - masterNowMs + localNowMs, seekAt: undefined })
 }
 
-const newTally = () => ({ n: 0, max: 0, maxCause: '', causes: {} })
-function count(t, off, cause) {
+const newTally = () => ({ n: 0, max: 0, maxCause: '', causes: {}, at: [] })
+const AT_MAX = 20   // corrections a song keeps with their song time (the song report lists when each came)
+function count(t, off, cause, songT) {
   const ms = Math.round(Math.abs(off) * 1000)
+  if (t.at && t.at.length < AT_MAX && Number.isFinite(songT)) t.at.push([Math.round(songT * 10) / 10, Math.round(off * 1000), cause])
   t.n++
   t.causes[cause] = (t.causes[cause] || 0) + 1
   if (ms > t.max) { t.max = ms; t.maxCause = cause }
@@ -240,7 +242,7 @@ function createSongClock(opts = {}) {
         const cause = stepped ? (gateDone ? 'new song' : 'seek or stall') : off < 0 ? 'player behind' : 'player ahead'
         if (!minute) minute = Object.assign(newTally(), { since: n })
         count(minute, off, cause)
-        count(song, off, cause)
+        count(song, off, cause, shown)
       }
       gateDone = false
       clock = next
@@ -255,8 +257,8 @@ function createSongClock(opts = {}) {
     },
     snapshot,
     get holding() { return boundaryAt != null },
-    /** This song's corrections: { n, max (ms), causes: { cause: n } } (a copy). */
-    corrections() { return { n: song.n, max: song.max, causes: Object.assign({}, song.causes) } },
+    /** This song's corrections: { n, max (ms), causes: { cause: n }, at: [[song s, signed ms, cause]] (the first AT_MAX) } (a copy). */
+    corrections() { return { n: song.n, max: song.max, causes: Object.assign({}, song.causes), at: song.at.slice() } },
     time() { return clock ? T.clockTime(clock, now()) : 0 },
     get epoch() { return epoch }
   }

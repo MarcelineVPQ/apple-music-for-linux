@@ -152,6 +152,10 @@ test('corrections over 100 ms are counted: one line a minute with the count, the
   assert.equal(c.n, 3)
   assert.ok(c.max >= 30000)
   assert.deepEqual(c.causes, { 'player behind': 2, 'seek or stall': 1 })
+  // when each came (song time, signed ms: - the player behind the words), for the song report
+  assert.equal(c.at.length, 3)
+  assert.deepEqual(c.at.slice(0, 2).map(([, ms, cause]) => [Math.sign(ms), cause]), [[-1, 'player behind'], [-1, 'player behind']])
+  assert.ok(c.at[0][0] > 2 && c.at[0][0] < 3, 'its song time: ' + c.at[0][0])
   clock.setSong('next', 200)
   assert.equal(clock.corrections().n, 0, 'a new song starts its own count')
 })
