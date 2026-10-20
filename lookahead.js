@@ -230,8 +230,10 @@ function cleanEvent(m) {
 // --- the helper's control line ---
 
 /**
- * One connection to the helper's control socket. Replies come in order; "ev" lines go to onEvent.
- * deps: { net } -> { ready (Promise), cmd(line) -> Promise<fields>, onEvent(fn), onClose(fn), close() }
+ * One connection to the helper's control socket. Replies come in order, one per command; "ev" lines go to onEvent.
+ * A command whose reply is late (REPLY_MS) is rejected but keeps its place in the queue, so its late reply is
+ * dropped instead of answering the next command (QC 2026-10 #3: a stat taking an open's "ok t=").
+ * deps: { net, replyMs? } -> { ready (Promise), cmd(line) -> Promise<fields>, onEvent(fn), onClose(fn), close() }
  * lifetime: OK — one socket; closed by close() or by the helper's exit (then onClose)
  */
 function createDelayLine(socketPath, deps) {
@@ -260,7 +262,7 @@ function createDelayLine(socketPath, deps) {
       buf = buf.slice(nl + 1)
       const f = parseLine(line)
       if (f.kind === 'ev') evFn(f)
-      else { const w = waiting.shift(); if (w) { clearTimeout(w.timer); w.resolve(f) } }
+      else { const w = waiting.shift(); if (w && !w.late) { clearTimeout(w.timer); w.resolve(f) } }
     }
   })
   // error: NOT-WORTH — a socket error ends the line; its 'close' follows and the controller falls back (shown)
@@ -269,7 +271,7 @@ function createDelayLine(socketPath, deps) {
   sock.on('close', () => {
     closed = true
     // loop: NOT-WORTH — the commands still waiting (≤ a few)
-    for (const w of waiting.splice(0)) { clearTimeout(w.timer); w.reject(new Error('helper gone')) }
+    for (const w of waiting.splice(0)) { clearTimeout(w.timer); if (!w.late) w.reject(new Error('helper gone')) }
     closeFn()
   })
   return {
@@ -278,7 +280,8 @@ function createDelayLine(socketPath, deps) {
       if (closed) return Promise.reject(new Error('helper gone'))
       return new Promise((resolve, reject) => {
         // lifetime: OK — one-shot reply timeout, cleared by the reply or the close
-        const w = { resolve, reject, timer: setTimeout(() => { const i = waiting.indexOf(w); if (i >= 0) waiting.splice(i, 1); reject(new Error('no reply to ' + line)) }, REPLY_MS) }
+        // a late reply still comes in order: the slot stays (late) and drops it when it lands
+        const w = { resolve, reject, late: false, timer: setTimeout(() => { w.late = true; reject(new Error('no reply to ' + line)) }, deps.replyMs || REPLY_MS) }
         waiting.push(w)
         sock.write(line + '\n')
       })

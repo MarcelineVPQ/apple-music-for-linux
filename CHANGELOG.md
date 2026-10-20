@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+- **Look-ahead: the heard delay no longer drops out after a slow moment.** When the timing helper answered a command late (Sonata busy for over 2 s), every later answer was taken as the reply to the command after its own, so the lyrics and the notes band jumped by the delay and back at each pause, seek or skip until the helper restarted. A late answer is now dropped; the same for the Precise timing helper's status answers.
+
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 
 ### Fixed

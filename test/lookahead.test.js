@@ -556,3 +556,23 @@ test('the helper\'s own gate timeout is a backstop of at most 300 ms (never a si
   const ms = Number((/#define GATE_TIMEOUT_MS (\d+)/.exec(src) || [])[1])
   assert.ok(ms > 0 && ms <= 300, String(ms))
 })
+
+test('delay line (QC #3): a late reply is dropped, never taken by the next command', async () => {
+  const sock = new EventEmitter()
+  const writes = []
+  sock.setEncoding = () => {}
+  sock.write = (s) => writes.push(s)
+  sock.end = () => sock.emit('close')
+  const line = LA.createDelayLine('/x.sock', { net: { createConnection: () => sock }, replyMs: 20 })
+  sock.emit('connect')
+  await line.ready
+  const open = line.cmd('open')
+  await assert.rejects(open, /no reply to open/)        // the helper stalls past the timeout
+  const stat = line.cmd('stat')
+  sock.emit('data', 'ok t=123\n')                        // open's late reply lands first
+  sock.emit('data', 'ok stat state=run heard_us=3021333\n')
+  const f = await stat
+  assert.equal(f.name, 'stat')
+  assert.equal(f.heard_us, 3021333)
+  line.close()
+})

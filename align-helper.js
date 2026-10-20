@@ -340,7 +340,7 @@ function createAlignHelper(opts, deps = {}) {
   let child = null
   // cache: OK — key=job id; invalidated=done/fail (result, error, timeout via touch, exit via gone); bound=jobs in flight (≤ ~3)
   let pending = new Map()     // id -> { resolve, reject, timer, ms }
-  let pings = []              // pong replies carry no id: answered in order
+  let pings = []              // pong replies carry no id: answered in order (a timed-out ping keeps its slot)
   let idle = null
   let crashes = 0
   let quitting = null         // the child we asked to quit
@@ -394,8 +394,11 @@ function createAlignHelper(opts, deps = {}) {
     if (idle && idle.unref) idle.unref()
   }
 
-  function onMessage(msg) {
+  function onMessage(msg, from) {
     if (msg.type === 'pong') {
+      // a pong from a helper already replaced belongs to none of this one's pings
+      if (from && from !== child) return
+      // in order: a timed-out ping keeps its place (done() then finds no job), so its late pong never answers the next one
       const id = pings.shift()
       if (id) done(id, msg)
     } else if (msg.type === 'stream' || msg.type === 'words' || msg.type === 'notes') {
@@ -438,7 +441,7 @@ function createAlignHelper(opts, deps = {}) {
     live.add(c)
     stderrTail = []
     c.stdout.setEncoding('utf8')
-    c.stdout.on('data', lineParser(onMessage, (line) => log('helper said: ' + line.slice(0, 200))))
+    c.stdout.on('data', lineParser((m) => onMessage(m, c), (line) => log('helper said: ' + line.slice(0, 200))))
     c.stderr.setEncoding('utf8')
     // stderr is the helper's log (warnings, tracebacks): keep the last lines for a crash report only
     // lifetime: OK — the stdout/stderr/stdin/child listeners die with the child
@@ -549,7 +552,9 @@ function createAlignHelper(opts, deps = {}) {
       const id = '__ping' + (++pingN)
       pings.push(id)
       // error: PASSES-ON — rethrown to askAlignStatus (main.js), which shows it in Settings
-      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
+      // a ping that failed while its helper still runs keeps its slot in `pings`: a late pong is dropped
+      // there, never given to the next ping (QC #3); with no helper (never sent, or exited) the slot goes
+      return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch((e) => { if (!child) pings = pings.filter((p) => p !== id); throw e }).then(checkProtocol)
         .then((pong) => { features = known = Array.isArray(pong.features) ? pong.features : []; return pong })
     },
     /** messages: iterable of protocol messages for job `id` (align-session.js alignMessages) */

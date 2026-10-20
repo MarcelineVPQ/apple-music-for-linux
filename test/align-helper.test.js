@@ -428,3 +428,33 @@ test('processor only: the idle helper (its models: ~3 GB) quits after the short 
   clock.advance(2000)
   await waitFor(() => !h.running, 3000)
 })
+
+test('pongs (QC #3): a timed-out ping\'s late pong is dropped, never taken as the next ping\'s answer', async () => {
+  const { EventEmitter } = require('events')
+  const timers = []
+  let c = null
+  const spawn = () => {
+    c = new EventEmitter()
+    c.pid = 0
+    c.stdout = new EventEmitter(); c.stdout.setEncoding = () => {}
+    c.stderr = new EventEmitter(); c.stderr.setEncoding = () => {}
+    c.stdin = new EventEmitter(); c.stdin.write = () => true
+    c.kill = () => {}                                     // the hung helper doesn't exit yet
+    return c
+  }
+  const h = H.createAlignHelper({ paths: FIXTURE, env: env(''), log: () => {} }, {
+    spawn, isInstalled: () => true, setPriority: () => {},
+    setTimeout: (fn, ms) => { const t = { fn, ms, unref () {} }; timers.push(t); return t },
+    clearTimeout: (t) => { if (t) t.cleared = true }
+  })
+  const pong = (features) => c.stdout.emit('data', JSON.stringify({ type: 'pong', protocol: 2, version: '0.2.0', device: 'cpu', models: {}, features }) + '\n')
+  const first = h.ping()
+  await new Promise((r) => setImmediate(r))
+  timers.filter((t) => !t.cleared && t.ms === 60000).forEach((t) => { t.cleared = true; t.fn() })   // loop: NOT-WORTH — a test
+  await assert.rejects(first, /timed out/)
+  const second = h.ping()
+  await new Promise((r) => setImmediate(r))
+  pong(['old'])                                           // the first ping's answer, late
+  pong(['new'])
+  assert.deepEqual((await second).features, ['new'])
+})
