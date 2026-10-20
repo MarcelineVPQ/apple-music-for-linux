@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Fixed
+- **Expressive words show on a song's first play with look-ahead.** A line's expression reached the lyrics only while that line was already being sung, and was then held back until the line had passed, so nothing showed. The line being sung now takes the expression of the words still to come, and with engine 0.2.8 each line's notes and expression arrive word by word, before the words are sung. The Studio's band fills in the same way.
+
 ## [0.15.71-dev.1] — Songs keep refining their notes and expressions until they're complete
 
 ### Added

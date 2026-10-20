@@ -832,17 +832,19 @@ function createLyricsView(opts) {
   }
 
   // First play (0.15.66; main.js firstPlaySection): the song's expression measured section by section while it
-  // plays ('lyrics-expr' { key, expr, final }), merged so far. Master clock rule (song-clock.js): nothing moves
-  // under the line being sung, so it is applied at line boundaries only (render, when the lit lines change; at
-  // once when none is lit), to every line not lit; a lit line takes it at the next boundary. `final` (the
-  // whole-song pass after the song, replacing the sections' results): only lines off screen are swapped, the
-  // rest at later boundaries once they are off screen, so nothing visible jumps.
+  // plays ('lyrics-expr' { key, expr, final }), merged so far. It is applied at once to every line not lit, and
+  // to the line being sung when only words not reached yet change and none of its expressions is playing
+  // (look-ahead's line notes reach a line while it is sung: 2026-10-19, "Nutshell" showed no Expressive words
+  // at all). A word's boxes are the written word's (expressLetters), so nothing moves under the line (master
+  // clock rule, song-clock.js); a change to a word already reached waits for the next line boundary. `final` (the whole-song pass after the
+  // song, replacing the sections' results): only lines off screen are swapped, the rest at later boundaries
+  // once they are off screen, so nothing visible jumps.
   // Idle cost: none (no timer or listener): one pass over the lines per boundary while something waits.
   function express(msg) {
     if (!msg || msg.key !== songKey || !lines.length || lines[0].t === null) return
     const e = msg.expr && Array.isArray(msg.expr.words) ? msg.expr : { words: [], voc: [] }
     xpend = { expr: e, final: !!msg.final }
-    if (!live.size) applyExpr()
+    applyExpr()
   }
   function onScreen(e) {
     if (stage) return e.el.classList.contains('active') || e.el.classList.contains('next')
@@ -862,7 +864,9 @@ function createLyricsView(opts) {
       if (!e || !e.main || !line || line.t === null || !line.words || !line.words.length) continue
       const xl = d ? X.lineExpressions(d, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
       if (xKey(xl) === (e.xk || '')) continue
-      if (live.has(i) || (p.final && onScreen(e))) { left++; continue }
+      // the line being sung: only words not reached yet may change, and none of its expressions may be playing
+      // loop: HOT-PATH-OK — the expressions playing (≤ ~5), per line whose expression changed
+      if ((live.has(i) && (firstChange(e.x, xl) < (e.pos ? e.pos.k : 0) || xlive.some((x) => x.line === i && x.it && x.it.i >= 0))) || (p.final && onScreen(e))) { left++; continue }
       relayLine(e, line, xl)
     }
     xdoc = d
@@ -877,7 +881,16 @@ function createLyricsView(opts) {
     }
     if (!left) xpend = null
   }
-  // one line's words again with new expression (not lit: no expression of it is playing); the sung marks stay
+  // the first word whose expression differs between a line's drawn one (entry.x, null: none) and xl (Infinity: none)
+  function firstChange(was, xl) {
+    const a = new Map((was || []).map((x) => [x.i, JSON.stringify(x.m)]))   // loop: NOT-WORTH — one line's measured words (0-12), per changed line
+    let min = Infinity
+    // loop: NOT-WORTH — one line's measured words (0-12), per changed line
+    for (const x of xl) { if (a.get(x.i) !== JSON.stringify(x.m)) min = Math.min(min, x.i); a.delete(x.i) }
+    for (const i of a.keys()) min = Math.min(min, i)   // loop: NOT-WORTH — the words that lost theirs (a few)
+    return min
+  }
+  // one line's words again with new expression (no expression of it playing; a lit line only ahead of what is sung, applyExpr); the sung marks stay
   function relayLine(e, line, xl) {
     const old = e.words
     const was = e.main

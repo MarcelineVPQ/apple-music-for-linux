@@ -1089,11 +1089,14 @@ function firstPlaySection(s, part, sec) {
     const entry = sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: s.hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() })
     entry.partial = true
     sheet.entry = entry
-    if (sec.stream && part.pitch) sheet.pitch.push(part.pitch)   // look-ahead: the line's pitch, so "Listening and learning" moves on
+    // look-ahead: the line's pitch, so "Listening and learning" moves on (its committed pass only: one piece per line;
+    // the early passes' notes already cover where they were heard, sheet-notes-model.js listening)
+    if (sec.stream && !sec.early && part.pitch) sheet.pitch.push(part.pitch)
     sheet.error = ''
     sendSheet()
   }
-  console.log('align: first play of "' + s.title + '": notes of ' + (sec.stream ? 'line ' + (sec.from + 1) : 'lines ' + (sec.from + 1) + '–' + (sec.to + 1)) + ' (' + part.notes.length + ' notes' + (part.expr ? ', ' + (part.expr.words || []).length + ' expr words' : '') + ')')
+  // a line's early passes (look-ahead, engine "stream-notes-early") aren't logged: its committed pass is
+  if (!sec.early) console.log('align: first play of "' + s.title + '": notes of ' + (sec.stream ? 'line ' + (sec.from + 1) : 'lines ' + (sec.from + 1) + '–' + (sec.to + 1)) + ' (' + part.notes.length + ' notes' + (part.expr ? ', ' + (part.expr.words || []).length + ' expr words' : '') + ')')
   // a section that finished after its song was left: kept with the others
   if (firstPlay.unfinished) firstPlayUnfinished(s)
 }

@@ -137,7 +137,7 @@ function setup(opts = {}) {
       pitch: (song, line, e) => got.pitch.push(line ? line.t0 : 'error ' + (e && (e.code || e.message))),
       missing: opts.missing || (() => true),
       sectionWanted: opts.sectionNotes ? () => true : undefined,
-      section: (song, part, sec) => got.sections.push([sec.from, sec.to, !!sec.stream, part.notes.length]),
+      section: (song, part, sec) => got.sections.push([sec.from, sec.to, !!sec.stream, part.notes.length].concat(sec.early ? ['early'] : [])),
       unfinished: (song) => got.unfinished.push(song.title)
     }
   })
@@ -357,6 +357,9 @@ test('session, look-ahead: an Apple-timed first play streams for its line notes 
   st.on({ type: 'notes', line: 2, notes: { notes: [{ t: 30, end: 31, midi: 60 }], syllables: [] } })
   assert.deepEqual(env.got.sections, [[2, 2, true, 1]])
   assert.equal(env.s.notesState('15 Step|Radiohead'), 'sections')
+  // engine "stream-notes-early": the line's words found so far come first, marked early (replaced by the line's later passes)
+  st.on({ type: 'notes', line: 3, partial: true, words: 1, notes: { notes: [{ t: 33, end: 33.4, midi: 62 }], syllables: [] } })
+  assert.deepEqual(env.got.sections[1], [3, 3, true, 1, 'early'])
   // the stream's own words never replace Apple's
   st.on({ type: 'words', lines: [{ line: 0, words: [{ t: 10.1, end: 10.5, text: 'fifteen' }] }] })
   assert.ok(!sent.some((x) => x[0] === 'lyrics-stream'))
