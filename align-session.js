@@ -918,10 +918,11 @@ function createAlignSession(deps) {
   }
   // the stream's words, to the views while the song is on screen
   function onStreamMessage(s, msg) {
-    // first play's notes, line by line (engine feature "stream-notes"): like a section's, ahead of the delayed listener
+    // first play's notes, line by line (engine feature "stream-notes"): like a section's, ahead of the delayed listener;
+    // "stream-notes-early" (engine 0.2.8): a line's words found so far first (partial), each replacing the last
     if (msg.type === 'notes') {
       if (msg.notes && Number.isInteger(msg.line) && !streamPartFits(msg.notes, s.raw, msg.line)) { log('stream of "' + s.title + '": the notes of line ' + (msg.line + 1) + ' were measured at another part of the song: dropped'); return }
-      if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true }) }
+      if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true, early: !!msg.partial }) }
       return
     }
     if (msg.type === 'stream') { s.stream.ready = true; streamNews(); log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }

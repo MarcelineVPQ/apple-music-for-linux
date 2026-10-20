@@ -769,22 +769,38 @@ test('view: a stretch lasts while its measured vowel sounds, past the lyrics\' o
 
 // --- first play: the expression measured section by section (0.15.66, lyrics-view.js express) ---
 
-test('view, first play: a section\'s expression is applied only at line boundaries, never into the line being sung', () => {
+test('view, first play: a section\'s expression goes at once to lines not lit; never into a word already reached', () => {
   const { list, v } = view(null)
   const lines = () => list.els().filter((e) => e.has('line'))
-  at(v, 2.0)                                     // line 0 sung ("home")
+  at(v, 2.0)                                     // line 0 sung, its held "home" reached
   const sung = dump(lines()[0])
   v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: false })
-  assert.equal(dump(lines()[0]), sung, 'the line being sung is untouched')
+  assert.equal(dump(lines()[0]), sung, 'the word being sung is untouched')
+  assert.ok(lines()[1].all().some((e) => e.has('xs')), 'the line still to come takes it at once')
   at(v, 2.5)
   assert.equal(dump(lines()[0]), sung, 'still untouched while it is sung')
-  assert.ok(!lines()[1].all().some((e) => e.has('xs')), 'nothing applied before the boundary')
   at(v, 4.2)                                     // the boundary: line 1 lit, line 0 behind
   assert.ok(lines()[0].all().some((e) => e.has('xs')), 'the line that is no longer sung takes its expression')
-  assert.ok(!lines()[1].all().some((e) => e.has('xs')), 'the line now sung waits')
-  at(v, 1.2)                                     // the next boundary (a seek back: line 0 lit again)
-  assert.ok(lines()[1].all().some((e) => e.has('xs')), 'and takes it at the next boundary')
   assert.ok(list.has('xp'))
+})
+
+test('view, first play (look-ahead): the line being sung takes the expression of its words not reached yet (Nutshell, 2026-10-19)', () => {
+  const { list, v } = view(null)
+  const lines = () => list.els().filter((e) => e.has('line'))
+  at(v, 1.1)                                     // line 0 lit, on "take": "home" (word 2) still to come
+  const take = () => lines()[0].all().find((e) => e.has('w'))
+  assert.ok(take().has('now'))
+  v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: false })
+  assert.ok(lines()[0].all().some((e) => e.has('xs')), 'the held "home" ahead in the lit line stretches')
+  assert.ok(take().has('now'), 'the word being sung keeps its pop')
+  at(v, 2.4)                                     // "home" reached: its stretch plays as measured
+  assert.ok(lines()[0].all().some((e) => e.has('xs')))
+  // a later pass changing "home" while it is sung waits for the line boundary
+  const louder = JSON.parse(JSON.stringify(EXPR))
+  louder.words[0].loud = -0.9
+  const shown = dump(lines()[0])
+  v.express({ key: 'k1', expr: X.forView(X.compact(louder), true), final: false })
+  assert.equal(dump(lines()[0]), shown, 'a word already reached is never changed while it is sung')
 })
 
 test('view, first play: the whole-song pass replaces the sections\' expression without a visible change', () => {
@@ -812,6 +828,12 @@ test('view, first play: the whole-song pass replaces the sections\' expression w
   at(v, 1.2)                                     // a boundary with the line off screen
   assert.notEqual(dump(lines()[1]), shown, 'swapped once off screen')
   assert.ok(lines()[1].all().some((e) => e.has('xi')), 'the final pass\'s louder word')
+})
+
+test('main: a look-ahead line\'s early passes update the notes; its pitch piece and log line come with its committed pass', () => {
+  const src = read('main.js')
+  assert.match(src, /if \(sec\.stream && !sec\.early && part\.pitch\) sheet\.pitch\.push\(part\.pitch\)/)
+  assert.match(src, /if \(!sec\.early\) console\.log\('align: first play of "'/)
 })
 
 test('view: another song\'s expression is ignored; a new song drops one still waiting', () => {
