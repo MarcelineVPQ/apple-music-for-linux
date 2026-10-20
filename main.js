@@ -1059,6 +1059,7 @@ function sheetNotesDone(s, result, lineOffset) {
   // its sections' expression, the final one replaces it in place instead, line by line off screen (no re-layout)
   const drew = firstPlay && firstPlay.key === s.key && firstPlay.expr
   if (firstPlay && firstPlay.key === s.key) firstPlay = null
+  if (firstPlayWaiting && firstPlayWaiting.key === s.key) firstPlayWaiting = null
   if (drew && lyricsKey === s.key) {
     const view = expressive.forView(entry.expr, true, vocaliseSetting())
     exprSong = { key: s.key, entry: view ? 'drawn' : 'expr' in entry ? 'none' : 'missing' }
@@ -1071,7 +1072,17 @@ function sheetNotesFailed(s, e) {
   // a game running, no pitch model yet, or a job dropped because its song stopped playing (align-session
   // prune) isn't the song's fault: not counted, tried again on a later play
   // error: NOT-WORTH — the marker only limits the retries; without it the song is simply tried again
+  // the parts this play brought (look-ahead's streamed lines, the sections) are kept as a partial entry first, so the
+  // next play draws them and learns the song again (Marcy's Alice in Chains log, 2026-10-19: "Nutshell (Live)"'s
+  // whole-song pass timed out and its 17 streamed lines' notes and expression were dropped); failed() then counts
+  // the try beside them (sheet-notes-store.js)
+  const fp = firstPlayHeard(s)
+  const keptParts = fp ? keepFirstPlay(s, fp, 'its whole-song pass failed (' + (code || (e && e.message) || 'error') + ')') : false
   if (code !== 'paused' && code !== 'no-model' && code !== 'dropped') { try { getSheetStore().failed(s.title, s.artist, s.hash, code || 'error') } catch (err) {} }
+  if (keptParts) {
+    if (sheet && sheet.key === s.key) { sheet.error = ''; sendSheet() }
+    return
+  }
   // the song kept its notes from an earlier play (a later pass failed, sheet-notes-store.js failed): the band keeps them, the log says why
   // error: NOT-WORTH — a store read that throws: no cached notes, the band's message below says the pass failed
   let kept = false
@@ -1093,6 +1104,16 @@ function sheetNotesFailed(s, e) {
 // cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
 let firstPlay = null      // { key, play (the align session's song id: one play), title, artist, hash, parts: Map(from -> part), streamed: Set(from), covers: Map(from -> to) of section parts, expr, n }
 // the first play under way for this song and these lyrics (QC 2026-10 #7: lyrics from another source have other line indexes)
+// the previous song's first play while its whole-song pass is still to come (look-ahead: the next song streams first,
+// so its parts replace firstPlay before that pass runs); kept so a failed pass keeps what was heard (sheetNotesFailed)
+// cache: OK — key=the song's lyrics key; invalidated=its whole-song pass (done or failed), the next song moving on; bound=one song's parts
+let firstPlayWaiting = null
+function firstPlayHeard(s) {
+  // loop: NOT-WORTH — two candidates, once per failed pass
+  const fp = [firstPlay, firstPlayWaiting].find((f) => f && f.key === s.key && f.hash === s.hash && f.parts.size && !f.unfinished)
+  if (firstPlayWaiting && firstPlayWaiting.key === s.key) firstPlayWaiting = null
+  return fp || null
+}
 function firstPlayOf(key, hash) { return firstPlay && firstPlay.key === key && firstPlay.hash === hash ? firstPlay : null }
 function sectionNotesWanted() {
   // alignSlow (0.15.65, helper-speed.js): processor only, unless the helper has shown it keeps up with the music
@@ -1104,7 +1125,11 @@ function firstPlaySection(s, part, sec) {
   if (!part || !Array.isArray(part.notes)) return
   // one play's state: a replay starts again from what the store kept (firstPlayFor), never from an earlier play's
   // memory (QC 2026-10 #7: its vocalise was appended again, doubled ghosts)
-  if (!firstPlay || firstPlay.key !== s.key || firstPlay.play !== s.id || firstPlay.hash !== s.hash) firstPlay = firstPlayFor(s)
+  if (!firstPlay || firstPlay.key !== s.key || firstPlay.play !== s.id || firstPlay.hash !== s.hash) {
+    // another song's first play heard to its end: kept until its whole-song pass (done or failed)
+    if (firstPlay && firstPlay.key !== s.key && firstPlay.parts.size && !firstPlay.unfinished) firstPlayWaiting = firstPlay
+    firstPlay = firstPlayFor(s)
+  }
   // one set of notes per line (Marcy 2026-10-19: after a stream failed, its line notes and the sections' disagreed on
   // the band): a section's part replaces the streamed lines it covers, and a streamed line a section has is skipped
   const to = Number.isInteger(sec.to) ? sec.to : sec.from
@@ -1185,10 +1210,19 @@ function firstPlayUnfinished(s) {
     console.log('align: ' + notesRefine.logDone(s.title, merged) + ' (from the parts heard before the song was left)')
     return
   }
-  const entry = sheetModel.partialEntry([...firstPlay.parts.entries()], firstPlay.expr, { lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
+  keepFirstPlay(s, firstPlay, '')
+}
+// a first play's parts to the store as a partial entry (the song had no learned notes): -> whether they were kept
+function keepFirstPlay(s, fp, why) {
+  let old = null
+  // error: NOT-WORTH — a store read that throws: nothing learned to protect
+  try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
+  if (sheetModel.entryValid(old, s.hash) && !old.partial) return false   // learned notes are never replaced by a partial set
+  const entry = sheetModel.partialEntry([...fp.parts.entries()], fp.expr, { lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
   // error: LOGGED-OK — a failed write only loses the head start: the next play records the song as a first play
-  try { getSheetStore().set(s.title, s.artist, entry) } catch (e) { console.log('align: partial notes not saved: ' + e.message); return }
-  console.log('align: "' + s.title + '": kept the notes of ' + firstPlay.parts.size + ' part(s) heard (' + entry.notes.length + ' notes' + (entry.expr ? ', expr' : '') + ') for the next play')
+  try { getSheetStore().set(s.title, s.artist, entry) } catch (e) { console.log('align: partial notes not saved: ' + e.message); return false }
+  console.log('align: "' + s.title + '": ' + (why ? why + ': ' : '') + 'kept the notes of ' + fp.parts.size + ' part(s) heard (' + entry.notes.length + ' notes' + (entry.expr ? ', expr' : '') + ') for the next play')
+  return true
 }
 function sheetPitch(s, line, e) {
   if (!sheet || sheet.key !== s.key) return

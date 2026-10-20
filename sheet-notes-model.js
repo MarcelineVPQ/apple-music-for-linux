@@ -174,10 +174,12 @@ function compact(part, meta = {}) {
   const p = part || {}
   const off = meta.lineOffset || 0
   const key = p.key || {}
+  // loop: NOT-WORTH — a song's parts / syllables / notes (hundreds), once per song left early or failed pass (partial entry), not per tick
   const syl = (p.syllables || []).map((s) => [round(num(s.t)), round(num(s.end)), String(s.text == null ? '' : s.text).slice(0, 40), s.line == null ? -1 : s.line + off, num(s.syl), Math.max(1, num(s.nsyl, 1))])
   // loop: NOT-WORTH — per song change or new first-play section, N = notes (hundreds)
   const notes = (p.notes || []).filter((n) => Number.isFinite(n.t) && n.end > n.t && Number.isInteger(n.midi))
     .map((n) => [round(n.t), round(n.end), n.midi, Math.round(num(n.cents)), String(n.name || ''), Math.round(num(n.conf) * 1000), Number.isInteger(n.syl_index) ? n.syl_index : -1, n.melisma ? 1 : 0])
+  // loop: NOT-WORTH — a song's parts / syllables / notes (hundreds), once per song left early or failed pass (partial entry), not per tick
   const pitch = p.pitch && Array.isArray(p.pitch.v) ? { t0: num(p.pitch.t0), hop: num(p.pitch.hop, PITCH_HOP), v: p.pitch.v.map((x) => Math.max(0, Math.min(1270, Math.round(num(x))))) } : null
   return {
     format: FORMAT,
@@ -649,9 +651,11 @@ function partSpans(parts) {
  * its parts (without their expression: `expr` holds it) so the next play adds its own to them.
  */
 function partialEntry(parts, expr, meta = {}) {
+  // loop: NOT-WORTH — a song's parts / syllables / notes (hundreds), once per song left early or failed pass (partial entry), not per tick
   const list = (parts || []).filter((p) => Array.isArray(p) && Number.isInteger(p[0]) && p[1] && Array.isArray(p[1].notes))
   const entry = compact(mergeSections(list.map((p) => p[1])), meta)
   entry.partial = true
+  // loop: NOT-WORTH — a song's parts / syllables / notes (hundreds), once per song left early or failed pass (partial entry), not per tick
   entry.parts = list.map(([from, p]) => [from, { section: p.section, model: p.model, tuning: p.tuning, syllables: p.syllables, notes: p.notes, pitch: p.pitch }])
   if (expr) entry.expr = expr
   return entry

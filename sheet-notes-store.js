@@ -93,7 +93,8 @@ function createSheetNotesStore(opts) {
       if (e.failed === 'no-model') return true
       if (e.failed) return (e.tries || 1) < MAX_TRIES
       // the notes of the parts a play heard before it was left (main's firstPlayUnfinished): still to learn whole
-      if (e.partial) return true
+      // (a partial entry whose whole-song pass failed counts its tries like a failure: retry beside its notes)
+      if (e.partial) return !(e.retry && e.retry.failed !== 'no-model' && (e.retry.tries || 0) >= MAX_TRIES)
       return false
     }
   }

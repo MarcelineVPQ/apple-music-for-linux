@@ -843,7 +843,7 @@ test('mergeSection: a section\'s words replace its lines\' words, its vocalise r
 
 test('main: a first play\'s state is one play\'s (song id and lyrics hash), never an earlier play\'s', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
-  assert.match(src, /firstPlay\.play !== s\.id \|\| firstPlay\.hash !== s\.hash\) firstPlay = firstPlayFor\(s\)/)
+  assert.match(src, /firstPlay\.play !== s\.id \|\| firstPlay\.hash !== s\.hash\) \{[^}]*\n    firstPlay = firstPlayFor\(s\)/)
   assert.match(src, /firstPlay\.expr = expressive\.mergeSection\(firstPlay\.expr, add\)/)
 })
 

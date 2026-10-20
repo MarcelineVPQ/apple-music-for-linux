@@ -1012,3 +1012,39 @@ test('main firstPlaySection: a section\'s part replaces the streamed lines it co
   run(s, p('stream 6'), { from: 6, to: 6, stream: true })   // a late streamed line the section has
   assert.equal(env.firstPlay.parts.has(6), false)
 })
+
+// Marcy's Alice in Chains log (2026-10-19, look-ahead on): "Nutshell (Live)"'s whole-song pass ran after the next
+// song's stream had begun (its parts replaced firstPlay) and failed ("helper timed out"), so its 17 streamed lines'
+// notes and expression were dropped. Now the previous song's first play waits for its pass, and a failed pass keeps
+// the parts as a partial entry (drawn on the next play, learned again), its try counted beside them.
+test('main sheetNotesFailed: a failed whole-song pass keeps the first play\'s parts, also after the next song began', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  const fn = (name) => { const at = main.indexOf('function ' + name + '('); assert.ok(at >= 0, name); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
+  const M = require('../sheet-notes-model')
+  const S = require('../sheet-notes-store')
+  const files = new Map()
+  const io = { mkdirSync () {}, writeFileSync: (f, t) => files.set(f, t), renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a) }, readFileSync: (f) => { if (!files.has(f)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e } return files.get(f) }, readdirSync: () => [], statSync: () => ({ mtimeMs: 0 }), unlinkSync: (f) => files.delete(f), existsSync: (f) => files.has(f) }
+  const store = S.createSheetNotesStore({ dir: '/x', io })
+  const logs = []
+  const env = { firstPlay: null, firstPlayWaiting: null, sheet: null, lyricsKey: '', alignHelper: null, refining: null, expressiveOn: () => true, sheetNotesOn: () => true,
+    getSheetStore: () => store, sheetModel: M, firstPlayUnfinished: () => {}, sendSheet: () => {}, app: { getVersion: () => '0.15.72-dev.1' }, console: { log: (m) => logs.push(m) } }
+  const src = ['firstPlaySection', 'firstPlaySectionHas', 'firstPlayFor', 'firstPlayHeard', 'keepFirstPlay', 'sheetNotesFailed'].map(fn).join('')
+  const api = new Function('env', 'with (env) { ' + src + '; return { firstPlaySection, sheetNotesFailed } }')(env)   // eslint-disable-line no-new-func
+  const part = (t) => ({ notes: [{ t, end: t + 1, midi: 60, conf: 0.9, syl_index: null }], syllables: [], pitch: null })
+  const nutshell = { key: 'n', id: 1, hash: 'hn', title: 'Nutshell (Live)', artist: 'Alice in Chains' }
+  const brother = { key: 'b', id: 2, hash: 'hb', title: 'Brother (Live)', artist: 'Alice in Chains' }
+  // loop: NOT-WORTH — a test's three lines
+  for (let k = 0; k < 3; k++) api.firstPlaySection(nutshell, part(10 + k * 5), { from: k, to: k, stream: true })
+  api.firstPlaySection(brother, part(3), { from: 0, to: 0, stream: true })   // the next song streams before Nutshell's pass
+  assert.equal(env.firstPlay.key, 'b')
+  api.sheetNotesFailed(nutshell, new Error('helper timed out'))
+  const kept = store.get(nutshell.title, nutshell.artist)
+  assert.ok(kept && kept.partial && kept.notes.length === 3, 'Nutshell\'s streamed parts kept: ' + JSON.stringify(kept))
+  assert.equal(kept.retry && kept.retry.tries, 1, 'the try is counted beside them')
+  assert.equal(store.missing(nutshell.title, nutshell.artist, 'hn'), true, 'learned again on the next play')
+  assert.ok(logs.some((l) => /Nutshell \(Live\)": its whole-song pass failed \(helper timed out\): kept the notes of 3 part/.test(l)), logs.join('\n'))
+  assert.equal(env.firstPlayWaiting, null)
+  // the current song's own failure keeps its parts too
+  api.sheetNotesFailed(brother, Object.assign(new Error('x'), { code: 'error' }))
+  assert.equal(store.get(brother.title, brother.artist).notes.length, 1)
+})
