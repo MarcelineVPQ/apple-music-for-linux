@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.82-dev.1] — One Check for updates for Sonata and the helper
+
+### Changed
+- **One Check for updates for Sonata and the helper.** Settings → Updates → Check for updates (and the tray's Check for Updates…) now checks the Precise timing helper too: "Sonata 0.15.82 Dev and helper 0.2.10 Dev are up to date", or that a newer helper is available. The Helper row shows the answer; its own button from 0.15.81 is gone.
+
 ## [0.15.81-dev.1] — Check for a newer helper yourself
 
 ### Added
