@@ -708,16 +708,26 @@ function getAlignSession() {
         // processor-only one: 0.15.59's protection, its songs are timed after they end)
         sectionWanted: () => sectionNotesWanted(),
         section: firstPlaySection,
+        // a first play left before its end: what its sections brought is kept (a partial entry) for the next play
+        unfinished: firstPlayUnfinished,
         // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song,
         // an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
         // every engine this Sonata installs measures it, and a first play after a restart used to be skipped)
-        missing: (title, artist, hash) => getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
-          (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)) ||
-          ((sheetNotesOn() || expressiveOn()) && notesRelearn(title, artist, hash)))
+        missing: notesMissing
       }
     })
   }
   return alignSession
+}
+
+// a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song,
+// an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
+// every engine this Sonata installs measures it, and a first play after a restart used to be skipped).
+// The align session's notes.missing, and look-ahead's "a first play for its notes" (lookaheadDecide)
+function notesMissing(title, artist, hash) {
+  return getNotesSwitch().wanted() && ((sheetNotesOn() && getSheetStore().missing(title, artist, hash)) ||
+    (expressiveOn() && alignHelper && (!alignHelper.answered || alignHelper.serves('expr')) && expressiveMissing(title, artist, hash)) ||
+    ((sheetNotesOn() || expressiveOn()) && notesRelearn(title, artist, hash)))
 }
 
 // "Sung notes (developer log)" (Settings → Precise timing; Development channel only, off by default;
@@ -859,7 +869,7 @@ function logNotesPlan(key, title, artist, lines) {
   const valid = sheetModel.entryValid(e, hash)
   const job = alignSession ? alignSession.notesState(key) : ''
   const x = valid && e.expr ? expressive.summary(e.expr) : null
-  const have = valid ? 'cached notes (' + (e.notes || []).length + ')' + (x ? ' + expr (' + x.held + ' held, ' + x.ghosts + ' ghosts)' : 'expr' in e ? ' + expr (none measured)' : ', no expr yet') : e && e.failed && e.lyricsHash === hash ? 'no notes (failed: ' + e.failed + ', try ' + (e.tries || 1) + ')' : 'no notes yet'
+  const have = valid ? 'cached notes (' + (e.notes || []).length + (e.partial ? ', partial' : '') + ')' + (x ? ' + expr (' + x.held + ' held, ' + x.ghosts + ' ghosts)' : 'expr' in e ? ' + expr (none measured)' : ', no expr yet') : e && e.failed && e.lyricsHash === hash ? 'no notes (failed: ' + e.failed + ', try ' + (e.tries || 1) + ')' : 'no notes yet'
   const why = !job ? ' — no re-run' : !valid ? ' — recording this play for its notes' : !('expr' in e) ? ' — recording this play for its expression' : ' — recording this play (missed lines)'
   console.log('align: "' + title + '": ' + have + why + (valid && e.retry ? ' (a later pass failed ' + e.retry.tries + 'x: ' + e.retry.failed + ')' : ''))
 }
@@ -877,7 +887,7 @@ function ensureNotesModel() {
 function expressiveMissing(title, artist, hash) {
   const store = getSheetStore()
   const entry = store.get(title, artist)
-  if (!entry || entry.lyricsHash !== hash || entry.failed) return store.missing(title, artist, hash)
+  if (!entry || entry.lyricsHash !== hash || entry.failed || entry.partial) return store.missing(title, artist, hash)
   return !('expr' in entry) && store.retryAllowed(title, artist)
 }
 // a learned song whose saved notes miss a stretch the lyrics say is sung (sheet-notes-model.js notesGap): recorded
@@ -888,7 +898,7 @@ let relearnLogged = ''
 function notesRelearn(title, artist, hash) {
   const store = getSheetStore()
   const e = store.get(title, artist)
-  if (!sheetModel.entryValid(e, hash) || !store.retryAllowed(title, artist)) return false
+  if (!sheetModel.entryValid(e, hash) || e.partial || !store.retryAllowed(title, artist)) return false
   const gap = sheetModel.relearnDue(e)
   if (!gap) return false
   const n = (e.relearns || 0) + 1
@@ -912,14 +922,15 @@ function setSheetSong(key, title, artist, lines, prep, instrumental, shown) {
   // end: where the lyrics end on the align session's own reckoning (lyricSpan): past it the first play's band
   // has nothing left to hear, so "Listening and learning" stops (sheet-notes-model.js listening())
   const span = timed ? alignSessionLib.lyricSpan(lines) : null
-  sheet = { key, title, artist, hash, entry: null, pitch: [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, instrumental: instrumental || '', error: '', end: span ? Math.round(span.end * 10) / 10 : 0, sung: timed ? sheetModel.lyricSpans(shown || lines, lyricsTiming.lineEnd) : [] }
+  // (the same song laid out again keeps the first play's pitch pieces: "Listening and learning" stays off where they are)
+  sheet = { key, title, artist, hash, entry: null, pitch: sheet && sheet.key === key ? sheet.pitch : [], aligned: !!prep.aligned, wordSynced: !!prep.wordSynced, timed, instrumental: instrumental || '', error: '', end: span ? Math.round(span.end * 10) / 10 : 0, sung: timed ? sheetModel.lyricSpans(shown || lines, lyricsTiming.lineEnd) : [] }
   // (lyrics with their own word timing too: their notes are worked out on those times, align-session.js)
   if (settings.sheetNotes && title && timed) {
     const e = getSheetStore().get(title, artist)
     if (sheetModel.entryValid(e, hash)) sheet.entry = e
   }
   // a first play under way (the song laid out again): its sections' notes so far
-  if (settings.sheetNotes && !sheet.entry && firstPlay && firstPlay.key === key && firstPlay.parts.size) {
+  if (settings.sheetNotes && (!sheet.entry || sheet.entry.partial) && firstPlay && firstPlay.key === key && firstPlay.parts.size) {
     sheet.entry = Object.assign(sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() }), { partial: true })
   }
   sheetSent = ''
@@ -940,7 +951,7 @@ function sendSheet() {
   sheetSent = json
   // the notes ride along only when they changed (another song, new notes), the pitch pieces when one came
   const extra = {}
-  if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) { extra.entry = sheet.entry; extra.sung = sheet.sung }
+  if (on && sheet && (was.key !== st.key || was.entryAt !== st.entryAt || !was.on)) { extra.entry = sheet.entry && sheet.entry.parts ? Object.assign({}, sheet.entry, { parts: undefined }) : sheet.entry; extra.sung = sheet.sung }   // (a partial entry's kept parts stay in main)
   if (on && sheet && (was.key !== st.key || was.pieces !== st.pieces || !was.on)) extra.pitch = sheet.pitch
   lyricsWindow.webContents.send('lyrics-sheet', Object.assign({}, st, extra))
 }
@@ -960,7 +971,7 @@ function sheetNotesDone(s, result, lineOffset) {
   // error: NOT-WORTH — a store read that throws: no old entry, nothing to count or keep
   let old = null
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
-  if (sheetModel.entryValid(old, s.hash)) {
+  if (sheetModel.entryValid(old, s.hash) && !old.partial) {
     const n = sheetModel.relearnDue(old) ? (old.relearns || 0) + 1 : old.relearns || 0
     if (n) entry.relearns = n
     if (!('expr' in entry) && 'expr' in old) entry.expr = old.expr
@@ -1015,7 +1026,7 @@ function sectionNotesWanted() {
 }
 function firstPlaySection(s, part, sec) {
   if (!part || !Array.isArray(part.notes)) return
-  if (!firstPlay || firstPlay.key !== s.key) firstPlay = { key: s.key, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  if (!firstPlay || firstPlay.key !== s.key) firstPlay = firstPlayFor(s)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
   // Expressive words: the section's expression, merged (each line comes from one section)
@@ -1041,6 +1052,38 @@ function firstPlaySection(s, part, sec) {
     sendSheet()
   }
   console.log('align: first play of "' + s.title + '": notes of ' + (sec.stream ? 'line ' + (sec.from + 1) : 'lines ' + (sec.from + 1) + '–' + (sec.to + 1)) + ' (' + part.notes.length + ' notes' + (part.expr ? ', ' + (part.expr.words || []).length + ' expr words' : '') + ')')
+  // a section that finished after its song was left: kept with the others
+  if (firstPlay.unfinished) firstPlayUnfinished(s)
+}
+// the first play's state for a song: a new one, or one carried on from the partial entry an earlier play left
+// (0.15.70, Marcy: "I don't get expression until the third playthrough": a play left before its end kept nothing)
+function firstPlayFor(s) {
+  const fp = { key: s.key, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  let old = null
+  // error: NOT-WORTH — a store read that throws: a first play from scratch
+  try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
+  if (sheetModel.entryValid(old, s.hash) && old.partial && Array.isArray(old.parts)) {
+    // loop: NOT-WORTH — the parts kept (≤ ~60), once per song
+    for (const p of old.parts) if (Array.isArray(p) && Number.isInteger(p[0]) && p[1] && Array.isArray(p[1].notes)) fp.parts.set(p[0], p[1])
+    fp.expr = old.expr || null
+    fp.n = fp.parts.size
+  }
+  return fp
+}
+// The song ended before its whole-song pass (not heard to its end): its sections' notes and expression so far go
+// to the store as a partial entry. The next play draws them (band and Expressive words) and records the song
+// again (sheet-notes-store.js missing: a partial entry still needs its notes); the whole-song pass replaces it.
+function firstPlayUnfinished(s) {
+  if (!firstPlay || firstPlay.key !== s.key || !firstPlay.parts.size) return
+  firstPlay.unfinished = true
+  let old = null
+  // error: NOT-WORTH — a store read that throws: no old entry to keep
+  try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
+  if (sheetModel.entryValid(old, s.hash) && !old.partial) return   // learned notes are never replaced by a partial set
+  const entry = sheetModel.partialEntry([...firstPlay.parts.entries()], firstPlay.expr, { lyricsHash: s.hash, created: new Date().toISOString(), version: app.getVersion() })
+  // error: LOGGED-OK — a failed write only loses the head start: the next play records the song as a first play
+  try { getSheetStore().set(s.title, s.artist, entry) } catch (e) { console.log('align: partial notes not saved: ' + e.message); return }
+  console.log('align: "' + s.title + '": kept the notes of ' + firstPlay.parts.size + ' part(s) heard (' + entry.notes.length + ' notes' + (entry.expr ? ', expr' : '') + ') for the next play')
 }
 function sheetPitch(s, line, e) {
   if (!sheet || sheet.key !== s.key) return
@@ -1169,13 +1212,18 @@ function lookaheadDecide(item) {
     const found = alignSessionLib.findAligned(store, item.title, item.artist, lyr.lines, { isrc: item.isrc, duration: item.duration })
     aligned = alignSessionLib.validEntry(found.entry, alignSessionLib.lyricsHash(lyr.lines), lyr.lines)
   }
-  const learn = lookaheadLib.learnState(lyr, aligned, alignSessionLib.canAlign, lyricsTiming.hasWordTiming)
+  // 0.15.70: a song whose words are timed (Apple's own, or aligned) but whose notes or expression aren't cached is
+  // a first play too: delayed, its stream's line notes arrive before each line is heard
+  const needsNotes = !!(lyr && Array.isArray(lyr.lines) && lyr.lines.length && notesActive() && sectionNotesWanted() &&
+    notesMissing(item.title, item.artist, alignSessionLib.lyricsHash(lyr.lines)))
+  const streamsNotes = !!(lookaheadPong && Array.isArray(lookaheadPong.features) && lookaheadPong.features.includes('stream-notes'))
+  const learn = lookaheadLib.learnState(lyr, aligned, alignSessionLib.canAlign, lyricsTiming.hasWordTiming, needsNotes && streamsNotes)
   const d = lookaheadLib.decide({
     on: true, ok: true, video: !!item.video, viewOpen: lyricViews().length > 0, learn,
     engine: lookaheadLib.engineState(lookaheadPong, preciseTimingOn()), gpuBusy: alignPaused(),
     ms: lookaheadLib.delayOf(settings.lookaheadDelay)
   })
-  console.log('look-ahead: "' + item.title + '": ' + (d.ms ? d.ms + ' ms (' + d.why + ')' : 'no delay (' + d.why + ')'))
+  console.log('look-ahead: "' + item.title + '": ' + (d.ms && d.why === 'notes' ? 'first play delayed ' + d.ms / 1000 + ' s (needs notes/expression)' : d.ms ? d.ms + ' ms (' + d.why + ')' : 'no delay (' + d.why + ')'))
   return d
 }
 function lookaheadPlayer(action) {
@@ -3447,6 +3495,9 @@ function helperAfter(kind, job) {
   alignStatusText = ''
   aboutCache = null
   alignInstalled(true)
+  // 0.15.70: a helper that needed its update at start kept look-ahead off for the whole run (lookaheadWanted needs
+  // the helper installed); now it starts (or stops) with the helper's new state
+  applyLookahead()
   refreshOffer()
   showAlignRepair()
   // removed: the switch goes off (its row hides); a fresh install turns it on: that is what Install was

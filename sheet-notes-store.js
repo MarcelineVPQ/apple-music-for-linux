@@ -92,6 +92,8 @@ function createSheetNotesStore(opts) {
       // tried again, also for markers written before 0.15.57 (they kept such a song from ever getting its notes)
       if (e.failed === 'no-model') return true
       if (e.failed) return (e.tries || 1) < MAX_TRIES
+      // the notes of the parts a play heard before it was left (main's firstPlayUnfinished): still to learn whole
+      if (e.partial) return true
       return false
     }
   }

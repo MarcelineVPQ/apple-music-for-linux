@@ -54,20 +54,27 @@ function wanted(settings, avail, preciseOn) {
 }
 
 /**
- * What Sonata knows about a song's word timing before it plays (no lookup, only the caches):
- *   'learned'  word timing cached for this recording (a complete aligned entry): plays with no delay
- *   'nothing'  no lyrics, an instrumental, lyrics with their own word timing (Apple's syllables), or
- *              lyrics without line times (the stream needs them): nothing for look-ahead to do
+ * What Sonata knows about a song before it plays (no lookup, only the caches):
+ *   'learned'  word timing cached for this recording (a complete aligned entry) and its notes and
+ *              expression too (when Sheet notes / Expressive words want them): plays with no delay
+ *   'notes'    its words are timed (Apple's own word timing, or a complete aligned entry) but its notes or
+ *              expression aren't cached yet: a first play for them (0.15.70: Apple word-timed songs counted
+ *              as 'nothing' and were never delayed, so their notes always came after the line was sung)
+ *   'nothing'  no lyrics, an instrumental, lyrics with their own word timing whose notes are cached (or not
+ *              wanted), or lyrics without line times (the stream needs them): nothing for look-ahead to do
  *   'first'    line-timed lyrics not aligned yet: a first play
  *   'unknown'  its lyrics were never looked up: a first play by definition (a learned song has them cached)
  * lyrics: the cached lyrics entry or null; aligned: the valid aligned entry or null; canAlign, hasWords:
- * align-session.js canAlign and lyrics-timing.js hasWordTiming.
+ * align-session.js canAlign and lyrics-timing.js hasWordTiming; notesMissing: the song still needs its
+ * notes or expression measured this play (main: the align session's notes.missing, with the switches on).
  */
-function learnState(lyrics, aligned, canAlign, hasWords) {
+function learnState(lyrics, aligned, canAlign, hasWords, notesMissing) {
   if (!lyrics) return 'unknown'
   const lines = lyrics.lines || []
-  if (lyrics.instrumental || !lines.length || hasWords(lines) || !canAlign(lines)) return 'nothing'
-  if (aligned && aligned.lines && !aligned.partial) return 'learned'
+  if (lyrics.instrumental || !lines.length || lines[0].t == null) return 'nothing'
+  if (hasWords(lines)) return notesMissing ? 'notes' : 'nothing'
+  if (!canAlign(lines)) return 'nothing'
+  if (aligned && aligned.lines && !aligned.partial) return notesMissing ? 'notes' : 'learned'
   return 'first'
 }
 
@@ -103,6 +110,7 @@ function engineState(pong, preciseOn) {
 // The status line under the switch (honest: what the song playing now got, and why).
 const WHY_TEXT = {
   first: 'This song plays {d} s behind: its first play',
+  notes: 'This song plays {d} s behind: learning its notes',
   learned: 'No delay: this song is learned',
   nothing: 'No delay: nothing to learn in this song',
   video: 'No delay: music videos are never delayed',

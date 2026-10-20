@@ -857,7 +857,8 @@ function createAlignSession(deps) {
       return
     }
     if (msg.type === 'stream') { s.stream.ready = true; log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
-    if (msg.type !== 'words' || !song || song !== s) return
+    // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used
+    if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return
     const m = streamedMessage(s.raw, msg.lines)
     if (m) { s.stream.words += Object.values(m.lines).reduce((a, l) => a + l.words.length, 0); deps.send('lyrics-stream', Object.assign({ key: s.key }, m)) }
   }
@@ -1176,7 +1177,9 @@ function createAlignSession(deps) {
     // given times, left before the end (a skip, the view closed): no notes this time; jobs still queued are skipped
     if (s.given && final && !heardWhole(s)) {
       s.cancelled = true
+      closeStream(s, true)
       log('no sheet notes for "' + s.title + '" this time: it was not heard to the end')
+      unfinished(s)
       wrapUp(s)
       return null
     }
@@ -1185,7 +1188,10 @@ function createAlignSession(deps) {
     if (s.stream || (s.lookahead && !s.streamFailed && deps.helper.stream)) {
       if (!final) return null
       closeStream(s, false)
-      if (s.secs.length && heardWhole(s)) job = submit(s, null)
+      // given times: the notes on the lyrics' own times from the whole song (what stays cached)
+      if (s.given) job = submitGivenNotes(s)
+      else if (s.secs.length && heardWhole(s)) job = submit(s, null)
+      else unfinished(s)
       wrapUp(s)
       return job
     }
@@ -1220,14 +1226,21 @@ function createAlignSession(deps) {
     }
     if (s.given) {
       if (heardWhole(s)) job = submitGivenNotes(s)
-      else { s.cancelled = true; log('no sheet notes for "' + s.title + '" this time: it was not heard to the end') }
+      else { s.cancelled = true; log('no sheet notes for "' + s.title + '" this time: it was not heard to the end'); unfinished(s) }
       wrapUp(s)
       return job
     }
     // (not again on a play that only fills gaps of an entry that had its whole-song pass)
     if (!s.wholeDone && s.secs.length > 1 && s.buf.end >= s.span.end - 0.05 && s.buf.coverage(s.span.start, s.span.end) >= MIN_COVERAGE) job = submit(s, null)
+    else if (final && s.sectionNotes) unfinished(s)
     wrapUp(s)
     return job
+  }
+
+  // a song left before its end whose sections (or stream lines) brought notes: those are kept (main writes them as
+  // a partial entry), so the next play draws them from its start and records the song again for the rest
+  function unfinished(s) {
+    if (s.sectionNotes && deps.notes && deps.notes.unfinished) deps.notes.unfinished(s)
   }
 
   function finish(submitIfHeard) {
@@ -1263,7 +1276,9 @@ function createAlignSession(deps) {
         const secs = fitted.secs
         if (!secs.length) return
         log('recording "' + title + '" for its sheet notes (its own word timing)')
-        song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: fitted.span, secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false }
+        song = { id: 's' + (++songs), key, title, artist, raw, hash: lyricsHash(raw), span: fitted.span, secs, secCount: secs.length, skip: new Set(), next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: null, kept: new Set(), finalQueued: false, fills: 0, wholeDone: false, need: null, notesQueued: false, info: info || {}, given: true, cancelled: false,
+          // look-ahead play (0.15.70): a delayed first play streams for its line notes; its words stay the lyrics' own
+          lookahead: info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '', wordsKnown: true }
         return
       }
       // timed for another version (info.plain: recording-id timingMismatch, or true for a song that has a
@@ -1312,7 +1327,9 @@ function createAlignSession(deps) {
       else if (notesMissing) log('recording "' + title + '" whole this time, for its sheet notes')
       song = { id: 's' + (++songs), key, title, artist, raw, hash, span: fitted.span, secs, secCount: secs.length, skip, next: 0, buf: createSongBuffer({ rate }), sent: false, failed: false, entry: have || null, kept: new Set(), finalQueued: false, fills, wholeDone, need, notesQueued: false, info: info || {}, storeKey: found.key, rec: found.song,
         // look-ahead play: this first play is heard info.lookahead ms late; its words come from a stream
-        lookahead: !have && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '' }
+        // (0.15.70: also a learned song recorded for its notes only: the stream brings them line by line, the
+        // cached words stay on screen)
+        lookahead: (!have || notesOnly) && !need && info && info.lookahead > 0 ? info.lookahead : 0, stream: null, streamFailed: '', wordsKnown: notesOnly }
       song.slow = !song.lookahead && !!slow()
     },
     /** Per lyrics poll tick: records while playing; aligns each section once it has been heard. */

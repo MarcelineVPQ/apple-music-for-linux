@@ -71,6 +71,52 @@ test('learnState: from the caches only, with the same tests the align session us
   assert.equal(ls({ lines }, { lines: { 0: {}, 1: {} }, partial: false }), 'learned')
 })
 
+test('learnState + decide (0.15.70): a song is learned only with its notes and expression; Apple word timing + no notes is a delayed first play', () => {
+  const ls = (lyr, al, missing) => LA.learnState(lyr, al, AS.canAlign, T.hasWordTiming, missing)
+  const apple = { lines: [{ t: 10, text: 'Hi there', words: [{ t: 10, end: 10.4, text: 'Hi' }, { t: 10.5, end: 11, text: 'there' }] }] }
+  const lines = { lines: [{ t: 10, text: 'Hello there' }, { t: 14, text: 'General Kenobi' }] }
+  const done = { lines: { 0: {}, 1: {} }, partial: false }
+  const base = { on: true, ok: true, video: false, viewOpen: true, engine: 'ready', gpuBusy: false, ms: LA.DELAYS.precise }
+  // [lyrics, aligned, notes missing] -> learn state -> delay
+  const table = [
+    [apple, null, true, 'notes', LA.DELAYS.precise],     // Marcy's "expectations": Apple word-timed, no notes yet
+    [apple, null, false, 'nothing', 0],                  // Apple word-timed, notes + expression cached
+    [lines, done, true, 'notes', LA.DELAYS.precise],     // aligned words, notes still to measure
+    [lines, done, false, 'learned', 0],                  // aligned, notes and expression cached
+    [lines, null, true, 'first', LA.DELAYS.precise],
+    [lines, null, false, 'first', LA.DELAYS.precise],
+    [{ lines: [{ t: null, text: 'Hello there' }] }, null, true, 'nothing', 0],   // no line times: the stream needs them
+    [{ lines: [], instrumental: { by: 'apple' } }, null, true, 'nothing', 0],
+    [null, null, true, 'unknown', LA.DELAYS.precise]
+  ]
+  for (const [lyr, al, missing, want, ms] of table) {
+    const learn = ls(lyr, al, missing)
+    assert.equal(learn, want, JSON.stringify([lyr && lyr.lines.length, !!al, missing]))
+    assert.equal(LA.decide(Object.assign({}, base, { learn })).ms, ms, want)
+  }
+  assert.deepEqual(LA.decide(Object.assign({}, base, { learn: 'notes' })), { ms: LA.DELAYS.precise, why: 'notes' })
+  // the delay still needs the GPU free and the engine ready
+  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', gpuBusy: true })).ms, 0)
+  assert.equal(LA.decide(Object.assign({}, base, { learn: 'notes', engine: 'cpu' })).ms, 0)
+  const t = LA.statusText('notes', 3000)
+  assert.equal(t, 'This song plays 3 s behind: learning its notes')
+  assert.ok(t.length <= 60)
+})
+
+test('main (0.15.70): look-ahead asks whether the song still needs notes, logs the delay, and starts after a helper update', () => {
+  const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(main, /lookaheadLib\.learnState\(lyr, aligned, alignSessionLib\.canAlign, lyricsTiming\.hasWordTiming, needsNotes && streamsNotes\)/)
+  assert.match(main, /'first play delayed ' \+ d\.ms \/ 1000 \+ ' s \(needs notes\/expression\)'/)
+  // the align session and look-ahead share one "still needs its notes" rule
+  assert.match(main, /missing: notesMissing\n/)
+  // the helper's update at start no longer leaves look-ahead off for the run
+  const after = main.slice(main.indexOf('function helperAfter('), main.indexOf('function helperStart('))
+  assert.match(after, /applyLookahead\(\)/)
+  // wanted(): the stored switch, the build and Precise word timing as the panel shows it (0.15.66)
+  assert.equal(LA.wanted({ lookahead: true }, { ok: true }, true), true)
+  assert.equal(LA.wanted({ lookahead: true }, { ok: true }, false), false)
+})
+
 test('engineState: the engine streams only when its pong says so', () => {
   assert.equal(LA.engineState(null, false), 'off')
   assert.equal(LA.engineState(null, true), 'unknown')

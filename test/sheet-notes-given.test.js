@@ -97,11 +97,12 @@ test('mode: Apple-timed songs go through the first-play and later-play states (n
 function setup(opts = {}) {
   let nowMs = 0
   const calls = []
-  const got = { pitch: [], done: [], failed: [] }
+  const got = { pitch: [], done: [], failed: [], sections: [], unfinished: [] }
   const store = new Map()
   const helper = {
     align: async (id, messages) => { calls.push({ cmd: 'align', id }); throw new Error('never aligned') },
     forget: (song) => calls.push({ cmd: 'forget', song }),
+    sectionNotes: opts.sectionNotes,
     pitch: async (id, song, offset) => { calls.push({ cmd: 'pitch', id, song, offset }); return { type: 'result', id, pitch: { t0: offset, hop: 0.05, v: [0, 600] } } },
     separate: async (id, messages) => {
       const m = [...messages]
@@ -117,11 +118,12 @@ function setup(opts = {}) {
       return { type: 'result', id, notes: { notes: [{ t: 10, end: 10.4, midi: 60 }], syllables: m[0].given.syllables, pitch: { t0: 0, hop: 0.05, v: [600] } } }
     }
   }
+  if (opts.stream) helper.stream = opts.stream
   const s = A.createAlignSession({
     createListener: () => ({ start() {}, stop() {} }),
     helper,
     store: { get: (k) => store.get(k) || null, set: (k, v) => store.set(k, v) },
-    send: () => {},
+    send: (c, x) => { if (opts.sent) opts.sent.push([c, x]) },
     now: () => nowMs,
     log: () => {},
     latency: 0,
@@ -133,7 +135,10 @@ function setup(opts = {}) {
       failed: (song, e) => got.failed.push(e.code || e.message),
       pitchWanted: opts.pitchWanted || (() => true),
       pitch: (song, line, e) => got.pitch.push(line ? line.t0 : 'error ' + (e && (e.code || e.message))),
-      missing: opts.missing || (() => true)
+      missing: opts.missing || (() => true),
+      sectionWanted: opts.sectionNotes ? () => true : undefined,
+      section: (song, part, sec) => got.sections.push([sec.from, sec.to, !!sec.stream, part.notes.length]),
+      unfinished: (song) => got.unfinished.push(song.title)
     }
   })
   return { s, calls, got, store, setNow: (v) => { nowMs = v } }
@@ -317,4 +322,70 @@ test('session: notesState says recording while the song is heard, measuring whil
   await settle()
   assert.equal(env.s.notesState('Song|A'), '', 'the notes job ended')
   assert.deepEqual(env.got.done.map((d) => d[0]), ['Song'])
+})
+
+// --- 0.15.70: look-ahead for Apple-timed songs; a play left early keeps its parts ---
+
+function fakeStream() {
+  const st = { heads: [], chunks: 0, ended: 0, cancelled: 0, on: null }
+  st.fn = (id, head, on) => {
+    st.heads.push(head)
+    st.on = on
+    return {
+      done: new Promise(() => {}),
+      chunk: () => { st.chunks++ },
+      end: () => { st.ended++ },
+      cancel: () => { st.cancelled++ }
+    }
+  }
+  return st
+}
+
+test('session, look-ahead: an Apple-timed first play streams for its line notes (no section jobs); its own words stay; the notes on its own times at the end', async () => {
+  const st = fakeStream()
+  const sent = []
+  const env = setup({ stream: st.fn, sectionNotes: async () => ({}), sent })
+  env.s.setLyrics('15 Step|Radiohead', '15 Step', 'Radiohead', APPLE, true, { duration: 40, lookahead: 3000 })
+  play(env, 0, 37)
+  assert.equal(st.heads.length, 1, 'one stream for the delayed first play')
+  assert.equal(st.heads[0].lead, 3)
+  assert.equal(st.heads[0].notes, true, 'the stream asks for each line\'s notes')
+  assert.deepEqual(st.heads[0].lines.map((l) => l.text), APPLE.map((l) => l.text))
+  assert.ok(st.chunks > 0)
+  assert.equal(env.calls.filter((c) => c.cmd === 'separate').length, 0, 'no section jobs while the stream brings the notes')
+  // a line's notes arrive ahead of the listener: to the band and the views like a section's
+  st.on({ type: 'notes', line: 2, notes: { notes: [{ t: 30, end: 31, midi: 60 }], syllables: [] } })
+  assert.deepEqual(env.got.sections, [[2, 2, true, 1]])
+  assert.equal(env.s.notesState('15 Step|Radiohead'), 'sections')
+  // the stream's own words never replace Apple's
+  st.on({ type: 'words', lines: [{ line: 0, words: [{ t: 10.1, end: 10.5, text: 'fifteen' }] }] })
+  assert.ok(!sent.some((x) => x[0] === 'lyrics-stream'))
+  // heard to its end: the stream ends, then the notes on the lyrics' own times (what stays cached)
+  play(env, 37, 40)
+  env.s.setLyrics('Next|B', 'Next', 'B', [{ t: 5, text: 'other song' }], true)
+  await settle()
+  assert.equal(st.ended, 1)
+  assert.deepEqual(env.calls.map((c) => c.cmd), ['notes'])
+  assert.equal(env.calls[0].audio, true, 'from the song\'s audio (no sections were kept)')
+  assert.deepEqual(env.got.done.map((d) => d[0]), ['15 Step'])
+})
+
+test('session: an Apple-timed song left before its end keeps the notes its parts brought (notes.unfinished); a stream is cancelled', async () => {
+  const st = fakeStream()
+  const env = setup({ stream: st.fn, sectionNotes: async () => ({}) })
+  env.s.setLyrics('Song|A', 'Song', 'A', APPLE, true, { duration: 40, lookahead: 3000 })
+  play(env, 0, 20)
+  st.on({ type: 'notes', line: 0, notes: { notes: [{ t: 10, end: 10.4, midi: 60 }], syllables: [] } })
+  env.s.setLyrics('Next|B', 'Next', 'B', [{ t: 5, text: 'other song' }], true)
+  await settle()
+  assert.equal(st.cancelled, 1)
+  assert.deepEqual(env.got.unfinished, ['Song'])
+  assert.deepEqual(env.got.done, [])
+  // no part came: nothing to keep
+  const none = setup()
+  none.s.setLyrics('Song|A', 'Song', 'A', APPLE, true)
+  play(none, 0, 5)
+  none.s.setLyrics('Next|B', 'Next', 'B', [{ t: 5, text: 'other song' }], true)
+  await settle()
+  assert.deepEqual(none.got.unfinished, [])
 })

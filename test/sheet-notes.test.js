@@ -683,7 +683,7 @@ test('listening: on while the part at the playhead has no line yet; off once its
 
 test('listening: the band shows it in the label row and on the staff at the playhead; one gap signal, not two', () => {
   const ui = read('sheet-notes-ui.js')
-  assert.match(ui, /const L = M\.listening\(m, pieces, t, Number\(st\.end\) \|\| 0\)/)
+  assert.match(ui, /const L = M\.listening\(m, pieces, t, Number\(st\.end\) \|\| 0, entry && entry\.partial \? entry\.covered : null\)/)
   assert.match(ui, /label\.textContent = L \? L\.label : m\.label/)
   assert.match(ui, /const inf = L \? L\.info : \(m\.info \|\| ''\)/)
   assert.match(ui, /const headDot = el\(doc, 'span', 'sn-live', head\)/)
@@ -902,4 +902,50 @@ test('mergeSections: sections in song order, notes on the merged syllables, pitc
   assert.ok(md.live)
   assert.equal(M.listening(md, [{ t0: 0, hop: 0.05, v: [1, 1] }], 50, 0), M.LISTENING, 'still listening where no section came yet')
   assert.equal(M.listening(md, [{ t0: 0, hop: 0.05, v: new Array(100).fill(1) }], 1, 0), null)
+})
+
+test('first play (0.15.70): merged parts draw at once in the first play\'s wider view; "Listening and learning" is off where they are; a play left early keeps them', () => {
+  const part = (from, t) => ({ section: { offset: t - 1, span: [t, t + 8] }, tuning: { cents: 0 }, syllables: [{ t, end: t + 0.4, text: 'la', line: from, syl: 0, nsyl: 1 }],
+    notes: [{ t, end: t + 0.4, midi: 62, cents: 0, conf: 0.9, syl_index: 0 }], pitch: { t0: t, hop: 0.05, v: [620, 620] }, expr: { words: [] } })
+  const m = M.mergeSections([part(0, 10), part(4, 30)])
+  assert.deepEqual(m.covered, [[10, 18], [30, 38]])
+  const entry = Object.assign(M.compact(m, { lyricsHash: 'h', created: 'first-play:2' }), { partial: true })
+  assert.deepEqual(entry.covered, [[10, 18], [30, 38]])
+  const md = M.mode({ on: true, installed: true, precise: true, timed: true, wordSynced: true, partial: true, doc: M.expand(entry) })
+  assert.equal(md.band, 'notes')
+  assert.equal(md.first, true, 'the first play\'s view')
+  // Listening: off inside a part that came (no pitch pieces needed), on past it
+  assert.equal(M.listening(md, [], 12, 0, entry.covered), null)
+  assert.equal(M.listening(md, [], 35, 0, entry.covered), null)
+  assert.equal(M.listening(md, [], 25, 0, entry.covered), M.LISTENING)
+  // the band: the first play's notes at the wider view, so a part sung a few seconds ago is still on the band
+  const UI = require('../sheet-notes-ui')
+  assert.ok(UI.PPS.first < UI.PPS.notes && UI.HEAD_AT.first > UI.HEAD_AT.notes)
+  const past = (k) => (900 * UI.HEAD_AT[k]) / UI.PPS[k]
+  assert.ok(past('first') >= 10, 'about 10 s heard stay on a 900 px band: ' + past('first'))
+  assert.ok(read('sheet-notes-ui.js').includes("const geom = () => (m.band === 'line' ? 'line' : m.first ? 'first' : 'notes')"))
+  // left before its end: a partial entry (parts kept, expression merged), still "missing" for the store
+  const pe = M.partialEntry([[0, part(0, 10)], [4, part(4, 30)]], { format: 2, v: 2, words: [{ l: 0, w: 0 }], voc: [] }, { lyricsHash: 'h', created: 'x' })
+  assert.equal(pe.partial, true)
+  assert.equal(pe.notes.length, 2)
+  assert.deepEqual(pe.parts.map((p) => p[0]), [0, 4])
+  assert.ok(!('expr' in pe.parts[0][1]))
+  assert.deepEqual(pe.expr.words, [{ l: 0, w: 0 }])
+  assert.ok(M.entryValid(pe, 'h'))
+  const S = require('../sheet-notes-store')
+  const files = new Map()
+  const io = { mkdirSync() {}, writeFileSync: (f, t) => files.set(f, t), renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a) }, readFileSync: (f) => { if (!files.has(f)) throw new Error('ENOENT'); return files.get(f) }, utimesSync() {}, readdirSync: () => [], statSync: () => ({ mtimeMs: 0 }), unlinkSync() {} }
+  const store = S.createSheetNotesStore({ dir: '/x', io })
+  store.set('Song', 'A', pe)
+  assert.equal(store.missing('Song', 'A', 'h'), true, 'a partial entry is learned again')
+  store.set('Song', 'A', Object.assign({}, pe, { partial: undefined }))
+  assert.equal(store.missing('Song', 'A', 'h'), false)
+})
+
+test('main (0.15.70): a first play left early is kept and carried on; the pieces survive a re-layout', () => {
+  const main = read('main.js')
+  assert.match(main, /unfinished: firstPlayUnfinished,/)
+  assert.match(main, /firstPlay = firstPlayFor\(s\)/)
+  assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) return   \/\/ learned notes are never replaced/)
+  assert.match(main, /pitch: sheet && sheet\.key === key \? sheet\.pitch : \[\]/)
 })

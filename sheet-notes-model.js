@@ -189,7 +189,9 @@ function compact(part, meta = {}) {
     duration: round(num(p.duration_s)),
     syl,
     notes,
-    pitch
+    pitch,
+    // a first play's merged parts (mergeSections): the song time they cover
+    ...(Array.isArray(p.covered) ? { covered: p.covered.filter((c) => Array.isArray(c) && c[1] > c[0]).map((c) => [round(num(c[0])), round(num(c[1]))]) } : {})
   }
 }
 
@@ -432,7 +434,8 @@ function mode(st) {
   if (!s.precise) return say('message', '', 'Needs Precise word timing on (Settings → Precise timing)', 'Sheet notes are worked out on this PC by Precise word timing’s helper: turn Precise word timing on in Settings → Precise timing.')
   // the notes are on the clock of the words on screen: aligned ones, or the lyrics' own word timing
   // the first play's notes so far (mergeSections): drawn as they come, "Listening and learning" where none came yet
-  if (s.partial && s.doc && s.doc.notes && s.doc.notes.length) return Object.assign(say('notes', 'First play · notes', s.error || ''), { live: !s.error && !s.paused })
+  // (first: the band shows them with the first play's wider view of what was heard, sheet-notes-ui.js PPS.first)
+  if (s.partial && s.doc && s.doc.notes && s.doc.notes.length) return Object.assign(say('notes', 'First play · notes', s.error || ''), { live: !s.error && !s.paused, first: true })
   if (s.doc && s.doc.notes && s.doc.notes.length && (s.aligned || s.wordSynced)) {
     const g = s.gate || gate(s.doc)
     return say('notes', 'Notes' + (s.doc.key && s.doc.key.name ? ' · ' + s.doc.key.name : ''), g.song === 'line' ? 'Pitch line only' : '', g.song === 'line' ? 'Pitch line only: ' + g.why : '')
@@ -514,8 +517,49 @@ function mergeSections(parts) {
     duration_s: 0,
     syllables,
     notes: order.map((i) => notes[i]),
-    pitch: mergePitch(ps.map((p) => p.pitch))
+    pitch: mergePitch(ps.map((p) => p.pitch)),
+    covered: partSpans(ps)
   }
+}
+
+/**
+ * The song time a first play's parts cover, merged ([[t0, t1]]): a section's own span (the helper's
+ * section.span), else its syllables' extent (a stream line's notes). Where they cover the playhead the band
+ * draws notes, so "Listening and learning" is off there (listening()).
+ */
+function partSpans(parts) {
+  const xs = []
+  // loop: NOT-WORTH — the parts so far (≤ ~60), once per new part
+  for (const p of parts || []) {
+    const sp = p && p.section && Array.isArray(p.section.span) ? p.section.span : null
+    if (sp && sp[1] > sp[0]) { xs.push([Number(sp[0]), Number(sp[1])]); continue }
+    const syl = (p && p.syllables) || []
+    if (syl.length) xs.push([Math.min(...syl.map((y) => num(y.t))), Math.max(...syl.map((y) => num(y.end)))])
+  }
+  xs.sort((a, b) => a[0] - b[0])
+  const out = []
+  // loop: NOT-WORTH — as above
+  for (const x of xs) {
+    const last = out[out.length - 1]
+    if (last && x[0] <= last[1] + 1) last[1] = Math.max(last[1], x[1])
+    else out.push(x.slice())
+  }
+  return out
+}
+
+/**
+ * A first play left before its end (0.15.70): the notes of the parts it heard, kept as a partial entry.
+ * parts: [[from (the part's first line), part]] (main's firstPlay.parts); expr: their merged expression
+ * (lyrics-expressive.js compact form) or null. The entry draws like the first play's provisional one, and keeps
+ * its parts (without their expression: `expr` holds it) so the next play adds its own to them.
+ */
+function partialEntry(parts, expr, meta = {}) {
+  const list = (parts || []).filter((p) => Array.isArray(p) && Number.isInteger(p[0]) && p[1] && Array.isArray(p[1].notes))
+  const entry = compact(mergeSections(list.map((p) => p[1])), meta)
+  entry.partial = true
+  entry.parts = list.map(([from, p]) => [from, { section: p.section, model: p.model, tuning: p.tuning, syllables: p.syllables, notes: p.notes, pitch: p.pitch }])
+  if (expr) entry.expr = expr
+  return entry
 }
 
 // --- layout: what to draw, in song seconds and staff steps (sheet-notes-ui.js turns them into pixels) ---
@@ -724,9 +768,12 @@ const LISTENING = {
   label: 'Listening and learning',
   info: 'The pitch line for this part appears once Sonata has heard it; next play it’s there from the start.'
 }
-function listening(m, pieces, t, end) {
+function listening(m, pieces, t, end, covered) {
   if (!m || (m.band !== 'line' && m.band !== 'notes') || !m.live || !(t >= 0)) return null
   if (end > 0 && t >= end) return null
+  // the first play's notes (covered: the parts' spans, partSpans) are drawn here: nothing to wait for
+  // loop: NOT-WORTH — the merged spans (≤ ~12), on the 2/s time pushes of the first play's band only
+  for (const c of covered || []) if (Array.isArray(c) && t >= c[0] && t < c[1] + 1) return null
   // loop: NOT-WORTH — the song's sections (≤ ~12), on the 2/s time pushes of the first play's band only
   for (const p of pieces || []) {
     if (p && Array.isArray(p.v) && p.hop > 0 && t >= p.t0 && t < p.t0 + p.v.length * p.hop) return null
@@ -861,7 +908,7 @@ function noteAt(lay, t) {
 module.exports = {
   FORMAT, GATE, LINE, CLEFS, TEXT_MAX, fit, PITCH_HOP, SHARP, FLAT, OVER_ROOM, placement,
   parseName, spellMidi, midiOf, spellNote, keyAccidentals, keySignature, clefFor, staffPos, ledgers, accidental, contPos,
-  compact, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, mergeSections, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
+  compact, partialEntry, partSpans, expand, entryValid, notesGap, relearnDue, RELEARN_MAX, GAP, stats, gate, regionAt, mode, mergePitch, mergeSections, layout, cleanPitch, pitchRuns, ROOM, roomRuns, LISTENING, listening,
   staffSpans, lyricSpans, viewWindow, seenIn, nextSeen, QUIET, labelAt, nextChange, noteAt
 }
 // the band follows the song clock the way every clocked animation does (song-clock.js followRate)

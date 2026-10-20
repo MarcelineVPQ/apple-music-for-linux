@@ -22,8 +22,11 @@ const SYL_Y = 120              // the syllables' baseline (lyrics.html .sn-syls 
 const PLACES = [['band', 'Band on top', 'The staff in a band above the lyrics'], ['over', 'Over the sung line', 'The staff rides just above the line being sung']]
 const SYL_EM = 6.6             // px per letter of a syllable (12 px semibold), to keep syllables apart
 const STAFF_H = 132            // the staff box's height (the 18 px label row is above it; the band is 150 px)
-const PPS = { notes: 110, line: 36 }        // px per second: the staff; the first play's wider view of what was heard
-const HEAD_AT = { notes: 0.3, line: 0.86 }  // where the playhead sits across the band (share of its width)
+// px per second: the staff; the first play's wider view of what was heard (its pitch line); the first play's notes
+// (0.15.70: at the staff's 110 px/s with the playhead at 30 % a part that arrived after it was sung was already
+// off the band's left edge, so the band looked empty while its notes were there)
+const PPS = { notes: 110, line: 36, first: 60 }
+const HEAD_AT = { notes: 0.3, line: 0.86, first: 0.72 }  // where the playhead sits across the band (share of its width)
 
 function el(doc, tag, cls, parent) {
   const e = doc.createElement(tag)
@@ -137,8 +140,9 @@ function createSheetBand(opts) {
   let drawn = null          // { notes, runs } the notes build drew (null: no notes build on the strip)
   let boxW = 600            // the staff box's width, read in place() (no layout read on the note-change timeout)
 
-  const pps = () => PPS[m.band === 'line' ? 'line' : 'notes']
-  const headAt = () => HEAD_AT[m.band === 'line' ? 'line' : 'notes']
+  const geom = () => (m.band === 'line' ? 'line' : m.first ? 'first' : 'notes')
+  const pps = () => PPS[geom()]
+  const headAt = () => HEAD_AT[geom()]
 
   // --- the fixed part: staff lines, clef, key signature ---
   function drawFixed(clef, fifths) {
@@ -343,7 +347,7 @@ function createSheetBand(opts) {
   // takes the label's place and the ⓘ, the dots show; the dots hold still while the song is paused or the
   // window hidden. Re-checked on the 2/s time pushes and on every state push (a piece arrived: off).
   function listenNote(t) {
-    const L = M.listening(m, pieces, t, Number(st.end) || 0)
+    const L = M.listening(m, pieces, t, Number(st.end) || 0, entry && entry.partial ? entry.covered : null)
     root.classList.toggle('still', !(opts.playing() && doc.visibilityState === 'visible'))
     if (L === live) return
     live = L
