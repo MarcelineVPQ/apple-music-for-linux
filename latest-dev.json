@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.73-dev.1",
-  "file": "sonata-0.15.73-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.73-dev.1/sonata-0.15.73-dev.1-x86_64.AppImage",
-  "sha512": "b0e4371e30fb6daa06b7312bfc7adde87147884b09b2e4e69ca25d1e70226c8704fc8ee982a9dbad3296c5431c7b17f08be29e3cf3b6f8c8f1e1202b650a456f",
-  "size": 127640049,
-  "date": "2026-10-20T04:07:22Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.73-dev.1",
-  "notes": "### Added\n- **Song reports: each song logs how well it was learned and shown.** At the end of each song shown in a lyric view, Sonata writes one entry to its log: how far ahead of the singing each line's words, notes and expression arrived, on how many sung lines the Studio's band drew notes, how many measured held words were drawn (and why the rest weren't: the line was already sung, too short to show, a different repeat, other words, no vowel measured), the song clock's corrections, any helper failures, and whether it was a first, learned or refine play. With the developer log on (Sung notes, Development builds) each line lit gets its own line too.\n\n### Changed\n- **The song clock's log counts its corrections**: one line a minute with how many there were, the largest and their causes, instead of only the first one.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.73-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.74-dev.1",
+  "file": "sonata-0.15.74-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.74-dev.1/sonata-0.15.74-dev.1-x86_64.AppImage",
+  "sha512": "41eca9fc83dadda127a8508bc113be05ce1f9771dff4ef045253202e35fa48224bcd453574d39ba7ee407e9877cab9ce38e94a774bd0666d7fc5708c1e7bbbce",
+  "size": 127644027,
+  "date": "2026-10-20T04:18:37Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.74-dev.1",
+  "notes": "### Added\n- **Forget this song (Development builds).** The song's ⋯ menu, in the mini player and in the Studio, has \"Forget this song…\": it asks first, then removes what Sonata learned for that recording (its word timing, sheet notes, Expressive words, refine progress and the parts kept from an unfinished play) so the next play is a first play again, for a fair retest. The lyrics are kept unless you choose \"Forget it and the lyrics too\". The log says `forgot \"<song>\" for a fresh first play`, and the next song report marks that play as a deliberate retest.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.74-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
