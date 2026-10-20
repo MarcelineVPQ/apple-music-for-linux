@@ -592,7 +592,7 @@ test('main: expr is sent only when Expressive words is on and kept for these lyr
   assert.match(src, /const e = on \? getSheetStore\(\)\.get\(title, artist\) : null/)
   assert.match(src, /const view = entry \? expressive\.forView\(entry\.expr, true, vocaliseSetting\(\)\) : now \? expressive\.forView\(now, true, vocaliseSetting\(\)\) : null/)
   // a first play's sections only while no learned entry exists for these lyrics (firstPlaySection)
-  assert.match(src, /const now = !entry && on && firstPlay && firstPlay\.key === key && firstPlay\.expr \? firstPlay\.expr : null/)
+  assert.match(src, /const fp = firstPlayOf\(key, alignSessionLib\.lyricsHash\(lines \|\| \[\]\)\)\n\s+const now = !entry && on && fp && fp\.expr \? fp\.expr : null/)
   assert.match(src, /if \(expr\) data\.expr = expr\n\s+sendLyrics\('lyrics-data', data\)/)
   assert.match(src, /want: \(\) => \(expressiveOn\(\) \? \['expr'\] : \[\]\)/)
   assert.equal(require('../settings-store').defaults().expressiveWords, null)
@@ -810,4 +810,23 @@ test('noteFor: while the sections\' expression flows the line says it measures a
   assert.equal(X.noteFor(Object.assign({}, base, { entry: 'missing' })).text, 'Expressive words: measuring as it plays')
   assert.equal(X.noteFor(Object.assign({}, base, { job: '' })), null)
   assert.equal(X.noteFor(Object.assign({}, base, { job: 'sections', paused: true })), null)
+})
+
+// QC 2026-10 #7: a replay (or a section measured again) never stacks its vocalise on the old spans
+test('mergeSection: a section\'s words replace its lines\' words, its vocalise replaces the spans it overlaps', () => {
+  const E = require('../lyrics-expressive')
+  const a = { format: 1, v: 2, words: [{ l: 0, w: 0, t: 1 }, { l: 1, w: 0, t: 5 }], voc: [{ t: 10, e: 12 }, { t: 30, e: 31 }] }
+  const b = { format: 1, v: 2, words: [{ l: 1, w: 0, t: 5.1 }], voc: [{ t: 10.1, e: 12.2 }] }
+  const m = E.mergeSection(a, b)
+  assert.deepEqual(m.words.map((w) => [w.l, w.t]), [[0, 1], [1, 5.1]])
+  assert.deepEqual(m.voc, [{ t: 10.1, e: 12.2 }, { t: 30, e: 31 }])
+  assert.deepEqual(E.mergeSection(m, b).voc, m.voc, 'merging the same section again changes nothing')
+  assert.equal(E.mergeSection(null, b).words.length, 1)
+  assert.equal(E.mergeSection(a, null), a)
+})
+
+test('main: a first play\'s state is one play\'s (song id and lyrics hash), never an earlier play\'s', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
+  assert.match(src, /firstPlay\.play !== s\.id \|\| firstPlay\.hash !== s\.hash\) firstPlay = firstPlayFor\(s\)/)
+  assert.match(src, /firstPlay\.expr = expressive\.mergeSection\(firstPlay\.expr, add\)/)
 })

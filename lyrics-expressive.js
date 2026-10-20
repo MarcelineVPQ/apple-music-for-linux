@@ -96,6 +96,23 @@ function compact(expr, lineOffset = 0) {
 }
 
 /**
+ * A first play's expression so far (compact form, or null) with one more section's (compact) merged in: its lines'
+ * words replace those lines' old words, and its vocalise spans replace the old ones they overlap (QC 2026-10 #7:
+ * a replay or a section measured again appended its vocalise again, ghosts stacked).
+ */
+function mergeSection(old, add) {
+  if (!add) return old || null
+  const base = old || { format: add.format, v: add.v, words: [], voc: [] }
+  const lines = new Set(add.words.map((w) => w.l))
+  const addVoc = Array.isArray(add.voc) ? add.voc : []
+  // loop: NOT-WORTH — once per first-play section (every ~10-30 s), N ≤ ~500 words, a few vocalise spans (filter + sort)
+  const words = base.words.filter((w) => !lines.has(w.l)).concat(add.words).sort((a, b) => a.l - b.l || a.w - b.w)
+  // loop: NOT-WORTH — as above: the vocalise spans so far (a few) x this section's (a few)
+  const voc = (base.voc || []).filter((v) => !addVoc.some((x) => x.t < v.e && x.e > v.t)).concat(addVoc).sort((a, b) => a.t - b.t)
+  return { format: add.format, v: add.v, words, voc }
+}
+
+/**
  * The cached form, checked -> what the view gets ({ v, words, voc }) or null. Off: always null (today's
  * look). vocalise: the wordless vocalise ghosts' sub-setting (off: no voc).
  */
@@ -547,6 +564,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

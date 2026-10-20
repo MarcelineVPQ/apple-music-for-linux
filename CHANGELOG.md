@@ -12,6 +12,7 @@ See docs/RELEASING.md.
 - **A song starting again starts its lyrics at once.** Previous more than a few seconds in, a scrub back to 0:00 or Repeat one made the lyrics, the notes band and the Expressive effects run on from the old position for 1.5 s before jumping to the start, and Precise timing could record the song's opening at the old position. Only a jump to the start in a song's last seconds (the next song coming) still waits for the song change, and nothing is recorded meanwhile.
 - **A stalled song holds its lyrics still.** When Apple's player froze while still saying it plays (buffering, the last second of a song), the lit words ran ahead and went dark again every second or so; the clock now sees the frozen time and waits.
 - **Expressive words no longer say "measuring" when nothing runs.** A song whose end-of-song measurement was dropped (the next song came first on a slow PC), skipped while a game ran, or whose timing failed kept saying it was measuring every time it came back that session. The timing helper is now also told to drop that song's kept audio parts.
+- **No doubled vocalise ghosts on a replay.** Playing a song again after leaving it part-way could draw its wordless vocalise ghosts twice (stacked, more opaque), and lyrics that changed source in between could get another text's expression.
 
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 

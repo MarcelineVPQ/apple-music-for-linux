@@ -841,7 +841,8 @@ function expressiveFor(title, artist, lines, key) {
     console.log('align: ' + expressive.statusLine({ on, helper, entry, title }))
   }
   // a first play still under way: what its sections measured so far (firstPlaySection)
-  const now = !entry && on && firstPlay && firstPlay.key === key && firstPlay.expr ? firstPlay.expr : null
+  const fp = firstPlayOf(key, alignSessionLib.lyricsHash(lines || []))
+  const now = !entry && on && fp && fp.expr ? fp.expr : null
   const view = entry ? expressive.forView(entry.expr, true, vocaliseSetting()) : now ? expressive.forView(now, true, vocaliseSetting()) : null
   exprSong = { key: key || '', entry: view ? 'drawn' : entry && 'expr' in entry ? 'none' : 'missing' }
   return view || undefined
@@ -953,7 +954,7 @@ function setSheetSong(key, title, artist, lines, prep, instrumental, shown) {
     if (sheetModel.entryValid(e, hash)) sheet.entry = e
   }
   // a first play under way (the song laid out again): its sections' notes so far
-  if (settings.sheetNotes && (!sheet.entry || sheet.entry.partial) && firstPlay && firstPlay.key === key && firstPlay.parts.size) {
+  if (settings.sheetNotes && (!sheet.entry || sheet.entry.partial) && firstPlayOf(key, hash) && firstPlay.parts.size) {
     sheet.entry = Object.assign(sheetModel.compact(sheetModel.mergeSections([...firstPlay.parts.values()]), { lyricsHash: hash, created: 'first-play:' + firstPlay.n, version: app.getVersion() }), { partial: true })
   }
   sheetSent = ''
@@ -1042,7 +1043,9 @@ function sheetNotesFailed(s, e) {
 // express). The whole-song pass after the song still runs (sheetNotesDone) and replaces it all, the views'
 // copy swapped line by line off screen ('lyrics-expr' final).
 // cache: OK — key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts)
-let firstPlay = null      // { key, title, artist, hash, parts: Map(from -> part), expr, n }
+let firstPlay = null      // { key, play (the align session's song id: one play), title, artist, hash, parts: Map(from -> part), expr, n }
+// the first play under way for this song and these lyrics (QC 2026-10 #7: lyrics from another source have other line indexes)
+function firstPlayOf(key, hash) { return firstPlay && firstPlay.key === key && firstPlay.hash === hash ? firstPlay : null }
 function sectionNotesWanted() {
   // alignSlow (0.15.65, helper-speed.js): processor only, unless the helper has shown it keeps up with the music
   if (!getNotesSwitch().wanted() || alignSlow() || !alignHelper || !alignHelper.serves('section-notes')) return false
@@ -1050,17 +1053,16 @@ function sectionNotesWanted() {
 }
 function firstPlaySection(s, part, sec) {
   if (!part || !Array.isArray(part.notes)) return
-  if (!firstPlay || firstPlay.key !== s.key) firstPlay = firstPlayFor(s)
+  // one play's state: a replay starts again from what the store kept (firstPlayFor), never from an earlier play's
+  // memory (QC 2026-10 #7: its vocalise was appended again, doubled ghosts)
+  if (!firstPlay || firstPlay.key !== s.key || firstPlay.play !== s.id || firstPlay.hash !== s.hash) firstPlay = firstPlayFor(s)
   firstPlay.parts.set(sec.from, part)
   firstPlay.n++
   // Expressive words: the section's expression, merged (each line comes from one section)
   if (expressiveOn() && alignHelper && alignHelper.serves('expr')) {
     const add = expressive.compact(part.expr, 0)
     if (add) {
-      const old = firstPlay.expr || { format: add.format, v: add.v, words: [], voc: [] }
-      const lines = new Set(add.words.map((w) => w.l))
-      // loop: NOT-WORTH — once per first-play section (every ~10-30 s), N ≤ ~500 words so far (filter + sort)
-      firstPlay.expr = { format: add.format, v: add.v, words: old.words.filter((w) => !lines.has(w.l)).concat(add.words).sort((a, b) => a.l - b.l || a.w - b.w), voc: old.voc.concat(add.voc).sort((a, b) => a.t - b.t) }
+      firstPlay.expr = expressive.mergeSection(firstPlay.expr, add)
       if (lyricsKey === s.key) {
         const view = expressive.forView(firstPlay.expr, true, vocaliseSetting())
         if (view) { exprSong = { key: s.key, entry: 'drawn' }; sendLyrics('lyrics-expr', { key: s.key, expr: view, final: false }) }
@@ -1083,7 +1085,7 @@ function firstPlaySection(s, part, sec) {
 // the first play's state for a song: a new one, or one carried on from the partial entry an earlier play left
 // (0.15.70, Marcy: "I don't get expression until the third playthrough": a play left before its end kept nothing)
 function firstPlayFor(s) {
-  const fp = { key: s.key, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
+  const fp = { key: s.key, play: s.id, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), expr: null, n: 0 }
   let old = null
   // error: NOT-WORTH — a store read that throws: a first play from scratch
   try { old = getSheetStore().get(s.title, s.artist) } catch (e) {}
