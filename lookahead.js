@@ -333,6 +333,7 @@ function createLookahead(deps) {
   let boundaryTimer = null   // a jump to the start waiting for its item change
   let heardUs = 0            // the helper's last heard delay (µs)
   let itemAt = -Infinity     // when the last item change came (a load's own seek is not the user's)
+  let itemUntitled = false   // that item change named no song (a cold start announces the song twice)
   const now = deps.now || Date.now
   let helperState = ''
 
@@ -541,10 +542,25 @@ function createLookahead(deps) {
     // the new song's player may set its position to the start while it loads: that is no seek (a flush
     // there would cut the old song's delayed tail)
     if (ev.ev === 'seeking' && now() - itemAt < LOAD_SEEK_MS && !(ev.t >= LOAD_SEEK_S)) return
-    if (ev.ev === 'item') itemAt = now()
+    // 0.15.85 (Marcy 2026-10-20: "a second or two of the beginning of a song gets cut off", only the first track
+    // when playback starts): a cold start announces its song twice, first with no title, then named a second later
+    // ('look-ahead: "": 3000 ms (first)', then "Honey, Honey"); the second announcement flushed the delay line again
+    // and dropped the second of the song already in it. The named one, within LOAD_SEEK_MS at the same delay, only
+    // names it.
+    const naming = ev.ev === 'item' && itemUntitled && now() - itemAt < LOAD_SEEK_MS && !ev.natural
+    if (ev.ev === 'item') { itemAt = now(); itemUntitled = !ev.title && !ev.id }
     if (ev.ev === 'play' || ev.ev === 'item') route()   // a new stream may have come with it
     const oldMs = song.ms
     let nextMs = song.ms
+    if (naming) {
+      const d = deps.decide(ev)
+      if (d.ms === oldMs) {
+        song = { ms: d.ms, why: d.why, anchor: song.anchor, key: ev.id || ev.title }
+        deps.setHold(d.ms > 0)
+        changed()
+        return
+      }
+    }
     if (ev.ev === 'item') {
       const d = deps.decide(ev)
       nextMs = d.ms

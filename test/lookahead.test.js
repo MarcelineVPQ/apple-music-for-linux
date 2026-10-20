@@ -381,6 +381,32 @@ test('controller: the new song\'s own seek to its start while it loads is not a 
   w.la.stop()
 })
 
+test('controller: a cold start announces its song untitled, then named: one flush, not two (0.15.85)', async () => {
+  // Marcy 2026-10-20: the first second of an album's first track cut off; her log: 'look-ahead: "": 3000 ms (first)',
+  // then the named song a second later, each a flush
+  let t = 1000
+  const w = fakeWorld({ now: () => t })
+  w.la.start()
+  await settle()
+  w.la.pageEvent({ ev: 'item', natural: false, title: '', kind: 'songs' })
+  w.la.pageEvent({ ev: 'playing' })
+  t += 900
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'Honey, Honey', id: '1440768620', kind: 'songs' })
+  assert.deepEqual(w.sent, ['flush ' + MS, 'open'], 'the named announcement only names it')
+  assert.equal(w.la.status(), 'This song plays 3 s behind: its first play')
+  // a real song change a moment later (a click on the next song) still flushes
+  t += 900
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'Money, Money, Money', id: '1440768621', kind: 'songs' })
+  assert.deepEqual(w.sent.slice(-1), ['flush ' + MS])
+  // an untitled announcement long ago is no reason to keep a later song's audio
+  t += 5000
+  w.la.pageEvent({ ev: 'item', natural: false, title: '', kind: 'songs' })
+  t += 3000
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'Mamma Mia', kind: 'songs' })
+  assert.deepEqual(w.sent.slice(-2), ['flush ' + MS, 'flush ' + MS])
+  w.la.stop()
+})
+
 test('controller: a music video gets no delay (and no hold)', async () => {
   const w = fakeWorld({ decide: (it) => LA.decide(Object.assign({}, base, { video: !!it.video })) })
   w.la.start()
