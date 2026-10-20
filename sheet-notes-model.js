@@ -195,6 +195,7 @@ function compact(part, meta = {}) {
     notes,
     pitch,
     // a first play's merged parts (mergeSections): the song time they cover
+    // loop: NOT-WORTH — per song change or new first-play section, N = covered spans (≤ ~60)
     ...(Array.isArray(p.covered) ? { covered: p.covered.filter((c) => Array.isArray(c) && c[1] > c[0]).map((c) => [round(num(c[0])), round(num(c[1]))]) } : {})
   }
 }
@@ -561,8 +562,10 @@ function partSpans(parts) {
     const sp = p && p.section && Array.isArray(p.section.span) ? p.section.span : null
     if (sp && sp[1] > sp[0]) { xs.push([Number(sp[0]), Number(sp[1])]); continue }
     const syl = (p && p.syllables) || []
+    // loop: NOT-WORTH — once per new part, N = that line's syllables (≤ ~40)
     if (syl.length) xs.push([Math.min(...syl.map((y) => num(y.t))), Math.max(...syl.map((y) => num(y.end)))])
   }
+  // loop: NOT-WORTH — once per new part, N = parts (≤ ~60)
   xs.sort((a, b) => a[0] - b[0])
   const out = []
   // loop: NOT-WORTH — as above
