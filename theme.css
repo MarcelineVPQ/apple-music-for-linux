@@ -160,3 +160,15 @@
 @media (prefers-reduced-motion: reduce) {
   .s-glass > .s-bd { transition: none; }
 }
+
+/* the task dot (tasks-model.js): one look for every "waiting for you" mark, on a rail item and on a
+   section header alike; each view only places it (rail.css .ic .task, panel.css .sec-ic .task) */
+.task {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--s-warn);
+  box-shadow: 0 0 0 2px var(--s-surface);
+}
+.task[hidden] { display: none; }

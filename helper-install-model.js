@@ -382,7 +382,17 @@
     return { kind: 'info', text: 'The helper ' + n + ' was interrupted — continuing…', detail: (V ? V.NAME : 'Sonata') + ' was closed while the Precise timing helper was ' + VERB[JOB_KINDS.includes(kind) ? kind : 'install'] + '; it picks up where it stopped. Cancel it in Settings → Precise timing.' }
   }
 
-  const api = { JOB_KINDS, RESUME_TRIES, jobMarker, parseMarker, resumeDecision, quitAsk, resumeNotice, STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
+  // The Precise timing helper's task (tasks-model.js: a dot on the rail's Settings item and on the Precise
+  // timing header, a press there opens that section): main.js railPrecise's state -> its words, or '' when
+  // nothing waits (cleared once the update, repair or install is done).
+  const TASK_TEXT = {
+    update: 'The Precise timing helper needs an update',
+    repair: 'The Precise timing helper needs a repair',
+    available: 'A Precise timing helper update is available'
+  }
+  const taskOf = (precise) => TASK_TEXT[precise] || ''
+
+  const api = { TASK_TEXT, taskOf, JOB_KINDS, RESUME_TRIES, jobMarker, parseMarker, resumeDecision, quitAsk, resumeNotice, STEPS, VENV_STEPS, EXPECTED_VENV, EXPECTED_DOWNLOAD, BACKENDS, BUILD_FOR, BUILD_NAME, fitParts, cardPart, buttonLabel, buildForRow, bytesText, sizeOf, parseLine, newJob, reduce, progressView, failText, gpuName, stateRow, buttons, BUTTON_LABEL }
   if (typeof module === 'object' && module.exports) module.exports = api
   else root.SonataHelperInstallModel = Object.freeze(api)
 })(typeof globalThis !== 'undefined' ? globalThis : this)

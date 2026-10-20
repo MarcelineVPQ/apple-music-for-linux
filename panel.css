@@ -119,16 +119,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; 
 .sec-ic { position: relative; flex: none; display: grid; place-items: center; color: var(--s-soft); }
 .sec-ic svg { width: 16px; height: 16px; }
 .sec.open .sec-ic { color: var(--s-ring); }
-.task {
-  position: absolute;
-  top: -3px;
-  right: -4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--s-warn);
-  box-shadow: 0 0 0 2px var(--s-surface);
-}
+.sec-ic .task { top: -3px; right: -4px; }   /* the task dot: its look is theme.css .task */
 .sec-title { flex: none; font-weight: 600; white-space: nowrap; }
 .sec-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-soft); font-size: 12px; }
 .sec-status::before { content: "·"; margin-right: 6px; }

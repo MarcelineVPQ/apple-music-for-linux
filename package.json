@@ -122,6 +122,7 @@
       "toast.html",
       "toast-ui.js",
       "notices-model.js",
+      "tasks-model.js",
       "markdown-lite.js",
       "settings-store.js",
       "json-salvage.js",

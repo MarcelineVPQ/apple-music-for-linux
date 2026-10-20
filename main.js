@@ -27,6 +27,7 @@ const railModel = require('./rail-model');
 const panelModel = require('./panel-model');
 const settingsStore = require('./settings-store');
 const noticesModel = require('./notices-model');
+const tasksModel = require('./tasks-model');
 const updaterLib = require('./updater');
 const aboutDataLib = require('./about-data');
 const curiousSamplerLib = require('./curious-sampler')
@@ -3063,7 +3064,12 @@ function disconnectLastFm() {
 
 // --- notices and toasts (notices-model.js): the side panel draws the notices, the toast view the toasts ---
 // lifetime: one model for the app's life; its notices are bounded (one per id, ≤ ~8 ids) and its toasts (≤ 3)
+// the one task registry (tasks-model.js): every "needs the user" state, notices' included; its dots are
+// the rail's and the panel's, a press on the rail item opens the first waiting section
+// lifetime: one registry for the app's life; one entry per task id (≤ ~12)
+const tasks = tasksModel.createTasks({ onChange: () => { pushPanel(); pushRail() } })
 const notices = noticesModel.createNotices({
+  tasks,
   dismissed: [],
   saveDismissed: (keys) => { settings.dismissedNotices = keys; saveSettings() },
   windowShown: () => mainAlive() && mainWindow.isVisible(),
@@ -3443,7 +3449,7 @@ function helperAfter(kind, job) {
   if (!shuttingDown) {
     clearHelperJob()
     if (helperResumed) {
-      if (job && job.phase === 'failed') notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(kind, 'failed')))
+      if (job && job.phase === 'failed') notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(kind, 'failed')))
       else notices.clear('helper-resume')
       if (ok) toast('The Precise timing helper is ready.')
     }
@@ -3511,12 +3517,12 @@ function helperResume() {
   if (!d.resume) {
     clearHelperJob()
     console.log('helper: an interrupted job is not resumed (' + (m ? d.why : 'unreadable marker') + ')')
-    if (m) notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'failed')))
+    if (m) notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'failed')))
     return
   }
   console.log('helper: continuing the interrupted ' + m.kind + ' (step ' + (m.step || '?') + ', try ' + (m.tries + 1) + ')')
   helperResumed = true
-  notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', task: true, actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'running')))
+  notices.show(Object.assign({ id: 'helper-resume', place: 'top', page: 'settings', task: true, taskSection: 'timing', actions: [{ id: 'helper-resume-show', label: 'Show' }] }, helperModel.resumeNotice(m.kind, 'running')))
   if (m.kind === 'remove') {
     helperJob = { kind: 'remove', o: m.opts, tries: m.tries + 1 }
     writeHelperJob(m.step)
@@ -3716,6 +3722,11 @@ let railSent = ''         // the last state sent, as JSON
 let railBoundsKey = ''    // the last bounds applied, as JSON
 let focusCode = null      // apple-focus.js, injected per Apple page load (read once)
 let panelMode = 'hidden'  // 'hidden' | 'docked' | 'drawer' (the last layout)
+// the helper's task (a dot on Settings and on Precise timing until it's updated or repaired), from the
+// same state the rail shows
+function syncHelperTask(precise) {
+  tasks.set('helper', { page: 'settings', section: 'timing', level: 'task', text: helperModel.taskOf(precise) })
+}
 function railPrecise() {
   if (helperInstaller && helperInstaller.busy) return 'installing'
   if (!settings.lyricsPreciseTiming) return 'off'
@@ -3765,6 +3776,8 @@ function themeState() {
   }
 }
 function railSnapshot() {
+  const precise = railPrecise()
+  syncHelperTask(precise)   // before the dots below read the registry
   const layout = railModel.railLayout(contentSize()[0], !!settings.railPinned)
   return {
     pinned: !!settings.railPinned,
@@ -3775,12 +3788,12 @@ function railSnapshot() {
     open: { lyrics: !!lyricsWindow, stage: !!lyricsWindow && !!settings.lyricsStage, liner: !!linerWindow, visualizer: !!vizWindow, mini: !!miniWindow },
     song: railSong,   // a song is playing or paused (the rail's Liner Notes says when there's none)
     panel: { shown: !!settings.panelShown, page: settings.panelPage },
-    reminders: notices.reminders().pages,
+    reminders: tasks.dots().pages,
     keys: { lyrics: LYRICS_KEY, stage: STAGE_KEY, liner: '', visualizer: VISUALIZER_KEY, mini: MINI_KEY, settings: '', about: '' },
     lastfm: { connected: !!(lastfm && lastfm.connected), user: lastfm && lastfm.connected ? (lastfm.username || '') : '' },
     discord: discordConfig.enabled ? (discord && discord.ready ? 'on' : 'waiting') : 'off',
     discordRetryS: NOW_PLAYING_MS * DISCORD_RETRY_TICKS / 1000,
-    precise: railPrecise(),
+    precise,
     channel: settings.updateChannel,
     version: app.getVersion(),
     theme: themeState()
@@ -3838,7 +3851,7 @@ function createPanelView() {
 function accOf(page) {
   const stored = { open: (settings.panelOpen || {})[page], pins: (settings.panelPins || {})[page] }
   if (stored.open === undefined) {
-    const rem = notices.reminders().sections
+    const rem = tasks.dots().sections
     stored.open = panelModel.sectionIds(page).find((id) => rem[page + '/' + id]) || null
   }
   return panelModel.accState(stored, page)
@@ -3889,9 +3902,10 @@ function hidePanel() {
   if (hadFocus) focusRail()
 }
 // a rail item for a panel page: the page shown -> hide; otherwise show it with that page
+// (a task waiting there: the page opens at its section, expanded and scrolled to: tasks-model.js target)
 function togglePanelPage(page) {
   if (settings.panelShown && settings.panelPage === page && panelAlive()) hidePanel()
-  else showPanel(page)
+  else showPanel(page, tasks.target(page) || undefined)
 }
 // About read on demand (CHANGELOG.md and BACKLOG.md ship in the app); kept for the run
 // error: NOT-WORTH — a missing file reads as empty: About says so ("nothing listed")
@@ -3958,7 +3972,7 @@ function panelSnapshot() {
     acc: { settings: accOf('settings'), about: accOf('about') },
     v,
     notices: notices.visible(),
-    reminders: notices.reminders(),
+    reminders: tasks.dots(),
     // the hero card's version and channel are live (the channel can change while About is cached)
     about: shownAbout || aboutCache ? Object.assign({ hero: aboutDataLib.hero(app.getVersion(), settings.updateChannel, !!appImagePath) }, aboutData()) : null,
     theme: themeState(),
@@ -3971,7 +3985,7 @@ function startGfx() {
   gfx.ready({
     settings: () => settings,
     turnOff: (key) => { if (settings[key] === true) { settings[key] = false; saveSettings() } },
-    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', text, actions: [{ id: 'gfx-back-on', label: 'Turn back on' }, { id: 'gfx-show', label: 'Open Experimental' }] }),
+    notify: (id, text) => notices.show({ id, kind: 'info', task: true, page: 'settings', taskSection: 'experimental', text, actions: [{ id: 'gfx-back-on', label: 'Turn back on' }, { id: 'gfx-show', label: 'Open Experimental' }] }),
     changed: () => pushPanel(),
     screensChanged: () => { sendHdr(lyricsWindow); sendHdr(vizWindow) }
   })
@@ -4674,7 +4688,7 @@ function onUpdateState() {
   if (st.phase === 'failed' && st.during === 'install') lastInstallFailure = { version: st.version, detail: st.detail }
   else if (st.phase === 'ready') lastInstallFailure = null
   const n = updaterLib.updateNotice(st, { playing: lastPlaying, lastFailure: lastInstallFailure, helperBusy: !!(helperInstaller && helperInstaller.busy) })
-  if (n) notices.show(Object.assign({ place: 'top', page: 'settings' }, n))
+  if (n) notices.show(Object.assign({ place: 'top', page: 'settings', taskSection: 'updates' }, n))
   else if (st.phase !== 'checking') notices.clear('update')
   // Install updates automatically: an offered (newer) update downloads, checks and installs by itself
   // (not again by itself after that version failed: Try again is the user's)
@@ -4722,7 +4736,7 @@ function showWhatsNew() {
   const v = updaterLib.updatedSince(last, app.getVersion())
   if (!v) { if (settings.lastRunVersion !== app.getVersion()) { settings.lastRunVersion = app.getVersion(); saveSettings() } return }
   notices.show({
-    id: 'whatsnew', place: 'top', page: 'about', task: true, kind: 'info',
+    id: 'whatsnew', place: 'top', page: 'about', task: true, taskSection: 'whatsnew', kind: 'info',
     text: updaterLib.updatedText(v),
     actions: [{ id: 'whatsnew-see', label: 'See what\'s new', primary: true }]
   })

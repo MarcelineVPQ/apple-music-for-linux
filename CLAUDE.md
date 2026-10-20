@@ -72,6 +72,10 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   enters this repository (gate: `test/engine-boundary.test.js`); CI tests against the fake helper only. One helper process at most, quits after 10 min idle while a lyric view is open (2 min
   when none is); only word times are cached. Lyrics and timing entries are keyed by the recording's ISRC
   (`recording-id.js`; `title|artist` without one) and refused when its length differs by > 1.5 s.
+- **Tasks** (one mechanism, Marcy 2026-10-19): anything that needs the user registers in `tasks-model.js`
+  (id, page, section, level, text); the rail item's dot, the section header's dot and a press on the rail
+  item opening that section all read it, one look (`theme.css` `.task`). Task and error notices register
+  themselves (`notices-model.js`, `taskSection`); never draw a dot or badge of your own (`test/tasks.test.js`).
 - **Theme**: `theme.js` computes every `--s-*` token (light/dark, album accent, Glass backdrop, contrast
   raised until text reaches 4.5:1), `theme-apply.js` writes them in each page, `theme.css` holds the
   first-paint defaults (the only CSS with literal colours).

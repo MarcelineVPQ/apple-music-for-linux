@@ -10,6 +10,14 @@ See docs/RELEASING.md.
 ### Added
 - **Song sections: verse, chorus and bridge labels from the lyrics.** A small, quiet label ("Verse 1", "Pre-chorus", "Chorus", "Bridge") above the first line of each section in the lyrics window and the Studio, worked out from the parts of the lyrics that repeat (Apple's own part names when its lyrics carry them). A song with no clear repeats gets no labels rather than wrong ones. Settings → Lyrics & Studio → Show song sections (on by default on Development builds).
 
+- **One "waiting for you" dot everywhere.** When the Precise timing helper needs an update or a repair, or
+  has an update available, a small yellow dot now shows on the rail's Settings item and on the Precise
+  timing section, so you notice without opening Settings; pressing Settings then opens it at Precise
+  timing, expanded. The dot goes when the update or repair is done. The same dot, from the same place,
+  now marks every other thing that waits for you: an app update, an interrupted helper install, graphics
+  switched off after a crash, a Last.fm or Discord connection problem, a repaired settings file and
+  What's new; each press on the rail item opens the section it is about.
+
 ### Changed
 
 - Duets read as one column now: every singer's lines sit in the same place, with the same alignment
