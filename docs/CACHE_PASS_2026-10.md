@@ -27,77 +27,80 @@ Invalidation was checked against what changes here: the song (key, ISRC), the al
 
 The doc-only rows (ttl, repeat-io, poll-io) carry no comment. Their verdict: **NOT-WORTH / OK** for all of them. The poll-io rows reached from the lyrics poll go through `alignInstalled()`, which is memoised (`alignPaths`, rechecked only on install changes); game-guard's /proc and DRM reads run every 5 s only while precise timing has work (measured in game-guard.js); audio-listen's /proc walk runs when a listener starts; integrateAppImage / applyAutostart / the update verify run on an install; the curious sampler only while For the Curious is open; ttl rows are the documented throttles (engine feed 30 min, montage freshness, seek holds).
 
+## Fixed on branch qc-fixes (2026-10-19, Marcy approved the four batches)
+
+| # | What | Commit |
+|---|---|---|
+| C1 | refreshPalette drops a late artwork fetch for another track | 867a20f |
+| C2 | align-session `noting`: a job that never runs clears it (never()) | 952c4a0 |
+| C5 | montage-store: a vanished photo's bytes leave the total | 83c9319 |
+
 ## Counts
 
 | Verdict | Rows |
 |---|---|
 | (doc only) | 59 |
-| FIX-STALE | 4 |
+| FIX-STALE | 1 |
 | FIX-UNBOUNDED | 1 |
-| NOT-WORTH | 29 |
-| OK | 58 |
-| **total** | 151 |
+| NOT-WORTH | 30 |
+| OK | 61 |
+| **total** | 152 |
 
 ## Flagged rows (fix candidates, as the comments say)
 
-| file:line | what | verdict | reason |
-|---|---|---|---|
-| align-session.js:818 | closure | **FIX-STALE** | key=the song's lyrics key; invalidated=its notes job ends, but NOT when submit()'s whole-song job with notes is dropped, paused or after s.failed (run returns before notesOn(s, false): 'measuring' sticks); bound=the jobs queued + one stuck key per such song |
-| main.js:127 | module | **FIX-STALE** | key=title\|artist; invalidated=next track (no fetch generation check); bound=one object |
-| main.js:652 | module | **FIX-STALE** | key=none; invalidated=never (engine version fixed at creation); bound=one session |
-| main.js:2743 | module | **FIX-STALE** | key=the palette's track; invalidated=with lastPalette (same race); bound=2 × ~3 KB |
-| montage-ui.js:47 | closure | **FIX-UNBOUNDED** | key=photo id; invalidated=theme push (per track w/ album colour); bound=none if off, ~1 KB/set |
+| file:line | what | trigger / context | verdict | reason |
+|---|---|---|---|---|
+| main.js:652 | module | alignSession (lazy init) | FIX-STALE | key=none; invalidated=never (engine version fixed at creation); bound=one session |
+| montage-ui.js:47 | closure | shades | FIX-UNBOUNDED | key=photo id; invalidated=theme push (per track w/ album colour); bound=none if off, ~1 KB/set |
 
 ## Every row
 
-_Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers are those of the commit that adds this file._
-
 | file:line | what | trigger / context | verdict | reason |
 |---|---|---|---|---|
-| align-helper.js:44 | poll-io | readFileSync in setInterval@main.js:3618 → checkEngineFeed → enginePin |  |  |
-| align-helper.js:147 | poll-io | accessSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → isInstalled |  |  |
-| align-helper.js:147 | poll-io | accessSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → isInstalled |  |  |
-| align-helper.js:166 | poll-io | lstatSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → checkInstall |  |  |
-| align-helper.js:171 | poll-io | realpathSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → checkInstall |  |  |
-| align-helper.js:172 | poll-io | accessSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → checkInstall |  |  |
-| align-helper.js:176 | poll-io | readFileSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → checkInstall |  |  |
-| align-helper.js:188 | poll-io | accessSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → checkInstall |  |  |
+| align-helper.js:44 | poll-io | readFileSync in setInterval@main.js:3745 → checkEngineFeed → enginePin |  |  |
+| align-helper.js:147 | poll-io | accessSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → isInstalled |  |  |
+| align-helper.js:147 | poll-io | accessSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → isInstalled |  |  |
+| align-helper.js:166 | poll-io | lstatSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → checkInstall |  |  |
+| align-helper.js:171 | poll-io | realpathSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → checkInstall |  |  |
+| align-helper.js:172 | poll-io | accessSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → checkInstall |  |  |
+| align-helper.js:176 | poll-io | readFileSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → checkInstall |  |  |
+| align-helper.js:188 | poll-io | accessSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → checkInstall |  |  |
 | align-helper.js:245 | module | live (Set) | OK | key=a spawned helper child; invalidated=gone() on its exit or error; bound=one helper (two while an old one quits) |
 | align-helper.js:342 | closure | pending | OK | key=job id; invalidated=done/fail (result, error, timeout via touch, exit via gone); bound=jobs in flight (≤ ~3) |
 | align-helper.js:349 | closure | stderrTail | OK | key=none (the helper's last stderr lines); invalidated=reset at each spawn; bound=20 lines of ≤ one chunk each |
 | align-session.js:251 | closure | blocks | OK | key=10 s block index; invalidated=clear() in wrapUp (every finish/stop path); bound=90 × 882 KB (79 MB) |
 | align-session.js:696 | closure | rows | NOT-WORTH | key=none (a local array returned per call); invalidated=new each call; bound=the song's syllables |
-| align-session.js:818 | closure | noting | FIX-STALE | key=the song's lyrics key; invalidated=its notes job ends, but NOT when submit()'s whole-song job with notes is dropped, paused or after s.failed (run returns before notesOn(s, false): 'measuring' sticks); bound=the jobs queued + one stuck key per such song |
+| align-session.js:846 | closure | noting | OK | key=the song's lyrics key; invalidated=its notes job ends, or submit()'s job never runs (dropped, paused, s.failed: never()); bound=the jobs queued |
 | apple-focus.js:76 | closure | hooked | OK | key=Apple's volume control element; invalidated=GC'd with the element (WeakSet); bound=live controls (1–2) |
-| audio-listen.js:97 | poll-io | readdirSync in setInterval@main.js:2901 → … → ownProcessTree → readChildren |  |  |
+| audio-listen.js:97 | poll-io | readdirSync in setInterval@main.js:2989 → … → ownProcessTree → readChildren |  |  |
 | audio-listen.js:98 | repeat-io | readFileSync |  |  |
-| audio-listen.js:98 | poll-io | readFileSync in setInterval@main.js:2901 → … → ownProcessTree → readChildren |  |  |
-| audio-listen.js:108 | poll-io | readdirSync in setInterval@main.js:2901 → … → ownProcessTree → scanProc |  |  |
+| audio-listen.js:98 | poll-io | readFileSync in setInterval@main.js:2989 → … → ownProcessTree → readChildren |  |  |
+| audio-listen.js:108 | poll-io | readdirSync in setInterval@main.js:2989 → … → ownProcessTree → scanProc |  |  |
 | audio-listen.js:111 | repeat-io | readFileSync |  |  |
-| audio-listen.js:111 | poll-io | readFileSync in setInterval@main.js:2901 → … → ownProcessTree → scanProc |  |  |
+| audio-listen.js:111 | poll-io | readFileSync in setInterval@main.js:2989 → … → ownProcessTree → scanProc |  |  |
 | audio-listen.js:148 | module | liveProcs (Set) | OK | key=parec child; invalidated=deleted on child 'exit' or watchdog switch; bound=≤ 2 live parecs |
 | audio-listen.js:326 | closure | users | OK | key=handle object; invalidated=stop() deletes it (each startListening makes a new one); bound=≤ 3 users |
 | cpu-sampler.js:26 | closure | readings | OK | key=reading time; invalidated=pruned to WINDOW_MS (+1) per sample, reset after a 15 s gap; bound=≤ ~61 readings |
 | curious-sampler.js:146 | repeat-io | readdirSync |  |  |
-| curious-sampler.js:146 | poll-io | readdirSync in setInterval@main.js:2901 → … → createCuriousSampler → notesDoc |  |  |
-| curious-sampler.js:151 | poll-io | statSync in setInterval@main.js:2901 → … → createCuriousSampler → notesDoc |  |  |
-| curious-sampler.js:155 | poll-io | readFileSync in setInterval@main.js:2901 → … → createCuriousSampler → notesDoc |  |  |
+| curious-sampler.js:146 | poll-io | readdirSync in setInterval@main.js:2989 → … → createCuriousSampler → notesDoc |  |  |
+| curious-sampler.js:151 | poll-io | statSync in setInterval@main.js:2989 → … → createCuriousSampler → notesDoc |  |  |
+| curious-sampler.js:155 | poll-io | readFileSync in setInterval@main.js:2989 → … → createCuriousSampler → notesDoc |  |  |
 | dbus-wire.js:295 | field | pending | OK | key=call serial; invalidated=deleted on reply or timeout, cleared on shut(); bound=calls in flight (a few) |
 | game-guard.js:95 | closure | off | OK | key=probe name (gamemode, nvidia); invalidated=never: a missing tool stays off for the run (by design); bound=2 names |
 | game-guard.js:110 | repeat-io | readdirSync |  |  |
-| game-guard.js:110 | poll-io | readdirSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → steam |  |  |
+| game-guard.js:110 | poll-io | readdirSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → steam |  |  |
 | game-guard.js:118 | repeat-io | readFileSync |  |  |
-| game-guard.js:118 | poll-io | readFileSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → steam |  |  |
+| game-guard.js:118 | poll-io | readFileSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → steam |  |  |
 | game-guard.js:123 | repeat-io | readFileSync |  |  |
-| game-guard.js:123 | poll-io | readFileSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → steam |  |  |
+| game-guard.js:123 | poll-io | readFileSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → steam |  |  |
 | game-guard.js:132 | repeat-io | readdirSync |  |  |
-| game-guard.js:132 | poll-io | readdirSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → amd |  |  |
+| game-guard.js:132 | poll-io | readdirSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → amd |  |  |
 | game-guard.js:137 | repeat-io | readFileSync |  |  |
-| game-guard.js:137 | poll-io | readFileSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → amd |  |  |
+| game-guard.js:137 | poll-io | readFileSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → amd |  |  |
 | game-guard.js:139 | repeat-io | readFileSync |  |  |
-| game-guard.js:139 | poll-io | readFileSync in setInterval@main.js:1284 → alignGuardTick → linuxProbes → amd |  |  |
-| gpu-detect.js:33 | poll-io | readdirSync in setInterval@main.js:2901 → … → gpuScan → scanSysfs |  |  |
-| gpu-detect.js:34 | poll-io | readFileSync in setInterval@main.js:2901 → … → scanSysfs → read |  |  |
+| game-guard.js:139 | poll-io | readFileSync in setInterval@main.js:1364 → alignGuardTick → linuxProbes → amd |  |  |
+| gpu-detect.js:33 | poll-io | readdirSync in setInterval@main.js:2989 → … → gpuScan → scanSysfs |  |  |
+| gpu-detect.js:34 | poll-io | readFileSync in setInterval@main.js:2989 → … → scanSysfs → read |  |  |
 | lastfm.js:149 | closure | seen | OK | key=artist+title+start time; invalidated=cleared and rebuilt by keep() on every queue change; bound=QUEUE_MAX (500) |
 | liner-notes-model.js:83 | closure | inflight | OK | key=album:id:lang (+'\|mb'); invalidated=deleted when its refresh settles; bound=albums fetching now (1-2) |
 | liner-notes-model.js:387 | closure | people | NOT-WORTH | key=performer name; invalidated=local to one buildBooklet call, dropped on return; bound=album's performers |
@@ -108,10 +111,10 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | liner-notes.html:268 | module | discs (Map) | OK | key=disc scan URL; invalidated=window closed; bound=≤ 1 per album shown while open, ~100 B each |
 | liner-notes.html:270 | module | discImgs (Map) | OK | key=disc image URL; invalidated=cleared on every tray page built; bound=1 img |
 | liner-notes.html:274 | module | spreads (array) | OK | key=none (the spreads of this layout); invalidated=rebuilt each layout; bound=pages/2 (≤ ~20) |
-| liner-notes.html:755 | module | sungAt (lazy init) | OK | key=the marked line element; invalidated=clearSung on each new line or song; bound=1 ref |
-| liner-notes.html:839 | module | lastSize (memo name) | OK | key=stage size; invalidated=each resize that relays out (a data relayout doesn't set it); bound=1 number |
-| listen-session.js:106 | closure | onsets | OK | key=song time; invalidated=reset on gap/seek/song, pruned to KEEP_EVIDENCE 30 s each tick; bound=≤ ~375 |
-| listen-session.js:108 | closure | voiced | OK | key=song time; invalidated=reset on gap/seek/song, pruned to 30 s each tick; bound=≤ ~30 spans |
+| liner-notes.html:760 | module | sungAt (lazy init) | OK | key=the marked line element; invalidated=clearSung on each new line or song; bound=1 ref |
+| liner-notes.html:845 | module | lastSize (memo name) | OK | key=stage size; invalidated=each resize that relays out (a data relayout doesn't set it); bound=1 number |
+| listen-session.js:124 | closure | onsets | OK | key=song time; invalidated=reset on gap/seek/song, pruned to KEEP_EVIDENCE 30 s each tick; bound=≤ ~375 |
+| listen-session.js:126 | closure | voiced | OK | key=song time; invalidated=reset on gap/seek/song, pruned to 30 s each tick; bound=≤ ~30 spans |
 | lyrics-shorthand.js:103 | closure | blocks | NOT-WORTH | key=block name; invalidated=a new Map per call; bound=the song's labels (once per lyrics lookup) |
 | lyrics-shorthand.js:105 | closure | out | NOT-WORTH | key=line order; invalidated=a new array per call; bound=the written-out lines (≤ ~150 x MAX_TIMES) |
 | lyrics-shorthand.js:168 | closure | out | NOT-WORTH | key=stanza index; invalidated=a new array per call; bound=the song's stanzas |
@@ -121,8 +124,8 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | lyrics-view.js:497 | closure | lines | OK | key=line index; invalidated=replaced on setData/refine/align/stream; bound=the song's lines (≤ ~150) |
 | lyrics-view.js:499 | closure | lineEls | OK | key=line index; invalidated=reset in setData (new song or layout); bound=the song's lines |
 | lyrics-view.js:503 | closure | interludes | OK | key=countdown order; invalidated=reset in setData; bound=the song's interludes (a few) |
-| lyrics-view.js:553 | closure | spans | NOT-WORTH | key=word index; invalidated=new array per line laid out, .fit dropped on resize; bound=its words |
-| lyrics-view.js:1726 | ttl |  |  |  |
+| lyrics-view.js:554 | closure | spans | NOT-WORTH | key=word index; invalidated=new array per line laid out, .fit dropped on resize; bound=its words |
+| lyrics-view.js:1738 | ttl |  |  |  |
 | main.js:80 | module | locale (read from I/O) | NOT-WORTH | key=none (the locale at start); invalidated=never (a restart); bound=one string |
 | main.js:88 | module | lyricsPoll (lazy init) | NOT-WORTH | key=none (the poll handle); invalidated=cleared when the last view closes; bound=one |
 | main.js:94 | module | lyricsTries (Map) | OK | key=recording key; invalidated=deleted on success, oldest dropped; bound=200 songs (~60 B) |
@@ -133,75 +136,76 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | main.js:108 | module | discordConfig (read from I/O) | OK | key=none (discord.json); invalidated=read again on Connect; bound=one small object |
 | main.js:116 | module | lastPresenceKey (memo name) | OK | key=title\|artist\|end/5 s; invalidated=track change, seek, reconnect; bound=one string |
 | main.js:120 | module | visualizer (lazy init) | NOT-WORTH | key=none (the open visualizer's FFT); invalidated=nulled on 'closed'; bound=one |
-| main.js:127 | module | lastPalette (memo name) | FIX-STALE | key=title\|artist; invalidated=next track (no fetch generation check); bound=one object |
+| main.js:127 | module | lastPalette (memo name) | OK | key=title\|artist; invalidated=next track (a fetch for an earlier track is dropped: lastPaletteKey check); bound=one object |
 | main.js:129 | module | lastPaletteKey (memo name) | OK | key=title\|artist; invalidated=a new track, adaptive colour toggled; bound=one string |
 | main.js:132 | module | notifyKey (lazy init) | OK | key=title\|artist; invalidated=each track change; bound=one string |
 | main.js:212 | module | kdeScheme (read from I/O) | OK | key=none (kdeglobals); invalidated=read again at each readDesktopScheme; bound=one value |
 | main.js:214 | module | schemeWatch (lazy init) | NOT-WORTH | key=none (the gdbus monitor child); invalidated=nulled on exit or stop; bound=one |
-| main.js:231 | poll-io | readFileSync in setInterval@main.js:2901 → … → watchDesktopScheme → readDesktopScheme |  |  |
+| main.js:231 | poll-io | readFileSync in setInterval@main.js:2989 → … → watchDesktopScheme → readDesktopScheme |  |  |
 | main.js:646 | module | alignPaths (lazy init) | OK | key=env + app dir; invalidated=alignInstalled(true) (start, Settings, a job); bound=one |
 | main.js:650 | module | alignHelper (lazy init) | NOT-WORTH | key=none (one helper client, reads alignPaths in place); invalidated=never; bound=one |
 | main.js:652 | module | alignSession (lazy init) | FIX-STALE | key=none; invalidated=never (engine version fixed at creation); bound=one session |
-| main.js:751 | module | notesSwitch (lazy init) | NOT-WORTH | key=none (one notes switch); invalidated=never; bound=one object |
-| main.js:805 | module | sheetStore (lazy init) | NOT-WORTH | key=none (one store; disk ≤ MAX_FILES); invalidated=never; bound=one object |
-| main.js:1034 | module | firstPlay (lazy init) | OK | key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts) |
-| main.js:1083 | module | gameGuard (lazy init) | NOT-WORTH | key=none (one game guard); invalidated=reset when the setting goes off; bound=one |
-| main.js:1154 | module | lookahead (lazy init) | NOT-WORTH | key=none (one look-ahead controller); invalidated=never; bound=one |
-| main.js:1161 | poll-io | accessSync in setInterval@main.js:1284 → … → helperPaths → exists |  |  |
-| main.js:1317 | ttl |  |  |  |
-| main.js:1420 | ttl |  |  |  |
-| main.js:1515 | module | stageCreditsAsked (Set) | OK | key=album id; invalidated=cleared past 500; bound=500 ids (~20 B each) |
-| main.js:1719 | module | stageReread (lazy init) | NOT-WORTH | key=none (the pending re-read timer); invalidated=fires or a new write; bound=one |
-| main.js:1839 | module | montageCache (memo name) | OK | key=song/set/px; invalidated=30 d / 3 d freshness; bound=1500 entries, 4 MB |
-| main.js:1842 | module | montageFetch (lazy init) | NOT-WORTH | key=none (one fetcher, made on first use); invalidated=never; bound=one |
-| main.js:1924 | ttl |  |  |  |
-| main.js:2009 | module | coverWindow (lazy init) | NOT-WORTH | key=none (the open lightbox); invalidated=nulled on 'closed'; bound=one window |
-| main.js:2100 | module | linerPoll (lazy init) | NOT-WORTH | key=none (the poll handle); invalidated=cleared in syncLinerPoll; bound=one |
-| main.js:2103 | module | linerSung (lazy init) | OK | key=title\|artist; invalidated=a new song, booklet closed; bound=≤ ~150 line times |
-| main.js:2197 | module | linerDiscAsking (Set) | OK | key=scan URL; invalidated=deleted when its lookup ends (finally); bound=≤ ~4 in flight |
-| main.js:2743 | module | lastBackdrop (memo name) | FIX-STALE | key=the palette's track; invalidated=with lastPalette (same race); bound=2 × ~3 KB |
-| main.js:3133 | module | recoveredAside (object) | OK | key=what (settings \| lyrics); invalidated=a new recovery; bound=2 paths |
-| main.js:3366 | repeat-io | readdirSync |  |  |
-| main.js:3366 | poll-io | readdirSync in setInterval@main.js:2272 → linerPlaying → has |  |  |
-| main.js:3368 | poll-io | readdirSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → helperScan |  |  |
-| main.js:3371 | poll-io | readFileSync in setInterval@main.js:1284 → preciseTimingOn → alignInstalled → helperScan |  |  |
-| main.js:3393 | module | cpuMaker (lazy init) | OK | key=none (the processor doesn't change while Sonata runs); invalidated=never; bound=one string |
-| main.js:3596 | ttl |  |  |  |
-| main.js:3779 | module | focusCode (read from I/O) | OK | key=none (two shipped files); invalidated=never (shipped); bound=one string (tens of KB) |
-| main.js:3884 | module | aboutCache (memo name) | OK | key=none (CHANGELOG, BACKLOG, install); invalidated=nulled after a helper job; bound=one |
-| main.js:3967 | poll-io | readFileSync in setInterval@main.js:2901 → … → aboutData → read |  |  |
-| main.js:4115 | module | curious (lazy init) | NOT-WORTH | key=none (one sampler, made on first open); invalidated=never; bound=one |
-| main.js:4146 | repeat-io | statSync |  |  |
-| main.js:4724 | module | lastPlaying (memo name) | OK | key=none (the last poll's isPlaying); invalidated=each now-playing poll; bound=one boolean |
-| main.js:4748 | module | lastInstallFailure (memo name) | OK | key=version; invalidated=a ready install replaces it; bound=one object |
-| main.js:4863 | repeat-io | execFileSync |  |  |
-| main.js:4980 | poll-io | readFileSync in setInterval@main.js:1284 → … → stageCredits → load |  |  |
+| main.js:761 | module | notesSwitch (lazy init) | NOT-WORTH | key=none (one notes switch); invalidated=never; bound=one object |
+| main.js:815 | module | sheetStore (lazy init) | NOT-WORTH | key=none (one store; disk ≤ MAX_FILES); invalidated=never; bound=one object |
+| main.js:1048 | module | firstPlay (lazy init) | OK | key=the song's lyrics key; invalidated=a section of another song, the whole-song pass; bound=one song's sections (≤ ~60 parts) |
+| main.js:1147 | module | gameGuard (lazy init) | NOT-WORTH | key=none (one game guard); invalidated=reset when the setting goes off; bound=one |
+| main.js:1220 | module | lookahead (lazy init) | NOT-WORTH | key=none (one look-ahead controller); invalidated=never; bound=one |
+| main.js:1227 | poll-io | accessSync in setInterval@main.js:1364 → … → helperPaths → exists |  |  |
+| main.js:1399 | ttl |  |  |  |
+| main.js:1502 | ttl |  |  |  |
+| main.js:1599 | module | stageCreditsAsked (Set) | OK | key=album id; invalidated=cleared past 500; bound=500 ids (~20 B each) |
+| main.js:1803 | module | stageReread (lazy init) | NOT-WORTH | key=none (the pending re-read timer); invalidated=fires or a new write; bound=one |
+| main.js:1923 | module | montageCache (memo name) | OK | key=song/set/px; invalidated=30 d / 3 d freshness; bound=1500 entries, 4 MB |
+| main.js:1926 | module | montageFetch (lazy init) | NOT-WORTH | key=none (one fetcher, made on first use); invalidated=never; bound=one |
+| main.js:2008 | ttl |  |  |  |
+| main.js:2093 | module | coverWindow (lazy init) | NOT-WORTH | key=none (the open lightbox); invalidated=nulled on 'closed'; bound=one window |
+| main.js:2184 | module | linerPoll (lazy init) | NOT-WORTH | key=none (the poll handle); invalidated=cleared in syncLinerPoll; bound=one |
+| main.js:2187 | module | linerSung (lazy init) | OK | key=title\|artist; invalidated=a new song, booklet closed; bound=≤ ~150 line times |
+| main.js:2281 | module | linerDiscAsking (Set) | OK | key=scan URL; invalidated=deleted when its lookup ends (finally); bound=≤ ~4 in flight |
+| main.js:2827 | module | lastBackdrop (memo name) | OK | key=the palette's track; invalidated=with lastPalette (a late fetch for another track is dropped); bound=2 × ~3 KB |
+| main.js:3228 | module | recoveredAside (object) | OK | key=what (settings \| lyrics); invalidated=a new recovery; bound=2 paths |
+| main.js:3236 | module | appleRetryTimer (lazy init) | NOT-WORTH | key=the pending retry; invalidated=a load (appleLoaded) or the next failure; bound=one timer |
+| main.js:3489 | repeat-io | readdirSync |  |  |
+| main.js:3489 | poll-io | readdirSync in setInterval@main.js:2356 → linerPlaying → has |  |  |
+| main.js:3491 | poll-io | readdirSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → helperScan |  |  |
+| main.js:3494 | poll-io | readFileSync in setInterval@main.js:1364 → preciseTimingOn → alignInstalled → helperScan |  |  |
+| main.js:3516 | module | cpuMaker (lazy init) | OK | key=none (the processor doesn't change while Sonata runs); invalidated=never; bound=one string |
+| main.js:3723 | ttl |  |  |  |
+| main.js:3906 | module | focusCode (read from I/O) | OK | key=none (two shipped files); invalidated=never (shipped); bound=one string (tens of KB) |
+| main.js:4013 | module | aboutCache (memo name) | OK | key=none (CHANGELOG, BACKLOG, install); invalidated=nulled after a helper job; bound=one |
+| main.js:4096 | poll-io | readFileSync in setInterval@main.js:2989 → … → aboutData → read |  |  |
+| main.js:4244 | module | curious (lazy init) | NOT-WORTH | key=none (one sampler, made on first open); invalidated=never; bound=one |
+| main.js:4275 | repeat-io | statSync |  |  |
+| main.js:4869 | module | lastPlaying (memo name) | OK | key=none (the last poll's isPlaying); invalidated=each now-playing poll; bound=one boolean |
+| main.js:4893 | module | lastInstallFailure (memo name) | OK | key=version; invalidated=a ready install replaces it; bound=one object |
+| main.js:5008 | repeat-io | execFileSync |  |  |
+| main.js:5125 | poll-io | readFileSync in setInterval@main.js:1364 → … → stageCredits → load |  |  |
 | miniplayer.html:346 | module | lastVolume (memo name) | NOT-WORTH | key=none (the volume before mute); invalidated=each volume change; bound=one number |
 | miniplayer.html:427 | ttl |  |  |  |
 | miniplayer.html:431 | ttl |  |  |  |
-| model-fetch.js:43 | poll-io | statSync in setInterval@main.js:3618 → … → complete → sizeOf |  |  |
-| model-fetch.js:159 | poll-io | readFileSync in setInterval@main.js:3618 → … → helperModels → fetchModel |  |  |
+| model-fetch.js:43 | poll-io | statSync in setInterval@main.js:3745 → … → complete → sizeOf |  |  |
+| model-fetch.js:159 | poll-io | readFileSync in setInterval@main.js:3745 → … → helperModels → fetchModel |  |  |
 | montage-sources.js:54 | closure | lanes | OK | key=host; invalidated=never (lane order and last time only); bound=≤ 3 hosts (Wikidata, Commons, upload) |
 | montage-sources.js:317 | closure | seen | NOT-WORTH | key=photo id; invalidated=local to one arrange call, freed on return; bound=≤ ~150 candidates |
 | montage-store.js:43 | repeat-io | statSync |  |  |
 | montage-ui.js:43 | closure | slot | OK | key=layer index (2); invalidated=reset on a new photo set and a reduced-motion change; bound=2 |
 | montage-ui.js:47 | closure | shades | FIX-UNBOUNDED | key=photo id; invalidated=theme push (per track w/ album colour); bound=none if off, ~1 KB/set |
 | montage-ui.js:182 | ttl |  |  |  |
-| notes-log.js:141 | poll-io | readdirSync in setInterval@main.js:1284 → … → prune → listLogs |  |  |
+| notes-log.js:141 | poll-io | readdirSync in setInterval@main.js:1364 → … → prune → listLogs |  |  |
 | notes-log.js:147 | repeat-io | statSync |  |  |
-| notes-log.js:147 | poll-io | statSync in setInterval@main.js:1284 → … → prune → listLogs |  |  |
-| notes-log.js:158 | poll-io | readdirSync in setInterval@main.js:1284 → … → writeLog → prune |  |  |
+| notes-log.js:147 | poll-io | statSync in setInterval@main.js:1364 → … → prune → listLogs |  |  |
+| notes-log.js:158 | poll-io | readdirSync in setInterval@main.js:1364 → … → writeLog → prune |  |  |
 | panel-ui.js:322 | closure | made | OK | key=readout row id; invalidated=cleared when the row id list changes; bound=≤ ~25 rows, dropped with the body |
 | portal-shortcuts.js:40 | closure | paths | OK | key=request path / portal handle; invalidated=dropped with the request when answered; bound=2 |
 | preload-panel.js:10 | module | last (memo name) | OK | key=none (main's latest panel state); invalidated=replaced on each 'panel:state'; bound=one object |
 | preload-rail-view.js:9 | module | last (memo name) | OK | key=none (main's latest rail state); invalidated=replaced on each 'rail:state'; bound=one object |
 | rail-ui.js:35 | closure | buttons | NOT-WORTH | key=roving focus index; invalidated=never (built once at load); bound=9 buttons |
-| sheet-notes-model.js:707 | closure | open | NOT-WORTH | key=ledger pos; invalidated=cleared per run, local to one roomRuns call; bound=a few ledger positions |
-| sheet-notes-store.js:46 | poll-io | readFileSync in setInterval@main.js:1284 → … → createSheetNotesStore → get |  |  |
+| sheet-notes-model.js:754 | closure | open | NOT-WORTH | key=ledger pos; invalidated=cleared per run, local to one roomRuns call; bound=a few ledger positions |
+| sheet-notes-store.js:46 | poll-io | readFileSync in setInterval@main.js:1364 → … → missing → get |  |  |
 | shortcuts-model.js:182 | closure | last | OK | key=action id; invalidated=overwritten per press; bound=4 ids (fire() checks M.IDS first) |
 | shortcuts.js:26 | closure | taken | OK | key=action id; invalidated=reset by x11Off() before each x11On(); bound=4 actions |
 | theme-apply.js:26 | closure | written | OK | key=token name; invalidated=overwritten when a token's value changes; bound=~28 tokens |
 | toast-ui.js:19 | closure | timers | OK | key=toast id; invalidated=render deletes ids no longer shown, timer cleared; bound=toasts shown (≤ 3) |
-| update-feed.js:156 | poll-io | statSync in setInterval@main.js:3618 → … → verify → verifyDownload |  |  |
+| update-feed.js:169 | poll-io | statSync in setInterval@main.js:3745 → … → verify → verifyDownload |  |  |
 | visualizer.html:149 | module | shown (array) | OK | key=band index; invalidated=re-sliced when the band count changes; bound=band count (~48) |
 | visualizer.html:306 | module | barPaint (lazy init) | OK | key=band count; invalidated=rebuilt when it changes (fixed stage colours); bound=one set, 2 per band |

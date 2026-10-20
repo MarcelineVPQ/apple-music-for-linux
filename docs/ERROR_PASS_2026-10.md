@@ -26,30 +26,32 @@ Floating-promise rows: most call an async function that catches everything insid
 
 Verdict corrected: `song-actions.js:48` SHOWN → LOGGED-OK (a failed rating read shows "not a favourite"; the failure only reaches main's log).
 
+## Fixed on branch qc-fixes (2026-10-19, Marcy approved the four batches)
+
+| # | What | Commit |
+|---|---|---|
+| E1 | Apple's page failing to load: the `apple-offline` notice, Try again, a retry every 20 s | ede47d6 |
+| E2, E3 | Last.fm / Discord Connect: an unwritable config file is shown (configNotWritten) | e5d397d |
+| E6 | portal shortcuts: one failed session start is one retry | c70a191 |
+
 ## Counts
 
 | Verdict | Rows |
 |---|---|
-| LOGGED-OK | 67 |
-| NOT-WORTH | 223 |
-| PASSES-ON | 32 |
-| SHOWN | 45 |
-| SILENT-BUG | 3 |
+| LOGGED-OK | 68 |
+| NOT-WORTH | 226 |
+| PASSES-ON | 33 |
+| SHOWN | 50 |
 | SWALLOWED | 1 |
-| **total** | 371 |
+| **total** | 378 |
 
 ## Flagged rows (fix candidates, as the comments say)
 
-| file:line | what | verdict | reason |
-|---|---|---|---|
-| audio-listen.js:330 | empty-catch | **SWALLOWED** | one user's throw doesn't stop the others, but unlike createListener it isn't logged |
-| main.js:4381 | floating | **SILENT-BUG** | rare: writeTemplate() (sync write) is before the try; unwritable config = no notice |
-| main.js:4383 | floating | **SILENT-BUG** | rare: saveDiscordConfig() is before the try; unwritable config = Connect does nothing |
-| main.js:4502 | floating | **SILENT-BUG** | offline or Apple down at start: loadURL rejects, Apple's view stays blank, unexplained |
+| file:line | what | trigger / context | verdict | reason |
+|---|---|---|---|---|
+| audio-listen.js:330 | empty-catch |  | SWALLOWED | one user's throw doesn't stop the others, but unlike createListener it isn't logged |
 
 ## Every row
-
-_Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers are those of the commit that adds this file._
 
 | file:line | what | trigger / context | verdict | reason |
 |---|---|---|---|---|
@@ -67,37 +69,37 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | align-helper.js:246 | empty-catch |  | NOT-WORTH | a kill of an already-gone process at exit has nothing left to do |
 | align-helper.js:281 | empty-catch |  | NOT-WORTH | no topology: its own core |
 | align-helper.js:284 | } catch (e) { |  | NOT-WORTH | no topology: its own core |
-| align-helper.js:434 | try { if (c && c.pid) setPriority(c.pid, HELPER_NICE) } catc |  | LOGGED-OK | no pid (spawn failed: 'error' follows) or not allowed: the helper runs at the normal priority |
-| align-helper.js:482 | floating | write() | NOT-WORTH | a pipe already closed means the helper is leaving anyway; the grace timer below kills it otherwise |
-| align-helper.js:482 | floating | write() | NOT-WORTH | a pipe already closed means the helper is leaving anyway; the grace timer below kills it otherwise |
-| align-helper.js:487 | empty-catch |  | NOT-WORTH | a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL); |
-| align-helper.js:488 | empty-catch |  | NOT-WORTH | a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL); |
-| align-helper.js:499 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone; SIGKILL after 2 s otherwise |
-| align-helper.js:500 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone; SIGKILL after 2 s otherwise |
-| align-helper.js:524 | try { c = ensure() } catch (e) { reject(e); return } |  | PASSES-ON | not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it) |
-| align-helper.js:529 | write(c, messages).catch((e) => fail(id, e))   // error: PAS |  | PASSES-ON | the job's promise rejects |
-| align-helper.js:541 | then-reject |  | NOT-WORTH | a failed ping only means nothing extra is asked; the notes job reports its own failure |
-| align-helper.js:552 | return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch |  | PASSES-ON | rethrown to askAlignStatus (main.js), which shows it in Settings |
-| align-helper.js:635 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone; `done` rejects through its exit |
-| align-helper.js:635 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone; `done` rejects through its exit |
-| align-helper.js:649 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone and its sections with it |
-| align-helper.js:649 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone and its sections with it |
-| align-helper.js:660 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone |
-| align-session.js:905 | floating | .then without .catch | LOGGED-OK | one log line; the song plays on (delayed) with section timing |
-| align-session.js:905 | then-reject |  | LOGGED-OK | one log line; the song plays on (delayed) with section timing |
-| align-session.js:952 | then-reject |  | NOT-WORTH | keeps the chain going; helper.forget is sync and catches its own write error |
-| align-session.js:958 | then-reject |  | NOT-WORTH | keeps the chain going; helper.forget is sync and catches its own write error |
-| align-session.js:1005 | .catch((e) => { |  | PASSES-ON | a final pass the helper can't build from kept sections (no-cache) is sent |
-| align-session.js:1030 | .catch((e) => {   // error: LOGGED-OK — see the comment abov |  | LOGGED-OK | see the comment above run() |
-| align-session.js:1044 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (LOGGED-OK) and the caller holds `job` |
-| align-session.js:1075 | .catch((e) => {   // error: SHOWN — see above (a section's n |  | SHOWN | see above (a section's notes that failed: the whole-song pass after the song has them) |
-| align-session.js:1106 | .catch((e) => {   // error: SHOWN — see above |  | SHOWN | see above |
-| align-session.js:1116 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (deps.notes.failed, SHOWN) |
-| align-session.js:1146 | .catch((e) => {   // error: LOGGED-OK — see above |  | LOGGED-OK | see above |
-| align-session.js:1153 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (LOGGED-OK) |
-| align-session.js:1185 | .catch((e) => { |  | PASSES-ON | kept sections the helper no longer has (no-stem): once more with the audio |
-| align-session.js:1195 | .catch((e) => {   // error: SHOWN — see above |  | SHOWN | see above |
-| align-session.js:1203 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (deps.notes.failed, SHOWN) |
+| align-helper.js:441 | try { if (c && c.pid) setPriority(c.pid, HELPER_NICE) } catc |  | LOGGED-OK | no pid (spawn failed: 'error' follows) or not allowed: the helper runs at the normal priority |
+| align-helper.js:489 | floating | write() | NOT-WORTH | a pipe already closed means the helper is leaving anyway; the grace timer below kills it otherwise |
+| align-helper.js:489 | floating | write() | NOT-WORTH | a pipe already closed means the helper is leaving anyway; the grace timer below kills it otherwise |
+| align-helper.js:494 | empty-catch |  | NOT-WORTH | a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL); |
+| align-helper.js:495 | empty-catch |  | NOT-WORTH | a helper that doesn't leave within the grace time is killed (SIGTERM, then SIGKILL); |
+| align-helper.js:506 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone; SIGKILL after 2 s otherwise |
+| align-helper.js:507 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone; SIGKILL after 2 s otherwise |
+| align-helper.js:531 | try { c = ensure() } catch (e) { reject(e); return } |  | PASSES-ON | not installed / crashed too often: the caller's promise rejects (Settings shows it, the session logs it) |
+| align-helper.js:536 | write(c, messages).catch((e) => fail(id, e))   // error: PAS |  | PASSES-ON | the job's promise rejects |
+| align-helper.js:548 | then-reject |  | NOT-WORTH | a failed ping only means nothing extra is asked; the notes job reports its own failure |
+| align-helper.js:561 | return request(id, [{ cmd: 'ping' }], PING_TIMEOUT_MS).catch |  | PASSES-ON | rethrown to askAlignStatus (main.js), which shows it in Settings |
+| align-helper.js:644 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone; `done` rejects through its exit |
+| align-helper.js:644 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone; `done` rejects through its exit |
+| align-helper.js:660 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone and its sections with it |
+| align-helper.js:660 | floating | write() | NOT-WORTH | a closed pipe: the helper is gone and its sections with it |
+| align-helper.js:671 | empty-catch |  | NOT-WORTH | a kill that throws means the helper is already gone |
+| align-session.js:935 | floating | .then without .catch | LOGGED-OK | one log line; the song plays on (delayed) with section timing |
+| align-session.js:935 | then-reject |  | LOGGED-OK | one log line; the song plays on (delayed) with section timing |
+| align-session.js:982 | then-reject |  | NOT-WORTH | keeps the chain going; helper.forget is sync and catches its own write error |
+| align-session.js:988 | then-reject |  | NOT-WORTH | keeps the chain going; helper.forget is sync and catches its own write error |
+| align-session.js:1044 | .catch((e) => { |  | PASSES-ON | a final pass the helper can't build from kept sections (no-cache) is sent |
+| align-session.js:1069 | .catch((e) => {   // error: LOGGED-OK — see the comment abov |  | LOGGED-OK | see the comment above run() |
+| align-session.js:1083 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (LOGGED-OK) and the caller holds `job` |
+| align-session.js:1114 | .catch((e) => {   // error: SHOWN — see above (a section's n |  | SHOWN | see above (a section's notes that failed: the whole-song pass after the song has them) |
+| align-session.js:1145 | .catch((e) => {   // error: SHOWN — see above |  | SHOWN | see above |
+| align-session.js:1155 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (deps.notes.failed, SHOWN) |
+| align-session.js:1185 | .catch((e) => {   // error: LOGGED-OK — see above |  | LOGGED-OK | see above |
+| align-session.js:1192 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (LOGGED-OK) |
+| align-session.js:1224 | .catch((e) => { |  | PASSES-ON | kept sections the helper no longer has (no-stem): once more with the audio |
+| align-session.js:1234 | .catch((e) => {   // error: SHOWN — see above |  | SHOWN | see above |
+| align-session.js:1242 | then-reject |  | NOT-WORTH | keeps the chain going; run() catches inside (deps.notes.failed, SHOWN) |
 | audio-listen.js:114 | empty-catch |  | NOT-WORTH | a process that ended mid-scan is skipped |
 | audio-listen.js:132 | try { kids = readChildren(pid) } catch (e) { if (pid === roo |  | NOT-WORTH | a child gone mid-walk is skipped; no children files at all (old kernel): the full /proc scan below |
 | audio-listen.js:136 | } catch (e) {   // error: NOT-WORTH — no children files: the |  | NOT-WORTH | no children files: the full /proc scan instead |
@@ -141,16 +143,16 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | game-guard.js:141 | empty-catch |  | NOT-WORTH | a card without these files (not AMD, an old kernel) is skipped |
 | game-guard.js:189 | .catch(() => state)       // error: NOT-WORTH — a failed che |  | NOT-WORTH | a failed check keeps the current state |
 | gfx-model.js:197 | try { j = JSON.parse(text) } catch (e) { j = null }   // err |  | NOT-WORTH | an unreadable marker: a strike for every switch that is on (below) |
-| gfx-runtime.js:50 | try { stored = settingsStore.fromStored(JSON.parse(fs.readFi |  | NOT-WORTH | — no settings file (first start) or an unreadable one: every switch is off (the default) |
-| gfx-runtime.js:54 | try { marker = fs.readFileSync(sentinelFile, 'utf8') } catch |  | NOT-WORTH | no marker: the last start was healthy (or had no switch on) |
-| gfx-runtime.js:82 | } catch (e) { log('[gpu] start marker: ' + e.message) }   // |  | LOGGED-OK | no marker means no safety net for this one start; said in the log |
-| gfx-runtime.js:86 | try { fs.rmSync(sentinelFile, { force: true }) } catch (e) { |  | LOGGED-OK | a marker left behind turns the switches off at the next start, the safe side |
+| gfx-runtime.js:51 | try { stored = settingsStore.fromStored(JSON.parse(fs.readFi |  | NOT-WORTH | — no settings file (first start) or an unreadable one: every switch is off (the default) |
+| gfx-runtime.js:55 | try { marker = fs.readFileSync(sentinelFile, 'utf8') } catch |  | NOT-WORTH | no marker: the last start was healthy (or had no switch on) |
+| gfx-runtime.js:83 | } catch (e) { log('[gpu] start marker: ' + e.message) }   // |  | LOGGED-OK | no marker means no safety net for this one start; said in the log |
+| gfx-runtime.js:87 | try { fs.rmSync(sentinelFile, { force: true }) } catch (e) { |  | LOGGED-OK | a marker left behind turns the switches off at the next start, the safe side |
 | gpu-detect.js:33 | try { names = io.readdirSync(root) } catch (e) { return [] } |  | NOT-WORTH | no /sys/class/drm (not Linux, a container): no cards, lspci is asked instead |
 | gpu-detect.js:34 | const read = (f) => { try { return String(io.readFileSync(f, |  | NOT-WORTH | a missing file is an unknown value |
 | gpu-detect.js:131 | try { text = String(read('/proc/cpuinfo')) } catch (e) { ret |  | NOT-WORTH | no /proc: unknown, Auto takes the processor build |
 | hdr-glow.js:124 | })().catch((e) => { failed = true; console.error('hdr glow:  |  | LOGGED-OK | no HDR glow; the SDR glow stays (the CSS one) |
-| hdr-glow.js:223 | floating | .then without .catch | NOT-WORTH | start()'s promise catches inside (LOGGED-OK) and sung() catches draw errors |
-| hdr-glow.js:231 | try { draw(el) } catch (e) { hide(); console.error('hdr glow |  | LOGGED-OK | this word keeps its SDR glow; the next word tries again |
+| hdr-glow.js:243 | floating | .then without .catch | NOT-WORTH | start()'s promise catches inside (LOGGED-OK) and sung() catches draw errors |
+| hdr-glow.js:251 | try { draw(el) } catch (e) { hide(); console.error('hdr glow |  | LOGGED-OK | this word keeps its SDR glow; the next word tries again |
 | helper-install-model.js:59 | try { const e = JSON.parse(line.slice(9)); return e && typeo |  | NOT-WORTH | a line that isn't JSON after the marker is ignored (kept in the tail) |
 | helper-install-model.js:356 | try { m = JSON.parse(String(text \|\| '')) } catch (e) { retur |  | NOT-WORTH | not JSON: no job to resume (the file is removed by the caller) |
 | helper-installer.js:76 | } catch (e) { onEvent({ ev: 'fail', code: 'spawn', message:  |  | SHOWN | a spawn that throws (no /bin/sh): the job fails with code spawn |
@@ -174,21 +176,21 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | liner-notes-sources.js:77 | } catch (e) { |  | PASSES-ON | — no connection or no answer in time: the caller marks that source failed (shown in the booklet) |
 | liner-notes-sources.js:84 | try { return await res.json() } catch (e) { throw failure('b |  | PASSES-ON | the caller marks the source failed |
 | liner-notes-sources.js:88 | lane.chain = run.catch(() => {}) |  | NOT-WORTH | the lane only orders requests; each caller gets its own failure from `run` |
-| listen-session.js:183 | try { res = deps.refineWords(line, evidence, opts) } catch ( |  | LOGGED-OK | a refine that throws is logged; the line keeps its estimate |
+| listen-session.js:207 | try { res = deps.refineWords(line, evidence, opts) } catch ( |  | LOGGED-OK | a refine that throws is logged; the line keeps its estimate |
 | lookahead-page.js:33 | empty-catch |  | NOT-WORTH | a page without a document element can't be told; the next event tries again |
 | lookahead-page.js:42 | empty-catch |  | NOT-WORTH | no MusicKit yet: nothing to remember |
 | lookahead-page.js:57 | empty-catch |  | NOT-WORTH | a pause MusicKit refuses: the helper's gate drops the new song's audio until main plays it from its start |
 | lookahead-page.js:66 | empty-catch |  | NOT-WORTH | MusicKit not configured yet: tried again |
 | lookahead-page.js:89 | empty-catch |  | NOT-WORTH | news that isn't JSON is dropped |
-| lookahead.js:329 | return line.cmd(cmd).catch((e) => { log('helper: ' + cmd + ' |  | LOGGED-OK | a command the helper didn't answer: logged; its exit (if that's why) falls back |
-| lookahead.js:342 | } catch (e) {   // error: SHOWN — the status line says the h |  | SHOWN | the status line says the helper could not start |
-| lookahead.js:381 | }).catch((e) => { if (line === l) { fail('no control socket: |  | SHOWN | the status line |
-| lookahead.js:404 | empty-catch |  | NOT-WORTH | already gone |
-| lookahead.js:422 | empty-catch |  | NOT-WORTH | a kill that throws means it is already gone |
-| lookahead.js:440 | }).catch((e) => { log('stream lookup failed: ' + e.message); |  | LOGGED-OK | tried again on the next stream event |
-| lookahead.js:458 | }).catch((e) => log('stream lookup failed: ' + e.message))   |  | LOGGED-OK | as above |
-| lookahead.js:467 | try { s = deps.spawn('pactl', ['subscribe'], { stdio: ['igno |  | LOGGED-OK | routing is then checked on play and item events only |
-| lookahead.js:585 | empty-catch |  | NOT-WORTH | already gone |
+| lookahead.js:344 | return line.cmd(cmd).catch((e) => { log('helper: ' + cmd + ' |  | LOGGED-OK | a command the helper didn't answer: logged; its exit (if that's why) falls back |
+| lookahead.js:359 | } catch (e) {   // error: SHOWN — the status line says the h |  | SHOWN | the status line says the helper could not start |
+| lookahead.js:398 | }).catch((e) => { if (line === l) { fail('no control socket: |  | SHOWN | the status line |
+| lookahead.js:421 | empty-catch |  | NOT-WORTH | already gone |
+| lookahead.js:444 | empty-catch |  | NOT-WORTH | a kill that throws means it is already gone |
+| lookahead.js:462 | }).catch((e) => { log('stream lookup failed: ' + e.message); |  | LOGGED-OK | tried again on the next stream event |
+| lookahead.js:480 | }).catch((e) => log('stream lookup failed: ' + e.message))   |  | LOGGED-OK | as above |
+| lookahead.js:489 | try { s = deps.spawn('pactl', ['subscribe'], { stdio: ['igno |  | LOGGED-OK | routing is then checked on play and item events only |
+| lookahead.js:607 | empty-catch |  | NOT-WORTH | already gone |
 | lyrics-prefetch.js:76 | try { upcoming = await deps.readQueue() } catch (e) { return |  | NOT-WORTH | no queue yet (page loading): nothing to look up; the next song tries again |
 | lyrics-sources.js:365 | try { res = await deps.fetch(url, { headers }) } catch (e) { |  | PASSES-ON | — offline, DNS, refused: status 0 for the caller's message and retry |
 | lyrics-sources.js:386 | } catch (e) { exactFailed = e /* error: PASSES-ON — falls th |  | PASSES-ON | falls through to search; thrown below if that finds nothing |
@@ -218,150 +220,156 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | main.js:547 | } catch (e) { /* error: NOT-WORTH — no queue yet: nothing to |  | NOT-WORTH | no queue yet: nothing to prefetch |
 | main.js:590 | lyricsPrefetcher.run(current).catch((e) => console.error('ly |  | LOGGED-OK | best effort; each song's own lookup runs when it plays |
 | main.js:612 | } catch (e) { // error: LOGGED-OK — logged once; listening s |  | LOGGED-OK | logged once; listening stays off (listenLoadFailed) |
-| main.js:774 | } catch (e) { |  | SHOWN | a failed write (disk full, permissions) is the status line |
-| main.js:868 | json-parse | outside a try | NOT-WORTH | parses the JSON.stringify of the line above |
-| main.js:881 | empty-catch |  | NOT-WORTH | a store read that throws: logged as no cached notes |
-| main.js:963 | json-parse | outside a try | NOT-WORTH | sheetSent is our own JSON.stringify (set on each send below) |
-| main.js:986 | empty-catch |  | NOT-WORTH | a store read that throws: no old entry, nothing to count or keep |
-| main.js:993 | try { getSheetStore().set(s.title, s.artist, entry) } catch  |  | SHOWN | a failed write: the band says the notes couldn't be kept (and the log) |
-| main.js:1014 | empty-catch |  | NOT-WORTH | the marker only limits the retries; without it the song is simply tried again |
-| main.js:1018 | empty-catch |  | NOT-WORTH | a store read that throws: no cached notes, the band's message below says the pass failed |
-| main.js:1161 | const exists = (f) => { try { fs.accessSync(f, fs.constants. |  | NOT-WORTH | a missing file is "not shipped here": the switch says so |
-| main.js:1180 | execFile('pactl', args, { timeout: 2000, maxBuffer: 4 * 1024 |  | NOT-WORTH | pactl missing or failing: no stream found (nothing is routed; tried again on the next event) |
-| main.js:1186 | try { pids = audioListen.ownProcessTree(process.pid) } catch |  | NOT-WORTH | no process tree: only our own pid |
-| main.js:1214 | appleWC().executeJavaScript(code).catch((e) => console.error |  | LOGGED-OK | page mid-load: the player stays as it is; the user's play button works |
-| main.js:1218 | appleWC().executeJavaScript(lookaheadPage.holdScript(on)).ca |  | LOGGED-OK | page mid-load: no hold at the next item change (its old song's tail is cut instead) |
-| main.js:1234 | .catch((e) => console.error('look-ahead: page script failed: |  | LOGGED-OK | page mid-load: injected again at its next load; without it songs play with no delay |
-| main.js:1236 | .catch((e) => console.error('look-ahead: page events failed: |  | LOGGED-OK | as above |
-| main.js:1250 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (the helper's error is Settings' status line) |
-| main.js:1304 | } catch (e) { return } |  | NOT-WORTH | a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer |
-| main.js:1422 | floating | stageTick() | NOT-WORTH | — tick() never rejects (a failed stat is logged inside) |
-| main.js:1423 | floating | .then without .catch | NOT-WORTH | tick() never rejects (a failed stat is logged inside) |
-| main.js:1423 | then-reject |  | NOT-WORTH | tick() never rejects (a failed stat is logged inside) |
-| main.js:1435 | floating | refreshPalette() | NOT-WORTH | refreshPalette catches its artwork fetch inside; the rest is sync |
-| main.js:1460 | floating | loadFile() | NOT-WORTH | packaged lyrics.html; rejects only if the window closes mid-load (a warning) |
-| main.js:1580 | } catch (e) { /* error: NOT-WORTH — no MusicKit or no queue  |  | NOT-WORTH | no MusicKit or no queue yet (page loading): { ok: false }, read again on the next tick |
-| main.js:1594 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
-| main.js:1601 | try { q = await appleWC().executeJavaScript(stageQueueScript |  | NOT-WORTH | page mid-navigation: read again on the next tick |
-| main.js:1618 | } catch (e) { /* error: PASSES-ON — false to main, which rea |  | PASSES-ON | false to main, which reads the queue again |
-| main.js:1646 | .catch((e) => console.error('stage ' + what + ' failed:', e. |  | LOGGED-OK | page mid-load: that one command does nothing (the stage shows the player's real state on the next tick) |
-| main.js:1681 | .catch((e) => console.error('stage liner notes failed:', e.m |  | LOGGED-OK | the booklet didn't open; the next click tries again |
-| main.js:1689 | .catch((e) => console.error('stage play failed:', e.message) |  | LOGGED-OK | page mid-load: nothing plays; the list shows the player's real state on the next read |
-| main.js:1692 | try { return JSON.parse(stageSent \|\| '{}') } catch (e) { ret |  | NOT-WORTH | our own JSON; {} when nothing was sent yet |
-| main.js:1712 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
-| main.js:1731 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
-| main.js:1749 | try { st = await songSource.state() } catch (e) { st = { ok: |  | SHOWN | the row shows nothing known (its buttons say why when clicked) |
-| main.js:1780 | .catch((e) => console.error('studio credits: album lookup fa |  | LOGGED-OK | the back shows Apple's credits; the booklet asks again when opened |
-| main.js:1789 | .catch((e) => { console.error('studio open ' + kind + ' fail |  | SHOWN | the Studio's note says it couldn't be opened |
-| main.js:1797 | ? list.map((p) => ({ label: p.name, click: () => songSource. |  | SHOWN | the Studio's note says it didn't go through |
-| main.js:1800 | }).catch((e) => { console.error('playlists failed:', e.messa |  | SHOWN | the Studio's note says the playlists didn't load |
-| main.js:1822 | .catch((e) => console.error('stage liner notes failed:', e.m |  | LOGGED-OK | the booklet didn't open; the next click tries again |
-| main.js:1869 | } catch (e) { /* error: PASSES-ON — offline or Apple refused |  | PASSES-ON | offline or Apple refused: main uses the IDs it saved for this song, or says offline |
-| main.js:1900 | .catch((e) => {   // error: SHOWN — the tile says Wikimedia  |  | SHOWN | the tile says Wikimedia Commons didn't answer (click to try again); logged |
-| main.js:1912 | try { r = await appleWC().executeJavaScript(montageIdsScript |  | NOT-WORTH | page mid-navigation: treated as no answer (saved IDs below) |
-| main.js:1930 | } catch (e) { |  | SHOWN | — offline or the service busy: the saved set if there is one (the tile says "saved"), else the tile says offline / not loaded |
-| main.js:1953 | } catch (e) {   // error: NOT-WORTH — one photo failed (gone |  | NOT-WORTH | one photo failed (gone, busy): the montage shows the others; offline from here on |
-| main.js:1981 | .catch((e) => console.error('show album failed:', e.message) |  | LOGGED-OK | page mid-load: the window is shown, the album isn't opened |
-| main.js:1999 | .catch((e) => console.error('lyrics seek failed:', e.message |  | LOGGED-OK | page mid-load: that seek is lost (the next click works) |
-| main.js:2016 | } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page lo |  | NOT-WORTH | no MusicKit yet (page loading): no cover to show, the menu item does nothing that time |
-| main.js:2024 | } catch (e) { console.error('cover lookup failed:', e.messag |  | LOGGED-OK | page mid-load: no lightbox this time |
-| main.js:2057 | floating | loadFile() | NOT-WORTH | packaged cover.html; rejects only if the lightbox closes (blur) mid-load |
-| main.js:2106 | const mk = (() => { try { return MusicKit.getInstance(); } c |  | NOT-WORTH | no MusicKit yet (page loading): reported below as not ready |
-| main.js:2153 | } catch (e) { /* error: PASSES-ON — offline or Apple refused |  | PASSES-ON | offline or Apple refused: main opens the cached booklet, or its page saying Apple didn't load |
-| main.js:2229 | } catch (e) { |  | LOGGED-OK | — offline or the archive refused: the disc shows as before (still), asked again next time |
-| main.js:2250 | try { state = await appleWC().executeJavaScript(nowPlayingSc |  | NOT-WORTH | page mid-load: the next tick asks again |
-| main.js:2291 | try { res = mainAlive() ? await appleWC().executeJavaScript( |  | LOGGED-OK | page mid-load: handled below as "Apple didn't answer" |
-| main.js:2332 | floating | loadFile() | NOT-WORTH | packaged liner-notes.html; rejects only if the booklet closes mid-load |
-| main.js:2365 | .catch((e) => console.error('liner notes: now playing failed |  | LOGGED-OK | page mid-load: the next poll tells the booklet |
-| main.js:2385 | floating | loadFile() | NOT-WORTH | packaged visualizer.html; rejects only if the visualizer closes mid-load |
-| main.js:2475 | } catch (e) { /* error: NOT-WORTH — not rated (or no answer) |  | NOT-WORTH | not rated (or no answer): shown as not a favourite |
-| main.js:2477 | } catch (e) { /* error: NOT-WORTH — no song or MusicKit: the |  | NOT-WORTH | no song or MusicKit: the menu opens without the song items |
-| main.js:2500 | .catch((e) => {   // error: SHOWN — every song action's fail |  | SHOWN | every song action's failure is told where it was asked (done: the Studio's note, the mini player's notice) |
-| main.js:2540 | .catch((e) => { console.error('play next failed:', e.message |  | SHOWN | the Studio's note says Play Next didn't go through |
-| main.js:2575 | } catch (e) { /* error: NOT-WORTH — no answer: shown as not  |  | NOT-WORTH | no answer: shown as not a favourite (star off) |
-| main.js:2594 | } catch (e) { /* error: NOT-WORTH — not rated (or no answer) |  | NOT-WORTH | not rated (or no answer): treated as not a favourite |
-| main.js:2605 | } catch (e) { /* error: NOT-WORTH — failed: { ok: false }, t |  | NOT-WORTH | failed: { ok: false }, the star stays as it was |
-| main.js:2615 | } catch (e) { info = null }   // error: NOT-WORTH — page mid |  | NOT-WORTH | page mid-navigation: the menu opens without the song's items |
-| main.js:2660 | } catch (e) { return }   // error: NOT-WORTH — tmp not writa |  | NOT-WORTH | tmp not writable: setAlwaysOnTop stays the only keep-above |
-| main.js:2715 | try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e)  |  | NOT-WORTH | no kwinrulesrc: nothing to clean |
-| main.js:2735 | empty-catch |  | NOT-WORTH | kwinrulesrc not writable: the old rules stay (one-time cleanup) |
-| main.js:2791 | empty-catch |  | NOT-WORTH | artwork unreachable: the previous palette stays |
-| main.js:2834 | floating | showMoreMenu() | NOT-WORTH | showMoreMenu catches its page read; building the menu is sync |
-| main.js:2854 | .catch((e) => console.error('toggle favorite failed:', e.mes |  | LOGGED-OK | the star stays as it was, so the user sees nothing changed |
-| main.js:2861 | .catch((e) => console.error('seek failed:', e.message)) // e |  | LOGGED-OK | page mid-load: that seek is lost |
-| main.js:2868 | .catch((e) => console.error('set volume failed:', e.message) |  | LOGGED-OK | page mid-load: the volume stays |
-| main.js:2888 | empty-catch |  | NOT-WORTH | no art: the notification shows without it |
-| main.js:2911 | } catch (e) { // error: NOT-WORTH — page mid-load: skipped t |  | NOT-WORTH | page mid-load: skipped to the next tick |
-| main.js:2922 | floating | refreshPalette() | NOT-WORTH | refreshPalette catches its artwork fetch inside |
-| main.js:2927 | floating | feedDiscord() | NOT-WORTH | feedDiscord catches its connect; setActivity/clearActivity are sync writes |
-| main.js:2933 | floating | notifyTrack() | NOT-WORTH | notifyTrack catches its art fetch; the Notification is sync |
-| main.js:2950 | .catch((e) => console.error('last.fm now playing failed:', e |  | LOGGED-OK | "now playing" is cosmetic; the scrobble is sent separately |
-| main.js:2978 | } catch (e) { // error: NOT-WORTH — Discord not running: tri |  | NOT-WORTH | Discord not running: tried again in 30 s; the rail shows "waiting" |
-| main.js:3019 | empty-catch |  | NOT-WORTH | no discord.json yet (or unreadable): defaults; Connect writes a new one |
-| main.js:3052 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
-| main.js:3092 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
-| main.js:3103 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
-| main.js:3146 | floating | finishLastFm() | NOT-WORTH | finishLastFm catches inside (SHOWN: the Integrations notice) |
-| main.js:3151 | floating | .then without .catch | NOT-WORTH | quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js) |
-| main.js:3203 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates) |
-| main.js:3205 | floating | checkEngineFeed() | NOT-WORTH | checkEngineFeed catches its feed fetch (LOGGED-OK); the rest is sync |
-| main.js:3224 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
-| main.js:3277 | } catch (e) { // error: SHOWN — "Helper not working: …" in S |  | SHOWN | "Helper not working: …" in Settings → Precise timing |
-| main.js:3331 | } catch (e) { console.log('helper: the job marker: ' + e.mes |  | LOGGED-OK | the marker can't be written (read-only config): the job runs, only a resume after a crash is lost |
-| main.js:3337 | empty-catch |  | NOT-WORTH | no marker there: nothing to clear |
-| main.js:3366 | const has = (dir) => { try { return fs.readdirSync(dir).some |  | NOT-WORTH | no folder: nothing there |
-| main.js:3368 | try { names = fs.readdirSync(home) } catch (e) { names = []  |  | NOT-WORTH | no folder: nothing to remove |
-| main.js:3371 | try { stamp = fs.readFileSync(path.join(home, 'venv', '.sona |  | NOT-WORTH | no venv: no build |
-| main.js:3388 | } catch (e) { console.log('helper: lspci: ' + e.message) } |  | LOGGED-OK | no lspci (or it fails, or execFile throws: a dead mount on PATH): the sysfs ids stay as the names |
-| main.js:3409 | try { list = await fs.promises.readdir(dir, { withFileTypes: |  | NOT-WORTH | a file that vanishes while counting counts 0 |
-| main.js:3414 | empty-catch |  | NOT-WORTH | a file gone meanwhile counts 0 |
-| main.js:3469 | } catch (e) { console.log('helper models: ' + e.message + '; |  | LOGGED-OK | the helper's own download below (from the start) |
-| main.js:3523 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
-| main.js:3566 | try { text = fs.readFileSync(helperJobFile(), 'utf8') } catc |  | NOT-WORTH | no marker: nothing was interrupted |
-| main.js:3582 | floating | remove() | NOT-WORTH | installer remove() never rejects (exec resolves); failures are the job's row |
-| main.js:3605 | } catch (e) {   // error: LOGGED-OK — no feed, a network err |  | LOGGED-OK | no feed, a network error or a refused feed: nothing is offered, the installed helper keeps working |
-| main.js:3638 | floating | .then without .catch | NOT-WORTH | dirBytes never rejects (unreadable files count 0) |
-| main.js:3647 | floating | remove() | NOT-WORTH | installer remove() never rejects (exec resolves); failures are the job's row |
-| main.js:3717 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates, opened by the click) |
-| main.js:3894 | floating | loadFile() | NOT-WORTH | packaged panel.html; rejects only if the view is closed mid-load |
-| main.js:3922 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus and checkEngineFeed both catch inside |
-| main.js:3922 | floating | checkEngineFeed() | NOT-WORTH | askAlignStatus and checkEngineFeed both catch inside |
-| main.js:3942 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
-| main.js:3967 | const read = (f) => { try { return fs.readFileSync(path.join |  | NOT-WORTH | a missing file reads as empty: About says so ("nothing listed") |
-| main.js:4065 | try { drivers = [...new Set(fs.readFileSync('/proc/' + gpu.p |  | NOT-WORTH | no graphics process or no /proc: the line says software or hardware from the page alone |
-| main.js:4068 | .catch((e) => console.error('graphics readout: decoding chec |  | LOGGED-OK | the line keeps saying "checking…"; reopening About → Graphics asks again |
-| main.js:4141 | const size = (f) => { try { return fs.statSync(path.join(ud, |  | NOT-WORTH | a file or folder not there yet: null / 0 ("No file yet") |
-| main.js:4146 | empty-catch |  | NOT-WORTH | no folder or a file removed meanwhile: counted as nothing |
-| main.js:4193 | floating | .then without .catch | SHOWN | the line under the button says whether it was copied (Electron 44+: writeText may return a Promise) |
-| main.js:4193 | then-reject |  | SHOWN | the line under the button says whether it was copied (Electron 44+: writeText may return a Promise) |
-| main.js:4228 | floating | loadFile() | NOT-WORTH | packaged toast.html; rejects only if the last toast ends mid-load |
-| main.js:4262 | .catch((e) => console.error('rail: focus handoff failed:', e |  | LOGGED-OK | a failing injection (page mid-navigation) only leaves the focus in the window; logged |
-| main.js:4280 | .catch((e) => console.error('rail: focus stops failed:', e.m |  | LOGGED-OK | page mid-load: no focus stops until the next load (Tab still works in the page) |
-| main.js:4288 | .catch((e) => console.error('media controls: position script |  | LOGGED-OK | page mid-load: no length in the media controls until the next load (playback is unaffected) |
-| main.js:4318 | .catch((e) => console.error('rail liner notes failed:', e.me |  | LOGGED-OK | the booklet didn't open; the next press tries again |
-| main.js:4343 | .catch((e) => console.error('wheel volume failed:', e.messag |  | LOGGED-OK | page mid-load: the wheel does nothing that time |
-| main.js:4381 | floating | connectLastFm() | SILENT-BUG | rare: writeTemplate() (sync write) is before the try; unwritable config = no notice |
-| main.js:4383 | floating | connectDiscord() | SILENT-BUG | rare: saveDiscordConfig() is before the try; unwritable config = Connect does nothing |
-| main.js:4385 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates) |
-| main.js:4392 | floating | backToStable() | NOT-WORTH | updater.check / install catch inside (SHOWN in the update notice) |
-| main.js:4399 | floating | .then without .catch | NOT-WORTH | quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js) |
-| main.js:4502 | floating | loadURL() | SILENT-BUG | offline or Apple down at start: loadURL rejects, Apple's view stays blank, unexplained |
-| main.js:4504 | floating | loadFile() | NOT-WORTH | packaged rail.html; rejects only if the window closes mid-load |
-| main.js:4610 | floating | .then without .catch | NOT-WORTH | allow() never rejects |
-| main.js:4633 | empty-catch |  | NOT-WORTH | unresolvable: the APPIMAGE path as given is used |
-| main.js:4653 | empty-catch |  | NOT-WORTH | nothing to remove; the symlink below says if it can't be made |
-| main.js:4654 | empty-catch |  | NOT-WORTH | folder not writable: the menu entry points at the versioned file instead |
-| main.js:4671 | empty-catch |  | NOT-WORTH | no entry yet: it is written below |
-| main.js:4679 | } catch (e) { console.error('menu integration failed:', e.me |  | LOGGED-OK | no menu entry or icon this run; Sonata itself runs |
-| main.js:4866 | empty-catch |  | NOT-WORTH | systemd-run unavailable or too old: next try, then the shell below |
-| main.js:4872 | } catch (e) { console.error('relaunch: could not start the n |  | LOGGED-OK | the next menu launch starts it |
-| main.js:4888 | empty-catch |  | NOT-WORTH | not removable now: tried again next start |
-| main.js:4892 | empty-catch |  | NOT-WORTH | not removable now: tried again next start |
-| main.js:4895 | empty-catch |  | NOT-WORTH | folder unreadable: nothing pruned |
-| main.js:4935 | } catch (e) { console.error('autostart update failed:', e.me |  | LOGGED-OK | the login entry stays as it was (read-only config: rare) |
-| main.js:4969 | try { fn() } catch (e) { console.error('startup: ' + name +  |  | LOGGED-OK | startup goes on |
-| main.js:4980 | json-parse | outside a try | NOT-WORTH | load() runs inside createScrobbleQueue's try (lastfm.js:170): damaged = none |
-| main.js:5065 | }).catch((e) => { |  | LOGGED-OK | — a step outside startupStep threw: said, and the window and tray still come up when they can |
+| main.js:784 | } catch (e) { |  | SHOWN | a failed write (disk full, permissions) is the status line |
+| main.js:879 | json-parse | outside a try | NOT-WORTH | parses the JSON.stringify of the line above |
+| main.js:892 | empty-catch |  | NOT-WORTH | a store read that throws: logged as no cached notes |
+| main.js:975 | json-parse | outside a try | NOT-WORTH | sheetSent is our own JSON.stringify (set on each send below) |
+| main.js:1000 | empty-catch |  | NOT-WORTH | a store read that throws: no old entry, nothing to count or keep |
+| main.js:1007 | try { getSheetStore().set(s.title, s.artist, entry) } catch  |  | SHOWN | a failed write: the band says the notes couldn't be kept (and the log) |
+| main.js:1028 | empty-catch |  | NOT-WORTH | the marker only limits the retries; without it the song is simply tried again |
+| main.js:1032 | empty-catch |  | NOT-WORTH | a store read that throws: no cached notes, the band's message below says the pass failed |
+| main.js:1110 | empty-catch |  | NOT-WORTH | a store read that throws: a first play from scratch |
+| main.js:1127 | empty-catch |  | NOT-WORTH | a store read that throws: no old entry to keep |
+| main.js:1131 | try { getSheetStore().set(s.title, s.artist, entry) } catch  |  | LOGGED-OK | a failed write only loses the head start: the next play records the song as a first play |
+| main.js:1227 | const exists = (f) => { try { fs.accessSync(f, fs.constants. |  | NOT-WORTH | a missing file is "not shipped here": the switch says so |
+| main.js:1246 | execFile('pactl', args, { timeout: 2000, maxBuffer: 4 * 1024 |  | NOT-WORTH | pactl missing or failing: no stream found (nothing is routed; tried again on the next event) |
+| main.js:1252 | try { pids = audioListen.ownProcessTree(process.pid) } catch |  | NOT-WORTH | no process tree: only our own pid |
+| main.js:1285 | appleWC().executeJavaScript(code).catch((e) => console.error |  | LOGGED-OK | page mid-load: the player stays as it is; the user's play button works |
+| main.js:1289 | appleWC().executeJavaScript(lookaheadPage.holdScript(on)).ca |  | LOGGED-OK | page mid-load: no hold at the next item change (its old song's tail is cut instead) |
+| main.js:1305 | .catch((e) => console.error('look-ahead: page script failed: |  | LOGGED-OK | page mid-load: injected again at its next load; without it songs play with no delay |
+| main.js:1307 | .catch((e) => console.error('look-ahead: page events failed: |  | LOGGED-OK | as above |
+| main.js:1325 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (the helper's error is Settings' status line) |
+| main.js:1386 | } catch (e) { return } |  | NOT-WORTH | a failing executeJavaScript returns early until the next tick; at 2/s that can't hammer |
+| main.js:1504 | floating | stageTick() | NOT-WORTH | — tick() never rejects (a failed stat is logged inside) |
+| main.js:1505 | floating | .then without .catch | NOT-WORTH | tick() never rejects (a failed stat is logged inside) |
+| main.js:1505 | then-reject |  | NOT-WORTH | tick() never rejects (a failed stat is logged inside) |
+| main.js:1519 | floating | refreshPalette() | NOT-WORTH | refreshPalette catches its artwork fetch inside; the rest is sync |
+| main.js:1544 | floating | loadFile() | NOT-WORTH | packaged lyrics.html; rejects only if the window closes mid-load (a warning) |
+| main.js:1664 | } catch (e) { /* error: NOT-WORTH — no MusicKit or no queue  |  | NOT-WORTH | no MusicKit or no queue yet (page loading): { ok: false }, read again on the next tick |
+| main.js:1678 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
+| main.js:1685 | try { q = await appleWC().executeJavaScript(stageQueueScript |  | NOT-WORTH | page mid-navigation: read again on the next tick |
+| main.js:1702 | } catch (e) { /* error: PASSES-ON — false to main, which rea |  | PASSES-ON | false to main, which reads the queue again |
+| main.js:1730 | .catch((e) => console.error('stage ' + what + ' failed:', e. |  | LOGGED-OK | page mid-load: that one command does nothing (the stage shows the player's real state on the next tick) |
+| main.js:1765 | .catch((e) => console.error('stage liner notes failed:', e.m |  | LOGGED-OK | the booklet didn't open; the next click tries again |
+| main.js:1773 | .catch((e) => console.error('stage play failed:', e.message) |  | LOGGED-OK | page mid-load: nothing plays; the list shows the player's real state on the next read |
+| main.js:1776 | try { return JSON.parse(stageSent \|\| '{}') } catch (e) { ret |  | NOT-WORTH | our own JSON; {} when nothing was sent yet |
+| main.js:1796 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
+| main.js:1815 | floating | stageSongRead() | NOT-WORTH | stageSongRead catches its one async read (songSource.state); the rest is sync |
+| main.js:1833 | try { st = await songSource.state() } catch (e) { st = { ok: |  | SHOWN | the row shows nothing known (its buttons say why when clicked) |
+| main.js:1864 | .catch((e) => console.error('studio credits: album lookup fa |  | LOGGED-OK | the back shows Apple's credits; the booklet asks again when opened |
+| main.js:1873 | .catch((e) => { console.error('studio open ' + kind + ' fail |  | SHOWN | the Studio's note says it couldn't be opened |
+| main.js:1881 | ? list.map((p) => ({ label: p.name, click: () => songSource. |  | SHOWN | the Studio's note says it didn't go through |
+| main.js:1884 | }).catch((e) => { console.error('playlists failed:', e.messa |  | SHOWN | the Studio's note says the playlists didn't load |
+| main.js:1906 | .catch((e) => console.error('stage liner notes failed:', e.m |  | LOGGED-OK | the booklet didn't open; the next click tries again |
+| main.js:1953 | } catch (e) { /* error: PASSES-ON — offline or Apple refused |  | PASSES-ON | offline or Apple refused: main uses the IDs it saved for this song, or says offline |
+| main.js:1984 | .catch((e) => {   // error: SHOWN — the tile says Wikimedia  |  | SHOWN | the tile says Wikimedia Commons didn't answer (click to try again); logged |
+| main.js:1996 | try { r = await appleWC().executeJavaScript(montageIdsScript |  | NOT-WORTH | page mid-navigation: treated as no answer (saved IDs below) |
+| main.js:2014 | } catch (e) { |  | SHOWN | — offline or the service busy: the saved set if there is one (the tile says "saved"), else the tile says offline / not loaded |
+| main.js:2037 | } catch (e) {   // error: NOT-WORTH — one photo failed (gone |  | NOT-WORTH | one photo failed (gone, busy): the montage shows the others; offline from here on |
+| main.js:2065 | .catch((e) => console.error('show album failed:', e.message) |  | LOGGED-OK | page mid-load: the window is shown, the album isn't opened |
+| main.js:2083 | .catch((e) => console.error('lyrics seek failed:', e.message |  | LOGGED-OK | page mid-load: that seek is lost (the next click works) |
+| main.js:2100 | } catch (e) { /* error: NOT-WORTH — no MusicKit yet (page lo |  | NOT-WORTH | no MusicKit yet (page loading): no cover to show, the menu item does nothing that time |
+| main.js:2108 | } catch (e) { console.error('cover lookup failed:', e.messag |  | LOGGED-OK | page mid-load: no lightbox this time |
+| main.js:2141 | floating | loadFile() | NOT-WORTH | packaged cover.html; rejects only if the lightbox closes (blur) mid-load |
+| main.js:2190 | const mk = (() => { try { return MusicKit.getInstance(); } c |  | NOT-WORTH | no MusicKit yet (page loading): reported below as not ready |
+| main.js:2237 | } catch (e) { /* error: PASSES-ON — offline or Apple refused |  | PASSES-ON | offline or Apple refused: main opens the cached booklet, or its page saying Apple didn't load |
+| main.js:2313 | } catch (e) { |  | LOGGED-OK | — offline or the archive refused: the disc shows as before (still), asked again next time |
+| main.js:2334 | try { state = await appleWC().executeJavaScript(nowPlayingSc |  | NOT-WORTH | page mid-load: the next tick asks again |
+| main.js:2375 | try { res = mainAlive() ? await appleWC().executeJavaScript( |  | LOGGED-OK | page mid-load: handled below as "Apple didn't answer" |
+| main.js:2416 | floating | loadFile() | NOT-WORTH | packaged liner-notes.html; rejects only if the booklet closes mid-load |
+| main.js:2449 | .catch((e) => console.error('liner notes: now playing failed |  | LOGGED-OK | page mid-load: the next poll tells the booklet |
+| main.js:2469 | floating | loadFile() | NOT-WORTH | packaged visualizer.html; rejects only if the visualizer closes mid-load |
+| main.js:2559 | } catch (e) { /* error: NOT-WORTH — not rated (or no answer) |  | NOT-WORTH | not rated (or no answer): shown as not a favourite |
+| main.js:2561 | } catch (e) { /* error: NOT-WORTH — no song or MusicKit: the |  | NOT-WORTH | no song or MusicKit: the menu opens without the song items |
+| main.js:2584 | .catch((e) => {   // error: SHOWN — every song action's fail |  | SHOWN | every song action's failure is told where it was asked (done: the Studio's note, the mini player's notice) |
+| main.js:2624 | .catch((e) => { console.error('play next failed:', e.message |  | SHOWN | the Studio's note says Play Next didn't go through |
+| main.js:2659 | } catch (e) { /* error: NOT-WORTH — no answer: shown as not  |  | NOT-WORTH | no answer: shown as not a favourite (star off) |
+| main.js:2678 | } catch (e) { /* error: NOT-WORTH — not rated (or no answer) |  | NOT-WORTH | not rated (or no answer): treated as not a favourite |
+| main.js:2689 | } catch (e) { /* error: NOT-WORTH — failed: { ok: false }, t |  | NOT-WORTH | failed: { ok: false }, the star stays as it was |
+| main.js:2699 | } catch (e) { info = null }   // error: NOT-WORTH — page mid |  | NOT-WORTH | page mid-navigation: the menu opens without the song's items |
+| main.js:2744 | } catch (e) { return }   // error: NOT-WORTH — tmp not writa |  | NOT-WORTH | tmp not writable: setAlwaysOnTop stays the only keep-above |
+| main.js:2799 | try { text = fs.readFileSync(rulesFile, 'utf8') } catch (e)  |  | NOT-WORTH | no kwinrulesrc: nothing to clean |
+| main.js:2819 | empty-catch |  | NOT-WORTH | kwinrulesrc not writable: the old rules stay (one-time cleanup) |
+| main.js:2879 | empty-catch |  | NOT-WORTH | artwork unreachable: the previous palette stays |
+| main.js:2922 | floating | showMoreMenu() | NOT-WORTH | showMoreMenu catches its page read; building the menu is sync |
+| main.js:2942 | .catch((e) => console.error('toggle favorite failed:', e.mes |  | LOGGED-OK | the star stays as it was, so the user sees nothing changed |
+| main.js:2949 | .catch((e) => console.error('seek failed:', e.message)) // e |  | LOGGED-OK | page mid-load: that seek is lost |
+| main.js:2956 | .catch((e) => console.error('set volume failed:', e.message) |  | LOGGED-OK | page mid-load: the volume stays |
+| main.js:2976 | empty-catch |  | NOT-WORTH | no art: the notification shows without it |
+| main.js:2999 | } catch (e) { // error: NOT-WORTH — page mid-load: skipped t |  | NOT-WORTH | page mid-load: skipped to the next tick |
+| main.js:3010 | floating | refreshPalette() | NOT-WORTH | refreshPalette catches its artwork fetch inside |
+| main.js:3015 | floating | feedDiscord() | NOT-WORTH | feedDiscord catches its connect; setActivity/clearActivity are sync writes |
+| main.js:3021 | floating | notifyTrack() | NOT-WORTH | notifyTrack catches its art fetch; the Notification is sync |
+| main.js:3038 | .catch((e) => console.error('last.fm now playing failed:', e |  | LOGGED-OK | "now playing" is cosmetic; the scrobble is sent separately |
+| main.js:3066 | } catch (e) { // error: NOT-WORTH — Discord not running: tri |  | NOT-WORTH | Discord not running: tried again in 30 s; the rail shows "waiting" |
+| main.js:3107 | empty-catch |  | NOT-WORTH | no discord.json yet (or unreadable): defaults; Connect writes a new one |
+| main.js:3128 | try { saveDiscordConfig() } catch (e) { configNotWritten('di |  | SHOWN | an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E3: Connect did nothing) |
+| main.js:3146 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
+| main.js:3170 | try { lastfm.writeTemplate() } catch (e) { configNotWritten( |  | SHOWN | an unwritable config folder: the notice says so (QC 2026-10 ERROR_PASS E2: Connect did nothing) |
+| main.js:3187 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
+| main.js:3198 | } catch (e) { |  | SHOWN | — an error notice in Integrations with the reason |
+| main.js:3252 | if (url && !url.startsWith('chrome-error:') && url !== 'abou |  | SHOWN | a failed retry comes back through did-fail-load (the notice) |
+| main.js:3268 | floating | finishLastFm() | NOT-WORTH | finishLastFm catches inside (SHOWN: the Integrations notice) |
+| main.js:3273 | floating | .then without .catch | NOT-WORTH | quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js) |
+| main.js:3326 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates) |
+| main.js:3328 | floating | checkEngineFeed() | NOT-WORTH | checkEngineFeed catches its feed fetch (LOGGED-OK); the rest is sync |
+| main.js:3347 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
+| main.js:3400 | } catch (e) { // error: SHOWN — "Helper not working: …" in S |  | SHOWN | "Helper not working: …" in Settings → Precise timing |
+| main.js:3454 | } catch (e) { console.log('helper: the job marker: ' + e.mes |  | LOGGED-OK | the marker can't be written (read-only config): the job runs, only a resume after a crash is lost |
+| main.js:3460 | empty-catch |  | NOT-WORTH | no marker there: nothing to clear |
+| main.js:3489 | const has = (dir) => { try { return fs.readdirSync(dir).some |  | NOT-WORTH | no folder: nothing there |
+| main.js:3491 | try { names = fs.readdirSync(home) } catch (e) { names = []  |  | NOT-WORTH | no folder: nothing to remove |
+| main.js:3494 | try { stamp = fs.readFileSync(path.join(home, 'venv', '.sona |  | NOT-WORTH | no venv: no build |
+| main.js:3511 | } catch (e) { console.log('helper: lspci: ' + e.message) } |  | LOGGED-OK | no lspci (or it fails, or execFile throws: a dead mount on PATH): the sysfs ids stay as the names |
+| main.js:3532 | try { list = await fs.promises.readdir(dir, { withFileTypes: |  | NOT-WORTH | a file that vanishes while counting counts 0 |
+| main.js:3537 | empty-catch |  | NOT-WORTH | a file gone meanwhile counts 0 |
+| main.js:3592 | } catch (e) { console.log('helper models: ' + e.message + '; |  | LOGGED-OK | the helper's own download below (from the start) |
+| main.js:3650 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
+| main.js:3693 | try { text = fs.readFileSync(helperJobFile(), 'utf8') } catc |  | NOT-WORTH | no marker: nothing was interrupted |
+| main.js:3709 | floating | remove() | NOT-WORTH | installer remove() never rejects (exec resolves); failures are the job's row |
+| main.js:3732 | } catch (e) {   // error: LOGGED-OK — no feed, a network err |  | LOGGED-OK | no feed, a network error or a refused feed: nothing is offered, the installed helper keeps working |
+| main.js:3765 | floating | .then without .catch | NOT-WORTH | dirBytes never rejects (unreadable files count 0) |
+| main.js:3774 | floating | remove() | NOT-WORTH | installer remove() never rejects (exec resolves); failures are the job's row |
+| main.js:3844 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates, opened by the click) |
+| main.js:4023 | floating | loadFile() | NOT-WORTH | packaged panel.html; rejects only if the view is closed mid-load |
+| main.js:4051 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus and checkEngineFeed both catch inside |
+| main.js:4051 | floating | checkEngineFeed() | NOT-WORTH | askAlignStatus and checkEngineFeed both catch inside |
+| main.js:4071 | floating | askAlignStatus() | NOT-WORTH | askAlignStatus catches inside (Settings' status line) |
+| main.js:4096 | const read = (f) => { try { return fs.readFileSync(path.join |  | NOT-WORTH | a missing file reads as empty: About says so ("nothing listed") |
+| main.js:4194 | try { drivers = [...new Set(fs.readFileSync('/proc/' + gpu.p |  | NOT-WORTH | no graphics process or no /proc: the line says software or hardware from the page alone |
+| main.js:4197 | .catch((e) => console.error('graphics readout: decoding chec |  | LOGGED-OK | the line keeps saying "checking…"; reopening About → Graphics asks again |
+| main.js:4270 | const size = (f) => { try { return fs.statSync(path.join(ud, |  | NOT-WORTH | a file or folder not there yet: null / 0 ("No file yet") |
+| main.js:4275 | empty-catch |  | NOT-WORTH | no folder or a file removed meanwhile: counted as nothing |
+| main.js:4322 | floating | .then without .catch | SHOWN | the line under the button says whether it was copied (Electron 44+: writeText may return a Promise) |
+| main.js:4322 | then-reject |  | SHOWN | the line under the button says whether it was copied (Electron 44+: writeText may return a Promise) |
+| main.js:4363 | floating | loadFile() | NOT-WORTH | packaged toast.html; rejects only if the last toast ends mid-load |
+| main.js:4397 | .catch((e) => console.error('rail: focus handoff failed:', e |  | LOGGED-OK | a failing injection (page mid-navigation) only leaves the focus in the window; logged |
+| main.js:4415 | .catch((e) => console.error('rail: focus stops failed:', e.m |  | LOGGED-OK | page mid-load: no focus stops until the next load (Tab still works in the page) |
+| main.js:4423 | .catch((e) => console.error('media controls: position script |  | LOGGED-OK | page mid-load: no length in the media controls until the next load (playback is unaffected) |
+| main.js:4453 | .catch((e) => console.error('rail liner notes failed:', e.me |  | LOGGED-OK | the booklet didn't open; the next press tries again |
+| main.js:4478 | .catch((e) => console.error('wheel volume failed:', e.messag |  | LOGGED-OK | page mid-load: the wheel does nothing that time |
+| main.js:4516 | floating | connectLastFm() | SHOWN | connectLastFm shows its own failures (an unwritable config: configNotWritten; the auth: its notice) |
+| main.js:4518 | floating | connectDiscord() | SHOWN | connectDiscord shows its own failures (an unwritable config: configNotWritten; the connect: its notice) |
+| main.js:4520 | floating | checkForUpdates() | NOT-WORTH | updater.check catches inside (SHOWN in Settings → Updates) |
+| main.js:4527 | floating | backToStable() | NOT-WORTH | updater.check / install catch inside (SHOWN in the update notice) |
+| main.js:4534 | floating | .then without .catch | NOT-WORTH | quitGuard.allow never rejects (a dialog failure is caught in quit-guard.js) |
+| main.js:4642 | appleWC().loadURL(appleStartUrl).catch(() => {}) |  | NOT-WORTH | a failed load is the 'apple-offline' notice (did-fail-load above); the rejection itself is that same failure |
+| main.js:4644 | floating | loadFile() | NOT-WORTH | packaged rail.html; rejects only if the window closes mid-load |
+| main.js:4753 | floating | .then without .catch | NOT-WORTH | allow() never rejects |
+| main.js:4776 | empty-catch |  | NOT-WORTH | unresolvable: the APPIMAGE path as given is used |
+| main.js:4796 | empty-catch |  | NOT-WORTH | nothing to remove; the symlink below says if it can't be made |
+| main.js:4797 | empty-catch |  | NOT-WORTH | folder not writable: the menu entry points at the versioned file instead |
+| main.js:4814 | empty-catch |  | NOT-WORTH | no entry yet: it is written below |
+| main.js:4822 | } catch (e) { console.error('menu integration failed:', e.me |  | LOGGED-OK | no menu entry or icon this run; Sonata itself runs |
+| main.js:5011 | empty-catch |  | NOT-WORTH | systemd-run unavailable or too old: next try, then the shell below |
+| main.js:5017 | } catch (e) { console.error('relaunch: could not start the n |  | LOGGED-OK | the next menu launch starts it |
+| main.js:5033 | empty-catch |  | NOT-WORTH | not removable now: tried again next start |
+| main.js:5037 | empty-catch |  | NOT-WORTH | not removable now: tried again next start |
+| main.js:5040 | empty-catch |  | NOT-WORTH | folder unreadable: nothing pruned |
+| main.js:5080 | } catch (e) { console.error('autostart update failed:', e.me |  | LOGGED-OK | the login entry stays as it was (read-only config: rare) |
+| main.js:5114 | try { fn() } catch (e) { console.error('startup: ' + name +  |  | LOGGED-OK | startup goes on |
+| main.js:5125 | json-parse | outside a try | NOT-WORTH | load() runs inside createScrobbleQueue's try (lastfm.js:170): damaged = none |
+| main.js:5210 | }).catch((e) => { |  | LOGGED-OK | — a step outside startupStep threw: said, and the window and tray still come up when they can |
 | media-position.js:55 | empty-catch |  | NOT-WORTH | no MusicKit or no song yet: the controls keep what they had until the next event |
 | model-fetch.js:43 | const sizeOf = (f) => { try { return fs.statSync(f).size } c |  | NOT-WORTH | no file: -1 |
 | model-fetch.js:81 | try { j = JSON.parse(String(out).trim().split('\n').pop()) } |  | PASSES-ON | not JSON: rejected, the caller logs it and lets the helper download |
@@ -401,11 +409,11 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | shortcuts.js:69 | empty-catch |  | NOT-WORTH | a key that was never registered |
 | shortcuts.js:80 | try { ok = d.globalShortcut.register(keys[a.id], () => fire( |  | SHOWN | a key the X server won't give (another app holds it): that row says "Taken by another app" |
 | shortcuts.js:114 | } catch (e) { |  | SHOWN | — no portal or no session: the section's message; Ask again retries |
-| shortcuts.js:146 | floating | portalOn() | NOT-WORTH | portalOn() catches inside (its try covers the whole session start) |
-| shortcuts.js:165 | floating | .then without .catch | NOT-WORTH | probe() never rejects |
-| shortcuts.js:175 | floating | portalOn() | NOT-WORTH | portalOn() catches inside |
-| shortcuts.js:188 | empty-catch |  | NOT-WORTH | an Electron without setSuspended: grabs stay, a held key can't be picked again |
-| shortcuts.js:205 | floating | portalOn() | NOT-WORTH | portalOn() catches inside |
+| shortcuts.js:149 | floating | portalOn() | NOT-WORTH | portalOn() catches inside (its try covers the whole session start) |
+| shortcuts.js:168 | floating | .then without .catch | NOT-WORTH | probe() never rejects |
+| shortcuts.js:178 | floating | portalOn() | NOT-WORTH | portalOn() catches inside |
+| shortcuts.js:191 | empty-catch |  | NOT-WORTH | an Electron without setSuspended: grabs stay, a held key can't be picked again |
+| shortcuts.js:208 | floating | portalOn() | NOT-WORTH | portalOn() catches inside |
 | song-actions.js:48 | } catch (e) { /* error: LOGGED-OK — not rated (Apple answers |  | LOGGED-OK | not rated (Apple answers 404) or no answer: shown as not a favourite; what failed is logged by main (out.read) |
 | song-actions.js:62 | } catch (e) { /* error: NOT-WORTH — no answer: the library s |  | NOT-WORTH | no answer: the library state stays unknown (Add to Library stays offered), no artist link |
 | song-actions.js:65 | } catch (e) { /* error: PASSES-ON — no MusicKit yet (page lo |  | PASSES-ON | no MusicKit yet (page loading): { ok: false }, the Studio says nothing is known |
@@ -414,9 +422,10 @@ _Generated: `node tools/passes.js --md DIR` writes these tables. Line numbers ar
 | update-feed.js:54 | } catch (e) { |  | NOT-WORTH | — a key that can't be read verifies nothing: the update is refused as unsigned, which the log/dialog says |
 | update-feed.js:104 | try { f = JSON.parse(text) } catch (e) { throw new Error('up |  | PASSES-ON | thrown as the refusal the Updates section shows |
 | update-feed.js:131 | try { u = new URL(raw) } catch (e) { return null }   // erro |  | NOT-WORTH | not a URL: no test feed |
-| updater.js:142 | } catch (e) { |  | SHOWN | — the Updates status line always; a notice when the user asked (Check now, Back to stable) |
-| updater.js:174 | } catch (e) { |  | PASSES-ON | — the unverified file is deleted; the catch below shows the reason |
-| updater.js:184 | } catch (e) { |  | SHOWN | — the update notice says it didn't install and why; the current version is untouched |
+| update-feed.js:161 | const get = !fresh \|\| test ? fetchText : (u) => fetchText(fr |  | PASSES-ON | the CDN's own failure rejects to updater.js (shown); the API's is only the fallback's reason |
+| updater.js:143 | } catch (e) { |  | SHOWN | — the Updates status line always; a notice when the user asked (Check now, Back to stable) |
+| updater.js:175 | } catch (e) { |  | PASSES-ON | — the unverified file is deleted; the catch below shows the reason |
+| updater.js:185 | } catch (e) { |  | SHOWN | — the update notice says it didn't install and why; the current version is untouched |
 | version-display.js:37 | empty-catch |  | NOT-WORTH | a page without package.json uses the version main sends it |
 | visualizer.html:211 | floating | .then without .catch | NOT-WORTH | a cover that fails to decode is shown anyway (the old background-image path did the same) |
 | visualizer.html:211 | floating | .then without .catch | NOT-WORTH | a cover that fails to decode is shown anyway (the old background-image path did the same) |

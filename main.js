@@ -4512,9 +4512,9 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
   else if (command === 'shortcut-capture' && typeof a === 'boolean') captureShortcut(a)
 })
 function panelAction(name) {
-  // error: SILENT-BUG — rare: writeTemplate() (sync write) is before the try; unwritable config = no notice
+  // error: SHOWN — connectLastFm shows its own failures (an unwritable config: configNotWritten; the auth: its notice)
   if (name === 'lastfm') { if (lastfm && lastfm.connected) disconnectLastFm(); else connectLastFm() }
-  // error: SILENT-BUG — rare: saveDiscordConfig() is before the try; unwritable config = Connect does nothing
+  // error: SHOWN — connectDiscord shows its own failures (an unwritable config: configNotWritten; the connect: its notice)
   else if (name === 'discord') { if (discordConfig.enabled) disconnectDiscord(); else connectDiscord() }
   // error: NOT-WORTH — updater.check catches inside (SHOWN in Settings → Updates)
   else if (name === 'check-now') checkForUpdates(true)
