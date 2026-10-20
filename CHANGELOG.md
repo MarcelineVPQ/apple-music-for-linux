@@ -18,6 +18,7 @@ See docs/RELEASING.md.
 - **Look-ahead for every song not learned yet, lyrics window open or not.** It used to apply only when a lyrics window or the Studio was open as the song started ("No delay: no lyrics window is open"); now every song still missing its timing, notes or expression plays behind and is learned, and learned songs still start at once. When it can't apply the line says exactly why: a game running, the graphics card busy, the timing helper starting or being updated, a music video. After the helper's update the next song gets it.
 - The log no longer says a graphics card's timing helper runs "on the processor → first plays timed after the song".
 - **Refine by listening no longer grows its memory on repeat.** With Repeat one, replays or seeking back, it kept every sound onset it heard again (about half a megabyte an hour), and the repeats skewed its noise check; each moment of the song now counts once.
+- **Sonata does less while it sits in the tray.** Once Settings or About had been opened, it rebuilt the panel's whole contents every 5 s even with the window hidden; now it waits until the panel can be seen.
 
 ## [0.15.70-dev.1] — First play: look-ahead now works with Apple-timed songs, and the notes band shows parts as they arrive
 

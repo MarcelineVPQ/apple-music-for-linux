@@ -3948,6 +3948,8 @@ function toggleRailPin() { toggleRailFlag('pin') }
 // the notices, and sends it only when it changes.
 let panelMounted = false
 let panelSent = ''
+let panelSentHidden = false   // the last snapshot sent said the panel is out of sight (hidden, or the window in the tray)
+let panelStale = false        // a push skipped while out of sight: sent when the window shows again
 let reveal = null         // the last deep link: { page, section, n, focus }
 let revealCount = 0
 // cache: OK — key=none (CHANGELOG, BACKLOG, install); invalidated=nulled after a helper job; bound=one
@@ -3966,7 +3968,7 @@ function createPanelView() {
   // lifetime: OK — one listener each on the panel's web contents, created once, die with it
   panelView.webContents.on('before-input-event', (event, input) => { if (!shortcutCapture) windowShortcut(input) })
   panelView.webContents.on('focus', () => { focusedView = 'panel' })
-  panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = '' })
+  panelView.webContents.on('did-start-loading', () => { panelMounted = false; panelSent = ''; panelSentHidden = false })
 }
 // the open section and pins of a page (first visit: the first section with an open task opens)
 function accOf(page) {
@@ -4267,11 +4269,17 @@ function curiousCopy() {
 // sends the panel's state if it changed; one JSON compare otherwise
 function pushPanel() {
   if (!panelAlive() || !panelMounted) return
+  // out of sight (the panel hidden, or the window in the tray or minimized): one snapshot says so, then nothing is
+  // built until it shows again (QC 2026-10 LOOP L2: the 5 s loop rebuilt it forever, ~0.4 MB of strings each time)
+  const seen = !!(settings.panelShown && mainAlive() && mainWindow.isVisible() && !mainWindow.isMinimized())
+  if (!seen && panelSentHidden) { panelStale = true; return }
+  panelStale = false
   aboutSync()
   const s = panelSnapshot()
   const json = JSON.stringify(s)
   if (json === panelSent) return
   panelSent = json
+  panelSentHidden = !seen
   panelView.webContents.send('panel:state', s)
 }
 
@@ -4431,7 +4439,7 @@ ipcMain.on('panel:command', (event, command, a, b, c) => {
     return
   }
   if (!fromPanel) return
-  if (command === 'mounted') { panelMounted = true; panelSent = ''; if (shortcutCapture) captureShortcut(false); pushPanel() }
+  if (command === 'mounted') { panelMounted = true; panelSent = ''; panelSentHidden = false; if (shortcutCapture) captureShortcut(false); pushPanel() }
   else if (command === 'set' && typeof a === 'string') setSetting(a, b)
   else if (command === 'action' && PANEL_ACTIONS.includes(a)) panelAction(a)
   else if (command === 'notice-action' && typeof a === 'string' && typeof b === 'string') noticeAction(a, b)
@@ -4599,6 +4607,9 @@ function createWindow() {
   // lifetime: OK — four listeners for the window's life: About → Graphics and For the Curious sample only while the window shows
   // loop: NOT-WORTH — four event names, once
   for (const ev of ['show', 'hide', 'minimize', 'restore']) mainWindow.on(ev, aboutSync)
+  // lifetime: OK — two listeners for the window's life: a panel snapshot skipped in the tray is sent on showing
+  // loop: NOT-WORTH — two event names, once
+  for (const ev of ['show', 'restore']) mainWindow.on(ev, () => { if (panelStale) pushPanel() })
   mainWindow.on('enter-full-screen', pushRail)
   mainWindow.on('leave-full-screen', pushRail)
   // lifetime: OK — one listener · the window's focus goes to the view that had it (a BaseWindow has no
