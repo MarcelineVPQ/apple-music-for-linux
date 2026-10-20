@@ -55,6 +55,7 @@ function createImageStore(opts) {
   }
   function prune(keep) {
     if (total <= maxBytes && index.size <= maxFiles) return
+    // loop: NOT-WORTH — sort of ≤ maxFiles (400) entries, only when a put pushes the cache over a bound
     const old = [...index.entries()].filter(([n]) => n !== keep).sort((a, b) => a[1].used - b[1].used)
     // loop: NOT-WORTH — ≤ maxFiles entries, only when a new photo pushed the cache over a bound
     for (const [n] of old) {

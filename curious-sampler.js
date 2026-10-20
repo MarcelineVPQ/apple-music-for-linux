@@ -113,6 +113,7 @@ function createCuriousSampler(deps) {
     const state = 'Running (process ' + h.pid + ')' + (h.paused ? ', paused while gaming' : '')
     const out = await run('nvidia-smi', ['--query-compute-apps=pid,used_memory', '--format=csv,noheader,nounits'])
     if (out == null) return { state, vram: C.UNKNOWN + ': no nvidia-smi (NVIDIA only)' }
+    // loop: HOT-PATH-OK — nvidia-smi's compute apps (a few) · per 5 s refresh while open and the helper runs
     const row = out.split('\n').map((l) => l.split(',').map((x) => x.trim())).find((c) => Number(c[0]) === h.pid)
     return { state, vram: row ? row[1] + ' MiB (nvidia-smi)' : 'None on the GPU right now (nvidia-smi)' }
   }
@@ -141,6 +142,7 @@ function createCuriousSampler(deps) {
     const suffix = deps.notesSuffix(np.artist, np.title)
     let names
     // error: NOT-WORTH — no folder: no notes
+    // loop: HOT-PATH-OK — notes log names (≤ 1000, MAX_FILES), matches sorted (a few) · per 5 s refresh while open
     try { names = io.readdirSync(dir).filter((n) => n.endsWith(suffix)).sort() } catch (e) { return null }
     const name = names[names.length - 1]
     if (!name) return null
@@ -181,6 +183,7 @@ function createCuriousSampler(deps) {
             : m.type === 'Tab' ? 'Other page' : m.type
       return { label, cpu, mb, frames: views.map((v) => ({ name: v.name, fps: v.fps })), order: views.length ? 0 : 1 }
     })
+    // loop: HOT-PATH-OK — Sonata's processes (≤ ~12) · per 5 s refresh while For the Curious is open
     return { procs: procs.sort((a, b) => a.order - b.order), totalMb }
   }
 

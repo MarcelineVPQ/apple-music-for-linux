@@ -55,6 +55,7 @@
         kind: n.kind === 'error' ? 'error' : 'info',
         text: String(n.text),
         detail: n.detail ? String(n.detail) : '',
+        // loop: HOT-PATH-OK — per show() (≤ 4/s during a helper install's progress), N ≤ 3 actions
         actions: (n.actions || []).filter((a) => a && typeof a.id === 'string' && a.label).map((a) => ({ id: a.id, label: String(a.label), primary: !!a.primary, disabled: !!a.disabled, tip: a.tip ? String(a.tip) : '' })),
         dismissKey: n.dismissKey || '',
         closable: n.closable !== false,

@@ -15,8 +15,10 @@ function ratioOf(st) {
   const dur = Number(st.duration_s)
   if (!(dur >= 5)) return null
   if (Number(st.stitched) > 0) return null          // the final pass from kept stems: no separation, not comparable
+  // loop: NOT-WORTH — 3 stats fields · once per helper job result
   const parts = ['separate_s', 'emissions_s', 'align_s'].map((k) => Number(st[k]))
   if (!parts.every(Number.isFinite)) return null
+  // loop: NOT-WORTH — 3 numbers · once per helper job result
   return parts.reduce((a, b) => a + b, 0) / dur
 }
 
@@ -41,6 +43,7 @@ function createHelperSpeed(opts = {}) {
   }
   function median() {
     if (!ratios.length) return null
+    // loop: NOT-WORTH — once per helper job result, N ≤ the kept ratios (a handful)
     const s = ratios.slice().sort((a, b) => a - b)
     const m = s.length >> 1
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2

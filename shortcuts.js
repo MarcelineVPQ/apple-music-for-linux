@@ -22,6 +22,7 @@ function createShortcuts(d) {
   let probing = null
   let enabled = false
   let keys = M.bindings({})   // X11: the keys Sonata grabs
+  // cache: OK — key=action id; invalidated=reset by x11Off() before each x11On(); bound=4 actions
   let taken = new Set()       // X11: ids whose key another app holds
   let portal = null           // Wayland: the open session
   let phase = 'off'           // 'off' | 'starting' | 'on' | 'cancelled' | 'error'
@@ -80,6 +81,7 @@ function createShortcuts(d) {
       if (!ok) taken.add(a.id)
     }
     phase = 'on'
+    // loop: NOT-WORTH — when the switch or a key changes, N = 4 actions
     message = taken.size ? 'Another app holds ' + (taken.size === 1 ? 'one of these keys' : 'some of these keys') + ': pick another for ' + M.ACTIONS.filter((a) => taken.has(a.id)).map((a) => a.label).join(', ') + '.' : ''
   }
 
@@ -140,6 +142,7 @@ function createShortcuts(d) {
     retries++
     message += ' Sonata tries again in a few seconds.'
     // lifetime: OK — one pending retry at most, cleared when the shortcuts go off
+    // error: NOT-WORTH — portalOn() catches inside (its try covers the whole session start)
     retryTimer = d.setTimeout(() => { retryTimer = null; if (enabled && !portal && my === gen) portalOn() }, RETRY_MS)
   }
   function portalOff() {
@@ -168,6 +171,7 @@ function createShortcuts(d) {
     } else if (b.kind === 'portal') {
       keys = next
       if (!enabled) { portalOff(); phase = 'off'; message = '' }
+      // error: NOT-WORTH — portalOn() catches inside
       else if (!portal && !connecting) { portalOn(); return }
     } else {
       keys = next
@@ -197,6 +201,7 @@ function createShortcuts(d) {
     portalOff()
     retries = 0
     phase = 'off'
+    // error: NOT-WORTH — portalOn() catches inside
     portalOn()
   }
 
@@ -215,6 +220,7 @@ function createShortcuts(d) {
       phase,
       message,
       rows,
+      // loop: NOT-WORTH — per snapshot, N = 4 rows
       keys: Object.fromEntries(rows.filter((r) => r.key && r.state !== 'taken').map((r) => [r.id, r.key])),
       canConfigure: viaPortal && !!portal && portal.version >= 2 && !configureFailed,
       canAskAgain: viaPortal && enabled && (phase === 'cancelled' || phase === 'error'),

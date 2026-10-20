@@ -287,6 +287,7 @@
     reset.addEventListener('click', (e) => { if (e.isTrusted && !reset.disabled) bridge.send('shortcut-key', action.id, null) })
     function paint(v) {
       const sc = v.shortcuts
+      // loop: HOT-PATH-OK — per state push while Shortcuts is open, N = 4 shortcut rows per row's paint
       const rw = sc && sc.rows.find((x) => x.id === action.id)
       r.hidden = !sc || !rw || sc.backend.kind === 'none' || sc.backend.kind === 'unknown'
       if (r.hidden) return
@@ -317,15 +318,18 @@
   function readoutBlock(fn) {
     const box = el('div', 'group readout')
     let shown = ''
+    // cache: OK — key=readout row id; invalidated=cleared when the row id list changes; bound=≤ ~25 rows, dropped with the body
     const made = new Map()
     return {
       el: box,
       update(s) {
         const rows = fn(s.v || {})
+        // loop: NOT-WORTH — per section render on a state push (not per frame), N = rows of one section (≤ ~20)
         const ids = rows.map((r) => r.id).join('|')
         if (ids !== shown) {
           shown = ids
           made.clear()
+          // loop: NOT-WORTH — only when the row ids changed, N = rows of one section (≤ ~20)
           box.replaceChildren(...rows.map((r) => {
             const x = row(r.label, '')
             x.r.dataset.readout = r.id
@@ -806,6 +810,7 @@
   function aboutStatus(id, s) {
     const a = s.about
     if (id === 'whatsnew') return V.short(a && a.whatsNew.current ? a.whatsNew.current.version : (s.v ? s.v.version : ''))
+    // loop: HOT-PATH-OK — per state push while About shows, N ≤ 3 Coming soon groups
     if (id === 'soon') return a ? a.soonGroups.map((g) => g.items.length + ' ' + g.label.toLowerCase()).join(' · ') : ''
     if (id === 'credits') return 'Built on · Third-party assets and code'
     if (id === 'graphics') { const g = s.v && s.v.gfx; return !g ? '' : g.safe ? 'Safe start (--safe-gpu)' : g.active.length ? g.active.length + ' experimental on' : 'No experimental switches' }
@@ -903,7 +908,9 @@
   }
   // keyed: a notice whose content didn't change keeps its element (and the focus on its buttons)
   function renderNotices(container, list) {
+    // loop: HOT-PATH-OK — per state push, N = notices in that container (≤ ~6), one JSON.stringify each
     const old = new Map([...container.children].map((c) => [c.dataset.notice, c]))
+    // loop: HOT-PATH-OK — per state push, N ≤ ~6 notices; unchanged ones keep their element
     const want = list.map((n) => {
       const key = JSON.stringify(n)
       const prev = old.get(n.id)
@@ -912,6 +919,7 @@
       e.dataset.key = key
       return e
     })
+    // loop: HOT-PATH-OK — per state push, N ≤ ~6 notices, identity compare
     if (want.length === container.children.length && want.every((e, i) => container.children[i] === e)) return
     container.replaceChildren(...want)
   }
@@ -923,6 +931,7 @@
     acc.replaceChildren()
     if (hero) { hero.el.remove(); hero = null }
     if (p === 'about') { hero = heroCard(); scroll.insertBefore(hero.el, acc) }
+    // loop: NOT-WORTH — only when the page changes (Settings ↔ About), N ≤ 8 sections
     sections = M.PAGES[p].sections.map((def) => {
       const root = el('section', 'sec')
       root.dataset.section = def.id
@@ -981,6 +990,7 @@
       if (open && !sec.body) {
         const parts = BODY[page][sec.id]()
         const notices = el('div', 'notices')
+        // loop: NOT-WORTH — once per section open (body built then), N = a few parts
         sec.bodyWrap.replaceChildren(notices, ...parts.map((x) => x.el))
         sec.body = { parts, notices }
       } else if (!open && sec.body) {
@@ -999,6 +1009,7 @@
     const st = M.accState(S.acc && S.acc[page], page)
     const items = M.menuItems(st)
     if (menu.children.length !== items.length) {
+      // loop: NOT-WORTH — only when the menu's item count changes (built once), N = 2
       menu.replaceChildren(...items.map((it) => {
         const li = el('li')
         setAttr(li, 'role', 'none')
@@ -1030,6 +1041,7 @@
       : V.full(S.v.version) + ' · ' + V.channelName(S.v.updateChannel) + (S.v.appImage ? '' : ' · from source'))
     panel.classList.toggle('drawer', S.mode === 'drawer')
     renderMenu()
+    // loop: HOT-PATH-OK — per state push, N ≤ ~6 notices
     renderNotices(topNotices, (S.notices || []).filter((n) => n.place === 'top'))
     topNotices.hidden = !topNotices.children.length
     if (hero) hero.update(S)
@@ -1037,6 +1049,7 @@
     // a deep link (a rail dot, a notice's action): open is main's; scroll there and focus its header
     if (S.reveal && S.reveal.n !== revealN && S.reveal.page === page) {
       revealN = S.reveal.n
+      // loop: NOT-WORTH — once per deep link (reveal.n changes), N ≤ 8 sections
       const sec = sections.find((x) => x.id === S.reveal.section)
       if (sec) { sec.root.scrollIntoView({ block: 'nearest' }); if (S.reveal.focus) sec.toggle.focus({ focusVisible: true }) }
     }

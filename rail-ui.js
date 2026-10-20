@@ -31,6 +31,7 @@
   panel.setAttribute('aria-label', 'Sonata')
   const nav = el('div', 'nav')
   const footer = el('div', 'footer')
+  // cache: NOT-WORTH — key=roving focus index; invalidated=never (built once at load); bound=9 buttons
   const buttons = []   // roving focus order: the items, the pin, the lock
   function makeButton(id, iconName) {
     const b = el('button', 'link')
@@ -126,6 +127,7 @@
   // the view's width follows the panel: widen before sliding open, narrow after sliding shut
   let sliding = false   // a transform transition is running
   let asked = ''        // the last expand/collapse sent, until main's state answers it
+  // loop: NOT-WORTH — the panel's transition durations (1-3), only when the rail opens or closes
   const instant = () => getComputedStyle(panel).transitionDuration.split(',').every((d) => parseFloat(d) === 0)
   function syncWidth(mode, want) {
     if (!state || mode === 'pinned') { asked = ''; return }

@@ -44,8 +44,10 @@ fn enc(x: vec3f) -> vec3f {
 function parseRgb(s) {
   const t = String(s || '')
   let m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(t)
+  // loop: HOT-PATH-OK — 3 channels, once per sung word/syllable change while HDR is on, not per frame
   if (m) return [m[1], m[2], m[3]].map((x) => Math.max(0, Math.min(1, Number(x) / 255)))
   m = /color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/.exec(t)
+  // loop: HOT-PATH-OK — 3 channels, once per sung word/syllable change while HDR is on, not per frame
   if (m) return [m[1], m[2], m[3]].map((x) => Math.max(0, Math.min(1, Number(x))))
   return null
 }
@@ -55,7 +57,9 @@ const toLinear = (c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055
 function singLinear(rgb) {
   const lin = rgb.map(toLinear)
   const top = Math.max(...lin)
+  // loop: HOT-PATH-OK — 3 channels, once per sung word/syllable change while HDR is on
   const n = top > 0 ? lin.map((c) => c / top) : [1, 1, 1]
+  // loop: HOT-PATH-OK — 3 channels, once per sung word/syllable change while HDR is on
   return n.map((c) => c + (1 - c) * 0.3)
 }
 // Only light text glows: on a dark card the sung word is light, and brighter than white reads as light.
@@ -144,6 +148,8 @@ function createHdrGlow(doc) {
     const pad = Math.ceil(size * 0.6)
     const dpr = win.devicePixelRatio || 1
     const font = [cs.fontStyle, cs.fontWeight, cs.fontSize, cs.fontFamily].join(' ')
+    // lifetime: HOT-ALLOC — per sung word/syllable while HDR is on: this probe + 2 paint canvases + 2 getImageData
+    // readbacks (~64 KB each at DPR 1, ~256 KB at DPR 2), a few per second, left to the GC (reuse them: QC 2026-10)
     const probe = doc.createElement('canvas').getContext('2d')
     probe.font = font
     if ('letterSpacing' in probe) probe.letterSpacing = cs.letterSpacing === 'normal' ? '0px' : cs.letterSpacing
@@ -213,6 +219,7 @@ function createHdrGlow(doc) {
     on = next
     if (!on) { stop(); return }
     const p = start()
+    // error: NOT-WORTH — start()'s promise catches inside (LOGGED-OK) and sung() catches draw errors
     if (p) p.then(() => { if (on && want) sung(want) })
   }
   // lyrics-view.js: the element being sung now (a .w word or a .s syllable), or null

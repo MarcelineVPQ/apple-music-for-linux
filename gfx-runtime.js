@@ -188,6 +188,7 @@ function createGfx(o) {
       const idle = start.inactive[e.key]
       const conflict = on ? M.settingConflict(e.key, s, ctx) : null
       if (conflict && M.CONFLICT_NOTE[conflict]) note[e.key] = used ? M.CONFLICT_NOTE[conflict].soon : M.CONFLICT_NOTE[conflict].off
+      // loop: NOT-WORTH — the screens (1-3) for one switch · per panel snapshot
       else if (on && used && e.key === 'expHdrOutput' && screens && !screens.some((x) => x.hdr)) note[e.key] = 'On, but no HDR screen found (KDE Plasma: kscreen-doctor).'
       else if (on && used) note[e.key] = 'On now.'
       else if (on && idle) note[e.key] = 'Not used this start: ' + M.reasonText(idle).replace(/^Off for this start: /, '') + '.'

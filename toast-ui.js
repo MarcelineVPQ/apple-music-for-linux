@@ -15,6 +15,7 @@
   list.setAttribute('aria-label', 'Notifications')
   doc.body.appendChild(list)
   const theme = globalThis.SonataThemeApply.attach({ surfaces: [] })
+  // cache: OK — key=toast id; invalidated=render deletes ids no longer shown, timer cleared; bound=toasts shown (≤ 3)
   const timers = new Map()   // id -> { timer, left, started, shownAt }
   let paused = false
   let sentHeight = -1
@@ -44,6 +45,7 @@
 
   let toasts = []
   function render() {
+    // loop: NOT-WORTH — the toasts (≤ 3), per toast state push, not per frame
     const ids = new Set(toasts.map((t) => t.id))
     // loop: NOT-WORTH — ≤ 3 toasts per change
     for (const [id, rec] of timers) if (!ids.has(id)) { clearTimeout(rec.timer); timers.delete(id) }

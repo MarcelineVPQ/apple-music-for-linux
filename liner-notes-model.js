@@ -23,6 +23,7 @@ function decode(s) {
 }
 /** Apple's editorial notes (light HTML: <i>, <b>, <br />, <p>) -> plain paragraphs, nothing reworded. */
 function notesParagraphs(html) {
+  // loop: NOT-WORTH — reduceApple once per album load (booklet open / Studio's per-album credits), N = paragraphs (≤ ~20)
   return String(html || '')
     .replace(/<\s*br\s*\/?\s*>|<\/\s*p\s*>/gi, '\n')
     .replace(/<[^>]*>/g, '')
@@ -40,11 +41,13 @@ function reduceApple(a) {
     storefront: /^[a-z]{2}$/.test(a.storefront || '') ? a.storefront : 'us',
     name: str(a.name), artist: str(a.artistName), releaseDate: str(a.releaseDate, 20),
     label: str(a.recordLabel), copyright: str(a.copyright), upc: str(a.upc, 20).replace(/\D/g, ''),
+    // loop: NOT-WORTH — once per album load, N = genre names (≤ ~5)
     genres: Array.isArray(a.genreNames) ? a.genreNames.filter((g) => typeof g === 'string' && g !== 'Music').slice(0, 3) : [],
     url: /^https:\/\/music\.apple\.com\//.test(a.url || '') ? a.url : '',
     art,
     notesShort: str(notes.short, 300),
     notes: notesParagraphs(str(notes.standard, 20000)),
+    // loop: NOT-WORTH — once per album load, N = album tracks (≤ 400 cap, usually ≤ 30)
     tracks: (Array.isArray(a.tracks) ? a.tracks : []).slice(0, 400).map((t) => ({
       id: String(t.id || ''), name: str(t.name), artist: str(t.artistName), n: num(t.trackNumber), disc: num(t.discNumber) || 1,
       ms: num(t.durationInMillis), composer: str(t.composerName), hasLyrics: !!t.hasLyrics
@@ -76,6 +79,7 @@ function oneDate(mb) {
  */
 function createLinerNotes(deps) {
   const now = deps.now || Date.now
+  // cache: OK — key=album:id:lang (+'|mb'); invalidated=deleted when its refresh settles; bound=albums fetching now (1-2)
   const inflight = new Map()
   const due = (p, t) => !p || (p.state === 'failed' ? t - p.at >= RETRY_MS : t - p.at >= TTL_MS)
   const fail = (prev, e, t) => Object.assign({}, prev && prev.data ? { data: prev.data, how: prev.how, stale: true, at0: prev.at0 || prev.at } : {}, { state: 'failed', at: t, error: S.failureText(e) })
@@ -167,6 +171,7 @@ function createLinerNotes(deps) {
     const job0 = inflight.get(key) || (only === 'mb' ? inflight.get(key + '|mb') : null)
     if (job0) return job0.then((e) => { onUpdate(e, false); return e })
     const stored = deps.store.get(key)
+    // error: NOT-WORTH — deep copy of the store's own entry (already parsed JSON, no cycles); cannot throw
     const entry = stored && stored.v === ENTRY_VERSION ? JSON.parse(JSON.stringify(stored)) : { v: ENTRY_VERSION, appleId, lang: deps.lang, parts: {} }
     const t = now()
     if (apple) entry.parts.apple = { state: 'ok', at: t, data: apple }
@@ -181,6 +186,7 @@ function createLinerNotes(deps) {
       return Promise.resolve(entry)
     }
     const fly = only === 'mb' ? key + '|mb' : key
+    // error: LOGGED-OK — onRejected logs the stack and settles with the entry; each source catches its own failure
     const job = refresh(entry, only).then(() => {
       entry.at = now()
       deps.store.set(key, entry)
@@ -222,8 +228,10 @@ const norm = (s) => String(s || '').toLowerCase().replace(/\s*[([].*?[)\]]\s*/g,
 
 /** Apple's tracks with their MusicBrainz track (by disc and position when the counts agree, else by title). */
 function pairTracks(apple, mb) {
+  // loop: NOT-WORTH — pairTracks per song change / booklet build, N = MB tracks (≤ ~100)
   const flat = mb ? mb.media.flatMap((m) => m.tracks.map((t) => Object.assign({ disc: m.position }, t))) : []
   const byPos = flat.length === apple.tracks.length
+  // loop: NOT-WORTH — per song change / booklet build, N = tracks (≤ ~30); title fallback find is O(n²) worst, n small
   return apple.tracks.map((t, i) => {
     let m = null
     if (byPos) m = flat[i]
@@ -242,6 +250,7 @@ function failNote(name, part, still) {
 function writersLine(pair) {
   const w = pair.mb ? pair.mb.writers : []
   if (w.length) {
+    // loop: NOT-WORTH — per song change (Studio) or per track per booklet build, N = one work's writers (≤ ~10)
     const by = (role) => w.filter((x) => x.role === role).map((x) => x.name)
     const music = by('music'); const words = by('words'); const written = by('written by')
     const parts = []
@@ -316,6 +325,7 @@ function buildBooklet(entry, ctx) {
 
   // Recording: where and when (MusicBrainz), the release (Apple), the set (setlist.fm or the album)
   const facts = []
+  // loop: NOT-WORTH — once per booklet build, N = MB places (≤ a few)
   const places = mb ? mb.places.filter((p) => /recorded/.test(p.relation)).sort((a, b) => b.tracks - a.tracks) : []
   const dates = new Set()
   if (mb) mb.media.forEach((m) => m.tracks.forEach((t) => { if (t.date) dates.add(t.date.slice(0, 10)) }))   // loop: NOT-WORTH — the tracks, once
@@ -330,6 +340,7 @@ function buildBooklet(entry, ctx) {
   if (mb) mb.events.slice(0, 2).forEach((e) => facts.push(['Event', e.name + (e.date ? ' (' + fmtDate(e.date) + ')' : ''), 'mb']))   // loop: NOT-WORTH — ≤ 2
   if (apple.releaseDate) facts.push(['Released', fmtDate(apple.releaseDate, false), 'apple'])
   if (apple.label) facts.push(['Label', apple.label, 'apple'])
+  // loop: NOT-WORTH — once per booklet build, N = release labels (≤ a few)
   const catno = mb ? mb.labels.map((l) => l.catno).filter((x) => x && !/^\[none\]$/i.test(x)) : []
   if (catno.length) facts.push(['Catalogue', catno.slice(0, 2).join(', '), 'mb'])
   if (apple.genres.length) facts.push(['Genre', apple.genres.join(', '), 'apple'])
@@ -372,7 +383,9 @@ function buildBooklet(entry, ctx) {
   }
 
   // Credits: personnel and production (MusicBrainz), then every track with its writers
+  // cache: NOT-WORTH — key=performer name; invalidated=local to one buildBooklet call, dropped on return; bound=album's performers
   const people = new Map()   // name -> { roles: [], tracks: Set }
+  // cache: NOT-WORTH — key=crew role; invalidated=local to one buildBooklet call, dropped on return; bound=album's roles (tens)
   const crew = new Map()     // role -> [names]
   const addCrew = (role, name) => { if (!crew.has(role)) crew.set(role, []); if (!crew.get(role).includes(name)) crew.get(role).push(name) }
   pairs.forEach((p, i) => {   // loop: NOT-WORTH — the album's tracks, once per build
@@ -405,6 +418,7 @@ function buildBooklet(entry, ctx) {
   pairs.forEach((p, i) => {   // loop: NOT-WORTH — the album's tracks
     const w = writersLine(p)
     const withWho = p.mb ? p.mb.performers.filter((x) => !coreNames.has(x.name)) : []
+    // loop: NOT-WORTH — per track per booklet build, N = a track's guest performers (≤ ~10), O(n²) on tiny n
     const withText = withWho.length ? 'With ' + and([...new Set(withWho.map((x) => x.name))].map((n) => n + ' (' + [...new Set(withWho.filter((x) => x.name === n).map((x) => x.role.replace(/ \(guest\)/g, '')))].join(', ') + ')')) : ''
     credBlocks.push({ t: 'track', group: 'tracks', n: p.apple.n || i + 1, disc: discs > 1 ? p.apple.disc : 0, title: p.apple.name, sub: w.text, with: withText, len: p.apple.ms ? fmtLen(p.apple.ms) : '', song: p.apple.id })
   })
@@ -501,6 +515,7 @@ function songCredits(entry, song) {
   let pair = null
   if (apple && mb) {
     const pairs = pairTracks(apple, mb)
+    // loop: NOT-WORTH — songCredits per song change / queue-row menu, N = album tracks (≤ ~30)
     pair = pairs.find((p) => p.apple.id === String(s.id || '')) || pairs.find((p) => norm(p.apple.name) === norm(s.title)) || null
   }
   const track = pair ? pair.mb : null
@@ -537,6 +552,7 @@ function songCredits(entry, song) {
   }
   const usesMb = rows.some((r) => r.src === 'mb')
   const chips = []
+  // loop: NOT-WORTH — per song change, N = credit rows (≤ ~12)
   if (rows.some((r) => r.src === 'apple')) chips.push(APPLE_CHIP('catalog'))
   if (usesMb) chips.push(MB_CHIP('credits', mb.id))
   return { rows, chips, mb: usesMb }

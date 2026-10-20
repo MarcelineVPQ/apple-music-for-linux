@@ -67,6 +67,7 @@ const splitWords = T.splitWords
 /** FNV-1a 32 over the lyric texts: the cache entry is only used for the same lyrics. */
 function lyricsHash(lines) {
   let h = 0x811c9dc5
+  // loop: NOT-WORTH — the song's lines (tens) · per track change (entryFor, setLyrics, prepareLines), not per tick
   const s = (lines || []).map((l) => String((l && l.text) || '')).join('\n')
   // loop: NOT-WORTH — one pass over the lyrics' characters (a few KB) · per track change
   for (let i = 0; i < s.length; i++) {
@@ -86,6 +87,7 @@ function lyricsHash(lines) {
 
 /** The lyric lines without their timing (t: null; no end, no words): what the views show un-highlighted. */
 function untimed(raw) {
+  // loop: NOT-WORTH — the song's lines (tens) · once per track change, only for lyrics timed for another version
   return (raw || []).map((l) => {
     const out = { t: null, text: String((l && l.text) || '') }
     if (l && l.agent) out.agent = l.agent
@@ -95,6 +97,7 @@ function untimed(raw) {
 
 /** Lyrics with some words: the songs the plain-lyrics mode can align (line times not needed). */
 function canAlignPlain(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics plain path)
   return !!raw && raw.length > 0 && !T.hasWordTiming(raw) && raw.some((l) => splitWords(l && l.text).length)
 }
 
@@ -110,14 +113,18 @@ const PLAIN_LINE_GAP = 3      // s between unaligned lines before the first / af
  */
 function plainTimed(lines, entry) {
   if (!entry || !entry.plain || !entry.lines || !Array.isArray(lines) || !lines.length) return null
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const at = lines.map((line, i) => {
     const a = entry.lines[i]
     if (!a || a.text !== line.text || !Array.isArray(a.words) || !a.words.length) return null
     return { t: a.words[0].t, end: a.words[a.words.length - 1].end }
   })
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const known = at.map((a, i) => (a ? i : -1)).filter((i) => i >= 0)
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const wordy = lines.filter((l) => splitWords(l.text).length).length
   if (known.length < Math.max(2, PLAIN_MIN_SHARE * wordy)) return null
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   const t = at.map((a) => (a ? a.t : null))
   const first = known[0], last = known[known.length - 1]
   const r3 = (v) => Math.round(v * 1000) / 1000
@@ -131,6 +138,7 @@ function plainTimed(lines, entry) {
     const from = at[a].end, to = at[b].t
     for (let i = a + 1; i < b; i++) t[i] = r3(from + (to - from) * (i - a) / (b - a))
   }
+  // loop: NOT-WORTH — the song's lines (tens) · per track change, only with a plain entry
   return lines.map((line, i) => {
     const out = { t: t[i], text: line.text }
     if (line.agent) out.agent = line.agent
@@ -142,6 +150,7 @@ function plainTimed(lines, entry) {
 
 /** Line-synced lyrics without word timing, with some text: the songs alignment can improve. */
 function canAlign(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics)
   return !!raw && raw.length > 0 && raw[0].t != null && !T.hasWordTiming(raw) && raw.some((l) => splitWords(l.text).length)
 }
 
@@ -159,6 +168,7 @@ function fitToSong(span, secs, duration) {
 }
 
 function lyricSpan(lines) {
+  // loop: NOT-WORTH — the song's lines (tens) · once per track change (setLyrics)
   const synced = (lines || []).filter((l) => l.t != null)
   if (!synced.length) return null
   const last = synced[synced.length - 1]
@@ -168,6 +178,7 @@ function lyricSpan(lines) {
 
 // lyrics whose words are the same under the version-2 split (white space only)
 function noHyphenRuns(lines) {
+  // loop: NOT-WORTH — the song's lines (tens), only for a version-2 entry · per track change (validEntry)
   return (lines || []).every((l) => splitWords(l && l.text).length === String((l && l.text) || '').split(/\s+/).filter(Boolean).length)
 }
 
@@ -185,6 +196,7 @@ function validEntry(entry, hash, raw) {
 function applyAligned(lines, entry) {
   if (!entry || !entry.lines || !lines) return { lines, used: false }
   let used = false
+  // loop: NOT-WORTH — the song's lines × their words (hundreds) · once per track change or resend (prepareLines)
   const out = lines.map((line, i) => {
     const a = entry.lines[i]
     if (!a || a.text !== line.text) return line
@@ -235,6 +247,7 @@ function createSongBuffer(opts = {}) {
   const maxFrames = Math.round((opts.maxSeconds || MAX_SECONDS) * rate)
   const blockFrames = Math.round((opts.blockSeconds || BLOCK_SECONDS) * rate)
   // lifetime: the blocks live until clear() (after the hand-over, track change, close or quit)
+  // cache: OK — key=10 s block index; invalidated=clear() in wrapUp (every finish/stop path); bound=90 × 882 KB (79 MB)
   let blocks = new Map()        // block index -> Buffer
   let covered = []              // [[startFrame, endFrame)], sorted, merged
 
@@ -339,6 +352,7 @@ function streamedMessage(raw, got) {
     const line = Number.isInteger(i) ? raw[i] : null
     if (!line || !Array.isArray(g.words)) continue
     const parts = splitWords(line.text)
+    // loop: HOT-PATH-OK — one line's words (≤ ~15) · per stream 'words' message (one per 0.25 s hop) while a look-ahead song plays
     const words = g.words.map((w, k) => {
       const t = Number(w && w.t)
       const end = Number(w && w.end)
@@ -359,6 +373,7 @@ function streamedMessage(raw, got) {
 
 /** The lyric lines as the helper wants them: the original anchors (never estimates) and text. */
 function requestLines(raw) {
+  // loop: NOT-WORTH — the song's or section's lines (tens) · once per helper job (submit/stream), not per frame
   return raw.map((l) => {
     const r = { t: l.t, text: String(l.text || '') }
     if (l.end != null) r.end = l.end
@@ -411,9 +426,11 @@ function entryFromResult(result, raw, heard, meta = {}) {
       continue
     }
     const parts = splitWords(line.text)
+    // loop: NOT-WORTH — one line's words (≤ ~15) · once per alignment result
     if (r.words.length !== parts.length || r.words.some((w, k) => w.text !== parts[k])) continue
     let prev = -Infinity
     let ok = true
+    // loop: NOT-WORTH — one line's words (≤ ~15) · once per alignment result
     const words = r.words.map((w) => {
       const t = Number(w.t)
       let end = Number(w.end)
@@ -441,6 +458,7 @@ function entryFromResult(result, raw, heard, meta = {}) {
     lyricsHash: lyricsHash(raw),
     duration: meta.duration || 0,
     aligned: n,
+    // loop: NOT-WORTH — the song's lines (tens) · once per alignment result
     total: raw.filter((l) => splitWords(l.text).length).length,
     lines,
     rejected
@@ -458,7 +476,9 @@ function entryFromResult(result, raw, heard, meta = {}) {
 
 /** A job's separation + emissions + alignment seconds from the helper's stats (model loading left out), or null. */
 function jobSeconds(st) {
+  // loop: NOT-WORTH — 3 stats fields · once per alignment result
   const parts = ['separate_s', 'emissions_s', 'align_s'].map((k) => Number(st && st[k])).filter(Number.isFinite)
+  // loop: NOT-WORTH — ≤ 3 numbers · once per alignment result
   return parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) * 100) / 100 : null
 }
 
@@ -478,6 +498,7 @@ function curiousFields(prev, add) {
 function rejectedNote(rejected, raw) {
   if (!rejected || !rejected.length) return ''
   const text = (i) => { const t = String((raw[i] && raw[i].text) || ''); return t.length > 40 ? t.slice(0, 39) + '…' : t }
+  // loop: NOT-WORTH — the rejected lines (a handful) · one log line per alignment result
   return ' · rejected: ' + rejected.map((r) => 'line ' + (r.line + 1) + ' (' + r.confidence.toFixed(2) + ') "' + text(r.line) + '"').join(', ')
 }
 
@@ -504,6 +525,7 @@ function sections(raw) {
   // loop: NOT-WORTH — the song's lines, then its blocks and sections · per song
   for (let i = 0; i < (raw || []).length; i++) if (raw[i].t != null && splitWords(raw[i].text).length) idx.push(i)
   if (!idx.length) return []
+  // loop: NOT-WORTH — the song's interludes (a few) · once per track change (sections)
   const gaps = new Set(T.findInterludes(raw).map((g) => g.index))
   const blocks = [[]]
   for (const i of idx) {
@@ -539,6 +561,7 @@ function finalMessages(id, raw, song, notes) {
  * (on the aligner's 20 ms frame grid, so the helper can stitch the sections without a shift). */
 function sectionRequest(raw, sec, first) {
   const offset = first ? 0 : Math.max(0, Math.round(Math.floor((sec.start - SECTION_PRE) / FRAME + 1e-9) * FRAME * 1000) / 1000)
+  // loop: NOT-WORTH — one section's lines (≤ 8) · once per section job
   const lines = requestLines(raw.slice(sec.from, sec.to + 1)).map((l) => {
     const r = { t: Math.max(0, l.t - offset), text: l.text }
     if (l.end != null) r.end = l.end - offset
@@ -555,6 +578,7 @@ function sectionResult(result, sec, offset) {
     if (!r || !Number.isInteger(r.line)) continue
     lines.push(Object.assign({}, r, {
       line: sec.from + r.line,
+      // loop: NOT-WORTH — one line's words (≤ ~15) per result line · once per section result
       words: Array.isArray(r.words) ? r.words.map((w) => Object.assign({}, w, { t: Number(w.t) + offset, end: Number(w.end) + offset })) : r.words
     }))
   }
@@ -585,6 +609,7 @@ function gapsAfter(prev, add, covered, lines) {
   const missed = new Set([...((prev && prev.missed) || []), ...covered])
   for (const k of Object.keys(lines)) { rejected.delete(+k); missed.delete(+k) }
   for (const i of rejected.keys()) missed.delete(i)
+  // loop: NOT-WORTH — the song's rejected and missed lines (a handful) · once per alignment result
   return { rejected: [...rejected.values()].sort((a, b) => a.line - b.line), missed: [...missed].sort((a, b) => a - b) }
 }
 
@@ -594,6 +619,7 @@ function gapsAfter(prev, add, covered, lines) {
  */
 function mergeEntry(prev, add, sec, total, raw) {
   const lines = Object.assign({}, add.lines, (prev && prev.lines) || {})
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per section result
   const done = [...new Set([...((prev && prev.done) || []), sec.from])].sort((a, b) => a - b)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, sec.from, sec.to), lines) : {}
   const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done, partial: done.length < total, whole: !!(prev && prev.whole) })
@@ -605,6 +631,7 @@ function mergeEntry(prev, add, sec, total, raw) {
 function mergeWhole(prev, add, secs, raw) {
   const lines = Object.assign({}, (prev && prev.lines) || {}, add.lines)
   const gaps = raw ? gapsAfter(prev, add, wordLines(raw, 0, raw.length - 1), lines) : {}
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per whole-song result
   const merged = Object.assign({}, add, gaps, { lines, aligned: Object.keys(lines).length, done: secs.map((x) => x.from), partial: false, whole: true })
   delete merged.firstAt; delete merged.workS
   return Object.assign(merged, curiousFields(prev, add))
@@ -633,6 +660,7 @@ function withOffset(entry, raw) {
 function refillSections(entry, secs) {
   if (!entry || !Array.isArray(entry.missed) || !entry.missed.length || (entry.fills || 0) >= MAX_FILLS) return []
   const missed = new Set(entry.missed)
+  // loop: NOT-WORTH — the song's sections (≤ ~10) · once per track change, only for an entry with missed lines
   return secs.filter((sec) => (entry.done || []).includes(sec.from) && missedIn(missed, sec))
 }
 function missedIn(missed, sec) {
@@ -651,6 +679,7 @@ function missedIn(missed, sec) {
 
 /** Line-synced lyrics with their own word timing and words: the songs whose notes come from given times. */
 function canGiveNotes(raw) {
+  // loop: NOT-WORTH — stops at the first line with words · per track change (setLyrics)
   return !!raw && raw.length > 0 && raw[0].t != null && T.hasWordTiming(raw) && raw.some((l) => Array.isArray(l && l.words) && l.words.length)
 }
 
@@ -663,6 +692,7 @@ function canGiveNotes(raw) {
  */
 const GIVEN_REACH_S = 1.0   // how far a given word's end may reach towards the next word (givenSyllables)
 function givenSyllables(raw, hyphenate) {
+  // cache: NOT-WORTH — key=none (a local array returned per call); invalidated=new each call; bound=the song's syllables
   const rows = []
   const r3 = (v) => Math.round(v * 1000) / 1000
   // loop: NOT-WORTH — the song's lines, words and syllables (hundreds), once per song
@@ -682,6 +712,7 @@ function givenSyllables(raw, hyphenate) {
       })
     })
   }
+  // loop: NOT-WORTH — sort of the song's or section's syllables (hundreds) · once per notes/section-notes job
   rows.sort((a, b) => a.t - b.t || a.line - b.line || a.word - b.word || a.syl - b.syl)
   // a word's last syllable reaches on to the next syllable's start (at most GIVEN_REACH_S more): the lyrics'
   // own word times (Apple's) often end before the held note does, and the helper gives a note to the syllable
@@ -707,6 +738,7 @@ function givenSyllables(raw, hyphenate) {
 function sectionGiven(raw, entry, sec, hyphenate) {
   const from = sec.from
   const to = sec.to
+  // loop: NOT-WORTH — the song's lines (tens) · once per section-notes job
   const own = (raw || []).map((l, i) => {
     if (i < from || i > to || !l) return null
     const e = entry && entry.lines && entry.lines[i]
@@ -715,6 +747,7 @@ function sectionGiven(raw, entry, sec, hyphenate) {
   })
   const syllables = givenSyllables(own, hyphenate)
   if (!syllables.length) return null
+  // loop: NOT-WORTH — one section's syllables (≤ ~100) · once per section-notes job
   const span = [Math.round((syllables[0].t - 0.05) * 1000) / 1000, Math.round((Math.max(...syllables.map((x) => x.end)) + 0.3) * 1000) / 1000]
   return { syllables, lines: requestLines(raw || []), span }
 }
@@ -781,7 +814,7 @@ function createAlignSession(deps) {
   let jobs = 0
   // the songs whose notes job (and so Expressive words' measuring) is queued or running, by lyrics key
   // (main.js expressiveNote: "measuring this song…"); keys only, never the song (its audio buffer)
-  // cache: OK — key=the song's lyrics key; invalidated=its notes job ends (done, failed or skipped); bound=the jobs queued (a few)
+  // cache: FIX-STALE — key=the song's lyrics key; invalidated=its notes job ends, but NOT when submit()'s whole-song job with notes is dropped, paused or after s.failed (run returns before notesOn(s, false): 'measuring' sticks); bound=the jobs queued + one stuck key per such song
   const noting = new Set()
   const notesOn = (s, on) => { s.notesQueued = on; if (on) noting.add(s.key); else noting.delete(s.key) }
   let songs = 0
@@ -860,6 +893,7 @@ function createAlignSession(deps) {
     // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used
     if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return
     const m = streamedMessage(s.raw, msg.lines)
+    // loop: HOT-PATH-OK — the 1-2 lines of one stream 'words' message · per 0.25 s hop while a look-ahead song plays
     if (m) { s.stream.words += Object.values(m.lines).reduce((a, l) => a + l.words.length, 0); deps.send('lyrics-stream', Object.assign({ key: s.key }, m)) }
   }
   function openStream(s) {
@@ -915,11 +949,13 @@ function createAlignSession(deps) {
     // given times, not heard to the end: whatever sections the helper kept for the song are dropped after its jobs
     if (s.given && s.cancelled && deps.helper.forget) {
       const job = queue.then(() => deps.helper.forget(s.id))
+      // error: NOT-WORTH — keeps the chain going; helper.forget is sync and catches its own write error
       queue = job.then(() => {}, () => {})
       return
     }
     if (!s.finalQueued && !s.notesQueued && s.kept.size && deps.helper.forget) {
       const job = queue.then(() => deps.helper.forget(s.id))
+      // error: NOT-WORTH — keeps the chain going; helper.forget is sync and catches its own write error
       queue = job.then(() => {}, () => {})
     }
   }
@@ -952,6 +988,7 @@ function createAlignSession(deps) {
     // A no-model refusal is remembered so the song isn't recorded again for nothing.
     // Separate once per song: a section's stem stays in the helper (song id + offset); the final pass
     // uses them when every section of the song was kept in this play, else (or on 'no-cache') the audio.
+    // loop: NOT-WORTH — the song's sections (≤ ~10) · once per whole-song job
     const fromKept = () => !sec && s.secs.length > 0 && s.secs.every((x) => s.kept.has(x.from))
     const run = () => {
       if (!start()) return null
@@ -1004,6 +1041,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run)
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (LOGGED-OK) and the caller holds `job`
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1075,6 +1113,7 @@ function createAlignSession(deps) {
       notesOn(s, false)
       if (!s.finalQueued && s.kept.size && deps.helper.forget) deps.helper.forget(s.id)
     })
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (deps.notes.failed, SHOWN)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1111,6 +1150,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run)
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (LOGGED-OK)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1160,6 +1200,7 @@ function createAlignSession(deps) {
         })
     }
     const job = queue.then(run).then(() => { notesOn(s, false) })
+    // error: NOT-WORTH — keeps the chain going; run() catches inside (deps.notes.failed, SHOWN)
     queue = job.then(() => {}, () => {})
     return job
   }
@@ -1321,6 +1362,7 @@ function createAlignSession(deps) {
       const fills = refill.length ? (have.fills || 0) + 1 : (have && have.fills) || 0
       const wholeDone = !notesMissing && !!(have && have.whole)
       // after the whole-song pass only the sections still to align are recorded (with their slice's margins)
+      // loop: NOT-WORTH — the song's sections (≤ ~10) · once per track change, only after a whole-song pass
       const need = wholeDone ? secs.filter((sec) => !skip.has(sec.from)).map((sec) => [sec.start - SECTION_PRE - 1, sec.end + TAIL_PAD + 1]) : null
       if (refill.length) log('filling ' + have.missed.length + ' missed line(s) of "' + title + '" (play ' + fills + ' of ' + MAX_FILLS + ')')
       if (notesOnly) log('recording "' + title + '" once more for its sheet notes')

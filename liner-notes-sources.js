@@ -56,6 +56,7 @@ function failureText(e) {
 function createGetJson(deps) {
   const now = deps.now || Date.now
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)))   // lifetime: OK — one-shot per wait
+  // cache: OK — key=host; invalidated=never (order + last time only); bound=≤ ~6 hosts (MB, CAA, WD, setlist, wikis)
   const lanes = new Map()   // host -> { last, chain }
   return function getJson(url, opts) {
     const o = opts || {}
@@ -93,6 +94,7 @@ function createGetJson(deps) {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const QID = /^Q\d+$/
 const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^0+/, '')
+// loop: NOT-WORTH — one property's claims (≤ ~5), a few per entity, once per booklet fetch (not a poll)
 const claimValues = (entity, prop) => ((entity && entity.claims && entity.claims[prop]) || [])
   .map((c) => c && c.mainsnak && c.mainsnak.datavalue ? c.mainsnak.datavalue.value : null)
   .filter((v) => typeof v === 'string')
@@ -111,6 +113,7 @@ const WD_API = 'https://www.wikidata.org/w/api.php'
 async function wikidataByStatement(getJson, prop, value) {
   const url = WD_API + '?action=query&list=search&srlimit=3&format=json&srsearch=' + encodeURIComponent('haswbstatement:' + prop + '=' + value)
   const j = await getJson(url)
+  // loop: NOT-WORTH — ≤ 3 search hits, once per booklet fetch
   const hits = ((j && j.query && j.query.search) || []).map((h) => h.title).filter((t) => QID.test(t))
   return hits
 }
@@ -157,10 +160,12 @@ const RELEASE_INC = 'recordings+artist-credits+artist-rels+place-rels+event-rels
  */
 async function matchMusicBrainz(getJson, { appleId, storefronts, upc }) {
   if (/^\d+$/.test(String(appleId || ''))) {
+    // loop: NOT-WORTH — ≤ 3 storefronts, once per booklet fetch
     const sfs = [...new Set([...(storefronts || []), 'us'].filter((s) => /^[a-z]{2}$/.test(s)))]
     // loop: SERIAL-REQUIRED — ≤ 2 storefront spellings of the one link, the second only when the first isn't known
     for (const sf of sfs) {
       const j = await getJson(MB + 'url?fmt=json&inc=release-rels&resource=' + encodeURIComponent('https://music.apple.com/' + sf + '/album/' + appleId), { missingOk: true })
+      // loop: NOT-WORTH — one URL's relations (≤ ~5), ≤ 2 per booklet fetch
       const rel = ((j && j.relations) || []).find((r) => r['target-type'] === 'release' && r.release && UUID.test(r.release.id))
       if (rel) return { release: rel.release.id, how: 'apple-url' }
     }
@@ -168,6 +173,7 @@ async function matchMusicBrainz(getJson, { appleId, storefronts, upc }) {
   const code = digits(upc)
   if (code.length >= 8) {
     const j = await getJson(MB + 'release?fmt=json&limit=10&query=' + encodeURIComponent('barcode:' + String(upc).replace(/\D/g, '')))
+    // loop: NOT-WORTH — ≤ 10 barcode hits, once per booklet fetch
     const hit = ((j && j.releases) || []).find((r) => digits(r.barcode) === code && UUID.test(r.id))
     if (hit) return { release: hit.id, how: 'barcode' }
   }
@@ -179,6 +185,7 @@ async function musicBrainzRelease(getJson, id) {
 /** The release group's releases with their Cover Art Archive counts (one page: ≤ 100). */
 async function releaseGroupReleases(getJson, rgid) {
   const j = await getJson(MB + 'release?fmt=json&limit=100&inc=media&release-group=' + rgid)
+  // loop: NOT-WORTH — ≤ 100 releases of the group, once per booklet fetch
   return ((j && j.releases) || []).map((r) => ({
     id: r.id, date: r.date || '', country: r.country || '', barcode: r.barcode || '',
     format: ((r.media || [])[0] || {}).format || '',
@@ -202,14 +209,18 @@ const WRITING = { composer: 'music', lyricist: 'words', writer: 'written by', li
 // one relationship's role words: 'guitar', 'lead vocals', 'additional producer', 'mixing'
 function roleOf(r) {
   const credited = r['attribute-credits'] || {}
+  // loop: NOT-WORTH — one relation's attributes (≤ ~4), per relation in one release reduce (once per fetch)
   const attrs = (r.attributes || []).map((a) => credited[a] || a)
+  // loop: NOT-WORTH — ≤ ~4 attributes, per relation in one release reduce (once per fetch)
   const extra = attrs.filter((a) => ['additional', 'assistant', 'associate', 'co', 'executive', 'guest', 'solo'].includes(a))
+  // loop: NOT-WORTH — ≤ ~4 attributes, per relation in one release reduce (once per fetch)
   const main = attrs.filter((a) => !extra.includes(a) && a !== 'task')
   let words
   if (r.type === 'instrument') words = main.length ? main.join(', ') : 'instruments'
   else if (r.type === 'vocal') words = main.length ? main.join(', ') : 'vocals'
   else words = ROLE[r.type] || r.type
   if (extra.includes('co')) words = 'co-' + words
+  // loop: NOT-WORTH — ≤ ~4 attributes, per relation in one release reduce (once per fetch)
   const pre = extra.filter((a) => !['co', 'guest', 'solo'].includes(a))
   if (pre.length) words = pre.join(' ') + ' ' + words
   if (extra.includes('solo')) words += ' (solo)'
@@ -223,6 +234,7 @@ function reduceRelease(j) {
   if (!j || !UUID.test(j.id || '')) return null
   const rg = j['release-group'] || {}
   const credits = []   // release-level: [{ name, role }]
+  // cache: NOT-WORTH — key=place id; invalidated=local to one reduceRelease call, freed on return; bound=the release's places (≤ ~10)
   const places = new Map()   // name -> { name, address, area, type, dates: Set, tracks: n }
   const events = new Map()
   const addPlace = (r) => {
@@ -240,6 +252,7 @@ function reduceRelease(j) {
     else if (r['target-type'] === 'place' && r.place && /recorded|mixed/.test(r.type)) addPlace(r)
     else if (r['target-type'] === 'event' && r.event) events.set(r.event.id || r.event.name, { name: r.event.name, type: r.event.type || '', date: (r.event['life-span'] && r.event['life-span'].begin) || r.begin || '' })
   }
+  // loop: NOT-WORTH — the release's media and tracks (≤ ~100), once per booklet fetch
   const media = (j.media || []).map((m) => ({
     position: m.position || 1,
     format: m.format || '',
@@ -279,18 +292,23 @@ function reduceRelease(j) {
       }
     })
   }))
+  // loop: NOT-WORTH — ≤ ~5 labels, once per booklet fetch
   const labels = (j['label-info'] || []).map((l) => ({ name: (l.label && l.label.name) || '', catno: l['catalog-number'] || '' })).filter((l) => l.name || l.catno)
   return {
     id: j.id, title: j.title || '', date: j.date || '', country: j.country || '', barcode: j.barcode || '',
     releaseGroup: rg.id || '', types: [rg['primary-type'], ...(rg['secondary-types'] || [])].filter(Boolean),
+    // loop: NOT-WORTH — ≤ ~5 credited artists, once per booklet fetch
     artists: (j['artist-credit'] || []).map((a) => ({ name: a.name || (a.artist && a.artist.name) || '', id: (a.artist && a.artist.id) || '' })),
     labels, credits: dedupe(credits), media,
+    // loop: NOT-WORTH — ≤ ~10 places, once per booklet fetch
     places: [...places.values()].map((p) => ({ name: p.name, address: p.address, area: p.area, type: p.type, relation: p.relation, tracks: p.tracks, dates: [...p.dates].sort() })),
     events: [...events.values()]
   }
 }
 function dedupe(list) {
+  // cache: NOT-WORTH — key=name|role; invalidated=local to one dedupe call, freed on return; bound=the list (≤ ~200)
   const seen = new Set()
+  // loop: NOT-WORTH — one credit list (≤ ~200), per track and release in one reduce, once per fetch
   return list.filter((x) => { const k = x.name + '|' + x.role; if (seen.has(k)) return false; seen.add(k); return true })
 }
 
@@ -300,6 +318,7 @@ async function coverArt(getJson, releaseId) {
   return reduceCoverArt(await getJson(CAA + releaseId, { missingOk: true }), releaseId)
 }
 function reduceCoverArt(j, releaseId) {
+  // loop: NOT-WORTH — one release's scans (≤ ~30), once per booklet fetch
   const images = ((j && j.images) || []).filter((i) => i && i.thumbnails).map((i) => ({
     id: String(i.id || ''),
     types: (i.types || []).slice(0, 4),
@@ -310,6 +329,7 @@ function reduceCoverArt(j, releaseId) {
   }))
   return { release: releaseId, images }
 }
+// loop: NOT-WORTH — ≤ ~30 scans × ≤ 4 types, once or twice per booklet fetch
 const hasScans = (caa) => !!caa && caa.images.some((i) => i.back || i.types.some((t) => /Booklet|Back|Tray|Medium/.test(t)))
 /**
  * When the matched release has no back or booklet scan: the same album's release that has them. A
@@ -317,11 +337,14 @@ const hasScans = (caa) => !!caa && caa.images.some((i) => i.back || i.types.some
  * country, then the most scans, then the earliest.
  */
 function pickScanRelease(releases, matched, country) {
+  // loop: NOT-WORTH — ≤ 100 releases, once per booklet fetch
   const m = releases.find((r) => r.id === matched.id)
+  // loop: NOT-WORTH — ≤ 100 releases, once per booklet fetch
   const ok = releases.filter((r) => r.art && r.art.count > 1 && !r.art.darkened)
   const code = digits(matched.barcode)
   const cc = String(country || '').toUpperCase()
   const score = (r) => [r.art.back ? 1 : 0, code && digits(r.barcode) === code ? 1 : 0, cc && r.country === cc ? 1 : 0, r.art.count]
+  // loop: NOT-WORTH — sort of ≤ 100 releases, once per booklet fetch
   ok.sort((a, b) => {
     const x = score(a); const y = score(b)
     // loop: NOT-WORTH — 4 keys per comparison
@@ -373,6 +396,7 @@ function reduceWikipedia(summary, ex, lang) {
   if (!page || page.missing || typeof page.extract !== 'string') return null
   const text = page.extract
   const parts = text.split(/\n(?==+ [^\n]+ =+\n)/)
+  // loop: NOT-WORTH — one section's lines (≤ ~30), per article section, once per fetch
   const paras = (s) => s.split(/\n+/).map((p) => p.trim()).filter((p) => p && !/^=+ .* =+$/.test(p))
   const lead = paras(parts[0] || '')
   const want = WIKI_SECTIONS[lang] || WIKI_SECTIONS.en
@@ -387,6 +411,7 @@ function reduceWikipedia(summary, ex, lang) {
     const heading = m[2].trim()
     const body = paras(part.slice(m[0].length))
     if (level > 2 || !body.length) { if (level > 2) trimmed = true; continue }   // sub-sections are left out (trimmed); a heading alone isn't printed
+    // loop: NOT-WORTH — ≤ 12 headings per section, ≤ ~40 sections, once per fetch
     if (!want.some((w) => heading.toLowerCase().startsWith(w))) { trimmed = true; continue }
     const keep = []
     // loop: NOT-WORTH — ≤ MAX_PARAS paragraphs per section
@@ -418,6 +443,7 @@ async function setlistFm(getJson, key, artistMbid, date) {
   return reduceSetlist(j)
 }
 function reduceSetlist(j) {
+  // loop: NOT-WORTH — ≤ 20 setlists of one page, once per booklet fetch
   const s = j && Array.isArray(j.setlist) ? j.setlist.find((x) => x && x.sets && Array.isArray(x.sets.set) && x.sets.set.length) : null
   if (!s) return null
   const v = s.venue || {}
@@ -428,6 +454,7 @@ function reduceSetlist(j) {
     venue: v.name || '',
     city: [city.name, city.stateCode, city.country && city.country.name].filter(Boolean).join(', '),
     tour: (s.tour && s.tour.name) || '',
+    // loop: NOT-WORTH — ≤ ~4 sets × ≤ ~30 songs, once per booklet fetch
     sets: s.sets.set.map((x) => ({ name: x.name || '', encore: x.encore || 0, songs: (x.song || []).map((g) => ({ name: g.name || '', info: g.info || '', cover: (g.cover && g.cover.name) || '' })).filter((g) => g.name) }))
   }
 }

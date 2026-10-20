@@ -33,7 +33,8 @@ function patternFor(lang) {
   return PATTERNS[tag.split('-')[0]] || null
 }
 
-// lifetime: one hyphenator per pattern file for the process's life (at most a few languages)
+// lifetime: NOT-WORTH — one hyphenator per pattern file for the process's life (at most a few languages)
+// cache: OK — key=pattern file; invalidated=never (pure, fixed patterns); bound=languages met (a few)
 const hyphenators = new Map()
 /** hyphenate(word) -> string with SEP between parts, or null when there are no patterns. */
 function hyphenatorFor(lang) {
@@ -70,6 +71,7 @@ function hyphenParts(piece, hyphenate) {
  */
 function splitWord(text, hyphenate) {
   if (!hyphenate || !text || text.includes(SEP) || NON_LATIN_LETTER.test(text)) return null
+  // loop: NOT-WORTH — a word's hyphen pieces (a handful), once per word per load or timing change of its line
   const pieces = INNER_HYPHEN.test(text) ? text.split(INNER_HYPHEN).map((p, i, all) => i < all.length - 1 ? p + '-' : p) : [text]
   const parts = []
   // loop: NOT-WORTH — a word's hyphen pieces (a handful) · once per word per load or timing change
@@ -87,6 +89,7 @@ function partWeight(part) {
 /** [t, end] spread over the parts by weight: monotonic, first t = word t, last end = word end. */
 function spread(t, end, parts) {
   const weights = parts.map(partWeight)
+  // loop: NOT-WORTH — a word's parts (a handful), once per word per load or timing change of its line
   const total = weights.reduce((a, b) => a + b, 0)
   const out = []
   let at = t
@@ -118,7 +121,7 @@ function holdStart(w) {
 function withSyllables(words, hyphenate) {
   if (!hyphenate || !Array.isArray(words)) return words
   let changed = false
-  // loop: one pass over a line's words · once per line per load or timing change
+  // loop: NOT-WORTH — one pass over a line's words · once per line per load or timing change; — a line's words (~5-12), once per line per load, refine, align or stream message
   const out = words.map((w) => {
     if (!w || w.syl || !(w.end > w.t)) return w
     const parts = splitWord(w.text, hyphenate)

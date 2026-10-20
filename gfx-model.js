@@ -137,6 +137,7 @@
     const s = settings || {}
     const ctx = startContext(o)
     // the ones that depend on what else is active (late) are decided last
+    // loop: NOT-WORTH — ≤ 4 experiments · once at start
     const wanted = EXPERIMENTS.filter((e) => e.restart && s[e.key] === true).sort((a, b) => (a.late ? 1 : 0) - (b.late ? 1 : 0)).map((e) => e.key)
     ctx.active = new Set()
     const active = []
@@ -196,6 +197,7 @@
     try { j = JSON.parse(text) } catch (e) { j = null }   // error: NOT-WORTH — an unreadable marker: a strike for every switch that is on (below)
     const named = j && Array.isArray(j.flags) ? j.flags.filter((k) => typeof k === 'string') : null
     const before = j && j.strikes && typeof j.strikes === 'object' ? j.strikes : {}
+    // loop: NOT-WORTH — ≤ 4 experiments · once at start (sentinel)
     const on = EXPERIMENTS.filter((e) => e.restart && s[e.key] === true).map((e) => e.key)
     const strikes = {}
     // loop: NOT-WORTH — ≤ 4 switches, once at start
@@ -229,6 +231,7 @@
     const d = details || {}
     if (!realCrash(d)) return null
     const s = settings || {}
+    // loop: NOT-WORTH — ≤ 4 experiments · only on a second GPU crash in a run
     const order = EXPERIMENTS.filter((e) => e.restart && e.crashRank && (active || []).includes(e.key) && s[e.key] === true)
       .sort((a, b) => a.crashRank - b.crashRank)
     if (!order.length) return null
@@ -246,6 +249,7 @@
     const e = byKey(key)
     const s = settings || {}
     if (!e || !e.late || !e.needs || s[key] !== true) return null
+    // loop: NOT-WORTH — ≤ 4 experiments · per Settings snapshot
     const others = new Set(EXPERIMENTS.filter((x) => x.restart && !x.late && s[x.key] === true).map((x) => x.key))
     return e.needs(Object.assign({}, ctx || {}, { active: others }))
   }
@@ -262,6 +266,7 @@
   function pendingRestart(settings, start) {
     const s = settings || {}
     const st = start || { active: [], inactive: {} }
+    // loop: NOT-WORTH — ≤ 4 experiments · per Settings snapshot
     return EXPERIMENTS.filter((e) => e.restart).filter((e) => {
       const usedNow = st.active.includes(e.key) || Object.prototype.hasOwnProperty.call(st.inactive, e.key)
       return (s[e.key] === true) !== usedNow
@@ -274,6 +279,7 @@
   // VA-API driver it loaded. p: { powerEfficient, hevc, drivers: ['nvidia_drv_video.so', …] } or null
   function decodeLabel(p) {
     if (!p) return ''
+    // loop: NOT-WORTH — per graphics readout (About/Settings open, every 5 s at most), N = drivers (≤ 4)
     const drv = (p.drivers || []).map((d) => d.replace(/_drv_video\.so$/, ''))
     const who = drv.includes('nvidia') ? 'NVIDIA' : drv.length ? drv.join(', ') : ''
     if (p.powerEfficient) return 'Hardware (VA-API' + (who ? ', ' + who : '') + ')' + (p.hevc ? '; HEVC too' : '')

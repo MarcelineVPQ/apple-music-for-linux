@@ -264,10 +264,13 @@
   let pending = false      // sources still being asked
   let opts = { spin: false }
   const discFind = require('./disc-find')
+  // cache: OK — key=disc scan URL; invalidated=window closed; bound=≤ 1 per album shown while open, ~100 B each
   const discs = new Map()  // a disc scan's key -> its circle, or null (not sure: shown as before, kept still)
+  // cache: OK — key=disc image URL; invalidated=cleared on every tray page built; bound=1 img
   const discImgs = new Map() // a disc's image URL -> its img, kept across layouts (no reload, no blank frame)
   let playing = { song: '', playing: false, album: false }
   let pages = []           // [{ el, section, kind, songs: [ids] }] laid out for the current page size
+  // cache: OK — key=none (the spreads of this layout); invalidated=rebuilt each layout; bound=pages/2 (≤ ~20)
   let spreads = []         // [[leftIndex, rightIndex]]
   let cur = 0              // the spread shown
   let L = null; let R = null
@@ -629,6 +632,7 @@
     if (cr) cr.hidden = !on
     const words = cur === 0 ? 'Cover' : 'Pages ' + a + '–' + b
     $('pages').textContent = words + ' of ' + (pages.length - 1)
+    // loop: NOT-WORTH — 2 pages, once per show / page turn (the hot root is a name match on go)
     const names = [...new Set([pages[a], pages[b]].filter((p) => p && p.name).map((p) => p.name))].join(' and ')
     spreadEl.setAttribute('aria-label', words + (names ? ': ' + names : ''))
     marks()
@@ -656,7 +660,7 @@
       const fade = el('div', 'fade')
       fade.append(na, nb)
       spreadEl.append(fade)
-      const anim = fade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' })
+      const anim = fade.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' })   // lifetime: OK — 220 ms, goes with its node
       anim.onfinish = () => { fade.remove(); done() }   // lifetime: OK — once per turn
       return
     }
@@ -670,6 +674,7 @@
     // under the leaf: the arriving spread's far page, and the near page stays until the leaf lands
     if (fwd) { spreadEl.replaceChildren(L, nb, leaf) } else { spreadEl.replaceChildren(na, R, leaf) }
     const ms = 700
+    // lifetime: OK — the 700 ms turn and its shade (fill 'forwards'): both go with leaf.remove() in onfinish; once per turn
     const anim = leaf.animate(fwd ? [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(-180deg)' }] : [{ transform: 'rotateY(0deg)' }, { transform: 'rotateY(180deg)' }], { duration: ms, easing: 'cubic-bezier(.45,.05,.25,1)' })
     shade.animate([{ opacity: 0 }, { opacity: 0.45 }], { duration: ms / 2, fill: 'forwards' })
     anim.onfinish = () => { leaf.remove(); done() }   // lifetime: OK — once per turn
@@ -746,6 +751,7 @@
     if (!want) clearSung()
     if (want !== following) { following = want; send('follow', want) }
   }
+  // cache: OK — key=the marked line element; invalidated=clearSung on each new line or song; bound=1 ref
   let sungAt = null
   function clearSung() { if (sungAt) { sungAt.classList.remove('now'); sungAt = null } }
   function markSung(song, idx) {
@@ -793,6 +799,7 @@
     const box = $('status')
     box.replaceChildren()
     if (pending) { box.append(el('span', '', 'Looking up the credits, the background and the booklet scans…')); return }
+    // loop: NOT-WORTH — the sources (≤ ~8), once per liner-data push
     const failed = (book.status || []).filter((s) => s.state === 'failed').map((s) => s.name)
     if (failed.length) {
       box.append(el('span', '', (failed.length === 1 ? failed[0] + ' didn\'t load.' : failed.slice(0, -1).join(', ') + ' and ' + failed[failed.length - 1] + ' didn\'t load.')))
@@ -828,6 +835,7 @@
   }
   // a resize lays the pages out again for the new size (once it settles), keeping the open section
   let resizeTimer = null
+  // cache: OK — key=stage size; invalidated=each resize that relays out (a data relayout doesn't set it); bound=1 number
   let lastSize = 0
   // lifetime: OK — one observer on the stage for the page's life
   new ResizeObserver(() => {

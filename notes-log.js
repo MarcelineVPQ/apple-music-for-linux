@@ -86,8 +86,11 @@ function buildDoc(part, song, meta = {}) {
     tuning: part.tuning,
     key: part.key,
     beats: part.beats || [], bars: part.bars || [], meter: part.meter == null ? null : part.meter, tempo_bpm: part.tempo_bpm == null ? null : part.tempo_bpm,
+    // loop: NOT-WORTH — the song's lines (tens) · once per sung-notes result (buildDoc)
     lines: (part.lines || []).map((l) => Object.assign({}, l, { index: shift(l.index) })),
+    // loop: NOT-WORTH — the song's syllables (hundreds) · once per sung-notes result
     syllables: (part.syllables || []).map((s) => Object.assign({}, s, { line: shift(s.line) })),
+    // loop: NOT-WORTH — the song's notes (hundreds) · once per sung-notes result
     notes: (part.notes || []).map((n) => ({
       t: n.t, end: n.end, midi: n.midi, cents: n.cents, name: n.name,
       syl_index: n.syl_index, line: shift(n.line), word: n.word, syl: n.syl, melisma: !!n.melisma, conf: n.conf
@@ -143,6 +146,7 @@ function listLogs(dir, io = fsMod) {
     // error: NOT-WORTH — a file removed meanwhile is skipped
     try { out.push({ name: n, mtime: io.statSync(path.join(dir, n)).mtimeMs }) } catch (e) {}
   }
+  // loop: NOT-WORTH — once per notes log written (one per song), N ≤ 1000 files
   return out.sort((a, b) => a.mtime - b.mtime || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
@@ -158,6 +162,7 @@ function prune(dir, max = MAX_FILES, io = fsMod, keep = null) {
     // error: NOT-WORTH — an unremovable temp file is tried again next write
     try { io.unlinkSync(path.join(dir, n)); removed.push(n) } catch (e) {}
   }
+  // loop: NOT-WORTH — once per notes log written (one per song), N ≤ 1000 files
   const logs = listLogs(dir, io).filter((f) => f.name !== keep)
   const extra = logs.length + (keep ? 1 : 0) - max
   // loop: NOT-WORTH — the oldest extras (usually one), once per write

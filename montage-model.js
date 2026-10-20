@@ -111,6 +111,7 @@
   function scrimFor(tokens, photo) {
     const surface = rgbOf(tokens['--s-surface'])
     const bds = photo && photo.lo && photo.hi ? [photo.lo, photo.hi] : [[0, 0, 0], [255, 255, 255]]
+    // loop: NOT-WORTH — 7 tokens, once per photo and theme (montage-ui shadeOf caches it by photo id)
     const words = NEEDS.map(([k, need]) => [k, rgbOf(tokens[k]), need]).filter((w) => w[1])
     const worst = (a) => {
       const out = {}
@@ -118,6 +119,7 @@
       for (const [k, c] of words) out[k] = T.worstContrast(c, [[surface, a]], bds)
       return out
     }
+    // loop: NOT-WORTH — ≤ 7 tokens × ≤ 20 steps, once per photo and theme (cached by shadeOf), not per frame
     const pass = (r) => words.every(([k, , need]) => r[k] >= need)
     if (!surface || !words.length) return { alpha: SCRIM_MAX, worst: {}, ok: false }
     let a = SCRIM_MIN

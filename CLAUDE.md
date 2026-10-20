@@ -22,7 +22,7 @@ whether it strengthens the +1 or is just "best"; no reorganisation buries the ly
 ```bash
 npm ci && npm start        # from source (start.sh: --no-sandbox when chrome-sandbox isn't setuid)
 npm test                   # node --test test/*.test.js (pure logic, no Electron, no display)
-npm run gates              # tools/verdicts.js --check + tools/hardcodes.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
+npm run gates              # tools/verdicts.js --check + tools/passes.js --check + tools/hardcodes.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
 node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy]   # the documentation gates (see below)
@@ -109,7 +109,7 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   `setImmediate`); use Web APIs there. The engine is castlabs Electron pinned exactly (`package.json`
   `devDependencies.electron` and `build.electronVersion` name the same tag), never stock Electron (no Widevine).
 
-## Verdicts (gate: `node tools/verdicts.js --check`, in `npm test`, `npm run gates` and CI)
+## Verdicts (gates: `node tools/verdicts.js --check` and `node tools/passes.js --check`, in `npm test`, `npm run gates`, `.hooks/pre-commit` and CI)
 
 Every candidate in every shipped file (`build.files` `.js` and the pages' `<script>`s, including the page
 scripts main.js sends into Apple's page) carries a verdict, on its line or in the 8 lines above, word first,
@@ -120,10 +120,20 @@ added in the same commit as the code:
 - `// lifetime: OK | LEAK | WASTE | HOT-ALLOC | NOT-WORTH — release point` (timers, rAF, listeners,
   observers, child processes, windows/views/trays, sockets, streams; a recurring timer may carry `loop:`)
 - `// error: SHOWN | LOGGED-OK | NOT-WORTH | PASSES-ON | SILENT-BUG | SWALLOWED — what happens`
-  (try/catch, `.catch`)
+  (try/catch, `.catch`; also floating promises, `.then(ok, onRejected)`, `void` calls and `JSON.parse`
+  outside a try, which `tools/passes.js` lists)
+- `// cache: OK | FIX-STALE | FIX-UNBOUNDED | ADD-CACHE | REMOVE | NOT-WORTH — key=…; invalidated=…; bound=…`
+  (kept state: module/class/closure collections written in functions, memo scalars; `tools/passes.js`)
 
-Honest words: a real leak is LEAK, a hidden user-visible failure SILENT-BUG/SWALLOWED; those get a
-BACKLOG row. Inside page-script template strings use `/* … */`. Measurements: `docs/PERFORMANCE.md`.
+`tools/verdicts.js` is the line-pattern lister (also reads the page scripts sent into Apple's page);
+`tools/passes.js` (acorn) parses every shipped file and adds hot array callbacks (`.map`/`.filter`/… reached
+from an rAF / interval / re-arming timeout / high-rate event, resolved by name; their comment on the line or
+the 2 lines above), the error rows above and the cache rows. `node tools/passes.js --md DIR` writes the tables
+of `docs/LOOP_PASS_2026-10.md`, `LIFETIME_PASS_…`, `ERROR_PASS_…`, `CACHE_PASS_…` (re-run the pass when a
+release touches hot paths, adds caches, polls, windows or helper jobs; Marcy picks the fix batches).
+
+Honest words: a real leak is LEAK, a hidden user-visible failure SILENT-BUG/SWALLOWED, a stale or growing
+cache FIX-STALE/FIX-UNBOUNDED; those get a BACKLOG row. Inside page-script template strings use `/* … */`. Measurements: `docs/PERFORMANCE.md`.
 
 ## Test runs: isolated, never Marcy's copy
 

@@ -88,6 +88,7 @@
   function reduce(job, ev) {
     if (!job || !ev) return job
     const j = Object.assign({}, job)
+    // loop: HOT-PATH-OK — 7 steps · per installer output event while an install runs (a few per second)
     const go = (step) => { if (STEPS.findIndex((s) => s.id === step) >= STEPS.findIndex((s) => s.id === j.step)) j.step = step }
     switch (ev.ev) {
       case 'step':
@@ -95,6 +96,7 @@
         if (ev.step === 'venv' && ev.variant) j.variant = variantOf(ev.variant)
         break
       case 'skip':
+        // loop: NOT-WORTH — 3 venv steps · once per install (the skip event)
         if (ev.step === 'venv') j.skipped = j.skipped.concat(VENV_STEPS.filter((s) => !j.skipped.includes(s)))
         break
       case 'bytes':
@@ -124,7 +126,9 @@
 
   /** What the progress block shows: { stepNo, stepCount, label, fraction (0..1, or null: busy), detail } */
   function progressView(job) {
+    // loop: HOT-PATH-OK — 7 steps · per panel progress push while an install runs
     const steps = STEPS.filter((s) => !job.skipped.includes(s.id))
+    // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
     const i = Math.max(0, steps.findIndex((s) => s.id === job.step))
     const cur = steps[i] || STEPS[0]
     let fraction = null
@@ -148,13 +152,19 @@
     }
     // the whole job on one bar: the steps before plus this one's share; the three venv steps share one
     // measure (the venv's size on disk), so the bar follows the bytes, not the step names
+    // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
     const total = steps.reduce((n, s) => n + WEIGHT[s.id], 0)
     let whole
     if (VENV_STEPS.includes(cur.id) && fraction !== null) {
+      // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
       const band = steps.filter((s) => VENV_STEPS.includes(s.id))
+      // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
       const before = steps.slice(0, steps.indexOf(band[0])).reduce((n, s) => n + WEIGHT[s.id], 0)
+      // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
       const startHere = steps.slice(0, i).reduce((n, s) => n + WEIGHT[s.id], 0)
+      // loop: HOT-PATH-OK — 3 venv steps · per panel progress push while an install runs
       whole = Math.max(startHere, before + band.reduce((n, s) => n + WEIGHT[s.id], 0) * fraction)
+    // loop: HOT-PATH-OK — ≤ 7 steps · per panel progress push while an install runs
     } else whole = steps.slice(0, i).reduce((n, s) => n + WEIGHT[s.id], 0) + WEIGHT[cur.id] * (fraction || 0)
     return { stepNo: i + 1, stepCount: steps.length, label: cur.label, fraction, detail, whole: Math.max(0, Math.min(1, whole / total)) }
   }
@@ -168,6 +178,7 @@
     return name + ': ' + m[2] + ' of ' + m[3] + ' MB'
   }
 
+  // loop: NOT-WORTH — the job's tail (≤ TAIL lines) · only for a failed job's message
   const last = (tail, re) => (tail || []).slice().reverse().find((l) => re.test(l)) || ''
   /** A failed job's message in plain words, with what to do. */
   function failText(job) {
@@ -200,6 +211,7 @@
   function fitParts(head, parts, gpu) {
     let all = parts.concat(gpu ? [gpu] : [])
     let t = head + all.join(', ')
+    // loop: NOT-WORTH — ≤ 4 parts · per state row build (Settings shown)
     if (t.length > LIMIT) { all = all.filter((p) => !/^Python /.test(p)); t = head + all.join(', ') }
     if (t.length > LIMIT && gpu) {
       const room = LIMIT - (head + all.slice(0, -1).concat(['']).join(', ')).length

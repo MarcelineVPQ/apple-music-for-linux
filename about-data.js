@@ -47,6 +47,7 @@ function comingSoon(md) {
   // loop: NOT-WORTH — one pass over BACKLOG.md's rows (~130), when About opens
   for (const line of String(md || '').split('\n')) {
     if (!/^\|/.test(line)) continue
+    // loop: NOT-WORTH — once per run (aboutCache), BACKLOG rows (~130) × cells (3-4)
     const cells = line.split('|').slice(1, -1).map((c) => c.trim())
     if (cells.length < 3) continue
     const m = /^Soon(?:\s*\(([^)]+)\))?:\s*(.+?[.!?])(?:\s|$)/.exec(cells[2])
@@ -151,6 +152,7 @@ function hero(version, channel, appImage, year) {
 // Coming soon as the DS5 board's columns: building now first, then planned, then ideas (empty ones left out)
 const SOON_GROUPS = [['Building', 'Building now'], ['Planned', 'Planned'], ['Idea', 'Ideas']]
 function soonGroups(items) {
+  // loop: NOT-WORTH — once per run (aboutCache), 3 groups × Soon items (tens)
   return SOON_GROUPS.map(([status, label]) => ({ label, items: items.filter((it) => it.status.toLowerCase() === status.toLowerCase()) }))
     .filter((g) => g.items.length)
 }
