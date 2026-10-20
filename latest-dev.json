@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.75-dev.1",
-  "file": "sonata-0.15.75-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.75-dev.1/sonata-0.15.75-dev.1-x86_64.AppImage",
-  "sha512": "b7cb0051fa2edb2b3137f82faf15e119fbbd283d63dbe108f55bf0e853d6d68d37740d2c512a91a7ee32b5169ca5a25150d31ec9bb6ce2fea9eafabfb408f727",
-  "size": 127648183,
-  "date": "2026-10-20T04:30:51Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.75-dev.1",
-  "notes": "### Fixed\n- **An error window when a photo or info source sent unusual characters.** Starting a song with the Montage on could pop a \"JavaScript error in the main process\" window when one of Wikimedia's photos had a name in, for example, Hebrew or Korean (it happened with Nirvana's MTV Unplugged in New York). Sonata's requests to the Montage's photo sources, the liner notes' sources and LRCLIB now read such answers without failing, and that one known kind of error can no longer open an error window.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.75-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.76-dev.1",
+  "file": "sonata-0.15.76-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.76-dev.1/sonata-0.15.76-dev.1-x86_64.AppImage",
+  "sha512": "9e7cfc693fa5677c0055d5166f5c184fa02feb84295543ffbc193c1ca14bb30beda0493f46bff2eee72590e95e7b3903927ab98cd960f6bcb22f8b7784a3eaf3",
+  "size": 127652313,
+  "date": "2026-10-20T05:15:19Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.76-dev.1",
+  "notes": "### Fixed\n- **Expressive words on a first play's held last words.** With look-ahead on, a line's long held last word (for example in Nirvana's \"Jesus Doesn't Want Me for a Sunbeam\") could get its expression only while it was already being sung, and then drew nothing for the whole song. It now stretches from that moment on; when too little of the note is left, it shows only its shading. The song report counts a line's Expressive words once the line has been sung.\n- **Refrains labelled \"Verse 8, 9, 10\".** When the lyrics name every part of a song the same (Nirvana's MTV Unplugged names every part \"Verse\"), Sonata now works out the sections from the song itself instead, and shows none where it can't tell.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.76-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
