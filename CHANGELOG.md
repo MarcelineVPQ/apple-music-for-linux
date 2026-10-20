@@ -7,6 +7,18 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.67-dev.1] — Expressive words: long holds borrow room from the words already sung; no doubled letters
+
+### Fixed
+
+- A long held note whose stretched letters ran out of room on the right ("Look at me nooow,") now makes
+  room from the left: after the free space on the right, the words already sung on that row slide left
+  (off the edge if need be) and the held word with them, so the whole stretch shows; the words not yet
+  sung never move back. The same in centred and right-aligned (duet) lines. They glide back when the note
+  ends; with reduced motion nothing slides.
+- With HDR output on, a stretched word no longer shows doubled letters ("now,oow,"): the HDR glow drew
+  the word as written under the stretched spelling; it now steps aside while the letters stretch.
+
 ## [0.15.66-dev.1] — No silence and no jump at the start of a song
 
 ### Fixed

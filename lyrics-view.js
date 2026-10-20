@@ -1110,6 +1110,14 @@ function createLyricsView(opts) {
       // loop: NOT-WORTH — the rest of one row's words (~5-12), once per line per layout
       for (let k = i + 1; k < spans.length && tops[k] === tops[i]; k++) after.push(k)
       const slide = after.length ? Math.max(0, rowW - at(spans[after[after.length - 1]].children[0])[1] - 2) : 0
+      // room from the left (Marcy 2026-10-19: "push the already sung words off the screen to the left"): when
+      // the right runs out, the words already sung on this row and the held word itself slide left, by up to
+      // the held word's own left edge (its free space on the left in a centred or right-aligned (duet) row,
+      // then the sung words go off the row's left edge; the held word always stays in view)
+      const before = []
+      // loop: NOT-WORTH — the row's words up to this one (~5-12), once per line per layout
+      for (let k = i; k >= 0 && tops[k] === tops[i]; k--) before.unshift(k)
+      const slideL = Math.max(0, at(sp)[0] - 2)
       const freeAfter = (inkR, o, sc) => Math.max(0, limit - (o + sc * (inkR - o)))
       if (!sp.syl) {
         const [inkL, inkR] = bold(sp)
@@ -1118,11 +1126,11 @@ function createLyricsView(opts) {
         const f = popFit({ inkL, inkR, boxL, boxW: boxR - boxL, ox: oxOf(edge), scale, k: 1, prev, next, gap })
         cap(sp, f)
         const o = boxL + (f ? f.ox : oxOf(edge)) * (boxR - boxL)
-        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale, after, slide }
+        return { word: f ? pct(f.ox, '65%') : edge, syl: null, free: freeAfter(inkR, o, f && f.max ? f.max : scale), scale: f && f.max ? f.max : scale, after, slide, before, slideL }
       }
       // syllables: the first and last meet the neighbours; the ones inside a word grow into their own word, as today
       const last = sp.syl.length - 1
-      const out = { word: edge, free: 0, scale: 1, after, slide }
+      const out = { word: edge, free: 0, scale: 1, after, slide, before, slideL }
       out.syl = sp.syl.map((el, j) => {
         const own = stage ? '' : sylOrigin(sp, j, edge)
         const [l, r] = at(el)
@@ -1382,30 +1390,43 @@ function createLyricsView(opts) {
     if (all.length) {
       const fit = popRoom(e.words, e.side)[it.i]
       w = all[0].offsetWidth || fontPx * 0.55
-      // as many as the hold asks for, in the gap after the word plus what the rest of its row can slide (not
-      // with reduced motion: then the row stays put); squeezed (down to SQUEEZE_MIN) when even that is short
+      // as many as the hold asks for: in the gap after the word, then what the rest of its row can slide right,
+      // then what the words already sung (and the held word) can slide left (not with reduced motion: then
+      // the row stays put); squeezed (down to SQUEEZE_MIN) only when even that is short
       const free = fit.free || 0
-      const plan = X.squeezePlan(all.length, free + (still() ? 0 : fit.slide || 0), w, fit.scale)
+      const roomR = still() ? 0 : fit.slide || 0
+      const roomL = still() ? 0 : fit.slideL || 0
+      const plan = X.squeezePlan(all.length, free + roomR + roomL, w, fit.scale)
       const n = plan.n
       squeeze = plan.scale
       extras = all.slice(0, n)
-      // the row's later words slide right by what the letters need beyond the gap (keeping the pop's gap), once:
+      // what the letters need beyond the gap: first the later words slide right, then the sung ones left, once:
       // a CSS transition of `translate` on their two text layers (lyrics-view.css .xn); back when the hold ends
       const push = X.nudgePx(n, w, squeeze, fit.scale, free)
-      if (push > 0 && !still()) {
-        const moved = (fit.after || []).map((k) => e.words[k])
-        // the slide keeps pace with the letters: it starts when they reach the gap and ends with the hold (linear)
-        const sl = X.nudgeTiming(m.vt, m.hold, free, push + Math.max(0, free), time)
-        // loop: NOT-WORTH — the rest of one row's words (~5-12), once per held word
+      const split = X.splitPush(push, roomR, roomL)
+      const total = push + Math.max(0, free)
+      const slide = (words, px, from, to, own) => {
+        if (!px || still()) return
+        // the slide keeps pace with the letters: it starts when they reach its share and ends with it (linear)
+        const sl = X.nudgeTiming(m.vt, m.hold, from, total, time, to)
+        const moved = words.map((k) => e.words[k])
+        // loop: NOT-WORTH — one row's words (~5-12), once per held word
         for (const el of moved) {
+          // the held word is scaled by its pop: its layers move by px / scale to land px further in the row
+          const d = el === span ? px / (own || 1) : px
           el.classList.add('xn')
           el.style.setProperty('--xn-t', sl.duration.toFixed(2) + 's linear ' + sl.delay.toFixed(2) + 's')
-          el.style.setProperty('--xn', push.toFixed(1) + 'px')
+          el.style.setProperty('--xn', d.toFixed(1) + 'px')
         }
         // the hold ends: they glide back (0.3 s ease)
         // loop: NOT-WORTH — the same words
         x.reset.push(() => { for (const el of moved) { el.style.setProperty('--xn-t', '0.3s ease 0s'); el.style.setProperty('--xn', '0px') } })
       }
+      slide(fit.after || [], split.right, free, free + split.right)
+      slide(fit.before || [], -split.left, free + split.right, total, fit.scale)
+      // the HDR glow (hdr-glow.js) is a still mask of the written word: over the stretched spelling it drew a
+      // second "now," under "nooow," ("now,oow,", 0.15.64). It steps aside while the letters show (.xo)
+      if (n) { span.classList.add('xo'); x.reset.push(() => span.classList.remove('xo')) }
       // loop: NOT-WORTH — the extra letters (≤ MAX_EXTRA), once per held word
       all.forEach((el, k) => el.classList.toggle('xh', k >= n))
       x.reset.push(() => { for (const el of all) el.classList.remove('xh') })   // loop: NOT-WORTH — ≤ MAX_EXTRA

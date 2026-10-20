@@ -374,11 +374,10 @@ test('view: the slide is capped at the row\'s edge (nothing overflows or wraps);
   assert.ok(push <= 240 - 220 - 2 + 1e-9, 'the row\'s last word stays inside: ' + push)
   const home = list.all().find((e) => e.dataset.text === 'home')
   assert.ok(home.all().filter((e) => e.has('xe') && !e.has('xh')).length >= 1)
-  // the row already ends at its last word: no slide; only what fits the gap the pop leaves (12.4 px: 2 squeezed)
+  // the row already ends at its last word: nothing slides right; the words already sung make the room (below)
   const tight = view(X.forView(X.compact(EXPR), true), false, {}, 222)
   at(tight.v, 1.8)
-  assert.ok(!tight.list.all().some((e) => e.has('xn')))
-  assert.equal(tight.list.all().find((e) => e.dataset.text === 'home').all().filter((e) => e.has('xe') && !e.has('xh')).length, 2)
+  assert.equal(tight.list.all().find((e) => e.dataset.text === 'tonight').style['--xn'], undefined)
   // "oh", alone on its row: nothing to slide, it stretches outward into the row
   const end = view(X.forView(X.compact(EXPR), true), false, {}, 1000)
   at(end.v, 4.3)
@@ -388,6 +387,103 @@ test('view: the slide is capped at the row\'s edge (nothing overflows or wraps);
   assert.deepEqual(X.squeezePlan(5, 30, 10, 1.1), { n: 5, scale: 0.545 })
   assert.equal(X.nudgePx(5, 10, 1, 1.1, 12.4), 43)
   assert.equal(X.nudgePx(0, 10, 1, 1.1, 12.4), 0)
+})
+
+// Room from the left (Marcy 2026-10-19, "push the already sung words off the screen to the left"), per
+// alignment: free space first, then the words already sung (and the held word) slide out of the way; the
+// words not yet sung never move left of their place; back in 0.3 s when the hold ends.
+// off: where the row's words start (0 left-aligned; centred and right-aligned (duet) rows start further in)
+function placed(rowW, off) {
+  const r = view(X.forView(X.compact(EXPR), true), false, {}, rowW)
+  const row = r.list.all().find((e) => e.dataset.text === 'take').parentElement
+  // loop: test only
+  for (const w of row.els().filter((e) => e.has('w'))) { w._x += off; for (const c of w.els()) c._x = w._x }   // loop: test only
+  return r
+}
+const NEED = Math.ceil(X.MAX_EXTRA * 11 - (nextLeft - GAP - popRight))   // what the 5 letters need beyond the gap
+const word = (l, t) => l.all().find((e) => e.dataset.text === t)
+const xn = (l, t) => parseFloat(word(l, t).style['--xn'] || '0')
+const fullStretch = (l) => {
+  const home = word(l, 'home')
+  const shown = home.all().filter((e) => e.has('xe') && !e.has('xh'))
+  assert.equal(shown.length, X.MAX_EXTRA, 'the whole stretch shows')
+  assert.ok(shown.every((e) => e.anims.some((a) => !a.cancelled && /scaleX\(1\)$/.test(a.keyframes[a.keyframes.length - 1].transform))), 'at full width, not squeezed')
+}
+for (const [name, rowW, off, right] of [
+  ['left-aligned, the row full to its right edge', 222, 0, 0],
+  ['right-aligned (a duet\'s second voice)', 1000, 1000 - 220, 0],
+  ['centred, a little room on the right', 260, 20, 18]
+]) {
+  test('view: room from the left, ' + name + ': the sung words slide left by exactly the shortfall', () => {
+    const { list, v } = placed(rowW, off)
+    at(v, 1.8)
+    fullStretch(list)
+    assert.equal(xn(list, 'tonight'), right, 'the unsung word after it: right only into free space')
+    const left = NEED - right
+    assert.equal(xn(list, 'take'), -left)
+    assert.equal(xn(list, 'me'), -left)
+    assert.ok(Math.abs(xn(list, 'home') * 1.1 + left) < 0.1, 'the held word too, in its popped scale: ' + xn(list, 'home'))
+    assert.ok(word(list, 'take').has('xn') && word(list, 'home').has('xn'))
+    // the hold ends: everything glides back in 0.3 s
+    at(v, 3.5)
+    // loop: test only
+    for (const t of ['take', 'me', 'home', 'tonight']) {
+      if (!word(list, t).has('xn')) continue
+      assert.equal(word(list, t).style['--xn'], '0px', t)
+      assert.equal(word(list, t).style['--xn-t'], '0.3s ease 0s', t)
+    }
+  })
+}
+
+test('view: room from the left: free space first, the held word stays in view, reduced motion moves nothing', () => {
+  // enough room on the right: nothing sung moves
+  const wide = placed(1000, 0)
+  at(wide.v, 1.8)
+  assert.equal(xn(wide.list, 'take'), 0)
+  assert.ok(xn(wide.list, 'tonight') > 0)
+  // the held word near the row's left edge: the left slide stops at its edge (it stays in view), then squeezed
+  const edge = view(X.forView(X.compact(EXPR), true), false, {}, 222)
+  const row = edge.list.all().find((e) => e.dataset.text === 'take').parentElement
+  // loop: test only
+  for (const [i, w] of row.els().filter((e) => e.has('w')).entries()) { w._x = [0, 0, 22, 82][i]; for (const c of w.els()) c._x = w._x }   // loop: test only
+  at(edge.v, 1.8)
+  assert.ok(xn(edge.list, 'home') * 1.1 >= -20 - 1e-9, 'never past its own left edge: ' + xn(edge.list, 'home'))
+  // reduced motion: no slide at all
+  const still = view(X.forView(X.compact(EXPR), true), true, {}, 222)
+  at(still.v, 1.8)
+  assert.ok(!still.list.all().some((e) => e.has('xn')))
+  assert.deepEqual(X.splitPush(43, 18, 100), { right: 18, left: 25 })
+  assert.deepEqual(X.splitPush(43, 50, 100), { right: 43, left: 0 })
+  assert.deepEqual(X.splitPush(43, 0, 10), { right: 0, left: 10 })
+  // the right slide hands over to the left one: back to back through the hold
+  const r = X.nudgeTiming(1.66, 1.44, 12.4, 55.4, 1.0, 30.4)
+  const l = X.nudgeTiming(1.66, 1.44, 30.4, 55.4, 1.0)
+  assert.ok(Math.abs(r.delay + r.duration - l.delay) < 1e-9)
+  assert.ok(Math.abs(l.delay + l.duration - (1.66 + 1.44 - 1.0)) < 1e-9)
+})
+
+// the letters a stretching word shows, in order: its bold copy without the unborn (.xh) letters
+const shownText = (n) => n._text + n.children.map((c) => (c instanceof El ? (c.has('xh') ? '' : shownText(c)) : c.text)).join('')
+for (const [text, vowel] of [['now,', 'o'], ['me,', 'e'], ['home', 'o']]) {
+  test('view: a stretching "' + text + '" reads as one word: the extra letters at the vowel, the coda and its punctuation once', () => {
+    const lines = [{ t: 1.0, end: 3.9, text: 'at ' + text + ' go', words: [{ text: 'at', t: 1.0, end: 1.5 }, { text, t: 1.6, end: 3.2 }, { text: 'go', t: 3.25, end: 3.9 }], aligned: true }]
+    const expr = { version: 2, words: [{ line: 0, word: 1, conf: 0.9, vowel: { i0: 1, i1: 2, text: vowel, t: 1.66, end: 3.1, lead: 0.06, coda: 0.04 }, loud: 0.8, loud_conf: 0.9 }], vocalise: [] }
+    const { list, v } = view(X.forView(X.compact(expr), true), false, { lines }, 1000)
+    at(v, 1.8)
+    const w = word(list, text)
+    const b = w.els().find((e) => e.has('b'))
+    const k = b.all().filter((e) => e.has('xe') && !e.has('xh')).length
+    assert.ok(k > 0)
+    assert.equal(shownText(b), text[0] + vowel.repeat(1 + k) + text.slice(2))
+    assert.equal(w.els().find((e) => e.has('r')).textContent, text, 'the regular copy: as written (hidden while sung)')
+    // the HDR glow's still mask of the written word steps aside while the letters show (it drew "now,oow,")
+    assert.ok(w.has('xo'))
+    at(v, 3.5)
+    assert.ok(!w.has('xo'))
+  })
+}
+test('css: the HDR glow steps aside over a stretched word', () => {
+  assert.match(read('lyrics-view.css'), /\.w\.xo \.hdr-glow \{ opacity: 0; \}/)
 })
 
 test('view: the stretch and the ghost play in step with the song, pause with it and while hidden, and end', () => {

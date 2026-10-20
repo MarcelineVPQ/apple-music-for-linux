@@ -274,14 +274,26 @@ function nudgePx(n, letterPx, squeeze, popScale, freePx) {
 /**
  * When the row's slide runs (s): the letters grow linearly through the hold (from vt, for `hold` s) to
  * totalPx; the row moves only once they pass the free gap, and arrives with the hold's end. now: the song
- * time it starts at (a seek into the hold: what's left). -> { delay, duration }
+ * time it starts at (a seek into the hold: what's left). toPx: where this slide's share ends (the row's right
+ * slide hands over to the sung words' left slide); by default the whole push, at the hold's end. -> { delay, duration }
  */
-function nudgeTiming(vt, hold, freePx, totalPx, now) {
-  const share = totalPx > 0 ? clamp(Math.max(0, freePx) / totalPx, 0, 1) : 0
-  const from = vt + hold * share
-  const to = vt + hold
+function nudgeTiming(vt, hold, freePx, totalPx, now, toPx = totalPx) {
+  const share = (px) => totalPx > 0 ? clamp(Math.max(0, px) / totalPx, 0, 1) : 0
+  const from = vt + hold * share(freePx)
+  const to = vt + hold * Math.max(share(freePx), share(toPx))
   const start = Math.max(from, now)
   return { delay: Math.max(0, from - now), duration: Math.max(0.05, to - start) }
+}
+
+/**
+ * Where a stretch's push (nudgePx) comes from: first the later words slide right (up to rightPx, the row's
+ * free space after its last word), then the words already sung and the held word slide left (up to leftPx:
+ * the held word's left edge; the sung words may leave the row). -> { right, left } (px, both >= 0)
+ */
+function splitPush(push, rightPx, leftPx) {
+  const p = Math.max(0, push || 0)
+  const right = Math.min(p, Math.max(0, rightPx || 0))
+  return { right, left: Math.min(p - right, Math.max(0, leftPx || 0)) }
 }
 
 /** How many extra letters show: as many as fit freePx after the popped word (letters scale with the pop). */
@@ -527,6 +539,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, forView, vocaliseExpressions, matchWord, lineExpressions, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

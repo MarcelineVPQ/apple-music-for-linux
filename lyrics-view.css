@@ -166,6 +166,9 @@
 .w .xe { display: inline-block; transform-origin: 0% 50%; opacity: 0; }
 .w .xe.xh { display: none; }
 .w.xr .xe { opacity: 1; }
+/* the HDR glow (hdr-glow.js) masks the written word, still: while a held word's extra letters show (.xo) it
+   would draw the word a second time under the stretched one, so it steps aside (the SDR glow stays) */
+.w.xo .hdr-glow { opacity: 0; }
 /* mid-line holds nudge the row (Marcy 2026-10-19): the words after a stretching word on its row slide right
    by --xn while the note is held and glide back when it ends. `translate` (its own property, composited)
    on the two text layers, so the word box, the line's layout and the pop's own transform are untouched */
