@@ -261,6 +261,10 @@
         const full = 'Installed: ' + parts.concat(card ? [card] : []).join(', ')
         const newer = s.backend === 'rocm' || s.backend === 'xpu' ? ' The ' + SHORT[s.backend] + ' build is new: it hasn\'t been tested on a real ' + (s.backend === 'rocm' ? 'AMD' : 'Intel') + ' card yet.'
           : s.backend === 'openvino' ? ' The OpenVINO build is new: on the processor it measured about 1.5 times as fast as Processor only, with the same word timings; its speed on Intel graphics hasn\'t been measured on a real laptop yet.' : ''
+        // Check for updates on the row (main.js checkEngineFeed interactive): its answer, for a minute
+        if (!s.available && s.check === 'checking') return { text: 'Checking for a newer helper…', info: full + '.', level: 'busy' }
+        if (!s.available && s.check === 'current') return { text: 'Up to date: helper ' + (V.short(s.version) || '?'), info: full + '. No newer helper is out on this channel' + (s.incompatible ? ' that works with this Sonata (' + s.incompatible + ' ' + s.incompatibleWhy + ')' : '') + '.', level: 'ok' }
+        if (!s.available && s.check === 'failed') return { text: 'Couldn\'t check for a newer helper', info: (s.checkWhy ? 'The check said: ' + s.checkWhy + '. ' : '') + 'Check the internet connection, then try again. The installed helper keeps working.', level: 'warn' }
         if (s.available) return { text: 'Update available: ' + V.short(s.available), info: full + '. The update keeps the downloaded models and the build' + (s.availableNotes ? '. ' + s.availableNotes : '') + '. Installed in ' + where + '.', level: 'warn' }
         // a GPU build that found no card it can use (pong.message): it runs, slowly, on the processor
         if (s.runDevice === 'cpu' && s.backend && s.backend !== 'cpu' && s.runMessage) {
@@ -290,11 +294,13 @@
     else if (s.state === 'broken' || s.state === 'sandboxed') out.push('repair')
     // Build for asks for another build than the installed one: Rebuild for it (models kept)
     else if (s.state === 'ok' && s.backend && s.wantBackend && s.backend !== s.wantBackend) out.push('rebuild')
+    // Check for updates: an installed helper with no update waiting (the panel disables it while a check runs)
+    if (s.state === 'ok' && !s.available) out.push('check')
     // Remove… also when only the kept models are left (it says "Delete the models…" then)
     if (s.state !== 'missing' || s.leftovers || s.models) out.push('remove')
     return out
   }
-  const BUTTON_LABEL = { install: 'Install', update: 'Update', repair: 'Repair', rebuild: 'Rebuild', remove: 'Remove…', cancel: 'Cancel' }
+  const BUTTON_LABEL = { install: 'Install', update: 'Update', repair: 'Repair', rebuild: 'Rebuild', check: 'Check for updates', remove: 'Remove…', cancel: 'Cancel' }
   const buttonLabel = (id, s) => (id === 'rebuild' && s && s.wantBackend ? 'Rebuild for ' + ({ cuda: 'NVIDIA', rocm: 'AMD', xpu: 'Intel Arc', openvino: 'Intel (OpenVINO)', cpu: 'the processor' }[s.wantBackend]) : BUTTON_LABEL[id])
 
   /**

@@ -3629,7 +3629,7 @@ async function askAlignStatus() {
 // AppImage), with --progress; engine-feed.js reads the signed engine feed, so a newer helper is offered
 // without a Sonata release (any engine with a protocol this Sonata installs, at least align/engine.json's).
 // lifetime: OK — one installer object; its child only while a job runs (cancelled on quit); the feed is
-// asked 25 s after start and every 6 h while automatic update checks are on (two timers, cleared when off)
+// asked 25 s after start and hourly on Development, every 6 h on Stable, while automatic update checks are on (two timers, cleared when off)
 // error: SHOWN — every job's outcome is the state row in Settings (helper-install-model.js failText); feed
 // errors are LOGGED-OK (nothing is offered, the installed helper keeps working)
 const helperInstallerLib = require('./helper-installer')
@@ -3654,6 +3654,8 @@ let gpuCards = null             // gpu-detect.js detect(): the graphics found (s
 let helperAutoTried = ''        // the version an automatic update last tried (one try per version)
 let helperPushTimer = null
 let helperFeedFirst = null
+let helperCheck = { phase: '', why: '' }   // Check for updates on the Helper row: '' | 'checking' | 'current' | 'failed'
+let helperCheckClear = null
 let helperFeedTimer = null
 // a job a quit, a crash or a power cut stopped continues at the next start (Marcy 2026-10-19): while one
 // runs, <userData>/helper-job.json says what it is (helper-install-model.js jobMarker); it goes when the
@@ -3937,32 +3939,46 @@ function helperAutoUpdate() {
   console.log('helper: updating to ' + engineOffer.offer.version + ' by itself (Update the helper automatically)')
   helperStart('update')
 }
-async function checkEngineFeed(force) {
-  if (!settings.checkForUpdates) return
+// interactive: Check for updates on the Helper row (works with automatic checks off too): reads the feed fresh and
+// says the result in the row (helperCheck), 'Up to date' for a minute
+async function checkEngineFeed(force, interactive) {
+  if (!settings.checkForUpdates && !interactive) return
   const ch = settings.updateChannel === 'dev' ? 'dev' : 'stable'
   if (!force && ch === engineFeedChannel && Date.now() - engineFeedAt < 30 * 60 * 1000) return
   engineFeedAt = Date.now()
   engineFeedChannel = ch
   const pin = alignHelperLib.enginePin(__dirname)
   if (!pin || !pin.key) return
+  clearTimeout(helperCheckClear); helperCheckClear = null
+  helperCheck = interactive ? { phase: 'checking', why: '' } : { phase: '', why: '' }
+  if (interactive) pushPanel()
   try {
-    const offer = await engineFeedLib.fetchEngineFeed({ channel: ch, fetchText, keys: [pin.key], test: engineTestFeed })
+    const offer = await engineFeedLib.fetchEngineFeed({ channel: ch, fetchText, keys: [pin.key], test: engineTestFeed, fresh: !!interactive, log: (t) => console.log('helper: ' + t) })
     engineOffer = engineFeedLib.judgeOffer(offer, installedEngineVersion(), engineCtx())
     console.log('helper: engine feed (' + ch + ') ' + (offer ? 'offers ' + offer.version + ': ' + engineOffer.state + (engineOffer.why ? ' (' + engineOffer.why + ')' : '') : 'has no engine yet'))
-  } catch (e) {   // error: LOGGED-OK — no feed, a network error or a refused feed: nothing is offered, the installed helper keeps working
+    if (interactive) helperCheck = { phase: engineOffer.state === 'available' ? '' : 'current', why: '' }
+  } catch (e) {   // error: LOGGED-OK — no feed, a network error or a refused feed: nothing is offered, the installed helper keeps working (SHOWN in the row when asked for)
     console.log('helper: engine feed: ' + e.message)
+    if (interactive) helperCheck = { phase: 'failed', why: e.message }
+  }
+  if (interactive && helperCheck.phase) {
+    // lifetime: OK — one timer, cleared at the next check; it ends with the app
+    helperCheckClear = setTimeout(() => { helperCheckClear = null; helperCheck = { phase: '', why: '' }; pushPanel() }, 60 * 1000)
+    if (helperCheckClear.unref) helperCheckClear.unref()
   }
   helperAutoUpdate()
   pushRail()
   pushPanel()
 }
+// the automatic helper checks: 25 s after start, then hourly on Development, every 6 hours on Stable (engine-feed.js)
 function startHelperFeedChecks() {
   clearTimeout(helperFeedFirst); clearInterval(helperFeedTimer)
   helperFeedFirst = null; helperFeedTimer = null
   if (!settings.checkForUpdates) return
   // lifetime: OK — both cleared at the top here (checks off or restarted); they end with the app
   helperFeedFirst = setTimeout(() => checkEngineFeed(true), 25 * 1000)
-  helperFeedTimer = setInterval(() => checkEngineFeed(true), 6 * 60 * 60 * 1000)
+  // error: NOT-WORTH — checkEngineFeed catches its feed fetch (LOGGED-OK); the rest is sync
+  helperFeedTimer = setInterval(() => { if (engineFeedLib.checkDue(settings.updateChannel, engineFeedAt, Date.now())) checkEngineFeed(true) }, engineFeedLib.TICK_MS)
   if (helperFeedFirst.unref) helperFeedFirst.unref()
   if (helperFeedTimer.unref) helperFeedTimer.unref()
 }
@@ -3976,6 +3992,8 @@ function helperAction(name) {
   else if (name === 'helper-decline') { inst.decline(); clearHelperJob() }
   else if (name === 'helper-cancel') inst.cancel()
   else if (name === 'helper-dismiss') inst.dismiss()
+  // error: NOT-WORTH — checkEngineFeed catches its feed fetch (SHOWN in the row)
+  else if (name === 'helper-check') { if (helperCheck.phase !== 'checking') checkEngineFeed(true, true) }
   else if (name === 'helper-remove') {
     if (inst.busy) return
     helperConfirm = true
@@ -4008,6 +4026,7 @@ function helperSnapshot() {
     available: engineOffer.state === 'available' && h.state === 'ok' ? engineOffer.offer.version : '',
     availableNotes: engineOffer.state === 'available' && engineOffer.offer.notes ? engineOffer.offer.notes.slice(0, 300) : '',
     incompatible: engineOffer.state === 'incompatible' ? engineOffer.offer.version : '', incompatibleWhy: engineOffer.why || '',
+    check: helperCheck.phase, checkWhy: helperCheck.why,
     phase: inst.phase, kind: inst.kind, resumed: helperResumed,
     job: job ? Object.assign({}, job, { tail: [] }) : null,   // the output lines stay in main (they go to the log)
     fail: job && job.phase === 'failed' ? helperModel.failText(job) : '',
@@ -4711,7 +4730,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
 const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'show-timing', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'gfx-back-on', 'curious-copy',
-  'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
+  'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-check', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return

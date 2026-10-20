@@ -99,7 +99,7 @@ test('state row: short (≤ 60 characters, the rest behind the ⓘ) for every st
   }
   const want = {
     missing: ['Not installed', ['install']],
-    ok: ['Installed: helper 0.2.1, Python 3.14, NVIDIA RTX 5080', ['remove']],
+    ok: ['Installed: helper 0.2.1, Python 3.14, NVIDIA RTX 5080', ['check', 'remove']],
     available: ['Update available: 0.2.2', ['update', 'remove']],
     update: ['Needs an update', ['update', 'remove']],
     broken: ['Needs a repair: its Python is gone', ['repair', 'remove']],
@@ -335,9 +335,9 @@ test('builds: the installed line names the card and the build, within 60 charact
   assert.equal(fell.level, 'warn')
   assert.match(fell.info, /^The helper is built for AMD \(ROCm\) .*Build for, then Rebuild/)
   // Rebuild for another build: models kept, only when the build differs
-  assert.deepEqual(HM.buttons(ok({ backend: 'cuda', wantBackend: 'cuda' })), ['remove'])
+  assert.deepEqual(HM.buttons(ok({ backend: 'cuda', wantBackend: 'cuda' })), ['check', 'remove'])
   const want = ok({ backend: 'cpu', wantBackend: 'rocm' })
-  assert.deepEqual(HM.buttons(want), ['rebuild', 'remove'])
+  assert.deepEqual(HM.buttons(want), ['rebuild', 'check', 'remove'])
   assert.equal(HM.buttonLabel('rebuild', want), 'Rebuild for AMD')
   // progress sizes follow the build
   let j = HM.reduce(HM.newJob('install'), { ev: 'step', step: 'venv', variant: 'rocm' })
@@ -387,4 +387,32 @@ test('the helper rows name helper versions as people read them (version-display.
     assert.doesNotMatch(r.text + ' ' + r.info, /-dev\.\d/, JSON.stringify(r))
     assert.match(r.info, /0\.2\.7 Dev/)
   }
+})
+
+test('Check for updates on the Helper row: shown for an installed helper with no update waiting; its answer in the row', () => {
+  const ok = (o) => Object.assign({ state: 'ok', version: '0.2.9-dev.1', py: '3.14', gpu: 'NVIDIA GeForce RTX 5080', backend: 'cuda' }, o)
+  assert.equal(HM.BUTTON_LABEL.check, 'Check for updates')
+  assert.ok(HM.buttons(ok()).includes('check'))
+  // an update waiting: Update instead; nothing installed, needs an update or a repair, a job running: no check
+  assert.deepEqual(HM.buttons(ok({ available: '0.2.10-dev.1' })), ['update', 'remove'])
+  // loop: NOT-WORTH — four states
+  for (const st of ['missing', 'update', 'broken', 'stray']) assert.ok(!HM.buttons({ state: st }).includes('check'), st)
+  assert.deepEqual(HM.buttons(ok({ phase: 'running', job: HM.newJob('update') })), ['cancel'])
+  // the answers, each ≤ 60 characters
+  const rows = {
+    checking: [ok({ check: 'checking' }), 'Checking for a newer helper…', 'busy'],
+    current: [ok({ check: 'current' }), 'Up to date: helper 0.2.9 Dev', 'ok'],
+    failed: [ok({ check: 'failed', checkWhy: 'HTTP 503' }), 'Couldn\'t check for a newer helper', 'warn']
+  }
+  // loop: NOT-WORTH — three answers
+  for (const [k, [h, text, level]] of Object.entries(rows)) {
+    const r = HM.stateRow(h)
+    assert.equal(r.text, text, k)
+    assert.equal(r.level, level, k)
+    assert.ok(r.text.length <= 60, k)
+  }
+  assert.match(HM.stateRow(rows.failed[0]).info, /HTTP 503.*keeps working/)
+  assert.match(HM.stateRow(rows.current[0]).info, /^Installed: helper 0.2.9 Dev.*No newer helper/)
+  // a check that found an update: the update row, not "Up to date"
+  assert.equal(HM.stateRow(ok({ check: 'current', available: '0.2.10-dev.1' })).text, 'Update available: 0.2.10 Dev')
 })

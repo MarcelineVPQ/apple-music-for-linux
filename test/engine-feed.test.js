@@ -164,3 +164,35 @@ test('engine test feed: loopback http only, with its own key; the whole check ov
     await assert.rejects(F.fetchEngineFeed({ channel: 'stable', fetchText, keys: [], test: t }), /not signed/)
   } finally { server.close() }
 })
+
+test('engine feed: Check for updates reads it fresh (GitHub\'s API past the CDN cache), the CDN copy if the API refuses', async () => {
+  const text = feed({ channel: 'dev', version: '0.2.10-dev.1' })
+  const u = F.ENGINE_FEED_URLS.dev
+  const api = (x) => 'https://api.github.com/repos/MarcelineVPQ/sonata-releases/contents/' + x.split('/main/')[1] + '?ref=main'
+  const asked = []
+  const files = { [api(u)]: text, [api(u + '.sig')]: sign(text) }
+  const fetchText = (url, o) => { asked.push([url, !!(o && o.fresh)]); return url in files ? Promise.resolve(files[url]) : Promise.reject(new Error('HTTP 404')) }
+  const offer = await F.fetchEngineFeed({ channel: 'dev', fetchText, keys: [KEY], fresh: true })
+  assert.equal(offer.version, '0.2.10-dev.1')
+  assert.ok(asked.every(([url, fresh]) => url.startsWith('https://api.github.com/') && fresh))
+  // the API refuses (rate limit): the CDN copy, and the reason logged
+  const said = []
+  const cdn = { [u]: text, [u + '.sig']: sign(text) }
+  const viaCdn = await F.fetchEngineFeed({ channel: 'dev', fetchText: (url) => (url in cdn ? Promise.resolve(cdn[url]) : Promise.reject(new Error('HTTP 403'))), keys: [KEY], fresh: true, log: (t) => said.push(t) })
+  assert.equal(viaCdn.version, '0.2.10-dev.1')
+  assert.match(said[0], /fresh read failed \(HTTP 403\)/)
+  // an automatic check keeps the CDN
+  asked.length = 0
+  await F.fetchEngineFeed({ channel: 'dev', fetchText: (url, o) => { asked.push([url, !!(o && o.fresh)]); return url in cdn ? Promise.resolve(cdn[url]) : Promise.reject(new Error('HTTP 404')) }, keys: [KEY] })
+  assert.ok(asked.every(([url, fresh]) => url.startsWith('https://raw.githubusercontent.com/') && !fresh))
+})
+
+test('engine feed: automatic checks hourly on Development, every 6 hours on Stable', () => {
+  const H = 3600 * 1000
+  assert.equal(F.TICK_MS, H)
+  assert.ok(F.checkDue('dev', 0, 5 * H))
+  assert.ok(F.checkDue('dev', 10 * H, 11 * H - 30 * 1000), 'a tick a little early still counts')
+  assert.ok(!F.checkDue('dev', 10 * H, 10 * H + 30 * 60 * 1000))
+  assert.ok(!F.checkDue('stable', 10 * H, 15 * H))
+  assert.ok(F.checkDue('stable', 10 * H, 16 * H))
+})

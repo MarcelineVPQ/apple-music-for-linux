@@ -1,5 +1,5 @@
 // Settings → Precise timing's helper block (panel.html, before panel-ui.js; SonataPanelHelper): the state
-// row with its ⓘ and buttons (Install / Update / Repair / Rebuild / Cancel), the install's progress and the
+// row with its ⓘ and buttons (Install / Update / Repair / Rebuild / Check for updates / Cancel), the install's progress and the
 // helper's licence (Accept / Cancel); and, apart, the section's last row (the danger zone last): Remove…
 // with its confirmation, all in the page (no dialogs). Main owns
 // the state (main.js helperSnapshot) and does the work; this sends command names only. The words come from
@@ -64,8 +64,8 @@
     line.append(stateInfo.btn)
     const btns = el('div', 'btns')
     const made = {}
-    // loop: NOT-WORTH — five buttons, once per body build
-    for (const id of ['install', 'update', 'repair', 'rebuild', 'cancel']) {
+    // loop: NOT-WORTH — six buttons, once per body build
+    for (const id of ['install', 'update', 'repair', 'rebuild', 'check', 'cancel']) {
       const b = el('button', 'btn' + (['install', 'update', 'repair', 'rebuild'].includes(id) ? ' primary' : ''), HM.BUTTON_LABEL[id])
       b.type = 'button'
       b.dataset.helper = id
@@ -228,7 +228,7 @@
       // the running helper's own answer while it starts or when it doesn't work (one place for the helper's
       // state: this line; "Ready on …" and the plain Installed line stay as they are)
       const said = String(v.alignStatus || '')
-      if (h.state === 'ok' && !h.available && !(h.job && h.job.phase === 'running') && v.alignInstalled && v.lyricsPreciseTiming && !/^Ready/.test(said) && h.phase !== 'licence') {
+      if (h.state === 'ok' && !h.available && !h.check && !(h.job && h.job.phase === 'running') && v.alignInstalled && v.lyricsPreciseTiming && !/^Ready/.test(said) && h.phase !== 'licence') {
         const t = said || 'Asking the helper…'
         st = { text: t.length > 60 ? t.slice(0, 59) + '…' : t, info: (t.length > 60 ? t + '. ' : '') + st.info, level: /not working/i.test(t) ? 'warn' : 'busy' }
       }
@@ -249,6 +249,7 @@
         made[id].hidden = !want.includes(id)
         if (id === 'update') setAttr(made[id], 'aria-label', h.available ? 'Update the helper to ' + h.available : 'Update the helper')
         if (id === 'rebuild') setText(made[id], HM.buttonLabel('rebuild', h))
+        if (id === 'check') { made[id].disabled = h.check === 'checking'; setAttr(made[id], 'aria-label', 'Check for a newer helper') }
       }
       btns.hidden = !want.some((id) => id !== 'remove')
       // progress

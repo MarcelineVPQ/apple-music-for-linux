@@ -14,7 +14,7 @@
 // (INSTALL_PROTOCOLS), it is at least align/engine.json's version (the minimum) and this Sonata is inside
 // its min/max range. Offered only when newer than the active engine (never a downgrade). The download
 // itself is still checked by align/install.sh (size, SHA-256, signature by the same key).
-const { feedSignedBy, versionKey, isNewerVersion } = require('./update-feed')
+const { feedSignedBy, versionKey, isNewerVersion, freshUrl } = require('./update-feed')
 
 const REPO = 'MarcelineVPQ/sonata-releases'
 const ENGINE_FEED_URLS = {
@@ -27,6 +27,12 @@ const ENGINE_DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`
 const INSTALL_PROTOCOLS = [2]
 const ENGINE_VERSION_RE = /^\d+\.\d+\.\d+(?:-dev\.\d+)?$/
 const isDevEngine = (v) => /-dev\.\d+$/.test(String(v || ''))
+// the automatic check: 25 s after start, then hourly on Development (dev engines come out often; Marcy 2026-10-20:
+// "this arbitrary waiting for an update to just land is for the birds") and every 6 hours on Stable
+const CHECK_EVERY_HOURS = { dev: 1, stable: 6 }
+const TICK_MS = 3600 * 1000
+/** Is an automatic check due? (main's timer ticks hourly; Stable checks every 6 hours) */
+const checkDue = (channel, lastAt, now) => now - (lastAt || 0) >= CHECK_EVERY_HOURS[channel === 'dev' ? 'dev' : 'stable'] * 3600 * 1000 - 60 * 1000
 
 const bad = (what) => Object.assign(new Error('helper update refused: the engine feed ' + what), { code: 'feed' })
 // loop: NOT-WORTH — ≤ 5 field names, once per feed read
@@ -134,14 +140,18 @@ function testEngineFeed(env) {
  * keys: the trusted engine key(s) (align/engine.json's). -> the offer (parseEngineFeed), signature checked.
  * A missing Development feed falls back to the Stable one.
  */
-async function fetchEngineFeed({ channel, fetchText, keys, test = null }) {
+// fresh: a check the user asked for (Check for updates) reads the feed past GitHub's 5-minute CDN cache, as Sonata's
+// own check does (update-feed.js freshUrl); the CDN copy if the API refuses
+async function fetchEngineFeed({ channel, fetchText, keys, test = null, fresh = false, log = () => {} }) {
   if (channel !== 'dev') channel = 'stable'
   const trusted = (keys || []).concat(test ? test.keys : [])
   if (!trusted.length) throw bad('has no key to check it with')
   const urls = test ? test.urls : ENGINE_FEED_URLS
+  // error: PASSES-ON — the CDN's own failure rejects (main shows it); the API's is only the fallback's reason
+  const get = !fresh || test ? fetchText : (u) => fetchText(freshUrl(u), { fresh: true }).catch((e) => { log('engine feed: fresh read failed (' + e.message + '); the cached copy instead'); return fetchText(u) })
   const read = async (ch) => {
     const url = urls[ch]
-    const [text, sig] = await Promise.all([fetchText(url), fetchText(url + '.sig')])
+    const [text, sig] = await Promise.all([get(url), get(url + '.sig')])
     if (!feedSignedBy(text, sig, trusted)) throw bad(`(${url.split('/').pop()}) is not signed by the engine key`)
     return parseEngineFeed(text, ch, test ? test.prefix : ENGINE_DOWNLOAD_PREFIX, test ? null : trusted)
   }
@@ -149,7 +159,7 @@ async function fetchEngineFeed({ channel, fetchText, keys, test = null }) {
   // error: PASSES-ON — any other error passes on (main logs it)
   if (channel === 'stable') { try { return await read('stable') } catch (e) { if (/\b404\b/.test(e.message)) return null; throw e } }
   // error: PASSES-ON — a Development feed that can't be read (none published yet): the Stable one, whose errors pass on
-  try { return await read('dev') } catch (e) { if (e.code === 'feed') throw e; return fetchEngineFeed({ channel: 'stable', fetchText, keys, test }) }
+  try { return await read('dev') } catch (e) { if (e.code === 'feed') throw e; return fetchEngineFeed({ channel: 'stable', fetchText, keys, test, fresh, log }) }
 }
 
-module.exports = { isDevEngine, REPO, ENGINE_FEED_URLS, ENGINE_DOWNLOAD_PREFIX, INSTALL_PROTOCOLS, parseEngineFeed, incompatible, judgeOffer, pinText, testEngineFeed, fetchEngineFeed }
+module.exports = { CHECK_EVERY_HOURS, TICK_MS, checkDue, isDevEngine, REPO, ENGINE_FEED_URLS, ENGINE_DOWNLOAD_PREFIX, INSTALL_PROTOCOLS, parseEngineFeed, incompatible, judgeOffer, pinText, testEngineFeed, fetchEngineFeed }
