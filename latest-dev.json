@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.79-dev.1",
-  "file": "sonata-0.15.79-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.79-dev.1/sonata-0.15.79-dev.1-x86_64.AppImage",
-  "sha512": "6db2c57aecb520181e5c399ff730d046107791fb9d4325f16e9275208172b2ed18a68e86991d5af2ee6363dbac1b6e66c2f7485c286416be3c711d05712c7d80",
-  "size": 127652298,
-  "date": "2026-10-20T06:10:03Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.79-dev.1",
-  "notes": "### Fixed\n- **First-play notes on songs learned only in part.** With look-ahead on, a song whose words Sonata had learned on an earlier play, with a line or two missed, but whose sheet notes it hadn't yet, showed each part's notes only after that part had been heard. It now plays like a first play: the notes arrive line by line before you hear them, the words you already have stay as they are, and the missed lines are filled in.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.79-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.80-dev.1",
+  "file": "sonata-0.15.80-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.80-dev.1/sonata-0.15.80-dev.1-x86_64.AppImage",
+  "sha512": "4ae83c35b1a224ab291321b5ef8fc3310fcf59e243620337a1575adb132002eb00ddfc6475c814352b32828941e0b0946fc1a66b3ecb91194ed9740b0b454018",
+  "size": 127652260,
+  "date": "2026-10-20T07:35:25Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.80-dev.1",
+  "notes": "### Changed\n- **Song reports show when the clock corrected itself.** Each song's report in the log now lists the moment in the song, size and cause of each correction the song clock made (up to 20 a song), not only how many there were.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.80-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
