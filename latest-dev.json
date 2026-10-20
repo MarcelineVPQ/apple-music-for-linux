@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.84-dev.1",
-  "file": "sonata-0.15.84-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.84-dev.1/sonata-0.15.84-dev.1-x86_64.AppImage",
-  "sha512": "2dd466cf66037cc1c5c89b9aeb076ea794489347703ca931ae75cb3285ad60451fa0ff9e763a711a8d429faaae4b5ef1cd4d0a8d386b4d82379f542f4572eab8",
-  "size": 127660456,
-  "date": "2026-10-20T17:56:01Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.84-dev.1",
-  "notes": "### Fixed\n- **Held notes on first play.** With look-ahead, a held word's expression that arrived while its line was being sung waited for the next line whenever another word in that line was already drawing one, so a long held note often showed nothing. It now applies word by word. A hold that runs past its line's end keeps the line lit until the singer lets go, and with the next timing helper (0.2.11) a long hold grows as it is sung instead of stopping at its first measure.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.84-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.85-dev.1",
+  "file": "sonata-0.15.85-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.85-dev.1/sonata-0.15.85-dev.1-x86_64.AppImage",
+  "sha512": "d8866fdbdee2c525d1ba8cb76a5fe4de60ddbde94657528d24573dcd9284d8fb4744f7549f7ff85ba2371234c73abf3846e400ec6fbc3e9b1bd5576ac3643e25",
+  "size": 127660431,
+  "date": "2026-10-20T19:37:18Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.85-dev.1",
+  "notes": "### Fixed\n- **Lyrics timing after a song change.** After most song changes the lyrics ran on Apple's whole-second time, up to a second off, with small jumps in a song's first seconds. Sonata now works out the playing audio's own precise time within a few seconds of each song.\n- **The first second of each song.** With look-ahead the words started a third of a second late and then jumped. They now start where the music is.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.85-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
