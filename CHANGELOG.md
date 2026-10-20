@@ -7,6 +7,14 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.81-dev.1] — Check for a newer helper yourself
+
+### Added
+- **Check for updates on the Helper row.** Settings → Precise timing → Helper has a Check for updates button: it asks for a newer helper at once and says the answer in the row ("Up to date: helper 0.2.10 Dev", or Update available). It works with automatic checks off too.
+
+### Changed
+- **Helper updates arrive sooner on Development.** Sonata now looks for a newer helper every hour on the Development channel (every 6 hours on Stable), instead of every 6 hours on both.
+
 ## [0.15.80-dev.1] — Song reports show when the clock corrected itself
 
 ### Changed
