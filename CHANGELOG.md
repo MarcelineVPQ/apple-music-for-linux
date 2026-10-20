@@ -7,6 +7,12 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.83-dev.1] — Fixed: lyrics a little late on first play
+
+### Fixed
+- **Lyrics a little late with look-ahead.** At each song's start the words could stand still at 0:00 for over a second and then jump; after that they could run about 0.15 s behind the singing for the whole song, with a small correction every few seconds. The song clock now starts with the music and settles within a few seconds to the true timing.
+- **Precise times after a song change.** Sonata now reads the precise time from the audio that is actually playing, also when Apple's player moves the next song to another audio element. Song reports say which kind of time each song ran on.
+
 ## [0.15.82-dev.1] — One Check for updates for Sonata and the helper
 
 ### Changed
