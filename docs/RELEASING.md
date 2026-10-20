@@ -93,7 +93,7 @@ Not in CI: these need a display (Xvfb) and minutes of wall time. Each runs its o
 | Release | Checks |
 |---|---|
 | Every change | `npm test` and `npm run gates` (CI runs both) |
-| Development (`X.Y.Z-dev.N`) | the UI checker phases (`tools/ui-check.js`, including `every`), **`tools/check_budgets.sh`** (quick, ~10 min: every budget in `tools/budgets.json` once; it exits 1 on a FAIL) and a packaged AppImage smoke start |
+| Development (`X.Y.Z-dev.N`) | the UI checker phases (`tools/ui-check.js`, including `every`), **`tools/check_budgets.sh`** (quick, ~10 min: every budget in `tools/budgets.json` once; it exits 1 on a FAIL) and the startup smoke, **`tools/smoke-start.sh`** (~30 s after `npm run dist`: starts `dist/linux-unpacked` once in an isolated copy and exits 1 on a main-process exception, an `Uncaught` in a Sonata page, a crash or a core dump within 20 s; `tools/smoke-start.sh dist/sonata-X.Y.Z-dev.N-x86_64.AppImage` smokes the AppImage itself, unpacked in a scratch folder: FUSE cannot mount inside the isolation) |
 | Stable (`X.Y.Z`) | all of the above, **`tools/check_budgets.sh --soak`** (~35 min: memory and listener growth over 30 minutes of playback) and Marcy's own QC |
 
 A FAIL blocks the tag until it is fixed, or until Marcy agrees to a new limit (changed in `tools/budgets.json`
