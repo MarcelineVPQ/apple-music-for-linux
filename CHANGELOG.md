@@ -8,6 +8,7 @@ See docs/RELEASING.md.
 ## [Unreleased]
 
 ### Fixed
+- **Look-ahead in album play starts with the song.** The timing helper does one job at a time, so the last song's end-of-song measurement made the next song's look-ahead wait 16-20 s, past most songs' first lines; that measurement now waits until the next song's look-ahead is running.
 - **Look-ahead survives a pause.** Pausing a song while look-ahead streamed it could end the timing helper a couple of minutes later (another part's job, waiting its turn behind the stream, was taken for a hung helper), so the song fell back to section timing with a mismatched notes band. Waiting jobs now wait, and a paused stream stays open.
 - **The notes band no longer shows another part's syllables at the playhead.** With look-ahead, a line the timing helper placed at another repeat of a chorus brought that part's notes and syllable labels; a streamed line's notes are now kept only where they sit on the line's own time in the lyrics (Apple's word times or the line times), the rest come with the pass after the song.
 - **One set of notes per line on a first play.** When look-ahead's stream stopped and the song's sections were timed instead, the band could show the stream's notes and the sections' for the same lines; a section's notes now replace the streamed ones it covers.

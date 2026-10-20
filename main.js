@@ -706,6 +706,8 @@ function getAlignSession() {
     alignSession = alignSessionLib.createAlignSession({
       createListener: getSharedListener(),
       helper: getAlignHelper(),
+      // look-ahead runs: the next song's stream goes to the helper before the last song's whole-song pass
+      streamFirst: () => lookaheadRuns(),
       store: { get: (k) => (lyricsStore ? lyricsStore.get(k) : null), set: (k, v) => { if (lyricsStore) lyricsStore.set(k, v) } },
       send: sendLyrics,
       now: () => performance.now(),

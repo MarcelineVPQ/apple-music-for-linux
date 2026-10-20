@@ -810,6 +810,12 @@ function givenNotesMessages(id, song, raw, syllables, pcm, opts = {}) {
 // true when the lyrics give no time to check against. A part that doesn't fit is dropped (the pass after the song
 // measures it on the right audio).
 const STREAM_FIT_S = 1.5
+// Stream first (systems research 2026-10-19, "Stream-first scheduling"): the helper runs one job at a time in arrival
+// order, so the last song's whole-song pass sent at its end held the next song's look-ahead stream ~16-20 s, past most
+// first lines. While look-ahead runs, that pass waits until the next song's stream is ready (or failed, or the next
+// song has none) and at most STREAM_FIRST_MS. Which job the helper runs first is the engine's own (a job already
+// running there can't be passed): this only orders what Sonata sends.
+const STREAM_FIRST_MS = 20000
 function streamPartFits(part, raw, i) {
   const line = raw && raw[i]
   if (!line || line.t == null || !part) return true
@@ -918,7 +924,7 @@ function createAlignSession(deps) {
       if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true }) }
       return
     }
-    if (msg.type === 'stream') { s.stream.ready = true; log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
+    if (msg.type === 'stream') { s.stream.ready = true; streamNews(); log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
     // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used
     if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return
     const m = streamedMessage(s.raw, msg.lines)
@@ -940,6 +946,7 @@ function createAlignSession(deps) {
       log('stream of "' + s.title + '" failed (' + ((e && (e.code || e.message)) || '?') + '): its sections are aligned instead')
       s.streamFailed = (e && e.code) || 'error'
       s.stream = null
+      streamNews()
     })
   }
   function closeStream(s, cancel) {
@@ -993,6 +1000,27 @@ function createAlignSession(deps) {
   // before 0.15.33: one global alignment is a little better than the sections, so it is what gets
   // cached). The result is merged into the song's cache entry and, if the song is still on screen,
   // sent to the lyric views (lyrics window, visualizer).
+  // waits for the song on screen's stream (see STREAM_FIRST_MS); resolved by streamNews() or the time limit
+  // cache: OK — key=a whole-song pass waiting for the next stream; invalidated=that stream ready/failed, no stream, or the limit; bound=the passes queued (1-2)
+  let streamWaiters = []
+  function streamFirst(s) {
+    const ready = () => { const n = song; return !!n && n !== s && (!n.lookahead || !!n.streamFailed || !!(n.stream && n.stream.ready) || n.sent || n.failed) }
+    if (ready()) return Promise.resolve()
+    return new Promise((resolve) => {
+      // loop: NOT-WORTH — the passes waiting (1-2), once when one goes
+      const w = { ready, done: () => { clearT(w.timer); streamWaiters = streamWaiters.filter((x) => x !== w); resolve() } }
+      // lifetime: OK — one-shot limit per waiting pass, cleared when it goes (streamNews)
+      w.timer = setT(() => { log('the whole-song pass of "' + s.title + '" waited ' + STREAM_FIRST_MS / 1000 + ' s for the next song\'s stream: sent now'); w.done() }, STREAM_FIRST_MS)
+      streamWaiters.push(w)
+    })
+  }
+  // afterSet: a new song's lyrics were just set; no song kept (nothing to time, switch off): no stream will come
+  function streamNews(afterSet) {
+    // loop: NOT-WORTH — the passes waiting (1-2), on a song change or a stream's ready / failure
+    for (const w of streamWaiters.slice()) if (w.ready() || (afterSet && !song)) w.done()
+  }
+  const setT = deps.setTimeout || setTimeout
+  const clearT = deps.clearTimeout || clearTimeout
   function submit(s, sec) {
     const req = sec ? sectionRequest(s.raw, sec, sec === s.secs[0]) : { offset: 0, lines: requestLines(s.raw) }
     if (!sec) s.finalQueued = true
@@ -1029,6 +1057,11 @@ function createAlignSession(deps) {
       return null
     }
     const run = () => {
+      // the last song's whole-song pass: the next song's stream goes to the helper first (STREAM_FIRST_MS)
+      if (!sec && s !== song && deps.streamFirst && deps.streamFirst()) return streamFirst(s).then(go)
+      return go()
+    }
+    const go = () => {
       if (!start()) return never()
       if (s.failed) return never()
       // gaming guard: a job not started yet is skipped; its lines fill in on a later play
@@ -1346,6 +1379,8 @@ function createAlignSession(deps) {
      * ended). Recording starts for line-only lyrics that aren't fully aligned yet.
      */
     setLyrics(key, title, artist, raw, enabled, info) {
+      // error: NOT-WORTH — streamNews only resolves waiters (no throw)
+      if (streamWaiters.length) Promise.resolve().then(() => streamNews(true))
       if (song && song.key === key) return
       finish(true)
       // Sheet notes for lyrics with their own word timing: recorded for the notes only (no alignment)
