@@ -123,7 +123,7 @@ let vizArt = ''
 // the settings and what each may hold: settings-store.js (defaults, recovery from a damaged file, atomic saves)
 let settings = settingsStore.defaults()
 let settingsExisted = false   // a settings file was there at start (an install from before 0.15.32 has no lastRunVersion)
-// cache: FIX-STALE — key=title|artist; invalidated=next track (no fetch generation check); bound=one object
+// cache: OK — key=title|artist; invalidated=next track (a fetch for an earlier track is dropped: lastPaletteKey check); bound=one object
 let lastPalette = null
 // cache: OK — key=title|artist; invalidated=a new track, adaptive colour toggled; bound=one string
 let lastPaletteKey = null
@@ -2823,7 +2823,7 @@ function cleanupWindowPositionMemory() {
 // Every Sonata window takes the album's colour and (Glass on) the blurred artwork through ONE theme
 // object (themeState: theme.js computes the tokens in each page); the visualizer also keeps its
 // 'palette' (the sung word's glow).
-// cache: FIX-STALE — key=the palette's track; invalidated=with lastPalette (same race); bound=2 × ~3 KB
+// cache: OK — key=the palette's track; invalidated=with lastPalette (a late fetch for another track is dropped); bound=2 × ~3 KB
 let lastBackdrop = null    // { dark: { url, lumMin, lumMax }, light: {...} } for the current track
 function broadcastPalette(p) {
   const t = themeState()
@@ -2871,7 +2871,11 @@ async function refreshPalette(state) {
   if (!url) { lastPalette = null; lastBackdrop = null; broadcastPalette(null); return }
   try {
     const res = await fetch(url)
-    useArtwork(nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer())))
+    const buf = Buffer.from(await res.arrayBuffer())
+    // a later song started while this artwork loaded (a quick skip): its own fetch sets the colours, never this one
+    // (QC 2026-10 CACHE C1: the previous song's tint and Glass stayed for the rest of the next)
+    if (lastPaletteKey !== key) return
+    useArtwork(nativeImage.createFromBuffer(buf))
   } catch (e) { /* error: NOT-WORTH — artwork unreachable: the previous palette stays */ }
 }
 function useArtwork(full) {

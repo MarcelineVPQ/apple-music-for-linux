@@ -1,5 +1,5 @@
-// main.js: Apple's page failing to load (QC 2026-10 ERROR_PASS E1: offline at start, a blank area with no word and no
-// retry): a notice with Try again, the panel opened on it once, a retry by itself, cleared when the page loads.
+// main.js functions fixed in the QC 2026-10 batches, run on stubs (main.js itself needs Electron): Apple's page failing
+// to load, Integrations' unwritable config, the palette's late artwork fetch.
 'use strict'
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -58,4 +58,24 @@ test('Last.fm / Discord Connect: a config file that can\'t be written is shown',
   assert.deepEqual(shown.map((n) => [n.id, n.kind]), [['discord', 'error'], ['lastfm', 'error']])
   assert.match(shown[0].text, /Discord can't be set up: its settings file couldn't be written \(EROFS\)/)
   assert.match(shown[1].detail, /\/ro\/lastfm\.json/)
+})
+
+// QC 2026-10 CACHE_PASS C1: a quick skip while artwork loads left the previous song's tint and Glass
+test('refreshPalette: a late artwork fetch for the previous song never sets the colours', async () => {
+  const used = []
+  const pending = []
+  const env = {
+    settings: { adaptiveColor: true }, process: { env: {} }, lastPalette: null, lastBackdrop: null, lastPaletteKey: null,
+    broadcastPalette () {}, Buffer, nativeImage: { createFromBuffer: (b) => b.toString() },
+    useArtwork: (img) => used.push(img),
+    fetch: (url) => new Promise((resolve) => pending.push(() => resolve({ arrayBuffer: async () => new TextEncoder().encode(url).buffer })))
+  }
+  const refresh = new Function('env', 'with (env) { ' + main.slice(main.indexOf('async function refreshPalette('), main.indexOf('\n}\n', main.indexOf('async function refreshPalette(')) + 2) + '; return refreshPalette }')(env)   // eslint-disable-line no-new-func
+  const a = refresh({ title: 'A', artist: 'x', artworkLarge: 'art-A' })
+  const b = refresh({ title: 'B', artist: 'x', artworkLarge: 'art-B' })
+  pending[1]()                                         // B's artwork first
+  await b
+  pending[0]()                                         // then A's, late
+  await a
+  assert.deepEqual(used, ['art-B'])
 })
