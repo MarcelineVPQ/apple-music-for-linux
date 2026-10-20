@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.82-dev.1",
-  "file": "sonata-0.15.82-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.82-dev.1/sonata-0.15.82-dev.1-x86_64.AppImage",
-  "sha512": "723787d96e6eafdaf1fe0b356dfe8e5c2beb32f90ff3dd5d45868d3e76ce66c1ff49f1ea5fe47f02a635d93c291462009088557dc582916792766637bc1f2e24",
-  "size": 127656251,
-  "date": "2026-10-20T15:51:52Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.82-dev.1",
-  "notes": "### Changed\n- **One Check for updates for Sonata and the helper.** Settings → Updates → Check for updates (and the tray's Check for Updates…) now checks the Precise timing helper too: \"Sonata 0.15.82 Dev and helper 0.2.10 Dev are up to date\", or that a newer helper is available. The Helper row shows the answer; its own button from 0.15.81 is gone.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.82-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.83-dev.1",
+  "file": "sonata-0.15.83-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.83-dev.1/sonata-0.15.83-dev.1-x86_64.AppImage",
+  "sha512": "b4f200a6ab4fb6e821bf91961fdfe8e1e9dec5b5dbe579dc430fbca38d8bafd58568c000788bbb2abcebd24d7b80aee73397a385cac5f8fa3b4decb4c0f37ee2",
+  "size": 127656265,
+  "date": "2026-10-20T17:11:00Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.83-dev.1",
+  "notes": "### Fixed\n- **Lyrics a little late with look-ahead.** At each song's start the words could stand still at 0:00 for over a second and then jump; after that they could run about 0.15 s behind the singing for the whole song, with a small correction every few seconds. The song clock now starts with the music and settles within a few seconds to the true timing.\n- **Precise times after a song change.** Sonata now reads the precise time from the audio that is actually playing, also when Apple's player moves the next song to another audio element. Song reports say which kind of time each song ran on.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.83-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
