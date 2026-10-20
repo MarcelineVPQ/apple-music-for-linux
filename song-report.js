@@ -29,6 +29,7 @@ function newSong(info) {
   }
 }
 
+// loop: NOT-WORTH — the sung lines' leads (≤ ~150), once per report
 const median = (xs) => { const a = xs.slice().sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2 }
 const secs = (x) => (x < 0 ? '−' : '') + Math.abs(x).toFixed(1) + ' s'
 
@@ -114,6 +115,7 @@ function reportText(s, clock) {
 /** One draw row's debug line (developer log): 'song report: line 12: notes shown · expr 2/3 (1 line already sung)'. */
 function drawLine(r) {
   const n = r.n == null ? 'band not shown' : r.n ? 'notes shown' : 'no notes'
+  // loop: NOT-WORTH — a line's skip reasons (≤ 5), per line lit with the developer log on
   const x = r.x && r.x.m ? 'expr ' + r.x.d + '/' + r.x.m + (Object.keys(r.x.s || {}).length ? ' (' + Object.entries(r.x.s).map(([k, v]) => v + ' ' + k).join(', ') + ')' : '') : 'no expr'
   return 'song report: line ' + (r.i + 1) + ': ' + n + ' · ' + x
 }

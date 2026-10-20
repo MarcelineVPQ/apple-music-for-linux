@@ -999,7 +999,7 @@ test('main sendSheet: the same song\'s new pitch pieces go as a delta; a new son
 test('main firstPlaySection: a section\'s part replaces the streamed lines it covers; a later streamed line it covers is skipped', () => {
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
   const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
-  const env = { firstPlay: null, sheet: null, lyricsKey: '', alignHelper: null, expressiveOn: () => false,
+  const env = { songClock: { time: () => 0 }, songReport: { arrived () {} }, firstPlay: null, sheet: null, lyricsKey: '', alignHelper: null, expressiveOn: () => false,
     getSheetStore: () => ({ get: () => null }), sheetModel: { entryValid: () => false }, firstPlayUnfinished: () => {}, refining: null, console: { log () {} } }
   const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func
   const s = { key: 'k', id: 's1', hash: 'h', title: 'T', artist: 'A' }
@@ -1026,7 +1026,7 @@ test('main sheetNotesFailed: a failed whole-song pass keeps the first play\'s pa
   const io = { mkdirSync () {}, writeFileSync: (f, t) => files.set(f, t), renameSync: (a, b) => { files.set(b, files.get(a)); files.delete(a) }, readFileSync: (f) => { if (!files.has(f)) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e } return files.get(f) }, readdirSync: () => [], statSync: () => ({ mtimeMs: 0 }), unlinkSync: (f) => files.delete(f), existsSync: (f) => files.has(f) }
   const store = S.createSheetNotesStore({ dir: '/x', io })
   const logs = []
-  const env = { firstPlay: null, firstPlayWaiting: null, sheet: null, lyricsKey: '', alignHelper: null, refining: null, expressiveOn: () => true, sheetNotesOn: () => true,
+  const env = { songClock: { time: () => 0 }, songReport: { arrived () {} }, firstPlay: null, firstPlayWaiting: null, sheet: null, lyricsKey: '', alignHelper: null, refining: null, expressiveOn: () => true, sheetNotesOn: () => true,
     getSheetStore: () => store, sheetModel: M, firstPlayUnfinished: () => {}, sendSheet: () => {}, app: { getVersion: () => '0.15.72-dev.1' }, console: { log: (m) => logs.push(m) } }
   const src = ['firstPlaySection', 'firstPlaySectionHas', 'firstPlayFor', 'firstPlayHeard', 'keepFirstPlay', 'sheetNotesFailed'].map(fn).join('')
   const api = new Function('env', 'with (env) { ' + src + '; return { firstPlaySection, sheetNotesFailed } }')(env)   // eslint-disable-line no-new-func
@@ -1056,7 +1056,7 @@ test('main firstPlaySection: after a failed stream, arrived section notes are dr
   const main = require('fs').readFileSync(require('path').join(__dirname, '..', 'main.js'), 'utf8')
   const fn = (name) => { const at = main.indexOf('function ' + name + '('); return main.slice(at, main.indexOf('\n}\n', at) + 2) }
   let sent = 0
-  const env = { firstPlay: null, firstPlayWaiting: null, lyricsKey: 'k', alignHelper: null, expressiveOn: () => false, refining: null,
+  const env = { songClock: { time: () => 0 }, songReport: { arrived () {} }, firstPlay: null, firstPlayWaiting: null, lyricsKey: 'k', alignHelper: null, expressiveOn: () => false, refining: null,
     getSheetStore: () => ({ get: () => null }), sheetModel: M, firstPlayUnfinished: () => {}, app: { getVersion: () => '0.15.72-dev.1' },
     sheet: { key: 'k', pitch: [], entry: null, sung: [], end: 300 }, sendSheet: () => { sent++ }, console: { log () {} } }
   const run = new Function('env', 'with (env) { ' + fn('firstPlaySection') + fn('firstPlaySectionHas') + fn('firstPlayFor') + '; return firstPlaySection }')(env)   // eslint-disable-line no-new-func

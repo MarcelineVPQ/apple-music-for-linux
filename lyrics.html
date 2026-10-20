@@ -1063,7 +1063,7 @@
   // at most, and the rest at a new song. Idle cost: none (no timer while no line lights).
   const DRAW_FLUSH_MS = 2000
   let drawKey = ''
-  let drawRows = []
+  let drawRows = []   // cache: OK — key=the song's lines lit since the last flush; invalidated=each flush (≤ 2 s, a new song); bound=a few rows
   let drawTimer = 0
   function drawFlush() {
     if (drawTimer) { clearTimeout(drawTimer); drawTimer = 0 }
