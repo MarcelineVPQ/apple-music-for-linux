@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.63-dev.1" date="2026-10-19" type="development">
+      <description>
+        <p>Songs with a gap in their notes re-learn themselves</p>
+      </description>
+    </release>
     <release version="0.15.62-dev.1" date="2026-10-19" type="development">
       <description>
         <p>Words no longer jump, and one clock keeps lyrics, sheet notes and effects in step</p>
