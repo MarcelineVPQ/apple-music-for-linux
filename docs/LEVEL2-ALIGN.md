@@ -605,8 +605,8 @@ version or text is asked again, `settings.alignLicenceVersion`), `released`, `no
 `min_sonata` / `max_sonata`. Sonata accepts any engine whose protocol it installs, at least engine.json's version and inside the
 min/max range: engine.json is the minimum, not the only engine. Checked 25 s after start, hourly on Development and
 every 6 h on Stable, and when Precise timing opens (at most every 30 min), only with *Check for updates automatically* on;
-the Helper row's *Check for updates* asks at once (read fresh past GitHub's CDN cache, as Sonata's own check), also with
-automatic checks off, and says "Up to date" or the error in the row for a minute; Settings,
+Settings → Updates → *Check for updates* (one button for Sonata and the helper) asks at once (read fresh past GitHub's CDN cache, as Sonata's own check), also with
+automatic checks off, and the Helper row says "Up to date" or the error for a minute; Settings,
 the section header and the rail then say "Helper update available". align-helper.js runs the engine named
 in `<home>/active-engine` when its protocol is one it speaks and it is at least the pinned version, else
 the pinned one. *Update the helper automatically* (off by default) installs a newer one by itself, once

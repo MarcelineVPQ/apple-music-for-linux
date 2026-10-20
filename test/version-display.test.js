@@ -78,6 +78,11 @@ test('every update text people read (toasts, notices, notifications, status line
   }
   assert.equal(U.upToDateText(DEV, 'dev'), 'Sonata 0.15.45 Dev is up to date (Development).', 'the toast in Marcy\'s screenshot')
   assert.equal(U.upToDateText('0.15.44', 'stable'), 'Sonata 0.15.44 is up to date (Stable).')
+  // one Check for updates for Sonata and its helper (Marcy 2026-10-20)
+  assert.equal(U.upToDateText('0.15.81-dev.1', 'dev', { version: '0.2.10-dev.1', state: 'current' }), 'Sonata 0.15.81 Dev and helper 0.2.10 Dev are up to date (Development).')
+  assert.equal(U.upToDateText('0.15.81-dev.1', 'dev', { version: '0.2.10-dev.1', state: 'available', available: '0.2.11-dev.1' }), 'Sonata 0.15.81 Dev is up to date (Development). Helper 0.2.11 Dev is available: Settings → Precise timing.')
+  assert.match(U.upToDateText('0.15.81-dev.1', 'dev', { version: '0.2.10-dev.1', state: 'failed' }), /up to date \(Development\)\. The helper couldn't be checked: Settings → Precise timing says why\.$/)
+  assert.equal(U.upToDateText('0.15.81-dev.1', 'dev', { version: '', state: 'current' }), 'Sonata 0.15.81 Dev is up to date (Development).', 'no helper installed')
   assert.equal(U.updatedText(DEV), 'Updated to Sonata 0.15.45 Dev.')
   assert.equal(U.updateNotification({ phase: 'ready', version: '0.15.46-dev.2' }).title, 'Sonata 0.15.46 Dev is installed')
   assert.equal(U.updateNotice({ phase: 'available', version: '0.15.46-dev.2' }, {}).dismissKey, 'update:0.15.46-dev.2', 'keys keep the raw version')

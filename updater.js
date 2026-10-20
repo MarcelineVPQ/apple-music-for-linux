@@ -99,8 +99,16 @@ function statusLine(st, current, channel) {
   }
 }
 
-// The toast after Check for updates found nothing newer: "Sonata 0.15.45 Dev is up to date (Development)."
-const upToDateText = (current, channel) => V.full(current) + ' is up to date (' + V.channelName(channel) + ').'
+// The toast after Check for updates found nothing newer: "Sonata 0.15.45 Dev is up to date (Development)."; with the
+// helper checked too (main.js helperUpToDate): "Sonata 0.15.81 Dev and helper 0.2.10 Dev are up to date (Development)."
+function upToDateText(current, channel, helper) {
+  const ch = ' (' + V.channelName(channel) + ').'
+  if (!helper || !helper.version) return V.full(current) + ' is up to date' + ch
+  const h = 'helper ' + V.short(helper.version)
+  if (helper.state === 'available') return V.full(current) + ' is up to date' + ch + ' Helper ' + V.short(helper.available) + ' is available: Settings → Precise timing.'
+  if (helper.state === 'failed') return V.full(current) + ' is up to date' + ch + ' The helper couldn\'t be checked: Settings → Precise timing says why.'
+  return V.full(current) + ' and ' + h + ' are up to date' + ch
+}
 // The notice once after an update: "Updated to Sonata 0.15.45 Dev."
 const updatedText = (version) => 'Updated to ' + V.full(version) + '.'
 // The desktop notification while Sonata is in the tray (available or ready), or null

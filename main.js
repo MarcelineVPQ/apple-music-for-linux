@@ -3654,7 +3654,7 @@ let gpuCards = null             // gpu-detect.js detect(): the graphics found (s
 let helperAutoTried = ''        // the version an automatic update last tried (one try per version)
 let helperPushTimer = null
 let helperFeedFirst = null
-let helperCheck = { phase: '', why: '' }   // Check for updates on the Helper row: '' | 'checking' | 'current' | 'failed'
+let helperCheck = { phase: '', why: '' }   // the helper's answer to Check for updates, in its row: '' | 'checking' | 'current' | 'failed'
 let helperCheckClear = null
 let helperFeedTimer = null
 // a job a quit, a crash or a power cut stopped continues at the next start (Marcy 2026-10-19): while one
@@ -3939,8 +3939,8 @@ function helperAutoUpdate() {
   console.log('helper: updating to ' + engineOffer.offer.version + ' by itself (Update the helper automatically)')
   helperStart('update')
 }
-// interactive: Check for updates on the Helper row (works with automatic checks off too): reads the feed fresh and
-// says the result in the row (helperCheck), 'Up to date' for a minute
+// interactive: Check for updates (Settings → Updates, the tray; works with automatic checks off too): reads the feed
+// fresh and says the result in the Helper row (helperCheck), 'Up to date' for a minute
 async function checkEngineFeed(force, interactive) {
   if (!settings.checkForUpdates && !interactive) return
   const ch = settings.updateChannel === 'dev' ? 'dev' : 'stable'
@@ -3992,8 +3992,6 @@ function helperAction(name) {
   else if (name === 'helper-decline') { inst.decline(); clearHelperJob() }
   else if (name === 'helper-cancel') inst.cancel()
   else if (name === 'helper-dismiss') inst.dismiss()
-  // error: NOT-WORTH — checkEngineFeed catches its feed fetch (SHOWN in the row)
-  else if (name === 'helper-check') { if (helperCheck.phase !== 'checking') checkEngineFeed(true, true) }
   else if (name === 'helper-remove') {
     if (inst.busy) return
     helperConfirm = true
@@ -4730,7 +4728,7 @@ ipcMain.on('apple:volume', (event, steps) => {
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — anything else (another sender, a subframe, an unknown command or a bad argument) is dropped
 const PANEL_ACTIONS = ['lastfm', 'discord', 'check-now', 'show-timing', 'back-to-stable', 'back-cancel', 'shortcuts-configure', 'shortcuts-ask-again', 'shortcuts-reset', 'gfx-restart', 'gfx-back-on', 'curious-copy',
-  'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-check', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
+  'helper-install', 'helper-update', 'helper-repair', 'helper-rebuild', 'helper-accept', 'helper-decline', 'helper-cancel', 'helper-dismiss', 'helper-remove', 'helper-remove-cancel', 'helper-remove-keep', 'helper-remove-all']
 ipcMain.on('panel:command', (event, command, a, b, c) => {
   if (!mainAlive() || !event.senderFrame || event.senderFrame.parent) return
   if (!panelModel.COMMANDS.includes(command)) return
@@ -5166,13 +5164,24 @@ function onUpdateState() {
   pushPanel()
 }
 function installUpdate() { updater.install() }
+// One Check for updates for Sonata and its helper (Marcy 2026-10-20: "1 update button that checks for both"):
+// Settings → Updates and the tray's Check for Updates…; the Helper row says the helper's answer
 async function checkForUpdates(interactive) {
+  // the helper too when the button was pressed and one is installed (automatic checks keep their own timer)
+  // error: NOT-WORTH — checkEngineFeed catches its feed fetch (SHOWN in the Helper row)
+  const helper = interactive && alignHealth && alignHealth.state === 'ok' ? checkEngineFeed(true, true) : null
   if (!appImagePath) {
     if (interactive) toast('Only the AppImage updates itself; from source, update with git pull.')
     return
   }
   const st = await updater.check({ interactive })
-  if (interactive && st.phase === 'up-to-date') toast(updaterLib.upToDateText(app.getVersion(), settings.updateChannel))
+  if (helper) await helper
+  if (interactive && st.phase === 'up-to-date') toast(updaterLib.upToDateText(app.getVersion(), settings.updateChannel, helper ? helperUpToDate() : null))
+}
+// the helper's part of the "up to date" toast: { version, state: 'current' | 'available' | 'failed' }
+function helperUpToDate() {
+  const state = helperCheck.phase === 'failed' ? 'failed' : engineOffer.state === 'available' ? 'available' : 'current'
+  return { version: alignPaths.engineVersion || '', state, available: state === 'available' ? engineOffer.offer.version : '' }
 }
 // Back to stable (confirmed in the panel): the Stable channel, then its newest release even if older
 async function backToStable() {

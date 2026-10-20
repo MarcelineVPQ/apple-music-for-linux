@@ -602,7 +602,7 @@
         // from source (no AppImage) nothing here can do anything: one status line instead of greyed-out controls
         textBlock('note', (v) => (v.appImage ? '' : V.full(v.version) + ', running from source: only the AppImage updates itself. Update with git pull.')),
         actionRow(V.full(S && S.v && S.v.version), (v) => v.updateLine || '',
-          [{ label: 'Check for updates', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check the update feed now' }], { hidden: (v) => !v.appImage }),
+          [{ label: 'Check for updates', action: 'check-now', disabled: (v) => v.updateBusy, tip: () => 'Check Sonata and the Precise timing helper for updates now' }], { hidden: (v) => !v.appImage }),
         selectRow('updateChannel', 'Update channel', '', [['stable', V.channelName('stable')], ['dev', V.channelName('dev')]],
           { desc: (v) => (v.updateChannel === 'dev' ? 'Newer builds before release, less tested' : 'Tested releases, for everyone'),
             info: (v) => (v.updateChannel === 'dev' ? 'Development builds before they\'re released: newer, less tested. You also get every stable release.' : 'Tested releases, for everyone. Development builds come before they\'re released: newer, less tested.'),
