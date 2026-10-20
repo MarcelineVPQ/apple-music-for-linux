@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.66-dev.1",
-  "file": "sonata-0.15.66-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.66-dev.1/sonata-0.15.66-dev.1-x86_64.AppImage",
-  "sha512": "a8f98f4abce6a885b3f6cdfb6d48f5c12b93c8e78c34d48d97015697213695df3b5d9870e7513c52fc793007c70aa26f4133ceadc4faab5a2bab93abde9bc6b0",
-  "size": 127574375,
-  "date": "2026-10-20T01:01:32Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.66-dev.1",
-  "notes": "### Fixed\n\n- No more silence at the start of songs: look-ahead stays out of the audio path when it's off. Its\n  helper ran, with Sonata's sound routed through it, whenever the switch had once been turned on, even\n  while the switch was off for want of Precise word timing; now it runs only while the switch is on and\n  working. When it does run, a song change is never taken for a seek, a song with no delay is never\n  gated, and a seek the player doesn't confirm lets the sound through after 100 ms (it was 3 s, which\n  cost the first verse).\n- No jump at the start of a song: the clock waits for the song change. Apple's player gives the new\n  song's time a moment before it names the new song; that time was read as a seek in the old song, so\n  the old words and the sheet-notes band flashed back to 0:00. A drop to a song's start now waits up to\n  1.5 s for the song change, and a new song's first moments settle in smoothly instead of in a step.\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.66-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.67-dev.1",
+  "file": "sonata-0.15.67-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.67-dev.1/sonata-0.15.67-dev.1-x86_64.AppImage",
+  "sha512": "f72d07e7df6a8a76af8a9af92f3b9acf958464f525a02f925f8c5a032f4c0d58e05a30629aa8de4fe74edd766798dd7a4c7e900a9bec167eb4570d0122317010",
+  "size": 127574364,
+  "date": "2026-10-20T01:04:28Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.67-dev.1",
+  "notes": "### Fixed\n\n- A long held note whose stretched letters ran out of room on the right (\"Look at me nooow,\") now makes\n  room from the left: after the free space on the right, the words already sung on that row slide left\n  (off the edge if need be) and the held word with them, so the whole stretch shows; the words not yet\n  sung never move back. The same in centred and right-aligned (duet) lines. They glide back when the note\n  ends; with reduced motion nothing slides.\n- With HDR output on, a stretched word no longer shows doubled letters (\"now,oow,\"): the HDR glow drew\n  the word as written under the stretched spelling; it now steps aside while the letters stretch.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.67-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
