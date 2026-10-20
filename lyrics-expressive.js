@@ -228,6 +228,20 @@ function lineExpressions(doc, lineIndex, words, glue) {
   return out
 }
 
+/**
+ * A held word's expression that reached the view while its vowel is already sung (look-ahead's first play: a
+ * hold's length is known only once it ends, so a long one at a line's end arrives after the listener reached
+ * it; 2026-10-19, "Jesus Doesn't Want Me for a Sunbeam" drew no Expressive word at all): its stretch and ghost
+ * grow from `now` over what is left of the hold, so no letter appears at once. Too little left (LATE_MIN):
+ * only its shading. Not yet sung, or a word without a measured vowel: as it is.
+ */
+const LATE_MIN = 0.3
+function lateFrom(m, now) {
+  if (!m || m.vt == null || num(now) === null || !(now > m.vt)) return m
+  if (!(m.ve - now >= LATE_MIN)) return Object.assign({}, m, { stretch: false, extra: 0, ghost: null, vb: null })
+  return Object.assign({}, m, { vt: now, hold: m.ve - now })
+}
+
 /** A matched word draws something the eye sees: ink, a lighter shade, a stretch, a vibrato or a ghost. */
 const shows = (m) => !!(m && (m.ink > 0 || m.quiet || m.stretch || m.vb || m.ghost))
 
@@ -594,6 +608,6 @@ function noteFor(state) {
 module.exports = {
   noteFor,
   VERSIONS, FORMAT, CONF_MIN, HOLD_MIN, LETTER_S, MAX_EXTRA, GHOST_MIN, GHOST_ENTER, GHOST_FADE, GHOST_MAX, WAVE_EM, VOCALISE,
-  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, lineExprReport, shows, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
+  compact, mergeSection, forView, vocaliseExpressions, matchWord, lineExpressions, lateFrom, LATE_MIN, lineExprReport, shows, stretchTimeline, letterBirth, codaRide, visibleExtras, squeezePlan, nudgePx, splitPush, nudgeTiming, bornAt, contourPx, heldAt, defaultOn, waveKeyframes,
   contourAt, loudAt, ghostPlan, ghostLetterBirth, hash01, summary, statusLine
 }

@@ -909,9 +909,19 @@ function createLyricsView(opts) {
       if (!e || !e.main || !line || line.t === null || !line.words || !line.words.length) continue
       const xl = d ? X.lineExpressions(d, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null) : []
       if (xKey(xl) === (e.xk || '')) continue
-      // the line being sung: only words not reached yet may change, and none of its expressions may be playing
-      // loop: HOT-PATH-OK — the expressions playing (≤ ~5), per line whose expression changed
-      if ((live.has(i) && (firstChange(e.x, xl) < (e.pos ? e.pos.k : 0) || xlive.some((x) => x.line === i && x.it && x.it.i >= 0))) || (p.final && onScreen(e))) { left++; continue }
+      if (p.final && onScreen(e)) { left++; continue }
+      if (live.has(i)) {
+        // the line being sung, while none of its expressions plays: its words sung already keep what they drew
+        // (the rest at the next line boundary), the word being sung and those still to come take theirs; the
+        // word being sung grows from now (lateFrom: look-ahead's line notes reach a long held word only while
+        // it is sung, 2026-10-19 "Jesus Doesn't Want Me for a Sunbeam" drew nothing at all)
+        // loop: HOT-PATH-OK — the expressions playing (≤ ~5), per line whose expression changed
+        if (xlive.some((x) => x.line === i && x.it && x.it.i >= 0)) { left++; continue }
+        const now = litXl(e, xl)
+        if (now.wait) left++
+        if (xKey(now.xl) !== (e.xk || '')) relayLine(e, line, now.xl)
+        continue
+      }
       relayLine(e, line, xl)
     }
     xdoc = d
@@ -935,16 +945,31 @@ function createLyricsView(opts) {
     xvoc = xdoc ? X.vocaliseExpressions(xdoc, lines).map((m, k) => ({ i: -1, k, m })) : []
     xvocStale = false
   }
-  // the first word whose expression differs between a line's drawn one (entry.x, null: none) and xl (Infinity: none)
-  function firstChange(was, xl) {
-    const a = new Map((was || []).map((x) => [x.i, JSON.stringify(x.m)]))   // loop: NOT-WORTH — one line's measured words (0-12), per changed line
-    let min = Infinity
-    // loop: NOT-WORTH — one line's measured words (0-12), per changed line
-    for (const x of xl) { if (a.get(x.i) !== JSON.stringify(x.m)) min = Math.min(min, x.i); a.delete(x.i) }
-    for (const i of a.keys()) min = Math.min(min, i)   // loop: NOT-WORTH — the words that lost theirs (a few)
-    return min
+  // the lit line's expression for now (applyExpr): the words still to come take xl's; the word being sung, and a
+  // word sung already whose measured vowel still sounds and that drew nothing (the lyrics' word time often ends
+  // before the held note does), take xl's from the song time shown (lateFrom); the other words sung keep their
+  // drawn one (entry.x). wait: xl differs from that: the rest at the next line boundary.
+  function litXl(e, xl) {
+    const cur = e.pos ? (e.pos.now >= 0 ? e.pos.now : e.pos.k) : 0
+    const now = shownTime
+    // loop: NOT-WORTH — one line's measured words (0-12), per changed lit line
+    const drew = new Map((e.x || []).map((x) => [x.i, x]))
+    const out = []
+    // loop: NOT-WORTH — as above
+    for (const x of xl) {
+      const was = drew.get(x.i)
+      drew.delete(x.i)
+      const sounding = now !== null && x.m.ve != null && x.m.ve - now >= X.LATE_MIN && !(was && X.shows(was.m))
+      if (x.i > cur || (x.i === cur && now === null)) out.push(x)
+      else if (x.i === cur || sounding) out.push({ i: x.i, m: X.lateFrom(x.m, now) })
+      else if (was) out.push(was)
+    }
+    // loop: NOT-WORTH — the words that lost their expression (a few): a sung one keeps it until the boundary
+    for (const [i, was] of drew) if (i < cur) out.push(was)
+    out.sort((a, b) => a.i - b.i)
+    return { xl: out, wait: xKey(out) !== xKey(xl) }
   }
-  // one line's words again with new expression (no expression of it playing; a lit line only ahead of what is sung, applyExpr); the sung marks stay
+  // one line's words again with new expression (no expression of it playing; a lit line's sung words keep theirs, litXl); the sung marks stay
   function relayLine(e, line, xl) {
     const old = e.words
     const was = e.main
@@ -1350,10 +1375,10 @@ function createLyricsView(opts) {
     // loop: HOT-PATH-OK — the live lines (1-3), per render (word changes + 2/s time pushes); one small Set
     const next = new Set(gi >= 0 ? [] : liveNow.filter((i) => !lines[i].quiet))
     // loop: HOT-PATH-OK — the live lines (1-3, a few in an overlap) per rendered frame
-    for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current') }
+    for (const i of live) if (!next.has(i)) { lineEls[i].el.classList.remove('active'); if (keys) lineEls[i].el.removeAttribute('aria-current'); if (opts.onLineSung) opts.onLineSung(i, sungReport(i)) }
     for (const i of next) {
       const e = lineEls[i]
-      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null; if (keys) e.el.setAttribute('aria-current', 'true'); if (opts.onLineLit) opts.onLineLit(i, litReport(i)) }
+      if (!live.has(i)) { e.el.classList.add('active'); e.pos = e.bgPos = null; if (keys) e.el.setAttribute('aria-current', 'true') }
       if (e.words.length) e.pos = paintWords(e.words, lines[i].words, time + WORD_LEAD, e.pos, e.side)
       if (e.bg.length) e.bgPos = paintWords(e.bg, lines[i].bg, time + WORD_LEAD, e.bgPos, e.side)
     }
@@ -1411,18 +1436,24 @@ function createLyricsView(opts) {
     if (slides && !still() && !jump) for (const s of slides) s.el.animate([{ transform: 'translateY(' + s.dy + 'px)' }, { transform: 'none' }], { duration: 300, easing: 'ease' })
   }
 
-  // the song report (song-report.js, through opts.onLineLit): when a line lights, what its Expressive words drew
-  // against what the helper measured for it; a word the view could draw but didn't came after the line lit
-  // (its expression waits for the next boundary: "line already sung"). Once per line lit, not per frame.
-  function litReport(i) {
+  // the song report (song-report.js, through opts.onLineSung): when a line has been sung (it goes out, or the song
+  // changes while it is lit), what its Expressive words drew against what the helper measured for it; a word the
+  // view could draw but didn't got its expression only after it was sung ("came after it was sung"; look-ahead's
+  // line notes come while the line is sung, so a report taken when it lit saw none). Once per line, not per frame.
+  // the song report: the lines still lit when the song changes have been sung too (lyrics.html, before the new song's data)
+  function reportLit() {
+    // loop: NOT-WORTH — the live lines (1-3), once per song
+    if (opts.onLineSung) for (const i of live) if (lineEls[i] && lines[i]) opts.onLineSung(i, sungReport(i))
+  }
+  function sungReport(i) {
     const e = lineEls[i]
     const line = lines[i]
     const d = xpend ? xpend.expr : xdoc
     const r = X.lineExprReport(d, i, line.words, line.text != null ? T.wordGlue(line.text, line.words) : null)
-    // loop: NOT-WORTH — the line's drawn words (0-3), once per line lit
+    // loop: NOT-WORTH — the line's drawn words (0-3), once per line sung
     const drawn = e && e.x ? e.x.filter((x) => X.shows(x.m)).length : 0
     const late = Math.max(0, r.drawable - drawn)
-    if (late) r.skip['line already sung'] = (r.skip['line already sung'] || 0) + late
+    if (late) r.skip['came after it was sung'] = (r.skip['came after it was sung'] || 0) + late
     return { m: r.measured, d: Math.min(drawn, r.measured), s: r.skip }
   }
 
@@ -1885,6 +1916,7 @@ function createLyricsView(opts) {
     alignState: setAlignState,
     exprNote: setXNote,
     express,
+    reportLit,
     stream,
     time: () => T.clockTime(clock, performance.now()),
     // the clock's speed now (0 paused, 0.5-1.5 while it eases) and its discontinuity count: the band follows both

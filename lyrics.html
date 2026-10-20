@@ -1053,17 +1053,17 @@
     onRoom: (el) => placeOver(el),
     onFrame: (time) => updateRing(time),
     // the song report (main.js songReport): each line lit, what the band and Expressive words drew for it
-    onLineLit: (i, x) => drawReport(i, x),
+    onLineSung: (i, x) => drawReport(i, x),
     // what is true about each source (lyrics-view.js statusText: ≤ 60 characters, the rest behind the ⓘ)
     emptyText: (data) => require('./lyrics-view').statusText(data)
   })
 
-  // --- the song report's draw side: per line lit, the band's notes (shown / not / band hidden) and the Expressive
+  // --- the song report's draw side: per line sung, the band's notes (shown / not / band hidden) and the Expressive
   // words drawn vs measured, batched to main ('lyrics-command' 'draws'): one message per DRAW_FLUSH_MS of lines
-  // at most, and the rest at a new song. Idle cost: none (no timer while no line lights).
+  // at most, and the rest at a new song. Idle cost: none (no timer while no line is sung).
   const DRAW_FLUSH_MS = 2000
   let drawKey = ''
-  let drawRows = []   // cache: OK — key=the song's lines lit since the last flush; invalidated=each flush (≤ 2 s, a new song); bound=a few rows
+  let drawRows = []   // cache: OK — key=the song's lines sung since the last flush; invalidated=each flush (≤ 2 s, a new song); bound=a few rows
   let drawTimer = 0
   function drawFlush() {
     if (drawTimer) { clearTimeout(drawTimer); drawTimer = 0 }
@@ -1078,7 +1078,7 @@
   }
   // lifetime: OK — the lyrics feed's listeners ('lyrics-data', '-refined', '-aligned', '-time'), added once at load, released with the window
   ipcRenderer.on('lyrics-data', (event, data) => {
-    if (data.key !== drawKey) { drawFlush(); drawKey = data.key || '' }
+    if (data.key !== drawKey) { view.reportLit(); drawFlush(); drawKey = data.key || '' }
     // record speed for the spin: singles and EPs were 7" 45s, albums 33⅓ LPs
     single = / - (Single|EP)$/i.test(data.album || '')
     applyTurn()

@@ -93,7 +93,7 @@ test('lineExprReport: skip reasons counted (no vowel data, words differ, wrong r
 test('the draw side is wired: the view reports each line lit, the window batches to main, main checks the sender', () => {
   const fs = require('node:fs')
   const read = (f) => fs.readFileSync(require.resolve('../' + f), 'utf8')
-  assert.match(read('lyrics-view.js'), /opts\.onLineLit\(i, litReport\(i\)\)/)
+  assert.match(read('lyrics-view.js'), /opts\.onLineSung\(i, sungReport\(i\)\)/)
   assert.match(read('lyrics.html'), /ipcRenderer\.send\('lyrics-command', 'draws', \{ key: drawKey, rows: drawRows \}\)/)
   assert.match(read('main.js'), /command === 'draws'\) \{ if \(lyricsWindow && !lyricsWindow\.isDestroyed\(\) && event\.sender === lyricsWindow\.webContents\) songReport\.drawn\(value\)/)
 })

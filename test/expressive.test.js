@@ -769,16 +769,15 @@ test('view: a stretch lasts while its measured vowel sounds, past the lyrics\' o
 
 // --- first play: the expression measured section by section (0.15.66, lyrics-view.js express) ---
 
-test('view, first play: a section\'s expression goes at once to lines not lit; never into a word already reached', () => {
+test('view, first play: a section\'s expression goes at once to lines not lit; a word sung already keeps what it drew', () => {
   const { list, v } = view(null)
   const lines = () => list.els().filter((e) => e.has('line'))
   at(v, 2.0)                                     // line 0 sung, its held "home" reached
-  const sung = dump(lines()[0])
+  const take = dump(word(lines()[0], 'take'))
   v.express({ key: 'k1', expr: X.forView(X.compact(EXPR), true), final: false })
-  assert.equal(dump(lines()[0]), sung, 'the word being sung is untouched')
+  assert.equal(dump(word(lines()[0], 'take')), take, 'a word sung already is untouched')
+  assert.ok(word(lines()[0], 'home').has('xs'), 'the held word being sung grows from now (lateFrom)')
   assert.ok(lines()[1].all().some((e) => e.has('xs')), 'the line still to come takes it at once')
-  at(v, 2.5)
-  assert.equal(dump(lines()[0]), sung, 'still untouched while it is sung')
   at(v, 4.2)                                     // the boundary: line 1 lit, line 0 behind
   assert.ok(lines()[0].all().some((e) => e.has('xs')), 'the line that is no longer sung takes its expression')
   assert.ok(list.has('xp'))
@@ -801,6 +800,109 @@ test('view, first play (look-ahead): the line being sung takes the expression of
   const shown = dump(lines()[0])
   v.express({ key: 'k1', expr: X.forView(X.compact(louder), true), final: false })
   assert.equal(dump(lines()[0]), shown, 'a word already reached is never changed while it is sung')
+})
+
+// "Jesus Doesn't Want Me for a Sunbeam" (Nirvana, MTV Unplugged; Marcy 2026-10-19: no Expressive word on the whole
+// song): a refrain repeated with one word changed, each line ending on a long held word. With look-ahead a hold's
+// length is known only once it ends, so the line's notes (early passes, then the committed one) reach the view
+// while that last word is already sung; the view used to keep every change to a word reached for the next line
+// boundary, when the line was already sung: nothing ever showed.
+const REFRAIN = [
+  { t: 10.0, end: 13.6, text: "Don't expect me to cry", words: [{ text: "Don't", t: 10.0, end: 10.4 }, { text: 'expect', t: 10.45, end: 11.0 }, { text: 'me', t: 11.05, end: 11.3 }, { text: 'to', t: 11.35, end: 11.6 }, { text: 'cry', t: 11.65, end: 12.0 }], aligned: true },
+  { t: 13.8, end: 17.4, text: "Don't expect me to lie", words: [{ text: "Don't", t: 13.8, end: 14.2 }, { text: 'expect', t: 14.25, end: 14.8 }, { text: 'me', t: 14.85, end: 15.1 }, { text: 'to', t: 15.15, end: 15.4 }, { text: 'lie', t: 15.45, end: 15.8 }], aligned: true },
+  { t: 17.6, end: 22.0, text: "Don't expect me to die for thee", words: [{ text: "Don't", t: 17.6, end: 18.0 }, { text: 'expect', t: 18.05, end: 18.6 }, { text: 'me', t: 18.65, end: 18.9 }, { text: 'to', t: 18.95, end: 19.2 }, { text: 'die', t: 19.25, end: 19.6 }, { text: 'for', t: 19.65, end: 19.9 }, { text: 'thee', t: 19.95, end: 20.3 }], aligned: true }
+]
+// a held "i" of "cry" / "lie" (11.75-13.5 and 15.55-17.3), loud; "expect" measured only for its shading
+const REFRAIN_EXPR = (lines) => ({ version: 2, vocalise: [], words: [
+  { line: 0, word: 1, conf: 0.9, loud: 0.9, loud_conf: 0.9 },
+  { line: 0, word: 4, conf: 0.9, vowel: { i0: 2, i1: 3, text: 'y', t: 11.75, end: 13.5 }, loud: 0.8, loud_conf: 0.9 },
+  { line: 1, word: 4, conf: 0.9, vowel: { i0: 1, i1: 2, text: 'i', t: 15.55, end: 17.3 }, loud: 0.8, loud_conf: 0.9 }
+].filter((w) => lines.includes(w.line)) })
+const refrainView = () => view(null, false, { lines: JSON.parse(JSON.stringify(REFRAIN)), duration: 30 })
+// a swapped line's new word spans get the test's layout (view(): 60 px apart, 40 px wide, rows 1000 px)
+function relaid(list) {
+  // loop: test only
+  for (const w of list.all().filter((e) => e.has('w') && e._w == null)) { w.parentElement._w = 1000; w._x = w.parentElement.els().filter((e) => e.has('w')).indexOf(w) * 60; w._w = 40; for (const c of w.els()) { c._x = w._x; c._w = 40 } }
+}
+// a swapped line's new word spans: the same places as view() gives (60 px apart, 40 px wide, rows 1000 px)
+function placeWords(list) {
+  // loop: test only
+  for (const w of list.all().filter((e) => e.has('w'))) { w.parentElement._w = 1000; w._x = w.parentElement.els().filter((e) => e.has('w')).indexOf(w) * 60; w._w = 40; for (const c of w.els()) { c._x = w._x; c._w = 40 } }
+}
+
+test('view, first play (look-ahead): a held last word whose expression comes while it is sung still stretches, from then on (Sunbeam, 2026-10-19)', () => {
+  const { list, v, doc } = refrainView()
+  const lines = () => list.els().filter((e) => e.has('line'))
+  at(v, 11.0)                                    // "expect" sung: the stream's early pass knows its shading only
+  v.express({ key: 'k1', expr: X.forView(X.compact({ version: 2, vocalise: [], words: [{ line: 0, word: 1, conf: 0.9, loud: 0.9, loud_conf: 0.9 }] }), true), final: false })
+  const sung = dump(word(lines()[0], 'expect'))
+  at(v, 12.3)                                    // "cry" reached and held: its notes arrive (the committed pass)
+  v.express({ key: 'k1', expr: X.forView(X.compact(REFRAIN_EXPR([0])), true), final: false })
+  relaid(list)
+  const cry = word(lines()[0], 'cry')
+  assert.ok(cry.has('xs'), 'the held "cry" stretches while it is sung')
+  placeWords(list)
+  at(v, 12.4)
+  assert.ok(word(lines()[0], 'cry').has('now'), 'lit while its vowel sounds')
+  const births = doc.anims.filter((a) => a.el.has('xe'))
+  assert.ok(births.length > 0, 'its extra letters are born')
+  // born from when the expression came (12.3), not from the vowel's start (11.75): no letter appears at once
+  const tl = births[0].opts.duration / 1000
+  const t0 = 11.65 - require('../lyrics-view').WORD_LEAD
+  const firstAt = t0 + births[0].keyframes[1].offset * tl
+  assert.ok(firstAt >= 12.29, 'the first extra letter starts at the arrival, not before: ' + firstAt)
+  // compare the drawn markup, never the elements: a failed assert on a mock element prints its whole page (59 GB, 2026-10-19)
+  assert.equal(dump(word(lines()[0], 'expect')), sung, 'a word sung already draws the same')
+  // and the line's next boundary gives every word the measured expression
+  at(v, 13.9)
+  assert.ok(lines()[0].all().some((e) => e.has('xi')), 'the sung "expect" takes its shading once the line is sung')
+})
+
+test('view, first play (look-ahead): every line of a refrain-heavy song draws its held word (Sunbeam, 2026-10-19)', () => {
+  const { list, v } = refrainView()
+  const lines = () => list.els().filter((e) => e.has('line'))
+  // each line's notes come 0.6 s into its held last word, merged with the lines before (main.js firstPlaySection)
+  at(v, 12.35)
+  v.express({ key: 'k1', expr: X.forView(X.compact(REFRAIN_EXPR([0])), true), final: false })
+  assert.ok(word(lines()[0], 'cry').has('xs'))
+  at(v, 16.15)
+  v.express({ key: 'k1', expr: X.forView(X.compact(REFRAIN_EXPR([0, 1])), true), final: false })
+  assert.ok(word(lines()[1], 'lie').has('xs'), 'the repeat with one word changed draws too')
+  // too little of the hold left (LATE_MIN): only its shading, nothing that would pop in and vanish
+  const v2 = refrainView()
+  at(v2.v, 13.35)
+  v2.v.express({ key: 'k1', expr: X.forView(X.compact(REFRAIN_EXPR([0])), true), final: false })
+  assert.ok(!word(v2.list.els().filter((e) => e.has('line'))[0], 'cry').has('xs'))
+})
+
+test('expressive: lateFrom grows a late hold from now; too late, only its shading', () => {
+  const m = X.matchWord({ l: 0, w: 0, c: 0.9, i0: 2, i1: 3, t: 11.75, e: 13.5, ld: 0.8 }, { text: 'cry', t: 11.65, end: 12.0 }, false, null)
+  assert.ok(m.stretch && m.ghost)
+  assert.equal(X.lateFrom(m, 11.0), m, 'not sung yet: as it is')
+  const late = X.lateFrom(m, 12.5)
+  assert.equal(late.vt, 12.5)
+  assert.ok(Math.abs(late.hold - 1.0) < 1e-9)
+  assert.equal(late.extra, m.extra, 'as many letters as the whole hold asks for')
+  const tooLate = X.lateFrom(m, 13.3)
+  assert.ok(!tooLate.stretch && !tooLate.ghost && tooLate.ink === m.ink)
+})
+
+test('view: the song report counts a line\'s Expressive words once it has been sung (look-ahead\'s come while it is sung)', () => {
+  const doc = makeDoc(false)
+  const list = new El(doc, 'div')
+  const rows = []
+  const v = createLyricsView({ container: list, layout: 'scroll', onSeek: () => {}, onLineSung: (i, x) => rows.push({ i, x }) })
+  v.setData({ key: 'k1', title: 'S', artist: 'A', duration: 30, lines: JSON.parse(JSON.stringify(REFRAIN)), lang: 'en-US', aligned: true })
+  placeWords(list)
+  at(v, 10.2)
+  assert.equal(rows.length, 0, 'nothing reported when the line lights')
+  at(v, 12.3)
+  v.express({ key: 'k1', expr: X.forView(X.compact(REFRAIN_EXPR([0, 1])), true), final: false })
+  at(v, 13.9)
+  assert.deepEqual(rows.map((r) => r.i), [0])
+  assert.deepEqual(rows[0].x, { m: 2, d: 1, s: { 'came after it was sung': 1 } }, 'the held "cry" drawn; the shading of "expect", sung before it came, not')
+  v.reportLit()                                  // the song changes while "lie" is lit
+  assert.deepEqual(rows.map((r) => r.i), [0, 1])
 })
 
 test('view, first play: the whole-song pass replaces the sections\' expression without a visible change', () => {
