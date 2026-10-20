@@ -334,6 +334,13 @@ function createLookahead(deps) {
   let heardUs = 0            // the helper's last heard delay (µs)
   let itemAt = -Infinity     // when the last item change came (a load's own seek is not the user's)
   let itemUntitled = false   // that item change named no song (a cold start announces the song twice)
+  // what the delay line threw away of each song (the song report, 0.15.86: Marcy heard a song start late and we
+  // could only guess): the gate's dropped frames since the song's item change, and the buffered audio seek flushes
+  // discarded. The last song's figures are kept: its report is written just after the next song begins.
+  let counters = { gate: null, rate: 0, fill: 0 }
+  // cache: OK — key=the song playing (and the one before it); invalidated=each item change; bound=two songs' figures
+  let audio = { title: '', gate0: null, gate: 0, flushS: 0, flushes: 0 }
+  let lastAudio = null
   const now = deps.now || Date.now
   let helperState = ''
 
@@ -555,6 +562,7 @@ function createLookahead(deps) {
     if (naming) {
       const d = deps.decide(ev)
       if (d.ms === oldMs) {
+        audio.title = ev.title
         song = { ms: d.ms, why: d.why, anchor: song.anchor, key: ev.id || ev.title }
         deps.setHold(d.ms > 0)
         changed()
@@ -562,6 +570,8 @@ function createLookahead(deps) {
       }
     }
     if (ev.ev === 'item') {
+      lastAudio = audio
+      audio = { title: ev.title, gate0: counters.gate, gate: 0, flushS: 0, flushes: 0 }
       const d = deps.decide(ev)
       nextMs = d.ms
       song = { ms: d.ms, why: d.why, anchor: 0, key: ev.id || ev.title }
@@ -571,6 +581,8 @@ function createLookahead(deps) {
     const r = commandsFor(ev, { ms: oldMs, holding, gated, nextMs })
     if (r.anchor !== undefined) song.anchor = r.anchor
     if (r.cmds.some((c) => c.startsWith('flush '))) { gated = true; armConfirm() }   // loop: NOT-WORTH — N <= 1, per page event
+    // a seek's flush discards what was buffered of this song (an item change's flush is the old song's tail)
+    if (ev.ev === 'seeking' && r.cmds.length && counters.rate > 0) { audio.flushes++; audio.flushS += counters.fill / counters.rate }
     else if ((ev.ev === 'seeked' || ev.ev === 'playing') && r.cmds.includes('open')) {
       gated = false
       if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null }
@@ -606,6 +618,12 @@ function createLookahead(deps) {
       if (!f || f.kind !== 'ok') return
       heardUs = Number(f.heard_us) || 0
       helperState = String(f.state || '')
+      const g = Number(f.gate_dropped)
+      if (Number.isFinite(g)) {
+        counters = { gate: g, rate: Number(f.rate) || counters.rate, fill: Math.max(0, Number(f.fill) || 0) }
+        if (audio.gate0 == null) audio.gate0 = g
+        audio.gate = Math.max(0, g - audio.gate0)
+      }
     })
   }
 
@@ -650,6 +668,12 @@ function createLookahead(deps) {
     get delayS() { return phase === 'on' ? heardUs / 1e6 : 0 },
     get helperState() { return helperState },
     get routed() { return !!routed },
+    /** What the delay line threw away of a song (this one or the one before): { gateS, flushS, flushes } or null. */
+    audioFor(title) {
+      const a = audio.title === title ? audio : lastAudio && lastAudio.title === title ? lastAudio : null
+      if (!a || !(counters.rate > 0)) return null
+      return { gateS: a.gate / counters.rate, flushS: a.flushS, flushes: a.flushes }
+    },
     status() {
       if (phase === 'failed') return 'Not running: ' + failure
       if (phase === 'starting') return 'Starting…'

@@ -110,3 +110,12 @@ test('the song report says which time the song ran on: precise, whole seconds, o
   assert.match(R.clockText({ n: 1, max: 120, causes: { 'player ahead': 1 }, at: [[3.9, 120, 'player ahead']], pushes: 200, coarse: 80 }), /at 0:03\.9 \+120 · whole seconds 40%$/)
   assert.equal(R.clockText({ n: 0 }), 'clock: no corrections')
 })
+
+test('the song report says what look-ahead dropped of the song (0.15.86)', () => {
+  const R = require('../song-report')
+  assert.equal(R.audioText(null), '')
+  assert.equal(R.audioText({ gateS: 0.04, flushS: 0, flushes: 0 }), 'look-ahead dropped 0.0 s')
+  assert.equal(R.audioText({ gateS: 21.1, flushS: 3, flushes: 1 }), 'look-ahead dropped 24.1 s (gate 21.1 s, 1 seek 3.0 s)')
+  const s = R.newSong({ key: 'k', title: 'Our Last Summer', starts: [] })
+  assert.match(R.reportText(s, { n: 0 }, { gateS: 1.2, flushS: 0, flushes: 0 }), /clock: no corrections · look-ahead dropped 1\.2 s · helper: no failures/)
+})

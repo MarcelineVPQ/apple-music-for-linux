@@ -19,6 +19,7 @@ const playerTime = playerTimeLib.createPlayerTime({ log: (m) => console.log(m) }
 const songReport = require('./song-report').createSongReport({
   log: (m) => console.log(m),
   clock: () => songClock.corrections(),
+  audio: (title) => (lookahead && lookahead.phase === 'on' ? lookahead.audioFor(title) : null),
   devLog: () => !!settings.sungNotesLog && updateFeed.isDevVersion(app.getVersion())
 })
 const alignSessionLib = require('./align-session')

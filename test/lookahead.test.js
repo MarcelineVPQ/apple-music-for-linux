@@ -309,7 +309,7 @@ function fakeWorld(opts = {}) {
     execFile: (cmd, args, o, cb) => { execs.push([cmd, ...args]); setImmediate(() => cb(null, '')) },
     createLine: () => ({
       ready: Promise.resolve(),
-      cmd: (line) => { sent.push(line); return Promise.resolve(line === 'stat' ? LA.parseLine('ok stat state=run heard_us=3021333') : { kind: 'ok' }) },
+      cmd: (line) => { sent.push(line); return Promise.resolve(line === 'stat' ? LA.parseLine(opts.stat ? opts.stat() : 'ok stat state=run heard_us=3021333') : { kind: 'ok' }) },
       onEvent: (fn) => { lineEvent = fn },
       onClose: (fn) => { lineClose = fn },
       close() { this.closed = true },
@@ -404,6 +404,32 @@ test('controller: a cold start announces its song untitled, then named: one flus
   t += 3000
   w.la.pageEvent({ ev: 'item', natural: false, title: 'Mamma Mia', kind: 'songs' })
   assert.deepEqual(w.sent.slice(-2), ['flush ' + MS, 'flush ' + MS])
+  w.la.stop()
+})
+
+test('controller: what the delay line dropped of each song is measured for its report (0.15.86)', async () => {
+  // Marcy 2026-10-20: a song started without its first verse and nothing measured it; now the report says
+  let gate = 1000
+  let fill = 144000
+  const w = fakeWorld({ stat: () => 'ok stat state=run rate=48000 fill=' + fill + ' heard_us=3000000 gate_dropped=' + gate })
+  w.la.start()
+  await settle()
+  await w.la.tick()
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'Our Last Summer', kind: 'songs' })
+  gate += 4800                                     // the gate after the song change: 0.1 s
+  await w.la.tick()
+  assert.deepEqual(w.la.audioFor('Our Last Summer'), { gateS: 0.1, flushS: 0, flushes: 0 })
+  w.la.pageEvent({ ev: 'seeking', t: 40 })         // a seek flushes the 3 s buffered
+  gate += 48000 * 21                               // and the gate then held 21 s back
+  await w.la.tick()
+  const a = w.la.audioFor('Our Last Summer')
+  assert.ok(Math.abs(a.gateS - 21.1) < 1e-9 && a.flushes === 1 && Math.abs(a.flushS - 3) < 1e-9, JSON.stringify(a))
+  // the next song begins: the last one's figures stay readable for its report
+  w.la.pageEvent({ ev: 'item', natural: false, title: 'Super Trouper', kind: 'songs' })
+  await w.la.tick()
+  assert.ok(Math.abs(w.la.audioFor('Our Last Summer').gateS - 21.1) < 1e-9)
+  assert.equal(w.la.audioFor('Super Trouper').gateS, 0)
+  assert.equal(w.la.audioFor('Waterloo'), null)
   w.la.stop()
 })
 

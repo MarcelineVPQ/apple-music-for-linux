@@ -103,6 +103,15 @@ function clockText(c) {
 }
 const fmtAt = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0') + '.' + Math.floor((s * 10) % 10)
 
+// what look-ahead's delay line threw away of the song (lookahead.js audioFor): its gate after a song change or a seek,
+// and the buffered audio a seek flushed. 0.15.86 (Marcy heard a song start without its first verse; nothing measured it)
+function audioText(a) {
+  if (!a) return ''
+  const s = (x) => (Math.round(x * 10) / 10).toFixed(1) + ' s'
+  const parts = ['look-ahead dropped ' + s(a.gateS + a.flushS)]
+  if (a.flushes) parts[0] += ' (gate ' + s(a.gateS) + ', ' + a.flushes + ' seek' + (a.flushes === 1 ? '' : 's') + ' ' + s(a.flushS) + ')'
+  return parts[0]
+}
 function helperText(h) {
   const parts = []
   if (h.timeout) parts.push(h.timeout + ' timed out')
@@ -111,14 +120,14 @@ function helperText(h) {
   return 'helper: ' + (parts.length ? parts.join(', ') : 'no failures')
 }
 
-/** The report's text: three lines (see the top of this file). clock: song-clock.js corrections(). */
-function reportText(s, clock) {
+/** The report's text: three lines (see the top of this file). clock: song-clock.js corrections(); audio: lookahead.js audioFor(). */
+function reportText(s, clock, audio) {
   const head = 'song report "' + s.title + '"' + (s.version ? ' · ' + V.full(s.version) : '') + (s.engine ? ' · engine ' + V.short(s.engine) : '') + ' · look-ahead ' + (s.lookahead || 'off')
   const sung = sungLines(s)
   // loop: NOT-WORTH — three kinds, once per report
   const leads = KINDS.map((k) => leadText(s, k, sung)).filter(Boolean)
   const second = leads.concat([drawText(s)]).join(' · ')
-  const third = [clockText(clock), helperText(s.helper), s.kind || 'play'].join(' · ')
+  const third = [clockText(clock), audioText(audio), helperText(s.helper), s.kind || 'play'].filter(Boolean).join(' · ')
   return head + '\n  ' + second + '\n  ' + third
 }
 
@@ -165,7 +174,7 @@ function createSongReport(deps) {
   function write() {
     if (closeTimer) { clearT(closeTimer); closeTimer = null }
     if (!closing) return ''
-    const text = reportText(closing.s, closing.clock)
+    const text = reportText(closing.s, closing.clock, closing.audio)
     closing = null
     log(text)
     return text
@@ -183,7 +192,7 @@ function createSongReport(deps) {
     end(clock) {
       if (!cur) return
       write()   // an older one still waiting goes first
-      closing = { s: cur, clock: clock || (deps.clock ? deps.clock() : null) }
+      closing = { s: cur, clock: clock || (deps.clock ? deps.clock() : null), audio: deps.audio ? deps.audio(cur.title) : null }
       cur = null
       // lifetime: OK — one-shot timer, cleared by write() (the next end, or flush on quit)
       closeTimer = setT(write, closeMs)
@@ -222,4 +231,4 @@ function createSongReport(deps) {
   }
 }
 
-module.exports = { createSongReport, reportText, leadText, drawText, clockText, helperText, drawLine, cleanRows, newSong, MAX_LINES }
+module.exports = { audioText, createSongReport, reportText, leadText, drawText, clockText, helperText, drawLine, cleanRows, newSong, MAX_LINES }
