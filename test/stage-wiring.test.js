@@ -119,7 +119,7 @@ test('the song\'s actions: read once per song while the Studio shows (and after 
 
 test('one action builder: the mini player\'s ⋯ and the Studio\'s ⋯ and row menus come from songMenuItems', () => {
   assert.match(main, /songMenuItems\(info, miniWindow, \['favorite', 'library', '-', 'link', 'cover', 'liner'\]/)
-  assert.match(main, /songMenuItems\(stageInfo\(\), lyricsWindow, \['cover', 'liner', '-', 'share'\], stageDone\)/)
+  assert.match(main, /songMenuItems\(stageInfo\(\), lyricsWindow, \['cover', 'liner', '-', 'share'\]\.concat\(forgetOffered\(\) \? \['-', 'forget'\] : \[\]\), stageDone\)/)
   assert.match(main, /songMenuItems\(info, lyricsWindow, \['play-now', 'play-next', '-', 'album', 'credits'\], stageDone\)/)
   // the favourite / library scripts live once, in song-actions.js
   assert.ok(!/me\/ratings\/songs\/\$\{info\.id\}/.test(main), 'no copy of the favourite script in main.js')

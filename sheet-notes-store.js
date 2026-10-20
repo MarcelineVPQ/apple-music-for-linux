@@ -65,6 +65,14 @@ function createSheetNotesStore(opts) {
       io.renameSync(tmp, f)
       return prune(dir, max, io, name)
     },
+    /** Forget this song (forget-song.js): its notes, expression, refine and re-learn state, partial parts and failure
+     * marker all live in its one file. -> whether there was one. error: PASSES-ON — a failed removal throws to main */
+    forget(title, artist) {
+      const f = file(title, artist)
+      if (!io.existsSync(f)) return false
+      io.unlinkSync(f)
+      return true
+    },
     /** A failed notes step for these lyrics: counted, so the song is tried again at most MAX_TRIES times. */
     failed(title, artist, lyricsHash, code) {
       const old = this.get(title, artist)

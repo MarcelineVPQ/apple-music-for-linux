@@ -49,6 +49,7 @@ const shortcutsModel = require('./shortcuts-model')
 const dbusWire = require('./dbus-wire')
 const stageModel = require('./stage-model')
 const songActions = require('./song-actions')
+const forgetSongLib = require('./forget-song')
 const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
@@ -739,18 +740,19 @@ function getAlignSession() {
       notes: {
         wanted: () => notesActive() && getNotesSwitch().wanted(),
         syl: notesLogLib.syllableSpec,
-        done: (s, result, lineOffset) => { sungNotesDone(s, result, lineOffset); sheetNotesDone(s, result, lineOffset) },
-        failed: (s, e) => { sungNotesFailed(s, e); sheetNotesFailed(s, e) },
+        // (a play forgotten with Forget this song, s.forgotten: nothing it still brings is kept or drawn)
+        done: (s, result, lineOffset) => { if (s.forgotten) return; sungNotesDone(s, result, lineOffset); sheetNotesDone(s, result, lineOffset) },
+        failed: (s, e) => { if (s.forgotten) return; sungNotesFailed(s, e); sheetNotesFailed(s, e) },
         // the first play's pitch line: only while the Studio shows its band (nothing for a band nobody sees)
         pitchWanted: () => sheetNotesOn() && getNotesSwitch().wanted() && stageShowing(),
-        pitch: sheetPitch,
+        pitch: (s, line, e) => { if (!s.forgotten) sheetPitch(s, line, e) },
         // first play's notes and Expressive words, section by section (0.15.66; engine feature "section-notes"): while a
         // lyric view or the Studio's band would show them, on a helper that learns while the song plays (not a
         // processor-only one: 0.15.59's protection, its songs are timed after they end)
         sectionWanted: () => sectionNotesWanted(),
-        section: firstPlaySection,
+        section: (s, part, sec) => { if (!s.forgotten) firstPlaySection(s, part, sec) },
         // a first play left before its end: what its sections brought is kept (a partial entry) for the next play
-        unfinished: firstPlayUnfinished,
+        unfinished: (s) => { if (!s.forgotten) firstPlayUnfinished(s) },
         // a song still without its notes (Sheet notes), or without its expression (Expressive words: once per song,
         // an engine that serves it; before this run's helper has answered a ping, the installed one is taken to:
         // every engine this Sonata installs measures it, and a first play after a restart used to be skipped)
@@ -1533,6 +1535,7 @@ async function lyricsTick() {
   const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
   if (key !== lyricsKey || retryDue) {
     lyricsKey = key
+    playingSong = { key, title: state.title || '', artist: state.artist || '', isrc: state.isrc || '' }
     const got = state.title ? await getLyrics(state) : { lines: [], source: '' }
     let status = got.error || ''
     let retry = null
@@ -1607,8 +1610,10 @@ async function lyricsTick() {
     if (expr) data.expr = expr
     sendLyrics('lyrics-data', data)
     exprNoteSent = ''   // the view laid the song out anew: its Expressive words line again (sendExprNote below)
+    const songId = state.title + '|' + state.artist
+    const retest = songReport.key !== key && forgotten.delete(songId)   // the first play after Forget this song
     // loop: NOT-WORTH — the song's lines, once per song laid out
-    if (lines.length && lines[0].t != null) songReport.begin({ key, id: state.title + '|' + state.artist, title: state.title, version: app.getVersion(), engine: installedEngineVersion(), kind: playKind(state.title, state.artist), lookahead: lookaheadText(), starts: lines.map((l) => (l && Number.isFinite(l.t) ? l.t : null)) })
+    if (lines.length && lines[0].t != null) songReport.begin({ key, id: songId, title: state.title, version: app.getVersion(), engine: installedEngineVersion(), kind: playKind(state.title, state.artist) + (retest ? ' · deliberate retest (Forget this song)' : ''), lookahead: lookaheadText(), starts: lines.map((l) => (l && Number.isFinite(l.t) ? l.t : null)) })
     else if (songReport.key && songReport.key !== key) songReport.end()
     if (precise) ensureNotesModel()
     setSheetSong(key, state.title, state.artist, plain ? prep.lines : base, prep, got.instrumental ? got.instrumental.by : '', lines)
@@ -1897,7 +1902,7 @@ ipcMain.on('stage-command', (event, command, value) => {
     else songAct('link', stageSong, stageDone)
   }
   else if (c.command === 'song-album' || c.command === 'song-artist') stageOpenPage(c.command === 'song-album' ? 'album' : 'artist')
-  else if (c.command === 'song-more') stageMenu(songMenuItems(stageInfo(), lyricsWindow, ['cover', 'liner', '-', 'share'], stageDone), c.value)
+  else if (c.command === 'song-more') stageMenu(songMenuItems(stageInfo(), lyricsWindow, ['cover', 'liner', '-', 'share'].concat(forgetOffered() ? ['-', 'forget'] : []), stageDone), c.value)
   else if (c.command === 'song-playlists') stagePlaylists(c.value)
   else if (c.command === 'row-menu') stageRowMenu(c.value)
   else if (c.command === 'credits-liner' && linerNotesReady()) stageLiner('credits')
@@ -2732,6 +2737,49 @@ function songAct(action, info, done) {
       done(action, false, mainAlive() ? '' : 'nothing')
     })
 }
+// Forget this song (forget-song.js; Development builds only, Marcy 2026-10-19): one action in the song's ⋯ menus
+// (mini player and Studio), confirmed, then the recording's learned timing, notes and expression are removed and the
+// play under way learns nothing more; its next play is a first play, and its song report says it is a deliberate retest.
+// cache: OK — key=the song shown in a lyric view (lyricsTick); invalidated=the next song; bound=one record
+let playingSong = null
+// cache: OK — key=title|artist forgotten; invalidated=its next play's report (consumed at begin); bound=the songs forgotten this run (a user action each)
+const forgotten = new Set()
+function forgetOffered() { return updateFeed.isDevVersion(app.getVersion()) }
+function forgetSongMenu(info) {
+  const t = forgetSongLib.confirmText(info.title)
+  return [
+    { label: t.message, enabled: false },
+    { label: t.detail, enabled: false },
+    { type: 'separator' },
+    { label: t.ok, click: () => forgetSong(info.title, info.artist || '', false) },
+    { label: t.okLyrics, click: () => forgetSong(info.title, info.artist || '', true) }
+  ]
+}
+function forgetSong(title, artist, lyrics) {
+  const id = title + '|' + artist
+  const cur = playingSong && playingSong.title === title && playingSong.artist === artist ? playingSong : null
+  let out
+  // error: SHOWN — a store that can't be changed (the notes file can't be removed) is told like any ⋯ action's failure
+  try {
+    out = forgetSongLib.forgetStored({ lyricsStore, sheetStore: getSheetStore() }, { title, artist, isrc: cur ? cur.isrc : '' }, { lyrics })
+  } catch (e) {
+    console.error('forget this song failed: ' + e.message)
+    actionFailed({ title: 'Couldn’t forget this song', body: e.message })
+    return
+  }
+  // the play under way: it learns nothing more (its sessions, the helper's kept sections, main's first-play state)
+  if (cur) {
+    if (alignSession) alignSession.forget(cur.key)
+    if (listenSession) listenSession.forget(cur.key)
+  }
+  if (firstPlay && firstPlay.title === title && firstPlay.artist === artist) firstPlay = null
+  if (firstPlayWaiting && firstPlayWaiting.title === title && firstPlayWaiting.artist === artist) firstPlayWaiting = null
+  if (refining && refining.id === id) refining = null
+  if (sheet && sheet.title === title && sheet.artist === artist) { sheet.entry = null; sheet.pitch = []; sheet.error = ''; sendSheet() }
+  if (cur) { exprSong = { key: '', entry: 'missing' }; lyricsKey = null }   // the song again, as it is now known (the next tick)
+  forgotten.add(id)
+  console.log(forgetSongLib.logLine(title, out))
+}
 // the mini player's ⋯: a failure is told by actionFailed (a later one that works takes an old notice away)
 function miniActionDone(action, ok, extra) {
   if (ok) { notices.clear('mini-action'); return }
@@ -2752,6 +2800,8 @@ function songMenuItems(info, win, pick, done) {
     library: { label: 'Add to Library', enabled: ok, click: () => songAct('library', info, report) },
     link: { label: 'Copy Link', enabled: !!info.url, click: () => songAct('link', info, report) },
     cover: { label: 'View Album Cover', enabled: !!info.title, click: () => openCover(win) },
+    // confirmed in its own submenu (the question, then the two answers): no dialog, the menus' one mechanism
+    forget: { label: forgetSongLib.LABEL, enabled: !!info.title && forgetOffered(), submenu: forgetSongMenu(info) },
     liner: { label: 'Liner Notes…', enabled: !!info.title, click: () => openLinerNotes(null, win) },
     share: {
       label: 'Share', enabled: !!info.url, submenu: [
@@ -2851,7 +2901,7 @@ async function showMoreMenu() {
   const menu = Menu.buildFromTemplate([
     { label: info.title || 'Not playing', enabled: false },
     { type: 'separator' },
-    ...songMenuItems(info, miniWindow, ['favorite', 'library', '-', 'link', 'cover', 'liner'], (action, ok, why, song) => miniActionDone(action, ok, song.title)),
+    ...songMenuItems(info, miniWindow, ['favorite', 'library', '-', 'link', 'cover', 'liner'].concat(forgetOffered() ? ['-', 'forget'] : []), (action, ok, why, song) => miniActionDone(action, ok, song.title)),
     { label: 'Lyrics', accelerator: LYRICS_KEY, registerAccelerator: false, click: toggleLyricsWindow },
     { label: 'Visualizer', accelerator: VISUALIZER_KEY, registerAccelerator: false, click: toggleVisualizer },
     { type: 'separator' },

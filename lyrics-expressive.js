@@ -103,6 +103,7 @@ function compact(expr, lineOffset = 0) {
 function mergeSection(old, add) {
   if (!add) return old || null
   const base = old || { format: add.format, v: add.v, words: [], voc: [] }
+  // loop: NOT-WORTH — once per first-play section (every ~10-30 s), N ≤ ~500 words
   const lines = new Set(add.words.map((w) => w.l))
   const addVoc = Array.isArray(add.voc) ? add.voc : []
   // loop: NOT-WORTH — once per first-play section (every ~10-30 s), N ≤ ~500 words, a few vocalise spans (filter + sort)

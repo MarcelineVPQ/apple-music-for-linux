@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Added
+- **Forget this song (Development builds).** The song's ⋯ menu, in the mini player and in the Studio, has "Forget this song…": it asks first, then removes what Sonata learned for that recording (its word timing, sheet notes, Expressive words, refine progress and the parts kept from an unfinished play) so the next play is a first play again, for a fair retest. The lyrics are kept unless you choose "Forget it and the lyrics too". The log says `forgot "<song>" for a fresh first play`, and the next song report marks that play as a deliberate retest.
+
 ## [0.15.73-dev.1] — Song reports: each song logs how well it was learned and shown
 
 ### Added

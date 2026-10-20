@@ -54,6 +54,7 @@
       "lyrics-timing.js",
       "song-clock.js",
       "song-report.js",
+      "forget-song.js",
       "lyrics-view.js",
       "lyrics-lanes.js",
       "lyrics-sections.js",

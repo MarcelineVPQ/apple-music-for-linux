@@ -945,7 +945,7 @@ test('first play (0.15.70): merged parts draw at once in the first play\'s wider
 
 test('main (0.15.70): a first play left early is kept and carried on; the pieces survive a re-layout', () => {
   const main = read('main.js')
-  assert.match(main, /unfinished: firstPlayUnfinished,/)
+  assert.match(main, /unfinished: \(s\) => \{ if \(!s\.forgotten\) firstPlayUnfinished\(s\) \},/)
   assert.match(main, /firstPlay = firstPlayFor\(s\)/)
   assert.match(main, /if \(sheetModel\.entryValid\(old, s\.hash\) && !old\.partial\) \{\n    \/\/ learned notes are never replaced by a partial set; a refine play left early merges the parts it heard/)
   assert.match(main, /pitch: sheet && sheet\.key === key \? sheet\.pitch : \[\]/)

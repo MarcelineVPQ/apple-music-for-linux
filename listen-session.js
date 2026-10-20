@@ -117,6 +117,7 @@ function createListenSession(deps) {
   let listener = null
   let detector = null
   let song = null          // { key, title, artist, base: [lines], done: Set }
+  let forgot = ''          // cache: OK — key=the play forgotten (Forget this song); invalidated=another song laid out; bound=one string
   let clock = null
   let expectNext = null    // song time the next chunk should start at
   let coveredFrom = null   // song time since when we've listened without a gap
@@ -209,6 +210,7 @@ function createListenSession(deps) {
       // merged into this recording's entry only (song.learned: null when the stored one is another recording's)
       const entry = withOffset(recordLearned(song.learned, i, line, res.words, deps.mergeLearned), lines)
       song.learned = entry
+      if (song.forgotten) continue   // Forget this song: this play learns nothing
       R.put(deps.store, song.storeKey, entry, song.rec)
       deps.send('lyrics-refined', { key: song.key, lineIndex: i, words: entry.lines[i].words })
     }
@@ -227,9 +229,14 @@ function createListenSession(deps) {
      * New lyrics for the window. lines: the estimated lines (before learned data). Returns the
      * lines to render ({ lines, refined, onset }) with learned words applied (onset: the entry's offset, or null).
      */
+    /** Forget this song (forget-song.js): the play of this key keeps nothing it refines from now on. */
+    forget(key) { forgot = key; if (song && song.key === key) { song.forgotten = true; song.learned = null; return true } return false },
     setLyrics(key, title, artist, lines, enabled, info) {
       stopListening()
       clock = null
+      // the play just forgotten, laid out again: it learns nothing (the next play of the song is a fresh one)
+      if (key === forgot) { song = null; return { lines, refined: false, onset: null } }
+      forgot = ''
       // 0.15.62: only words Sonata estimated (line-timed lyrics spread across words) are refined. A song
       // with any word timing of its own (Apple's or LRC words; not estimated, not aligned) is never
       // touched, and aligned / mapped lines are skipped below (Marcy: Apple-word-timed "Dancing Queen"'s

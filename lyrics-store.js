@@ -94,6 +94,17 @@ function createLyricsStore(opts) {
     flush() {
       if (timer) { clearTimeout(timer); save() }
     },
+    /** Removes one entry (Forget this song, forget-song.js): -> whether it was there. Saved like a set. */
+    remove(key) {
+      load()
+      const e = map.get(key)
+      if (!e) return false
+      map.delete(key)
+      bytes -= e.size
+      // loop: NOT-WORTH — cache write debounce, as set()
+      if (!timer) timer = setTimeout(save, debounceMs)
+      return true
+    },
     // About → For the Curious (read only while it is open): a value without marking it recently used, and
     // every entry as [key, value, size] (size: its share of the file, in characters)
     peek(key) { load(); const e = map.get(key); return e ? e.value : null },

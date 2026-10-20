@@ -1090,10 +1090,10 @@ function createAlignSession(deps) {
           s.entry = sec ? mergeEntry(s.entry, add, sec, s.secCount, s.raw) : mergeWhole(s.entry, add, s.secs, s.raw)
           if (s.fills) s.entry.fills = s.fills
           s.entry = withOffset(s.entry, s.raw)
-          R.put(deps.store, s.storeKey, s.entry, s.rec)
+          if (!s.forgotten) R.put(deps.store, s.storeKey, s.entry, s.rec)   // Forget this song: nothing of that play is kept
           log('aligned ' + add.aligned + '/' + (sec ? sec.to - sec.from + 1 : add.total) + ' lines (' + what + ') of "' + s.title + '" in ' + ((deps.now() - started) / 1000).toFixed(1) + ' s' + rejectedNote(add.rejected, s.raw))
           // a plain song's lines get their times only now: main sends the song again (prepareLines places them)
-          if (song && song.key === s.key && add.aligned) {
+          if (song && song.key === s.key && add.aligned && !s.forgotten) {
             if (s.plain) { if (deps.resend) deps.resend(s.key) } else deps.send('lyrics-aligned', { key: s.key, lines: add.lines })
           }
           if (notes) submitNotes(s, req.lines, sec ? sec.from : 0)
@@ -1106,7 +1106,7 @@ function createAlignSession(deps) {
           s.failed = true
           if (notes) { notesOn(s, false); deps.notes.failed(s, new Error('the alignment failed, so no notes')) }
           log('alignment failed for "' + s.title + '": ' + (e && e.message))
-          if (e && e.code === 'no-model') {
+          if (e && e.code === 'no-model' && !s.forgotten) {
             R.put(deps.store, s.storeKey, { version: ENTRY_VERSION, lyricsHash: s.hash, failed: 'no-model', lines: null }, s.rec)
           }
           return null
@@ -1472,6 +1472,29 @@ function createAlignSession(deps) {
      * submitIfHeard aligns the sections that were heard (last lyric view closed at the end).
      */
     stop(submitIfHeard) { return finish(!!submitIfHeard) },
+    /**
+     * Forget this song (forget-song.js): the play of this lyrics key (on screen, or the last one whose jobs may still
+     * run) learns nothing more: its stream and recording stop, results that still come are dropped (s.forgotten;
+     * main's notes callbacks check it too), and the helper is told to drop the sections it kept, after its jobs.
+     * -> whether a play was found
+     */
+    forget(key) {
+      // loop: NOT-WORTH — two candidates, once per forget
+      const plays = [song, lastSong].filter((s, i, a) => s && s.key === key && a.indexOf(s) === i)
+      // loop: NOT-WORTH — at most two plays, once per forget
+      for (const s of plays) {
+        s.forgotten = true
+        closeStream(s, true)
+        if (!s.sent) wrapUp(s)
+        notesOn(s, false)
+        if (deps.helper.forget) {
+          const job = queue.then(() => deps.helper.forget(s.id))
+          // error: NOT-WORTH — keeps the chain going; helper.forget is sync and catches its own write error
+          queue = job.then(() => {}, () => {})
+        }
+      }
+      return plays.length > 0
+    },
     get recording() { return !!listener },
     /** Expressive words' state for the song with this lyrics key: 'measuring' (its notes job is queued or
      * running), 'recording' (on screen and being recorded for its notes or alignment), else ''. */
