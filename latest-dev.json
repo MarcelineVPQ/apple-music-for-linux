@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.85-dev.1",
-  "file": "sonata-0.15.85-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.85-dev.1/sonata-0.15.85-dev.1-x86_64.AppImage",
-  "sha512": "d8866fdbdee2c525d1ba8cb76a5fe4de60ddbde94657528d24573dcd9284d8fb4744f7549f7ff85ba2371234c73abf3846e400ec6fbc3e9b1bd5576ac3643e25",
-  "size": 127660431,
-  "date": "2026-10-20T19:37:18Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.85-dev.1",
-  "notes": "### Fixed\n- **Lyrics timing after a song change.** After most song changes the lyrics ran on Apple's whole-second time, up to a second off, with small jumps in a song's first seconds. Sonata now works out the playing audio's own precise time within a few seconds of each song.\n- **The first second of each song.** With look-ahead the words started a third of a second late and then jumped. They now start where the music is.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.85-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.86-dev.1",
+  "file": "sonata-0.15.86-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.86-dev.1/sonata-0.15.86-dev.1-x86_64.AppImage",
+  "sha512": "2b327f3beeae435d560f9256947753bdd6e2ef3809c4d6c6b78d807d2503c46e1f02cca875c90b7e116bbc9e7a4cf24224b2660262720a9935550bb3283ba067",
+  "size": 127660330,
+  "date": "2026-10-20T19:42:17Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.86-dev.1",
+  "notes": "### Fixed\n- **The first second of the first song.** With look-ahead, starting playback could cut off the first second or two of the first song: Apple's player announces it twice (before and after its details load), and Sonata took that as two song changes. The second announcement now only names the song.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.86-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
