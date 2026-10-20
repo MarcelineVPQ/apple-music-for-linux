@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.84-dev.1] — Fixed: held notes without Expressive words on first play
+
+### Fixed
+- **Held notes on first play.** With look-ahead, a held word's expression that arrived while its line was being sung waited for the next line whenever another word in that line was already drawing one, so a long held note often showed nothing. It now applies word by word. A hold that runs past its line's end keeps the line lit until the singer lets go, and with the next timing helper (0.2.11) a long hold grows as it is sung instead of stopping at its first measure.
+
 ## [0.15.83-dev.1] — Fixed: lyrics a little late on first play
 
 ### Fixed

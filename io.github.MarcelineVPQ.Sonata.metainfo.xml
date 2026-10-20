@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.84-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>Fixed: held notes without Expressive words on first play</p>
+      </description>
+    </release>
     <release version="0.15.83-dev.1" date="2026-10-20" type="development">
       <description>
         <p>Fixed: lyrics a little late on first play</p>
