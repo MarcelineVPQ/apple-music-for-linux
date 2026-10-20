@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.80-dev.1",
-  "file": "sonata-0.15.80-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.80-dev.1/sonata-0.15.80-dev.1-x86_64.AppImage",
-  "sha512": "4ae83c35b1a224ab291321b5ef8fc3310fcf59e243620337a1575adb132002eb00ddfc6475c814352b32828941e0b0946fc1a66b3ecb91194ed9740b0b454018",
-  "size": 127652260,
-  "date": "2026-10-20T07:35:25Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.80-dev.1",
-  "notes": "### Changed\n- **Song reports show when the clock corrected itself.** Each song's report in the log now lists the moment in the song, size and cause of each correction the song clock made (up to 20 a song), not only how many there were.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.80-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.81-dev.1",
+  "file": "sonata-0.15.81-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.81-dev.1/sonata-0.15.81-dev.1-x86_64.AppImage",
+  "sha512": "4511964a263242ea144acbf4a8db88c445bb60aad55054e00626f4d472c5bdfcdbae58d2e6943bcf3c7f9953c347afda5dbdaac0bb151a2924ce3cbdfce5ed68",
+  "size": 127656274,
+  "date": "2026-10-20T15:44:52Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.81-dev.1",
+  "notes": "### Added\n- **Check for updates on the Helper row.** Settings → Precise timing → Helper has a Check for updates button: it asks for a newer helper at once and says the answer in the row (\"Up to date: helper 0.2.10 Dev\", or Update available). It works with automatic checks off too.\n\n### Changed\n- **Helper updates arrive sooner on Development.** Sonata now looks for a newer helper every hour on the Development channel (every 6 hours on Stable), instead of every 6 hours on both.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.81-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
