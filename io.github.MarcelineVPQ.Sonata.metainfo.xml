@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.93-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>No crash when a song is forgotten while its look-ahead stream starts</p>
+      </description>
+    </release>
     <release version="0.15.92-dev.1" date="2026-10-20" type="development">
       <description>
         <p>Windows come back at their last size, and maximized if you left them so</p>

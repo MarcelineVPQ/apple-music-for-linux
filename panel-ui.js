@@ -677,7 +677,7 @@
           }
         }]
       },
-      // the DS5 board's columns as groups: In progress, Planned, Ideas, each with its count; an item is a card
+      // the DS5 board's columns as groups: In progress and Planned (never ideas), each with its count; an item is a card
       soon: () => {
         const box = el('div', 'about-list')
         let n = -1

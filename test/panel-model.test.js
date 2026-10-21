@@ -264,9 +264,10 @@ test('about: the hero card (the 42PS card, as in the DS5 About): version, channe
   assert.match(fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8'), /hero: aboutDataLib\.hero\(app\.getVersion\(\), settings\.updateChannel, !!appImagePath\)/)
 })
 
-test('about: Coming soon groups follow the DS5 board (Building now, Planned, Ideas; empty groups left out)', () => {
-  const g = A.soonGroups([{ title: 'a', text: 'x.', status: 'Planned' }, { title: 'b', text: 'y.', status: 'Building' }, { title: 'c', text: 'z.', status: 'Planned' }])
+test('about: Coming soon groups follow the DS5 board (Building now, Planned; empty groups left out; never ideas)', () => {
+  const g = A.soonGroups([{ title: 'a', text: 'x.', status: 'Planned' }, { title: 'b', text: 'y.', status: 'Building' }, { title: 'c', text: 'z.', status: 'Planned' }, { title: 'd', text: 'w.', status: 'Idea' }])
   assert.deepEqual(g.map((x) => [x.label, x.items.map((i) => i.title)]), [['Building now', ['b']], ['Planned', ['a', 'c']]])
+  assert.deepEqual(A.comingSoon('| Item | Status | Notes |\n|---|---|---|\n| X | **Idea** | Soon (X): an idea. |\n| Y | **Planned** | Soon (Y): planned. |').map((i) => i.title), ['Y'])
 })
 
 test('about: For the Curious → How it works: six topics, a visible line ≤ 60 characters, a few sentences behind the ⓘ, no engine method', () => {

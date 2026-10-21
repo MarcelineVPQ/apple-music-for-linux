@@ -925,6 +925,9 @@ function createAlignSession(deps) {
       if (msg.notes && Number.isInteger(msg.line) && deps.notes && deps.notes.section) { s.sectionNotes = (s.sectionNotes || 0) + 1; deps.notes.section(s, msg.notes, { from: msg.line, to: msg.line, stream: true, early: !!msg.partial }) }
       return
     }
+    // the stream closed before the helper's answer came (Forget this song, a song change, a stop): nothing to update
+    // (Marcy 2026-10-20, 0.15.92: "Cannot set properties of null (setting 'ready')", Cornbread forgotten mid-play)
+    if (!s.stream) return
     if (msg.type === 'stream') { s.stream.ready = true; streamNews(); log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
     // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used
     if (msg.type !== 'words' || !song || song !== s || s.wordsKnown) return

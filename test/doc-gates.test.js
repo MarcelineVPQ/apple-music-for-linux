@@ -27,6 +27,7 @@ test('soon: a Building or Planned row is in Coming soon or says why not', () => 
   assert.match(G.soonProblems(HEAD + row('Z', 'Shipped', 'x')).problems[0], /not one of/)
   // an Idea row may stay out without a marker (ideas are opt-in)
   assert.deepEqual(G.soonProblems(HEAD + row('Idea row', 'Idea', 'later')).problems, [])
+  assert.match(G.soonProblems(HEAD + row('Idea row', 'Idea', 'Soon: later.')).problems[0], /is an Idea but in Coming soon/)
 })
 
 test('shipped: rows that look shipped but are not Done', () => {

@@ -982,3 +982,15 @@ test('session, look-ahead: a learned song with missed lines and no notes streams
   assert.equal(msgs.length, before + 1)
   assert.deepEqual(Object.keys(msgs[msgs.length - 1][1].lines), ['0'], 'only the missed line takes the stream\'s words')
 })
+
+test('session, look-ahead: the helper\'s ready answer after the stream closed (Forget this song) is ignored, no crash', () => {
+  const st = fakeStream()
+  const env = setup(null, { stream: st.fn })
+  env.s.setLyrics('Song|Artist', 'Song', 'Artist', RAW, true, { duration: 25, lookahead: 3000 })
+  play(env, 0, 2)
+  assert.equal(st.heads.length, 1)
+  env.s.forget('Song|Artist')   // closes the stream before the helper answered
+  st.on({ type: 'stream', state: 'ready', device: 'cuda' })
+  st.on({ type: 'words', lines: [{ line: 0, words: [{ t: 10.2, end: 10.6, text: 'Hello' }] }] })
+  assert.ok(!env.sent.some((x) => x[0] === 'lyrics-stream'), 'nothing from a closed stream')
+})

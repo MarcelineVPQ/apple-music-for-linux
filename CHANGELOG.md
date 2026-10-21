@@ -7,6 +7,14 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.93-dev.1] — No crash when a song is forgotten while its look-ahead stream starts
+
+### Fixed
+- **A crash after Forget this song.** Forgetting a song in the second after its look-ahead play began could stop Sonata with "A JavaScript error occurred in the main process". It no longer does.
+
+### Changed
+- **About → Coming soon shows only what is planned.** Ideas stay off the list until they're planned, and the Karaoke card's text is up to date.
+
 ## [0.15.92-dev.1] — Windows come back at their last size, and maximized if you left them so
 
 ### Changed

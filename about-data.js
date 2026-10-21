@@ -53,7 +53,7 @@ function comingSoon(md) {
     const m = /^Soon(?:\s*\(([^)]+)\))?:\s*(.+?[.!?])(?:\s|$)/.exec(cells[2])
     if (!m) continue
     const status = cells[1].replace(/\*/g, '').trim()
-    if (/^done$/i.test(status)) continue
+    if (/^(done|idea)$/i.test(status)) continue
     const item = cells[0].replace(/\*/g, '').replace(MARKERS, '').replace(/^After 0\.15\.10:\s*/i, '')
     out.push({ title: m[1] ? m[1].trim() : item, text: m[2], status })
   }
@@ -149,8 +149,9 @@ function hero(version, channel, appImage, year) {
   }
 }
 
-// Coming soon as the DS5 board's columns: building now first, then planned, then ideas (empty ones left out)
-const SOON_GROUPS = [['Building', 'Building now'], ['Planned', 'Planned'], ['Idea', 'Ideas']]
+// Coming soon as the DS5 board's columns: building now first, then planned (empty ones left out). Ideas are not
+// coming soon (Marcy 2026-10-20, "that coming soon section needs cleanup"): they stay in the BACKLOG until planned
+const SOON_GROUPS = [['Building', 'Building now'], ['Planned', 'Planned']]
 function soonGroups(items) {
   // loop: NOT-WORTH — once per run (aboutCache), 3 groups × Soon items (tens)
   return SOON_GROUPS.map(([status, label]) => ({ label, items: items.filter((it) => it.status.toLowerCase() === status.toLowerCase()) }))

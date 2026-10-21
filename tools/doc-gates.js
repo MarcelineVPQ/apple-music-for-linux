@@ -73,6 +73,11 @@ function soonProblems(md) {
       if (startsSoon) problems.push(where + ' is Done but still in Coming soon: remove its "Soon…:" sentence (shipped work is in the CHANGELOG)')
       continue
     }
+    if (r.status === 'Idea') {
+      if (startsSoon) problems.push(where + ' is an Idea but in Coming soon: ideas are not coming soon; drop its "Soon…:" (keep the sentence) until it is Planned')
+      else if (r.marker) optedOut.push({ item: r.item, status: r.status, marker: r.marker })
+      continue
+    }
     if (soon) listed++
     if (soon && r.marker) problems.push(where + ' is in Coming soon and marked (' + r.marker + '): drop one of the two')
     if (!soon && r.marker) optedOut.push({ item: r.item, status: r.status, marker: r.marker })
