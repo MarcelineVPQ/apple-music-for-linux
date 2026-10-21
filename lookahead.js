@@ -343,8 +343,41 @@ function createLookahead(deps) {
   let lastAudio = null
   const now = deps.now || Date.now
   let helperState = ''
+  // the listener's volume while look-ahead holds it (0.15.91, Marcy 2026-10-20: "theres a delay using it"): the
+  // player's own volume acts on the audio entering the delay line, so a slider move was heard D later. While the
+  // stream is routed here the player stays at full volume and the helper applies the listener's volume at its output,
+  // heard at once; when look-ahead stops or fails the player gets it back first (never a full-volume blast).
+  // cache: OK — key=look-ahead running and routed; invalidated=stop, failure, the helper gone; bound=one number
+  let held = null    // the listener's volume (0..1), or null when the player has its own
+  let holdAsked = false
 
   function changed() { if (deps.onChange) deps.onChange() }
+
+  function gainCmd(v) { return 'gain ' + Math.round(Math.min(1, Math.max(0, v)) * 1000) }
+  // the stream is routed: take the volume over (once per run); the helper's gain first, then the player to full
+  function holdVolume() {
+    if (held != null || holdAsked || !deps.readVolume || !deps.playerVolume) return
+    holdAsked = true
+    Promise.resolve(deps.readVolume()).then((v) => {
+      holdAsked = false
+      if (phase !== 'on' || !routed || held != null || !Number.isFinite(v)) return
+      held = Math.min(1, Math.max(0, v))
+      return send(gainCmd(held)).then((f) => {
+        if (!f || f.kind !== 'ok') { held = null; return }   // an old helper without gain: the player keeps its volume
+        deps.playerVolume(1)
+        log('volume ' + Math.round(held * 100) + ' % applied at the delay line\'s output (heard at once)')
+        changed()
+      })
+    }).catch((e) => { holdAsked = false; log('volume read failed: ' + e.message) })   // error: LOGGED-OK — the player keeps its own volume
+  }
+  // look-ahead ends: the player's volume back before its stream leaves the delay line
+  function releaseVolume() {
+    if (held == null) return
+    const v = held
+    held = null
+    if (deps.playerVolume) deps.playerVolume(v)
+    log('volume ' + Math.round(v * 100) + ' % back on the player')
+  }
 
   function send(cmd) {
     if (!line || line.closed) return Promise.resolve(null)
@@ -418,6 +451,7 @@ function createLookahead(deps) {
   // manager relinks a stream whose sink is gone); the clock stops shifting at once, and the stream's
   // remembered target is cleared so nothing points at the look-ahead sink later.
   function fallback() {
+    releaseVolume()
     heardUs = 0
     if (holding) deps.player('resume')   // a player held at an item change plays on
     holding = false
@@ -457,13 +491,14 @@ function createLookahead(deps) {
     if (phase !== 'on') return Promise.resolve(false)
     return deps.findStream().then((s) => {
       if (!s || phase !== 'on') return false
-      if (s.sink === SINK) { routed = s; return true }
+      if (s.sink === SINK) { routed = s; holdVolume(); return true }
       return new Promise((resolve) => {
         // error: LOGGED-OK — a move that fails leaves the stream on its device (no delay, nothing lost); the next event tries again
         // lifetime: OK — one short pactl child per move (2 s timeout)
         deps.execFile('pactl', ['move-sink-input', String(s.index), SINK], { timeout: 2000 }, (err) => {
           if (err) { log('could not route the stream: ' + err.message); resolve(false); return }
           routed = s
+          holdVolume()
           resolve(true)
         })
       })
@@ -636,6 +671,7 @@ function createLookahead(deps) {
     if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null }
     if (boundaryTimer) { clearTimeout(boundaryTimer); boundaryTimer = null }
     if (holding) { holding = false; deps.player('resume') }
+    releaseVolume()
     unroute()
     deps.setHold(false)
     if (sub) { const s = sub; sub = null; try { s.kill() } catch (e) {} }   // error: NOT-WORTH — already gone
@@ -657,6 +693,30 @@ function createLookahead(deps) {
 
   return {
     start, stop, pageEvent, beforeCommand, tick,
+    /** The listener's volume while look-ahead holds it (the player at full volume), else null. */
+    get volume() { return held },
+    /**
+     * The listener set a volume (0..1). -> true when look-ahead applied it (at once, at its output); false: set it on
+     * the player as before.
+     */
+    setVolume(v) {
+      if (held == null || phase !== 'on') return false
+      held = Math.min(1, Math.max(0, Number(v) || 0))
+      send(gainCmd(held))
+      changed()
+      return true
+    },
+    /**
+     * The player's own volume as read on a tick: anything but full while held is a change made on Apple's page
+     * itself: it becomes the listener's volume, and the player goes back to full.
+     */
+    playerVolumeSeen(v) {
+      if (held == null || phase !== 'on' || !Number.isFinite(v) || Math.abs(v - 1) < 0.005) return
+      held = Math.min(1, Math.max(0, v))
+      send(gainCmd(held))
+      if (deps.playerVolume) deps.playerVolume(1)
+      changed()
+    },
     /** The clock for the views: { time, playing, ready } of the heard audio. */
     clock(playerTime, isPlaying) {
       // with no delay the line still holds ~2 quanta (≈ 43 ms): the clock follows that too

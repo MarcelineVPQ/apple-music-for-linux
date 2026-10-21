@@ -70,7 +70,7 @@
 #include <spa/param/audio/format-utils.h>
 #include <spa/pod/builder.h>
 
-#define VERSION "1"
+#define VERSION "2"
 #define CH 2
 #define MAX_SECONDS 12          // ring capacity: D (≤ 10 s) + pause tail + surplus
 #define TAIL_MS 250             // at most this much pause tail is kept (Chromium's: 75–104 ms, measured)
@@ -84,6 +84,7 @@
 #define TRIM_AFTER_MS 200       // surplus is trimmed only from silences longer than this
 #define FROZEN_PLAY_MS 600      // non-silent input this long while frozen: the player plays, resume
 #define SILENT 1e-7f
+#define GAIN_RAMP_MS 10.0f      // a volume change ramps over this long (no click)
 
 static uint64_t mono_ns(void) {
   struct timespec ts;
@@ -91,8 +92,8 @@ static uint64_t mono_ns(void) {
   return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
 
-enum cmd { C_NONE = 0, C_PAUSE, C_PLAY, C_FLUSH, C_TRACK, C_OPEN, C_SETD };
-static const char *cmd_name[] = {"none", "pause", "play", "flush", "track", "open", "setd"};
+enum cmd { C_NONE = 0, C_PAUSE, C_PLAY, C_FLUSH, C_TRACK, C_OPEN, C_SETD, C_GAIN };
+static const char *cmd_name[] = {"none", "pause", "play", "flush", "track", "open", "setd", "gain"};
 
 struct command { int type; int64_t arg_ms; uint64_t t; };
 #define CMDQ 64
@@ -140,12 +141,16 @@ struct app {
   int trimming;                // a surplus over one quantum is being trimmed, until none is left
   uint64_t gate_ns;
   uint32_t quantum;            // last cycle's frames
+  // the listener's volume, applied at our output so it is heard at once (version 2, Marcy 2026-10-20: the player's
+  // own volume acts on the audio entering the delay, so a slider move was heard D later); ramped over GAIN_RAMP_MS
+  float gain, gain_to;
   int need_reset;
 
   // published for stat (atomics, written by the data thread)
   _Atomic int64_t p_fill, p_out_fill, p_pad, p_count, p_target, p_delay_frames, p_pwdelay;
   _Atomic uint32_t p_rate, p_quantum;
   _Atomic int p_state;
+  _Atomic int p_gain;          // permille
   _Atomic uint64_t underruns, overflows, xruns, trimmed, cycles_in, cycles_out, dropped_gate;
   _Atomic uint64_t p_nsec;
 };
@@ -233,6 +238,9 @@ static void apply(struct app *a, struct command *c) {
       // gate opens at that break, or OPEN_MAX_MS after `open`
       if (a->gated && !a->draining) { a->opening = 1; a->open_sil = 0; a->open_ns = c->t; }
       break;
+    case C_GAIN:
+      a->gain_to = (float)c->arg_ms / 1000.0f;
+      break;
     case C_SETD:
       ring_clear(a);
       a->D = D; a->D_ms = c->arg_ms;
@@ -256,6 +264,7 @@ static void publish(struct app *a) {
   atomic_store(&a->p_target, deff(a, a->D));
   atomic_store(&a->p_state, state_code(a));
   atomic_store(&a->p_quantum, a->quantum);
+  atomic_store(&a->p_gain, (int)lroundf(a->gain_to * 1000.0f));
 }
 
 // ---- input: Sonata's stream arrives here ----
@@ -383,9 +392,11 @@ static void on_out_process(void *data) {
     if (!a->pad) {
       int64_t r = (a->w - a->count + a->cap) % a->cap;
       uint32_t have = (uint32_t)(a->count < (int64_t)(n - o) ? a->count : (int64_t)(n - o));
+      float step = a->rate ? 1000.0f / ((float)a->rate * GAIN_RAMP_MS) : 1.0f;
       for (uint32_t i = 0; i < have; i++) {  // loop: HOT-PATH-OK — one quantum of frames
-        dst[CH * (o + i)] = a->ring[CH * r];
-        dst[CH * (o + i) + 1] = a->ring[CH * r + 1];
+        if (a->gain != a->gain_to) a->gain = a->gain < a->gain_to ? fminf(a->gain + step, a->gain_to) : fmaxf(a->gain - step, a->gain_to);
+        dst[CH * (o + i)] = a->ring[CH * r] * a->gain;
+        dst[CH * (o + i) + 1] = a->ring[CH * r + 1] * a->gain;
         r = (r + 1) % a->cap;
       }
       a->count -= have;
@@ -504,13 +515,13 @@ static void stat_line(struct app *a, char *buf, size_t len) {
   snprintf(buf, len,
            "ok stat version=" VERSION " state=%s rate=%u quantum=%u fill=%lld pad=%lld count=%lld target=%lld "
            "pwdelay=%lld heard_us=%lld underruns=%llu overflows=%llu trimmed=%llu gate_dropped=%llu "
-           "cycles_in=%llu cycles_out=%llu t=%llu\n",
+           "cycles_in=%llu cycles_out=%llu gain=%d t=%llu\n",
            state_name[atomic_load(&a->p_state)], rate, q, (long long)f, (long long)atomic_load(&a->p_pad),
            (long long)atomic_load(&a->p_count), (long long)atomic_load(&a->p_target), (long long)pd,
            rate ? (long long)(heard * 1000000 / rate) : 0LL, (unsigned long long)atomic_load(&a->underruns),
            (unsigned long long)atomic_load(&a->overflows), (unsigned long long)atomic_load(&a->trimmed),
            (unsigned long long)atomic_load(&a->dropped_gate), (unsigned long long)atomic_load(&a->cycles_in),
-           (unsigned long long)atomic_load(&a->cycles_out), (unsigned long long)mono_ns());
+           (unsigned long long)atomic_load(&a->cycles_out), atomic_load(&a->p_gain), (unsigned long long)mono_ns());
 }
 
 static void *ctl_thread(void *arg) {
@@ -528,6 +539,7 @@ static void *ctl_thread(void *arg) {
     else if (sscanf(line, "flush %lld", &v) == 1 && v >= 0 && v <= 10000) post(a, C_FLUSH, v);
     else if (sscanf(line, "track %lld", &v) == 1 && v >= 0 && v <= 10000) post(a, C_TRACK, v);
     else if (sscanf(line, "setd %lld", &v) == 1 && v >= 0 && v <= 10000) post(a, C_SETD, v);
+    else if (sscanf(line, "gain %lld", &v) == 1 && v >= 0 && v <= 1000) post(a, C_GAIN, v);
     else if (!strncmp(line, "stat", 4)) stat_line(a, reply, sizeof reply);
     else if (!strncmp(line, "quit", 4)) { client_write(a, reply); break; }
     else snprintf(reply, sizeof reply, "err unknown\n");
@@ -650,6 +662,7 @@ int main(int argc, char **argv) {
   a->client_fd = -1;
   a->listen_fd = -1;
   a->D_ms = 3000;
+  a->gain = a->gain_to = 1.0f;
   for (int i = 1; i + 1 < argc; i += 2) {  // loop: NOT-WORTH — argv, startup only
     if (!strcmp(argv[i], "--ctl")) a->ctl_path = argv[i + 1];
     else if (!strcmp(argv[i], "--name")) a->name = argv[i + 1];

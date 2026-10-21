@@ -287,6 +287,7 @@ function fakeWorld(opts = {}) {
   const sent = []
   const player = []
   const holds = []
+  const volumes = []
   let lineClose = null
   let lineEvent = null
   const children = []
@@ -320,9 +321,11 @@ function fakeWorld(opts = {}) {
     now: opts.now,
     player: (a) => player.push(a),
     setHold: (on) => holds.push(on),
+    readVolume: opts.volume != null ? () => Promise.resolve(opts.volume) : undefined,
+    playerVolume: opts.volume != null ? (v) => volumes.push(v) : undefined,
     log: (m) => log.push(m)
   })
-  return { la, log, execs, sent, player, holds, children, emitHelper: (e) => lineEvent(e), closeLine: () => lineClose(), stream }
+  return { la, log, execs, sent, player, holds, volumes, children, emitHelper: (e) => lineEvent(e), closeLine: () => lineClose(), stream }
 }
 const settle = () => new Promise((r) => setImmediate(r)).then(() => new Promise((r) => setImmediate(r)))
 
@@ -703,4 +706,64 @@ test('streamPartFits: a streamed line\'s notes must sit on that line\'s own span
   assert.equal(AS.streamPartFits({ syllables: [] , notes: [] }, raw, 0), true)
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'align-session.js'), 'utf8')
   assert.match(src, /!streamPartFits\(msg\.notes, s\.raw, msg\.line\)\) \{ log\(/)
+})
+
+test('volume (0.15.91): once routed, the helper applies the listener\'s volume at its output and the player goes to full', async () => {
+  const w = fakeWorld({ volume: 0.4 })
+  w.la.start()
+  await settle()
+  await settle()
+  assert.ok(w.sent.includes('gain 400'), 'the gain first')
+  assert.deepEqual(w.volumes, [1], 'then the player at full volume')
+  assert.equal(w.la.volume, 0.4)
+  // the slider: the helper only (heard at once), never the player (heard D later)
+  assert.equal(w.la.setVolume(0.25), true)
+  assert.equal(w.sent[w.sent.length - 1], 'gain 250')
+  assert.deepEqual(w.volumes, [1])
+  // Apple's own control moved the player: that becomes the listener's volume, the player back to full
+  w.la.playerVolumeSeen(0.7)
+  assert.equal(w.sent[w.sent.length - 1], 'gain 700')
+  assert.deepEqual(w.volumes, [1, 1])
+  w.la.playerVolumeSeen(1)
+  assert.deepEqual(w.volumes, [1, 1], 'full is the held state itself')
+  // stop: the player gets the listener's volume back before the stream leaves the delay line
+  w.la.stop()
+  assert.deepEqual(w.volumes, [1, 1, 0.7])
+  assert.equal(w.la.volume, null)
+  assert.equal(w.la.setVolume(0.5), false, 'off: the player sets its own volume')
+})
+
+test('volume: the helper failing gives the player its volume back at once (never full volume on the speakers)', async () => {
+  const w = fakeWorld({ volume: 0.3 })
+  w.la.start()
+  await settle()
+  await settle()
+  assert.deepEqual(w.volumes, [1])
+  const c = w.children.find((x) => x.bin !== 'pactl')
+  c.emit('exit', 1, null)
+  assert.deepEqual(w.volumes, [1, 0.3])
+  assert.equal(w.la.volume, null)
+  w.la.stop()
+})
+
+test('volume: without readVolume/playerVolume (and before routing) nothing is held', async () => {
+  const w = fakeWorld()
+  w.la.start()
+  await settle()
+  await settle()
+  assert.equal(w.la.volume, null)
+  assert.ok(!w.sent.some((l) => l.startsWith('gain')))
+  w.la.stop()
+})
+
+test('volume wiring: every volume control goes through setVolume; a held volume survives a crash', () => {
+  const main = require('node:fs').readFileSync(require.resolve('../main.js'), 'utf8')
+  assert.equal((main.match(/MusicKit\.getInstance\(\)\.volume = \$\{/g) || []).length, 1, 'one place sets the player\'s volume (playerVolumeSet)')
+  assert.match(main, /else if \(command === 'setVolume'\) setVolume\(value\)/)
+  assert.match(main, /else if \(c\.command === 'volume'\) setVolume\(c\.value\)/)
+  assert.match(main, /setVolume\(wheelVolume\.stepVolume\(shownVolume\(v\), steps\)\)/)
+  assert.match(main, /function appleLoaded\(\) \{\n.*\n  restoreHeldVolume\(\)/)
+  const c = require('node:fs').readFileSync(require.resolve('../native/lookahead/sonata-lookahead.c'), 'utf8')
+  assert.match(c, /sscanf\(line, "gain %lld", &v\) == 1 && v >= 0 && v <= 1000/)
+  assert.match(c, /\* a->gain;/)
 })

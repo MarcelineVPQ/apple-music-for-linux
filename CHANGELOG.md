@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.91-dev.1] — The volume slider acts at once during look-ahead play
+
+### Fixed
+- **Volume during look-ahead play.** Moving the volume (slider, mouse wheel, Apple's own control) is heard at once while look-ahead runs, instead of a few seconds later. If Sonata ends while look-ahead holds the volume, your volume is put back the next time it starts, never full volume.
+
 ## [0.15.90-dev.1] — Moving back to the start after Forget this song starts a fresh first play
 
 ### Fixed

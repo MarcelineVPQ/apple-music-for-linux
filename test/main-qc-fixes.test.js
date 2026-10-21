@@ -13,7 +13,7 @@ test('Apple offline at start: shown with Try again, retried, cleared on load', (
   const shown = []
   const timers = []
   const calls = []
-  const env = {
+  const env = { restoreHeldVolume: () => {},
     APPLE_RETRY_MS: 20000, appleStartUrl: 'https://music.apple.com/us/browse', appleRetryTimer: null, appleFailShown: false,
     settings: { panelPage: 'settings' },
     notices: { show: (n) => shown.push(n), clear: (id) => calls.push('clear ' + id) },

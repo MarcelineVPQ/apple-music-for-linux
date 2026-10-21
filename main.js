@@ -1461,6 +1461,9 @@ function getLookahead() {
     lookahead = lookaheadLib.createLookahead({
       binary: lookaheadBinary(), socketPath: lookaheadSocket(), spawn, execFile, net: require('net'),
       findStream: lookaheadStream, decide: lookaheadDecide, player: lookaheadPlayer, setHold: lookaheadHold,
+      // the listener's volume: the one held when Sonata last ended (the player still at full), else the player's
+      readVolume: () => (settings.heldVolume != null ? Promise.resolve(settings.heldVolume) : mainAlive() ? appleWC().executeJavaScript('(() => MusicKit.getInstance().volume)()') : Promise.resolve(NaN)),
+      playerVolume: (v) => { playerVolumeSet(v); settingsHeldVolume(v === 1 ? lookahead && lookahead.volume : null) },
       onChange: () => { pushPanel(); sendAlignNote() },
       log: (m) => console.log('look-ahead:', m)
     })
@@ -1496,7 +1499,40 @@ function lookaheadAskEngine() {
 function heardState(state) {
   if (!lookahead || lookahead.phase !== 'on' || !state) return state
   const c = lookahead.clock(state.playbackTime, state.isPlaying)
-  return Object.assign({}, state, { playbackTime: c.time, isPlaying: c.playing, heardReady: c.ready, playerTime: state.playbackTime })
+  return Object.assign({}, state, { playbackTime: c.time, isPlaying: c.playing, heardReady: c.ready, playerTime: state.playbackTime, volume: shownVolume(state.volume) })
+}
+// The volume (0.15.91): while look-ahead holds it the player runs at full volume and the helper applies the
+// listener's volume at its output, heard at once (lookahead.js setVolume); else the player's own, as before.
+function shownVolume(v) { return lookahead && lookahead.volume != null ? lookahead.volume : v }
+function playerVolumeSet(v) {
+  if (!mainAlive()) return
+  appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${Math.min(1, Math.max(0, Number(v) || 0))}; })();`)
+    .catch((e) => console.error('set volume failed:', e.message)) // error: LOGGED-OK — page mid-load: the volume stays
+}
+function setVolume(v) {
+  const volume = Math.min(1, Math.max(0, Number(v) || 0))
+  if (lookahead && lookahead.setVolume(volume)) { settingsHeldVolume(volume); return }
+  playerVolumeSet(volume)
+}
+// the listener's volume while the player is held at full (a crash or a kill can't put it back): restored at the
+// next start, so Sonata never comes back at full volume (restoreHeldVolume)
+function settingsHeldVolume(v) {
+  const next = Number.isFinite(v) ? v : null
+  if ((settings.heldVolume ?? null) === next) return
+  settings.heldVolume = next
+  saveSettings()
+}
+function restoreHeldVolume() {
+  if (settings.heldVolume == null || lookaheadWanted() || !mainAlive()) return   // look-ahead on: it holds it again (readVolume)
+  const v = Math.min(1, Math.max(0, Number(settings.heldVolume) || 0))
+  // MusicKit comes up a little after the page loads: the page waits for it (at most 20 s)
+  appleWC().executeJavaScript(`new Promise((ok) => { let n = 0; const t = setInterval(() => { const mk = window.MusicKit && MusicKit.getInstance && MusicKit.getInstance(); if (mk || ++n > 80) { clearInterval(t); if (mk) mk.volume = ${v}; ok(!!mk) } }, 250) })`)
+    .then((done) => {
+      if (!done) return
+      settingsHeldVolume(null)
+      console.log('volume ' + Math.round(v * 100) + ' % put back on the player (look-ahead held it when Sonata last ended)')
+    })
+    .catch((e) => console.error('volume restore failed:', e.message)) // error: LOGGED-OK — page mid-load: tried again at its next load
 }
 // lifetime: OK — registered once at module load
 // error: NOT-WORTH — only from Apple's view, top frame, while look-ahead runs; the fields are checked in lookahead.js cleanEvent
@@ -1555,6 +1591,7 @@ async function lyricsTick() {
     state = await appleWC().executeJavaScript(nowPlayingScript)
   } catch (e) { return }
   if (!state || !state.ok || !lyricsFeedWanted()) return
+  if (lookahead) lookahead.playerVolumeSeen(Number(state.volume))   // Apple's own volume control, while look-ahead holds it
   const sampledAt = Date.now()   // when state.playbackTime was read (a lyrics lookup below may take a while)
   // the song's precise time when MusicKit gives whole seconds (player-time.js): every consumer below reads it
   const pt = playerTime.read({ key: state.title + '|' + state.artist + '|' + state.duration, mk: state.mkTime != null ? state.mkTime : state.playbackTime, els: state.els })
@@ -1870,7 +1907,7 @@ const stageQueueScript = (since) => `(() => {
 // (not minimized, not hidden, not the compact form).
 // error: NOT-WORTH — a failing read (page mid-navigation) skips this tick; the next tick reads again
 async function stageTick(state, key) {
-  const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(state.volume) || 0, releaseDate: state.releaseDate || '' }
+  const np = { title: state.title, artist: state.artist, album: state.album, art: state.artworkLarge || state.artwork || '', duration: state.duration, isPlaying: !!state.isPlaying, shuffle: !!state.shuffle, repeat: state.repeat, volume: Number(shownVolume(state.volume)) || 0, releaseDate: state.releaseDate || '' }
   const json = JSON.stringify(np)
   if (json !== stageSent) { stageSent = json; lyricsWindow.webContents.send('stage-np', np) }
   // error: NOT-WORTH — stageSongRead catches its one async read (songSource.state); the rest is sync
@@ -1933,7 +1970,7 @@ ipcMain.on('stage-command', (event, command, value) => {
   else if (c.command === 'shuffle') playerCommand('toggleShuffle')
   else if (c.command === 'repeat') playerCommand('cycleRepeat')
   else if (c.command === 'seek') run(`(() => { MusicKit.getInstance().seekToTime(${c.value}); })();`, 'seek')
-  else if (c.command === 'volume') run(`(() => { MusicKit.getInstance().volume = ${c.value}; })();`, 'volume')
+  else if (c.command === 'volume') setVolume(c.value)
   else if (c.command === 'play-item') ipcStagePlay(c.value.index, c.value.id)
   else if (c.command === 'song-favorite') {
     if (!stageSong.ok || !stageSong.id) { stageDone('favorite', false, 'nothing'); return }
@@ -3197,13 +3234,7 @@ ipcMain.on('mini-command', (event, command, value) => {
         .catch((e) => console.error('seek failed:', e.message)) // error: LOGGED-OK — page mid-load: that seek is lost
     }
   }
-  else if (command === 'setVolume') {
-    const volume = Math.min(1, Math.max(0, Number(value) || 0))
-    if (mainAlive()) {
-      appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${volume}; })();`)
-        .catch((e) => console.error('set volume failed:', e.message)) // error: LOGGED-OK — page mid-load: the volume stays
-    }
-  }
+  else if (command === 'setVolume') setVolume(value)
   else {
     playerCommand(command)
   }
@@ -3506,6 +3537,7 @@ function appleRetry() {
 }
 function appleLoaded() {
   if (appleRetryTimer) { clearTimeout(appleRetryTimer); appleRetryTimer = null }
+  restoreHeldVolume()
   appleFailShown = false
   notices.clear('apple-offline')
 }
@@ -4751,10 +4783,7 @@ ipcMain.on('apple:volume', (event, steps) => {
   if (!mainAlive() || event.sender !== appleWC() || !event.senderFrame || event.senderFrame.parent) return
   if (!Number.isInteger(steps) || steps === 0 || Math.abs(steps) > 20) return
   appleWC().executeJavaScript('(() => { const mk = MusicKit.getInstance(); return mk.volume; })()')
-    .then((v) => {
-      const next = wheelVolume.stepVolume(v, steps)
-      return appleWC().executeJavaScript(`(() => { MusicKit.getInstance().volume = ${next}; })();`)
-    })
+    .then((v) => setVolume(wheelVolume.stepVolume(shownVolume(v), steps)))
     .catch((e) => console.error('wheel volume failed:', e.message)) // error: LOGGED-OK — page mid-load: the wheel does nothing that time
 })
 

@@ -63,6 +63,8 @@ const SCHEMA = {
   // look-ahead play (lookahead.js; Linux, Development builds, off by default): first plays heard D s late
   lookahead: [false, bool, 'First play: precise from the start'],
   lookaheadDelay: ['precise', oneOf('precise', 'quick'), 'Look-ahead delay'],
+  // the listener's volume while look-ahead holds the player at full (0.15.91): put back at the next start if Sonata ended holding it
+  heldVolume: [null, (v) => v === null || (typeof v === 'number' && v >= 0 && v <= 1), 'Volume held by look-ahead'],
   updateChannel: ['stable', oneOf('stable', 'dev'), 'Update channel'],
   checkForUpdates: [true, bool, 'Check for updates automatically'],
   autoInstallUpdates: [false, bool, 'Install updates automatically'],
