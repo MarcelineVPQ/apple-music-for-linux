@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.92-dev.1] — Windows come back at their last size, and maximized if you left them so
+
+### Changed
+- **Windows remember how you left them.** Every window (the main window, mini player, lyrics window, Studio, liner notes and the visualizer's screen) opens at its last size, maximized if you left it maximized, and in its last place where your desktop allows it (on Wayland the desktop places windows). A window whose screen is no longer connected comes back centred on your main screen.
+
 ## [0.15.91-dev.1] — The volume slider acts at once during look-ahead play
 
 ### Fixed
