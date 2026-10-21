@@ -11,8 +11,9 @@ const fsMod = require('fs')
 const path = require('path')
 const { salvageObject, asideName } = require('./json-salvage')
 
+// a window's place (window-bounds.js): size always, x / y where positions work, maximized while it is
 const bounds = (v) => v === null || (v && typeof v === 'object' && ['width', 'height'].every((k) => Number.isInteger(v[k])) &&
-  ['x', 'y'].every((k) => v[k] === undefined || Number.isInteger(v[k])))
+  ['x', 'y'].every((k) => v[k] === undefined || Number.isInteger(v[k])) && (v.maximized === undefined || typeof v.maximized === 'boolean'))
 const bool = (v) => typeof v === 'boolean'
 const oneOf = (...xs) => (v) => xs.includes(v)
 const strOrNull = (v) => v === null || (typeof v === 'string' && v.length < 64)
@@ -30,6 +31,8 @@ const SCHEMA = {
   lyricsStage: [false, bool, 'Lyrics shown as the Studio'],
   stageBounds: [null, bounds, 'Studio size'],
   linerBounds: [null, bounds, 'Liner notes window size'],
+  miniBounds: [null, bounds, 'Mini player position'],
+  vizBounds: [null, bounds, 'Visualizer screen'],
   miniAlwaysOnTop: [true, bool, 'Keep the mini player on top'],
   lyricsAlwaysOnTop: [true, bool, 'Keep lyrics on top'],
   adaptiveColor: [true, bool, 'Adaptive album color'],

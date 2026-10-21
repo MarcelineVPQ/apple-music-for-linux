@@ -80,7 +80,8 @@ For songs with line timing only, Sonata can work out where each word is really s
 - **Visualizer / ambient mode** (Ctrl+Shift+V): full-screen album art, synced lyrics and a real-time spectrum from the actual audio output (captured through PipeWire/PulseAudio, so it works with Apple's DRM). Four scenes: **Bars**, **Aurora** (a Flurry homage), **Nebula** (an iTunes-visualizer homage) and **Toast** (pixel-art winged toasters that flap to the beat, an After Dark wink). Click or ← / → to change, Esc to leave.
 - **Adaptive album colours and Glass:** every Sonata window (the rail, the side panel, the mini player, the lyrics window) takes its colours from the current album art, and the sung lyric line lights up in the album's colour. With *Glass* on (Settings → Appearance, the default), they share a translucent material made from the artwork, blurred and tinted. Words always keep at least 4.5:1 contrast, dimmed lyric lines 3:1, over any artwork.
 - **Dark mode** follows your desktop (the XDG portal or KDE's colour scheme, not only the GTK theme); Ctrl+D or Settings → Appearance → Theme switches by hand and is remembered.
-- Back / forward with Alt+← / Alt+→ and the mouse buttons; window size and position are remembered.
+- Back / forward with Alt+← / Alt+→ and the mouse buttons.
+- Every window comes back as you left it: the main window, the mini player, the lyrics window and the Studio (each its own size), the liner notes and the visualizer's screen. Size and maximized always; the position too on X11 and XWayland (on native Wayland the desktop places windows). A window whose screen is no longer connected comes back centred on the main screen.
 
 ### Integration
 

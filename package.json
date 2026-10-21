@@ -60,6 +60,7 @@
       "lyrics-lanes.js",
       "lyrics-sections.js",
       "stage-model.js",
+      "window-bounds.js",
       "song-actions.js",
       "stage-ui.js",
       "montage-model.js",
