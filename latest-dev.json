@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.91-dev.1",
-  "file": "sonata-0.15.91-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.91-dev.1/sonata-0.15.91-dev.1-x86_64.AppImage",
-  "sha512": "524d6e72327730576fd70bdb869b8df49b72043b9f7aab6c075bca820dd05cc12d3ad6bdfa38506a63727e778e13799c6159265cce22a110674346a6d5e5efa6",
-  "size": 127664458,
-  "date": "2026-10-21T02:24:32Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.91-dev.1",
-  "notes": "### Fixed\n- **Volume during look-ahead play.** Moving the volume (slider, mouse wheel, Apple's own control) is heard at once while look-ahead runs, instead of a few seconds later. If Sonata ends while look-ahead holds the volume, your volume is put back the next time it starts, never full volume.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.91-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.92-dev.1",
+  "file": "sonata-0.15.92-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.92-dev.1/sonata-0.15.92-dev.1-x86_64.AppImage",
+  "sha512": "1184a6e088ef6c3e6e2b91b6c439cd74addf3adc5b024fb5aa1e5945199dfc42c8a46a44f2a6f613ffc1c7ddb95bbe622f0072761a664a705d4a490dc5f94c03",
+  "size": 127668746,
+  "date": "2026-10-21T02:33:57Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.92-dev.1",
+  "notes": "### Changed\n- **Windows remember how you left them.** Every window (the main window, mini player, lyrics window, Studio, liner notes and the visualizer's screen) opens at its last size, maximized if you left it maximized, and in its last place where your desktop allows it (on Wayland the desktop places windows). A window whose screen is no longer connected comes back centred on your main screen.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.92-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
