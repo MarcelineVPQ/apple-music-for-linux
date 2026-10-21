@@ -66,6 +66,7 @@ const shortcutsLib = require('./shortcuts')
 const shortcutsModel = require('./shortcuts-model')
 const dbusWire = require('./dbus-wire')
 const stageModel = require('./stage-model')
+const winBounds = require('./window-bounds')
 const songActions = require('./song-actions')
 const forgetSongLib = require('./forget-song')
 const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
@@ -162,7 +163,6 @@ let settingsPath = null
 // cache: OK — key=title|artist; invalidated=each track change; bound=one string
 let notifyKey = null       // null until first poll, so we don't notify the track already loaded at launch
 let trayTooltip = ''
-let saveBoundsTimer = null
 
 // error: SHOWN — a damaged settings.json: repaired (what reads is kept), copied aside, one notice (showRecovered)
 function loadSettings() {
@@ -179,29 +179,42 @@ function saveSettings() {
   try { settingsStore.saveSettings(settingsPath, settings) } catch (e) { console.error('settings: save failed:', e.message) }
 }
 
-// Restore a saved window size/position into BrowserWindow options.
-function applySavedBounds(opts, key) {
-  const b = settings[key]
-  if (b && Number.isInteger(b.width) && Number.isInteger(b.height)) {
-    opts.width = b.width; opts.height = b.height
-    if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
-  }
-  return opts
+// --- every window's place and size across launches (window-bounds.js: one module for all of them) ---
+// Positions work on X11 / XWayland (--ozone-platform=x11); on native Wayland only the size and the
+// maximized state are kept and the compositor places the window (window-bounds.js positionsWork).
+function positionsWork() {
+  return winBounds.positionsWork({
+    platform: process.platform,
+    ozone: app.commandLine.getSwitchValue('ozone-platform'),
+    hint: process.env.ELECTRON_OZONE_PLATFORM_HINT || app.commandLine.getSwitchValue('ozone-platform-hint'),
+    wayland: !!process.env.WAYLAND_DISPLAY
+  })
 }
-// Persist a window's size/position (debounced) whenever it moves or resizes.
-// loop: NOT-WORTH — lyrics-window bounds save · 500 ms one-shot debounce · runs only after a move/resize · stops after firing · cost ~0
-// lifetime: OK — resize/move listeners live on the window and die with it; the timer checks isDestroyed() first
-// key: the setting, or a function giving it (the lyrics window keeps one size per form: lyricsBounds, stageBounds)
-function persistBounds(win, key) {
-  let timer = null
-  const save = () => {
-    if (win.isDestroyed() || win.isMinimized() || win.isFullScreen() || !win.isVisible()) return
-    clearTimeout(timer)
-    timer = setTimeout(() => {
-      if (!win.isDestroyed()) { settings[typeof key === 'function' ? key() : key] = win.getBounds(); saveSettings() }
-    }, 500)
-  }
-  win.on('resize', save); win.on('move', save)   // lifetime: OK — both die with the window
+// The bounds to open a window with (window-bounds.js restore): its saved place back on the display it
+// was on (a place on no current display: centred on the primary one), else `size` in `area`.
+// opts: { min, fixed, centre } as restore takes them
+function savedBounds(key, size, area, opts) {
+  return winBounds.restore(settings[key], Object.assign({ displays: screen.getAllDisplays(), primary: screen.getPrimaryDisplay(), area, size, positions: positionsWork() }, opts))
+}
+// restore()'s result as BrowserWindow options (x / y only when it has them)
+function boundsOptions(r) {
+  const o = { width: r.width, height: r.height }
+  if (Number.isInteger(r.x) && Number.isInteger(r.y)) { o.x = r.x; o.y = r.y }
+  return o
+}
+// A window saved maximized opens maximized: now if it shows, else on its first show (maximize() would show it)
+function maximizeRestored(win, r) {
+  if (!r.maximized) return
+  if (win.isVisible()) { win.maximize(); return }
+  // lifetime: OK — once, dies with the window
+  win.once('show', () => { if (!win.isDestroyed()) win.maximize() })
+}
+// Keep a window's place in its setting after each move, resize or (un)maximize (debounced, saved at
+// once on close). key: the setting, or a function giving it (the lyrics window keeps one record per
+// form: lyricsBounds, stageBounds). opts: { fullscreen } (window-bounds.js track)
+function persistBounds(win, key, opts) {
+  const name = () => (typeof key === 'function' ? key() : key)
+  return winBounds.track(win, Object.assign({ read: () => settings[name()], write: (r) => { settings[name()] = r; saveSettings() }, positions: positionsWork() }, opts))
 }
 
 function initLocaleAndTheme() {
@@ -458,9 +471,9 @@ const nowPlayingScript = `(() => {
 
 function createMiniWindow() {
   // lifetime: OK — one mini window at a time; its 'closed' handler nulls it and stops its poll
-  miniWindow = new BrowserWindow({
-    width: 680,
-    height: 72,
+  // its place from last time (X11 / XWayland; its size is fixed); never saved: the window manager places it
+  const miniPlace = savedBounds('miniBounds', { width: 680, height: 72 }, screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, { fixed: true, centre: false })
+  miniWindow = new BrowserWindow(Object.assign(boundsOptions(miniPlace), {
     frame: false,
     roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the pill draws its own shape
     transparent: true,
@@ -472,7 +485,8 @@ function createMiniWindow() {
       nodeIntegration: true,
       contextIsolation: false
     }
-  })
+  }))
+  persistBounds(miniWindow, 'miniBounds')
   // error: NOT-WORTH — packaged miniplayer.html; rejects only if the window closes mid-load (a warning)
   miniWindow.loadFile('miniplayer.html')
   lockDownLocalWindow(miniWindow)
@@ -1722,10 +1736,12 @@ function createLyricsWindow() {
   // the form it was last used in (settings.lyricsStage): the stage or the lyrics window, each with its own size
   const form = settings.lyricsStage ? 'stage' : 'compact'
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
-  const bounds = form === 'stage' ? stageModel.windowBounds('stage', settings.stageBounds, area) : applySavedBounds({ width: stageModel.COMPACT_DEFAULT.width, height: stageModel.COMPACT_DEFAULT.height }, 'lyricsBounds')
   const min = stageModel.minSize(form, area)
+  // each form's own record, back on its display; never saved: the stage centred on this screen, the lyrics window placed by the window manager
+  const def = stageModel.windowBounds(form, null, area)
+  const place = savedBounds(form === 'stage' ? 'stageBounds' : 'lyricsBounds', { width: def.width, height: def.height }, area, { min, centre: form === 'stage' })
   // lifetime: OK — one lyrics window at a time; 'closed' nulls it and stops the feed when no view is left
-  lyricsWindow = new BrowserWindow(Object.assign(bounds, {
+  lyricsWindow = new BrowserWindow(Object.assign(boundsOptions(place), {
     minWidth: min.width,
     minHeight: min.height,
     frame: false,
@@ -1742,6 +1758,7 @@ function createLyricsWindow() {
   // error: NOT-WORTH — packaged lyrics.html; rejects only if the window closes mid-load (a warning)
   lyricsWindow.loadFile('lyrics.html')
   persistBounds(lyricsWindow, () => (settings.lyricsStage ? 'stageBounds' : 'lyricsBounds'))
+  maximizeRestored(lyricsWindow, place)
   trackHdr(lyricsWindow)
   lockDownLocalWindow(lyricsWindow)
   pushRail()
@@ -1817,7 +1834,8 @@ function setLyricsForm(stage) {
   saveSettings()
   const area = screen.getDisplayMatching(lyricsWindow.getBounds()).workArea
   const form = on ? 'stage' : 'compact'
-  const b = stageModel.windowBounds(form, on ? settings.stageBounds : settings.lyricsBounds, area)
+  const saved = on ? settings.stageBounds : settings.lyricsBounds
+  const b = stageModel.windowBounds(form, positionsWork() ? saved : saved && { width: saved.width, height: saved.height }, area)
   const min = stageModel.minSize(form, area)
   stageSent = ''
   stageQueueSig = ''
@@ -1825,7 +1843,9 @@ function setLyricsForm(stage) {
   stageSongKey = ''
   lyricsWindow.webContents.send('lyrics-form', lyricsForm())
   lyricsWindow.setMinimumSize(min.width, min.height)
+  if (lyricsWindow.isMaximized()) lyricsWindow.unmaximize()
   lyricsWindow.setBounds(b)
+  if (saved && saved.maximized) lyricsWindow.maximize()
   pushRail()
 }
 // the rail's Studio item and Ctrl+Shift+S: the stage showing shrinks back to the lyrics window, else it opens as the stage
@@ -2599,10 +2619,10 @@ function createLinerWindow(from) {
   const opts = { width: 1120, height: 780, minWidth: 700, minHeight: 520 }
   const fromWin = from && !from.isDestroyed() ? from : null
   const area = (fromWin ? screen.getDisplayMatching(fromWin.getBounds()) : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())).workArea
-  opts.width = Math.min(opts.width, area.width); opts.height = Math.min(opts.height, area.height)
-  opts.x = area.x + Math.round((area.width - opts.width) / 2); opts.y = area.y + Math.round((area.height - opts.height) / 2)
+  // its place from last time, back on its display; never saved: centred on the screen it was opened from
+  const place = savedBounds('linerBounds', { width: opts.width, height: opts.height }, area, { min: { width: opts.minWidth, height: opts.minHeight } })
   // lifetime: OK — one booklet at a time; 'closed' stops its poll and nulls it
-  linerWindow = new BrowserWindow(applySavedBounds(Object.assign(opts, {
+  linerWindow = new BrowserWindow(Object.assign(opts, boundsOptions(place), {
     frame: false,
     roundedCorners: false,   // the card draws its own corners (as the lyrics window)
     transparent: true,
@@ -2610,11 +2630,12 @@ function createLinerWindow(from) {
     show: false,
     title: TITLES.liner,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
-  }), 'linerBounds'))
+  }))
   const win = linerWindow
   // error: NOT-WORTH — packaged liner-notes.html; rejects only if the booklet closes mid-load
   win.loadFile('liner-notes.html')
   persistBounds(win, 'linerBounds')
+  maximizeRestored(win, place)
   lockDownLocalWindow(win)
   // lifetime: OK — fires once per load
   win.webContents.once('did-finish-load', () => {
@@ -2657,14 +2678,20 @@ ipcMain.on('liner-command', (event, command, arg) => {
 
 function createVizWindow() {
   // lifetime: OK — one visualizer at a time; 'closed' stops its audio and nulls it
-  vizWindow = new BrowserWindow({
+  // the screen it filled last time (X11 / XWayland: still connected, else the primary); never saved or
+  // native Wayland: the window manager's choice
+  const vizPlace = positionsWork() && settings.vizBounds
+    ? boundsOptions(savedBounds('vizBounds', { width: settings.vizBounds.width, height: settings.vizBounds.height }, screen.getPrimaryDisplay().workArea))
+    : {}
+  vizWindow = new BrowserWindow(Object.assign(vizPlace, {
     fullscreen: true,
     frame: false,
     roundedCorners: false,   // Electron 43+ rounds frameless Linux windows; the stage fills the screen edge to edge
     backgroundColor: '#000000',
     title: TITLES.visualizer,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
-  })
+  }))
+  if (positionsWork()) persistBounds(vizWindow, 'vizBounds', { fullscreen: true })
   // error: NOT-WORTH — packaged visualizer.html; rejects only if the visualizer closes mid-load
   vizWindow.loadFile('visualizer.html')
   lockDownLocalWindow(vizWindow)
@@ -4888,19 +4915,17 @@ function windowShortcut(input) {
 function createWindow() {
   Menu.setApplicationMenu(null)
 
-  const b = settings.windowBounds
-  const opts = {
-    width: 1000, height: 600, minWidth: 800, minHeight: 500,
+  // its place from last time, back on its display; never saved: the window manager places it
+  const place = savedBounds('windowBounds', { width: 1000, height: 600 }, screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea, { min: { width: 800, height: 500 }, centre: false })
+  const opts = Object.assign(boundsOptions(place), {
+    minWidth: 800, minHeight: 500,
     show: !(settings.startMinimized || process.argv.includes('--hidden')),
     title: appName,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1e1e1e' : '#ffffff'
-  }
-  if (b && b.width >= 800 && b.height >= 500) {
-    Object.assign(opts, { width: b.width, height: b.height })
-    if (Number.isInteger(b.x) && Number.isInteger(b.y)) { opts.x = b.x; opts.y = b.y }
-  }
+  })
   // lifetime: NOT-WORTH — the one main window, for the app's life (close quits or hides to the tray)
   mainWindow = new BaseWindow(opts)
+  maximizeRestored(mainWindow, place)
   // Apple's page: its preload is only the focus bridge to the rail (preload-apple.js); the security
   // defaults are spelled out, unchanged: no Node, sandboxed, isolated from the page's scripts
   // lifetime: OK — the views' web contents are closed in the window's 'closed' handler (a BaseWindow doesn't)
@@ -4929,18 +4954,8 @@ function createWindow() {
   if (settings.panelShown) createPanelView()
   appleWC().focus()
 
-  // remember size/position across launches (debounced)
-  const rememberBounds = () => {
-    if (!mainAlive() || mainWindow.isMinimized() || mainWindow.isFullScreen()) return
-    clearTimeout(saveBoundsTimer)
-    // lifetime: OK — one 500 ms debounce, cleared before each new one
-    saveBoundsTimer = setTimeout(() => {
-      if (mainAlive() && mainWindow.isVisible()) { settings.windowBounds = mainWindow.getBounds(); saveSettings() }
-    }, 500)
-  }
-  // loop: NOT-WORTH — main-window bounds save · 500 ms one-shot debounce · only after a move/resize · cost ~0
-  mainWindow.on('resize', rememberBounds)
-  mainWindow.on('move', rememberBounds)
+  // remember its place across launches (window-bounds.js)
+  persistBounds(mainWindow, 'windowBounds')
   // lifetime: OK — one listener each for the views' layout, die with the window · per event one bounds
   // read + compare; setBounds only when the size or the rail's mode changed (a pinned rail floats
   // below 996 px). Maximize and fullscreen arrive as resizes; the fullscreen events are listened to
