@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.90-dev.1" date="2026-10-20" type="development">
+      <description>
+        <p>Moving back to the start after Forget this song starts a fresh first play</p>
+      </description>
+    </release>
     <release version="0.15.89-dev.1" date="2026-10-20" type="development">
       <description>
         <p>The log says why a first-play line has no notes yet</p>

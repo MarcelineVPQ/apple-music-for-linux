@@ -86,3 +86,18 @@ test('wiring: dev builds only, one item in both ⋯ menus, the play under way ke
   assert.match(as, /forget\(key\) \{/)
   assert.match(read('listen-session.js'), /if \(song\.forgotten\) continue/)
 })
+
+test('back to the start after a forget: from at least RESTART_FROM_S to at most RESTART_AT_S', () => {
+  assert.equal(F.backToStart(187, 0), true, 'dragged to 0:00 near the end (Marcy 2026-10-20)')
+  assert.equal(F.backToStart(47, 2.5), true)
+  assert.equal(F.backToStart(4, 0.5), false, 'a play just begun')
+  assert.equal(F.backToStart(90, 40), false, 'a seek back, not to the start')
+  assert.equal(F.backToStart(NaN, 0), false, 'no time seen yet since the forget')
+})
+
+test('wiring: a forgotten play moved back to its start lays the song out again as a fresh play', () => {
+  const main = fs.readFileSync(require.resolve('../main.js'), 'utf8')
+  assert.match(main, /if \(cur\) forgottenPlay = \{ key: cur\.key, t: NaN \}/)
+  assert.match(main, /forgetSongLib\.backToStart\(forgottenPlay\.t, state\.playbackTime\)\) \{\n {6}forgottenPlay = null\n {6}if \(alignSession\) alignSession\.stop\(false\)\n {6}if \(listenSession\) listenSession\.restart\(key\)/)
+  assert.match(fs.readFileSync(require.resolve('../listen-session.js'), 'utf8'), /restart\(key\) \{ if \(forgot === key\) forgot = '' \}/)
+})

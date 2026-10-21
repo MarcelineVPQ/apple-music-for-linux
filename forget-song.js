@@ -67,4 +67,15 @@ function forgetStored(deps, song, opts = {}) {
   return { removed, notes, lyrics: !!opts.lyrics && removed.some((k) => !PREFIXES.some((p) => k.startsWith(p))) }
 }
 
-module.exports = { LABEL, PREFIXES, confirmText, logLine, songKeys, forgetStored }
+// After a forget, the play under way learns nothing; moving its timeline back to the start begins the fresh first play
+// there and then (Marcy 2026-10-20: she forgot "expectations" mid-play and dragged the timeline to 0:00; the rest of
+// the play, a whole song, logged "no notes" because only a song change started a new play)
+const RESTART_AT_S = 3     // s: the timeline at most this far in: back at the start
+const RESTART_FROM_S = 6   // s: from at least this far in (a play just begun is already its start)
+
+/** Whether the forgotten play's timeline went from prev (s) back to its start at now (s). */
+function backToStart(prev, now) {
+  return Number.isFinite(prev) && Number.isFinite(now) && prev >= RESTART_FROM_S && now <= RESTART_AT_S
+}
+
+module.exports = { LABEL, PREFIXES, RESTART_AT_S, RESTART_FROM_S, confirmText, logLine, songKeys, forgetStored, backToStart }

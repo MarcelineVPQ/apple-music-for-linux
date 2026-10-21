@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.90-dev.1] — Moving back to the start after Forget this song starts a fresh first play
+
+### Fixed
+- **Forget this song, then back to the start.** Forgetting a song mid-play and moving the timeline back to its start now begins its fresh first play right there. Before, the rest of that play learned nothing until another song had played.
+
 ## [0.15.89-dev.1] — The log says why a first-play line has no notes yet
 
 ### Changed

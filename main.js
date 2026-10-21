@@ -1569,6 +1569,18 @@ async function lyricsTick() {
   // next play asks again) · only while a lyric view is open and the song unchanged · stops on success,
   // track change or when the last view closes · cost one lookup per retry.
   // error: NOT-WORTH — jittered backoff capped at 120 s and a per-song cap, so a down service is never hammered
+  // Forget this song mid-play, then the timeline moved back to the start: the fresh first play begins there
+  if (forgottenPlay) {
+    if (forgottenPlay.key !== key) forgottenPlay = null
+    else if (forgetSongLib.backToStart(forgottenPlay.t, state.playbackTime)) {
+      forgottenPlay = null
+      if (alignSession) alignSession.stop(false)
+      if (listenSession) listenSession.restart(key)
+      if (songReport.key === key) songReport.end()
+      lyricsKey = null
+      console.log('forgot "' + (state.title || '') + '": the timeline is back at its start, a fresh first play begins')
+    } else forgottenPlay.t = state.playbackTime
+  }
   const retryDue = lyricsRetry && lyricsRetry.key === key && Date.now() >= lyricsRetry.at
   if (key !== lyricsKey || retryDue) {
     lyricsKey = key
@@ -2781,6 +2793,8 @@ function songAct(action, info, done) {
 let playingSong = null
 // cache: OK — key=title|artist forgotten; invalidated=its next play's report (consumed at begin); bound=the songs forgotten this run (a user action each)
 const forgotten = new Set()
+// cache: OK — key=the play under way that was forgotten, and its last time; invalidated=its restart from the start, another song; bound=one record
+let forgottenPlay = null   // { key, t }
 function forgetOffered() { return updateFeed.isDevVersion(app.getVersion()) }
 function forgetSongMenu(info) {
   const t = forgetSongLib.confirmText(info.title)
@@ -2814,6 +2828,7 @@ function forgetSong(title, artist, lyrics) {
   if (refining && refining.id === id) refining = null
   if (sheet && sheet.title === title && sheet.artist === artist) { sheet.entry = null; sheet.pitch = []; sheet.error = ''; sendSheet() }
   if (cur) { exprSong = { key: '', entry: 'missing' }; lyricsKey = null }   // the song again, as it is now known (the next tick)
+  if (cur) forgottenPlay = { key: cur.key, t: NaN }
   forgotten.add(id)
   console.log(forgetSongLib.logLine(title, out))
 }

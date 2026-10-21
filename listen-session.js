@@ -231,6 +231,8 @@ function createListenSession(deps) {
      */
     /** Forget this song (forget-song.js): the play of this key keeps nothing it refines from now on. */
     forget(key) { forgot = key; if (song && song.key === key) { song.forgotten = true; song.learned = null; return true } return false },
+    /** The forgotten play started over (the timeline back at its start): its next layout is a fresh play. */
+    restart(key) { if (forgot === key) forgot = '' },
     setLyrics(key, title, artist, lines, enabled, info) {
       stopListening()
       clock = null
