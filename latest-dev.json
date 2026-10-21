@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.93-dev.1",
-  "file": "sonata-0.15.93-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.93-dev.1/sonata-0.15.93-dev.1-x86_64.AppImage",
-  "sha512": "a76cd8b9713799d86aa6eb54fb183de9fd05e036f8ef96e2d2c16cbdcdebb6d34e3564e2480eca8b217009206577ffb13a7285815841047964a2371a46674b7e",
-  "size": 127668678,
-  "date": "2026-10-21T03:03:36Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.93-dev.1",
-  "notes": "### Fixed\n- **A crash after Forget this song.** Forgetting a song in the second after its look-ahead play began could stop Sonata with \"A JavaScript error occurred in the main process\". It no longer does.\n\n### Changed\n- **About → Coming soon shows only what is planned.** Ideas stay off the list until they're planned, and the Karaoke card's text is up to date.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.93-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.94-dev.1",
+  "file": "sonata-0.15.94-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.94-dev.1/sonata-0.15.94-dev.1-x86_64.AppImage",
+  "sha512": "6839dd11bb508b13950d1497b297e80c0a6f43cc28d66e814e19b6c88eb05ba4b02047843f597aff6327bccd598cfd0456b102e962c4431b251710f9379b4ba7",
+  "size": 127668670,
+  "date": "2026-10-21T03:12:28Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.94-dev.1",
+  "notes": "### Fixed\n- **Nothing left running after a crash.** The small background processes Sonata starts (for look-ahead play, the visualizer and the system colour scheme) now end when Sonata ends, even when it crashes or is closed by force. Before, they could stay running for hours and keep old copies of Sonata mounted.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.94-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
