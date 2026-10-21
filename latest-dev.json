@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.90-dev.1",
-  "file": "sonata-0.15.90-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.90-dev.1/sonata-0.15.90-dev.1-x86_64.AppImage",
-  "sha512": "88bcda62325480e910450dbe8184653f75fcc1e961557c22d9fa7eb396d407ae702543ef3fd4b937c8d014ad9444e370f95bb6c47ec91c59c83437fcc4f3f1b4",
-  "size": 127664531,
-  "date": "2026-10-21T02:13:25Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.90-dev.1",
-  "notes": "### Fixed\n- **Forget this song, then back to the start.** Forgetting a song mid-play and moving the timeline back to its start now begins its fresh first play right there. Before, the rest of that play learned nothing until another song had played.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.90-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.91-dev.1",
+  "file": "sonata-0.15.91-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.91-dev.1/sonata-0.15.91-dev.1-x86_64.AppImage",
+  "sha512": "524d6e72327730576fd70bdb869b8df49b72043b9f7aab6c075bca820dd05cc12d3ad6bdfa38506a63727e778e13799c6159265cce22a110674346a6d5e5efa6",
+  "size": 127664458,
+  "date": "2026-10-21T02:24:32Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.91-dev.1",
+  "notes": "### Fixed\n- **Volume during look-ahead play.** Moving the volume (slider, mouse wheel, Apple's own control) is heard at once while look-ahead runs, instead of a few seconds later. If Sonata ends while look-ahead holds the volume, your volume is put back the next time it starts, never full volume.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.91-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
