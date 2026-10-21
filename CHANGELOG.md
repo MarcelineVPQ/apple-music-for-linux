@@ -7,6 +7,11 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+## [0.15.94-dev.1] — Sonata's helper processes end with it, even after a crash
+
+### Fixed
+- **Nothing left running after a crash.** The small background processes Sonata starts (for look-ahead play, the visualizer and the system colour scheme) now end when Sonata ends, even when it crashes or is closed by force. Before, they could stay running for hours and keep old copies of Sonata mounted.
+
 ## [0.15.93-dev.1] — No crash when a song is forgotten while its look-ahead stream starts
 
 ### Fixed

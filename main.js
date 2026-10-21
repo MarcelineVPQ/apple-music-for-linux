@@ -69,6 +69,7 @@ const stageModel = require('./stage-model')
 const winBounds = require('./window-bounds')
 const songActions = require('./song-actions')
 const forgetSongLib = require('./forget-song')
+const { guardedSpawn } = require('./child-guard')   // long-lived children end with Sonata, even after a crash
 const nodeNet = require('net')   // Electron's `net` (above) is its HTTP client; this is Node's sockets
 
 // An AppImage started by another AppImage (an update relaunch up to 0.15.35-dev.1) inherits that run's
@@ -291,7 +292,7 @@ function watchDesktopScheme() {
   readDesktopScheme()
   if (process.platform !== 'linux' || themePref !== 'system' || schemeWatch) return
   try {
-    schemeWatch = spawn('gdbus', ['monitor', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop'], { stdio: ['ignore', 'pipe', 'ignore'] })
+    schemeWatch = guardedSpawn('gdbus', ['monitor', '--session', '--dest', 'org.freedesktop.portal.Desktop', '--object-path', '/org/freedesktop/portal/desktop'], { stdio: ['ignore', 'pipe', 'ignore'] })
   } catch (e) { schemeWatch = null; schemeSpawnFailed(e); return }   // error: LOGGED-OK — logged once, no gdbus: the scheme read at start stays
   let buf = ''
   // lifetime: OK — data/exit/error listeners on that child, gone with it
@@ -1473,7 +1474,7 @@ function lookaheadHold(on) {
 function getLookahead() {
   if (!lookahead) {
     lookahead = lookaheadLib.createLookahead({
-      binary: lookaheadBinary(), socketPath: lookaheadSocket(), spawn, execFile, net: require('net'),
+      binary: lookaheadBinary(), socketPath: lookaheadSocket(), spawn: guardedSpawn, execFile, net: require('net'),
       findStream: lookaheadStream, decide: lookaheadDecide, player: lookaheadPlayer, setHold: lookaheadHold,
       // the listener's volume: the one held when Sonata last ended (the player still at full), else the player's
       readVolume: () => (settings.heldVolume != null ? Promise.resolve(settings.heldVolume) : mainAlive() ? appleWC().executeJavaScript('(() => MusicKit.getInstance().volume)()') : Promise.resolve(NaN)),

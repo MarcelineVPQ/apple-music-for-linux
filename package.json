@@ -1,7 +1,7 @@
 {
   "name": "apple-music-for-linux",
   "author": "Marcus Tomlinson",
-  "version": "0.15.93-dev.1",
+  "version": "0.15.94-dev.1",
   "description": "Apple Music for Linux",
   "main": "main.js",
   "scripts": {
@@ -152,6 +152,7 @@
       "version-display.js",
       "sonata.png",
       "sonata.svg",
+      "child-guard.js",
       "lookahead.js",
       "lookahead-page.js"
     ],

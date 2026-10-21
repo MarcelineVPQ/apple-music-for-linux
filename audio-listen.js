@@ -12,6 +12,7 @@
 // browser is never picked by name alone.
 const fs = require('fs')
 const { spawn, execFile } = require('child_process')
+const { guardedSpawn } = require('./child-guard')
 
 const RATE = 22050
 const OWN_NAME = /sonata|apple-music-for-linux/i
@@ -157,7 +158,7 @@ function createListener(opts, deps = {}) {
   const appPid = opts.appPid || process.pid
   const rate = opts.sampleRate || RATE
   const log = opts.log || ((m) => console.log('listen:', m))
-  const doSpawn = deps.spawn || spawn
+  const doSpawn = deps.spawn || guardedSpawn
   const doExecFile = deps.execFile || execFile
   const tree = deps.processTree || ownProcessTree
   const now = deps.now || (() => performance.now())

@@ -7,6 +7,7 @@
 // found (e.g. a pactl without JSON output) does startMonitor() fall back to the default sink's
 // monitor, i.e. the whole system mix, as before 0.15.22.
 const { spawn, execFileSync } = require('child_process')
+const { guardedSpawn } = require('./child-guard')
 
 const RATE = 22050      // audio-listen.js's rate, so one capture can feed both
 const N = 1024          // FFT window: 46 ms at 22.05 kHz (as 2048 at 44.1 kHz before)
@@ -76,7 +77,7 @@ class Visualizer {
     const o = opts || {}
     this.onBands = onBands
     this.onState = o.onState || (() => {})
-    this.spawn = o.spawn || spawn
+    this.spawn = o.spawn || guardedSpawn
     this.monitor = o.monitor || defaultMonitor
     this.setTimeout = o.setTimeout || setTimeout
     this.clearTimeout = o.clearTimeout || clearTimeout
