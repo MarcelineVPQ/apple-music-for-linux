@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.92-dev.1",
-  "file": "sonata-0.15.92-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.92-dev.1/sonata-0.15.92-dev.1-x86_64.AppImage",
-  "sha512": "1184a6e088ef6c3e6e2b91b6c439cd74addf3adc5b024fb5aa1e5945199dfc42c8a46a44f2a6f613ffc1c7ddb95bbe622f0072761a664a705d4a490dc5f94c03",
-  "size": 127668746,
-  "date": "2026-10-21T02:33:57Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.92-dev.1",
-  "notes": "### Changed\n- **Windows remember how you left them.** Every window (the main window, mini player, lyrics window, Studio, liner notes and the visualizer's screen) opens at its last size, maximized if you left it maximized, and in its last place where your desktop allows it (on Wayland the desktop places windows). A window whose screen is no longer connected comes back centred on your main screen.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.92-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.93-dev.1",
+  "file": "sonata-0.15.93-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.93-dev.1/sonata-0.15.93-dev.1-x86_64.AppImage",
+  "sha512": "a76cd8b9713799d86aa6eb54fb183de9fd05e036f8ef96e2d2c16cbdcdebb6d34e3564e2480eca8b217009206577ffb13a7285815841047964a2371a46674b7e",
+  "size": 127668678,
+  "date": "2026-10-21T03:03:36Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.93-dev.1",
+  "notes": "### Fixed\n- **A crash after Forget this song.** Forgetting a song in the second after its look-ahead play began could stop Sonata with \"A JavaScript error occurred in the main process\". It no longer does.\n\n### Changed\n- **About → Coming soon shows only what is planned.** Ideas stay off the list until they're planned, and the Karaoke card's text is up to date.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.93-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
