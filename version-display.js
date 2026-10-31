@@ -1,5 +1,5 @@
-// How Sonata's versions are shown: the ONE place (Marcy 2026-10-18: "NOTHING should be hardcoded in
-// this manner. ESPECIALLY FOR TOASTS"). The source of truth stays package.json's "version" (set by
+// How Sonata's versions are shown: the ONE place (Marcy 2026-10-18: nothing user-facing is hardcoded
+// this way, toasts above all). The source of truth stays package.json's "version" (set by
 // tools/set-version.js, never by hand); this file holds the display forms next to it, the way AVIEW's
 // version.py does (VERSION_STRING / VERSION_SHORT):
 //

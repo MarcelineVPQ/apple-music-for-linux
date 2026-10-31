@@ -198,8 +198,8 @@
     return ring[(i + (back ? ring.length - 1 : 1)) % ring.length]
   }
 
-  // About → For the Curious → How it works (Marcy 2026-10-18: "a simple technical explanation, for the
-  // curious, for the geeks"): one row per topic, its title, one visible line (≤ 60 characters, the DS5
+  // About → For the Curious → How it works (Marcy 2026-10-18: a simple technical explanation, for the
+  // curious): one row per topic, its title, one visible line (≤ 60 characters, the DS5
   // long-text rule) and a few plain sentences behind its ⓘ. Every sentence is true of this build (the
   // code each one rests on is named beside it). Public text says what people see, never how the
   // helper does it: no method, no model names (test/panel-model.test.js keeps both rules).

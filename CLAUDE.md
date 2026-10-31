@@ -25,7 +25,7 @@ npm test                   # node --test test/*.test.js (pure logic, no Electron
 npm run gates              # tools/verdicts.js --check + tools/passes.js --check + tools/hardcodes.js --check + tools/set-version.js --verify + tools/doc-gates.js --check (CI runs all)
 npm run dist               # electron-builder: dist/sonata-<version>-x86_64.AppImage + dist/linux-unpacked
 node tools/set-version.js X.Y.Z[-dev.N] --summary "…"   # the version, set in one step (never by hand)
-node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy]   # the documentation gates (see below)
+node tools/doc-gates.js [soon|changelog|shipped|refs|version|privacy|quotes]   # the documentation gates (see below)
 tools/isolated.sh start|run|stop                        # an isolated copy for checks (see Test runs)
 node tools/ui-check.js <matrix|keys|loops|perf|mini|lyrics|a11y|stage|liner|experimental|every> --cdp … --insp … --display :N --out DIR
 tools/check_budgets.sh [--soak]                         # resource budgets on its own isolated copy (docs/BUDGETS.md)
@@ -223,6 +223,9 @@ on FAIL, the line and how to fix it (`test/doc-gates.test.js` seeds a mistake fo
 - **privacy**: no tracked text file holds a phrase from `tools/privacy-denylist.txt` (SHA-256 per phrase,
   so the list names nothing; add one with `node tools/doc-gates.js privacy-hash "phrase"`). A line that
   must use such a word for a plain reason carries `privacy-ok` and the reason.
+- **quotes**: no tracked file quotes Marcy's words. Write the decision or fact in plain words and keep the
+  attribution `Marcy <date>`; a line that must quote other words beside her name (lyrics, text on screen)
+  carries `quote-ok` and the reason.
 
 ## Git
 

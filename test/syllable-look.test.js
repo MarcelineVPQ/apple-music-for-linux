@@ -1,4 +1,4 @@
-// The syllable pop's look, pinned (Marcy 2026-10-17: "I like the way the words highlight"): the sung syllable
+// The syllable pop's look, pinned (Marcy 2026-10-17: she likes the way the words highlight): the sung syllable
 // of a word lifts and grows on its own ("dis·tance", "ba·by", "Sup-p-per"), with its overshoot ease, a smaller
 // lift while a note is held and on backing vocals; the word itself doesn't scale. Any change here is a
 // change of look and needs her say. The UI checker's stage phase checks the rendering (no overlap with the

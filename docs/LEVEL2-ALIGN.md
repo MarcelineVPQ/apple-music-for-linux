@@ -404,8 +404,8 @@ first play's line trails a section behind.
 
 ## Refinement (0.15.71): songs keep refining until they're complete
 
-Marcy 2026-10-19: "the learning of each song should stay on until it's perfectly refined", and "we need
-scientific methodologies here, we need to be exact". Before 0.15.71 a song was learned once (its whole-song
+Marcy 2026-10-19: learning stays on for each song until it is fully refined, and the method is scientific
+and exact. Before 0.15.71 a song was learned once (its whole-song
 pass), and 0.15.63's re-learn ran only on a stretch of sung lines with no voice at all (at most twice).
 
 ### The case that started it: "expectations" (Olivia Rodrigo & Chappell Roan), 3:01
@@ -444,7 +444,7 @@ then "Notes for 96 % of sung syllables · settled".
 
 ### Every sung syllable represented (`sheet-notes-model.js` `fillNotes`)
 
-Marcy 2026-10-19 (Chappell Roan "After Midnight": "we know the 'I' is here but it's not represented"): the note
+Marcy 2026-10-19 (Chappell Roan "After Midnight": the sung "I" had no note): the note
 model gives a syllable a note only where it hears a note start. When the band is drawn, the word timing is used
 as candidate note boundaries: a measured note held over the next syllable's onset at the same pitch is split
 there (re-articulation), and a syllable still without a note whose span is voiced gets a note at the median of

@@ -10,8 +10,8 @@
 // pushes the snapshot { anchor, at, corr, playing, key, epoch }; the views take it to their own time
 // base once (localize) and interpolate with timeAt / rateAt, so every consumer shows the same instant
 // with no per-frame IPC. Electron-free (tests: test/song-clock.test.js).
-// 0.15.64, a house clock / PLL (Marcy: no jumps any more, but the band's speed wavered "a little
-// faster, a little slower to meet the timing of the words"): the clock no longer eases each push's
+// 0.15.64, a house clock / PLL (Marcy: no jumps any more, but the band's speed wavered, a little
+// faster, a little slower, to meet the timing of the words): the clock no longer eases each push's
 // error in at 0.5-1.5x. It runs at exactly 1x; the phase error is the median of the pushes' offsets
 // over the last PLL_WINDOW ms (late or stray pushes are outvoted) and is trimmed by a slew of at most
 // PLL_SLEW (0.5 %, inaudible, invisible). Only an error over PLL_SNAP (or one push over PLL_JUMP: a
@@ -27,7 +27,7 @@ const PLL_SLEW = 0.005    // the most the clock's rate leaves 1 to trim its phas
 const PLL_TAU = 2         // s: the phase error is trimmed at err / PLL_TAU per s (capped at PLL_SLEW)
 const PLL_SNAP = 0.25     // s: an estimated error over this (3+ pushes agreeing) is a discontinuity
 const PLL_JUMP = 1        // s: one push this far off is a seek: a discontinuity at once
-// 0.15.65, song boundaries (Marcy: "a weird jump at the beginning of the song"): Apple's player resets its time
+// 0.15.65, song boundaries (Marcy: a jump at the start of each song): Apple's player resets its time
 // to the new song's start ~a tick before it names the new song, so that push read as a seek in the OLD song
 // (snapped back to 0:00, the old words and band flashed), then the song changed. A drop from over
 // BOUNDARY_FROM s to under BOUNDARY_TO s now waits up to BOUNDARY_WAIT ms for the song change (no push: the
@@ -50,7 +50,7 @@ const SEED_PUSHES = 3
 // COARSE_LOCK s the clock aims at its middle; until then (or when the spans disagree: a seek) only at its edge.
 const COARSE_TOL = 0.05   // s of slack on each side of a whole-second span (the read moment's jitter)
 const COARSE_LOCK = 0.35  // s: an overlap this narrow or narrower is locked on (its middle)
-// 0.15.83 (Marcy 2026-10-20, "it's the driver": the song reports' corrections at the same song times with the same
+// 0.15.83 (Marcy 2026-10-20: the clock is the cause: the song reports' corrections at the same song times with the same
 // sizes in different songs, so the clock's own doing): the lock found the clock ~150 ms behind, trimmed it at
 // PLL_SLEW (0.5 %, 2 ms a push) and lost it 3 s later when its narrow samples left PLL_WINDOW (the wider overlap then
 // held 0): the words stayed ~150 ms late all song, with a correction counted every ~8 s. Whole-second spans stay true

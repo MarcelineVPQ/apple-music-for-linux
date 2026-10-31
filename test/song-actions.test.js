@@ -201,7 +201,7 @@ test('the liner notes\' MusicBrainz-only refresh (the Studio\'s credits): MusicB
   assert.equal(asked.length, n)
 })
 
-// Marcy 2026-10-18: "the star needs to get filled in when I choose it as a favorite". The state is read back
+// Marcy 2026-10-18: the star fills in when a song is made a favorite. The state is read back
 // from Apple after the action (never assumed from the click), fresh (no HTTP cache), and the Studio's button
 // shows exactly what came back
 test('favourite round trip: Favorite, then the state read back says so; Undo, and it says not', async () => {

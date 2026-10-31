@@ -599,7 +599,7 @@ test('over the sung line: the room opens by a border (no line text moves into it
   assert.match(html, /room: \(\) => \(sheetBand && stage\.shown \? sheetBand\.room : 0\)/)
 })
 
-// the DS5 app's long-text rule (Marcy 2026-10-18: "make this wrap or use the i circle"): what stays visible
+// the DS5 app's long-text rule (Marcy 2026-10-18: wrap it or use the ⓘ): what stays visible
 // is short, the longer explanation goes behind the ⓘ; a message never repeats the Experimental chip
 test('mode: visible text at most 60 characters, the rest behind the ⓘ; the label never repeats the chip', () => {
   const base = { on: true, installed: true, precise: true, timed: true, wordSynced: false, aligned: false, paused: false, error: '', pitch: [] }
@@ -646,7 +646,7 @@ test('first play: a realistic piece draws visible runs on the staff', () => {
   assert.ok(runs.every((r) => r.every(([t, pos]) => t >= 25 && t < 50 && pos > -8 && pos < 16)))
 })
 
-// --- "Listening and learning" (Marcy 2026-10-18: "some kind of little green blinking dot") ---
+// --- "Listening and learning" (Marcy 2026-10-18: a small green blinking dot) ---
 
 test('listening: on while the part at the playhead has no line yet; off once its line arrives, past the lyrics, paused or on an error', () => {
   const fx = fixture('cortez-feel-stripped')

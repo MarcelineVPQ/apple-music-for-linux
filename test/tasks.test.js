@@ -1,5 +1,5 @@
-// The one task registry (tasks-model.js, Marcy 2026-10-19: "the whole app works the same way for all
-// things"): anything that needs the user registers a task; the rail item and the section header show the
+// The one task registry (tasks-model.js, Marcy 2026-10-19: the whole app works the same way for
+// everything): anything that needs the user registers a task; the rail item and the section header show the
 // same dot; a press on the rail item opens the waiting section; the dot goes when the task is resolved.
 const test = require('node:test')
 const assert = require('node:assert/strict')

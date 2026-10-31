@@ -371,7 +371,7 @@ function backingOffset(box) {
   return { start: r(x), end: 0 }
 }
 
-// The pop's room (Marcy 2026-10-18: a long popped word ate the space after it, "amends,that's", "predic|table"
+// The pop's room (Marcy 2026-10-18: a long popped word ate the space after it, "amends,that's", "predic|table" (quote-ok: text on screen)
 // crowding "it's"). The pop itself is unchanged (lyrics-view.css: scale, lift, timing, overshoot, the held
 // note's 1.05); only where a word's growth would bring its ink closer than POP_GAP to a neighbour's does it
 // change: first its transform-origin moves (the growth goes to the side with room: a row's outer edge is
@@ -1333,7 +1333,7 @@ function createLyricsView(opts) {
       // loop: NOT-WORTH — the rest of one row's words (~5-12), once per line per layout
       for (let k = i + 1; k < spans.length && tops[k] === tops[i]; k++) after.push(k)
       const slide = after.length ? Math.max(0, rowW - at(spans[after[after.length - 1]].children[0])[1] - 2) : 0
-      // room from the left (Marcy 2026-10-19: "push the already sung words off the screen to the left"): when
+      // room from the left (Marcy 2026-10-19: the words already sung move off the screen to the left): when
       // the right runs out, the words already sung on this row and the held word itself slide left, by up to
       // the held word's own left edge (its free space on the left in a centred or right-aligned (duet) row,
       // then the sung words go off the row's left edge; the held word always stays in view)

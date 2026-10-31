@@ -954,7 +954,7 @@ function sendExprNote(key) {
   sendLyrics('lyrics-expr-note', JSON.parse(json))
 }
 // one log line per song shown: its cached notes and expression and whether this play records it again, and why
-// (Marcy 2026-10-19: "it's like it stopped learning"; nothing is re-run once a song has its notes and expression,
+// (Marcy 2026-10-19: learning seemed to stop; nothing is re-run once a song has its notes and expression,
 // except missed lyric lines, filled on at most MAX_FILLS plays)
 // cache: OK — key=the song's lyrics key; invalidated=a new key; bound=one string
 let notesPlanLogged = ''
@@ -1009,8 +1009,8 @@ function notesRelearn(title, artist, hash) {
   }
   return true
 }
-// a learned song with sung lines still below notes-refine.js TARGET (0.15.71, Marcy 2026-10-19: "the learning of each song
-// should stay on until it's perfectly refined"): recorded again on this play like a first one, and the new pass is merged
+// a learned song with sung lines still below notes-refine.js TARGET (0.15.71, Marcy 2026-10-19: learning stays on for each song
+// until it is fully refined): recorded again on this play like a first one, and the new pass is merged
 // line by line (sheetNotesDone: never a worse line), until it settles. Only when the helper has no other song's work
 // waiting (a first learning always goes first), and not while a failing later pass is out of tries. Processor-only PCs
 // keep their after-song scheduling (align-session.js slow): the refine pass is queued like any other.
@@ -1160,8 +1160,8 @@ function sheetNotesFailed(s, e) {
     sendSheet()
   }
 }
-// First play's notes and Expressive words (0.15.66, Marcy 2026-10-19: "you have to listen to a song twice to get
-// its effects"): each section's notes and expression (align-session.js sectionPitch; the stream's line notes with
+// First play's notes and Expressive words (0.15.66, Marcy 2026-10-19: a song needed two plays to get
+// its effects): each section's notes and expression (align-session.js sectionPitch; the stream's line notes with
 // look-ahead) are merged here into the song's in-progress result, kept in memory only (not the store: a song left
 // before its end is learned again, whole). The Studio's band draws it as a provisional entry; the lyric views
 // get it as 'lyrics-expr', applied only at line boundaries and never to the line being sung (lyrics-view.js
@@ -1252,7 +1252,7 @@ function firstPlaySectionHas(line) {
   return false
 }
 // the first play's state for a song: a new one, or one carried on from the partial entry an earlier play left
-// (0.15.70, Marcy: "I don't get expression until the third playthrough": a play left before its end kept nothing)
+// (0.15.70, Marcy: expression came only on the third play: a play left before its end kept nothing)
 function firstPlayFor(s) {
   const fp = { key: s.key, play: s.id, title: s.title, artist: s.artist, hash: s.hash, parts: new Map(), streamed: new Set(), covers: new Map(), expr: null, n: 0 }
   let old = null
@@ -5243,7 +5243,7 @@ function onUpdateState() {
   pushPanel()
 }
 function installUpdate() { updater.install() }
-// One Check for updates for Sonata and its helper (Marcy 2026-10-20: "1 update button that checks for both"):
+// One Check for updates for Sonata and its helper (Marcy 2026-10-20: one update button checks both):
 // Settings → Updates and the tray's Check for Updates…; the Helper row says the helper's answer
 async function checkForUpdates(interactive) {
   // the helper too when the button was pressed and one is installed (automatic checks keep their own timer)

@@ -956,7 +956,7 @@ test('session, look-ahead: with no next stream the last song\'s whole pass is no
   assert.ok(order.includes('align:final'))
 })
 
-// 0.15.79 (Marcy 2026-10-20, "Come As You Are" on MTV Unplugged: "this is not first play quality"): a learned song with
+// 0.15.79 (Marcy 2026-10-20, "Come As You Are" on MTV Unplugged: below first-play quality): a learned song with
 // missed lines AND no notes took the section path (notes 48 s in); with look-ahead it streams like a first play
 test('session, look-ahead: a learned song with missed lines and no notes streams; only its missed lines take the stream\'s words', async () => {
   const st = fakeStream()

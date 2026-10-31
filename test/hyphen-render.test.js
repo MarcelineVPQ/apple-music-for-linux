@@ -1,4 +1,4 @@
-// Hyphen runs render as written (Marcy, 0.15.49: "Yeah-oh, oh-oh-oh-oh" showed as "Yeah- oh, oh- oh- oh- oh"
+// Hyphen runs render as written (quote-ok: lyrics; Marcy, 0.15.49: "Yeah-oh, oh-oh-oh-oh" showed as "Yeah- oh, oh- oh- oh- oh"
 // in Mad Season "Wake Up (Live At the Moore)"). The pieces of a hyphen run are separate words (each its own
 // time and pop, lyrics-timing.js splitWords) written with no text space between them (wordGlue), but every
 // word box had a word gap (margin-inline) and a reserved bold width whose slack sat either side of the

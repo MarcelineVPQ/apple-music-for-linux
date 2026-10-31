@@ -112,6 +112,21 @@ test('privacy: a phrase on the hashed list fails, wherever it is', () => {
   assert.ok(real.length >= 20 && real.every((l) => /^[0-9a-f]{64}$/.test(l)))
 })
 
+test('quotes: her words beside her name fail; titles, logs and quote-ok lines pass', () => {
+  const q = String.fromCharCode(34)
+  const text = [
+    '// fine (Marcy 2026-10-20: the clock is the cause)',
+    '// (Marcy 2026-10-20: ' + q + 'the words come in way too late here' + q + ')',
+    '| Row | **Idea** | Marcy 2026-10-17 (' + q + 'yes' + q + '): built |',
+    '// Marcy on ' + q + 'All Along the Watchtower' + q + ', log ' + q + 'corrected 148 ms (jump)' + q,
+    '// Marcy: ' + q + 'Come take me home' + q + ' held (quote-ok: a lyric)',
+    '// (Marcy 2026-10-18: ' + q + 'make this wrap or use',
+    '// the i circle' + q + ')'
+  ].join('\n')
+  const p = G.quoteProblems([{ name: 'x.js', text }])
+  assert.deepEqual(p.map((l) => l.split(':')[1]), ['2', '3', '6'])
+})
+
 test('the real BACKLOG passes soon and shipped', () => {
   const md = fs.readFileSync(path.join(__dirname, '..', 'BACKLOG.md'), 'utf8')
   assert.deepEqual(G.soonProblems(md).problems, [])

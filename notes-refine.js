@@ -1,6 +1,6 @@
 'use strict'
-// Songs keep refining their notes and expressions until they're complete (0.15.71; Marcy 2026-10-19: "the learning
-// of each song should stay on until it's perfectly refined"). Pure logic, no Electron: main.js asks refineDue() when
+// Songs keep refining their notes and expressions until they're complete (0.15.71; Marcy 2026-10-19: learning
+// stays on for each song until it is fully refined). Pure logic, no Electron: main.js asks refineDue() when
 // a learned song starts, records that play like a first one, and merge() keeps the better result per lyric line
 // (never a worse one) when the new pass arrives. The metrics, thresholds and the bench they were chosen on are in
 // docs/LEVEL2-ALIGN.md "Refinement".

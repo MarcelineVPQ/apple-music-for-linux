@@ -343,7 +343,7 @@ function createLookahead(deps) {
   let lastAudio = null
   const now = deps.now || Date.now
   let helperState = ''
-  // the listener's volume while look-ahead holds it (0.15.91, Marcy 2026-10-20: "theres a delay using it"): the
+  // the listener's volume while look-ahead holds it (0.15.91, Marcy 2026-10-20: a volume change was heard late): the
   // player's own volume acts on the audio entering the delay line, so a slider move was heard D later. While the
   // stream is routed here the player stays at full volume and the helper applies the listener's volume at its output,
   // heard at once; when look-ahead stops or fails the player gets it back first (never a full-volume blast).
@@ -584,7 +584,7 @@ function createLookahead(deps) {
     // the new song's player may set its position to the start while it loads: that is no seek (a flush
     // there would cut the old song's delayed tail)
     if (ev.ev === 'seeking' && now() - itemAt < LOAD_SEEK_MS && !(ev.t >= LOAD_SEEK_S)) return
-    // 0.15.85 (Marcy 2026-10-20: "a second or two of the beginning of a song gets cut off", only the first track
+    // 0.15.85 (Marcy 2026-10-20: the first second or two of a song cut off, only the first track
     // when playback starts): a cold start announces its song twice, first with no title, then named a second later
     // ('look-ahead: "": 3000 ms (first)', then "Honey, Honey"); the second announcement flushed the delay line again
     // and dropped the second of the song already in it. The named one, within LOAD_SEEK_MS at the same delay, only

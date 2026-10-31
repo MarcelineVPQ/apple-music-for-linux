@@ -717,7 +717,7 @@ function givenSyllables(raw, hyphenate) {
   // a word's last syllable reaches on to the next syllable's start (at most GIVEN_REACH_S more): the lyrics'
   // own word times (Apple's) often end before the held note does, and the helper gives a note to the syllable
   // it starts in only up to 0.15 s after that syllable's end, so a held word lost its note (and Expressive
-  // words its stretch) on some plays and not others (Marcy, "I don't mind, I don't mind", 0.15.57)
+  // words its stretch) on some plays and not others (Marcy, "I don't mind, I don't mind", 0.15.57; quote-ok: a lyric)
   // loop: NOT-WORTH — the song's syllables (hundreds), once per song
   for (let k = 0; k < rows.length; k++) {
     const r = rows[k]
@@ -926,7 +926,7 @@ function createAlignSession(deps) {
       return
     }
     // the stream closed before the helper's answer came (Forget this song, a song change, a stop): nothing to update
-    // (Marcy 2026-10-20, 0.15.92: "Cannot set properties of null (setting 'ready')", Cornbread forgotten mid-play)
+    // (Marcy 2026-10-20, 0.15.92: "Cannot set properties of null (setting 'ready')", Cornbread forgotten mid-play; quote-ok: an error message)
     if (!s.stream) return
     if (msg.type === 'stream') { s.stream.ready = true; streamNews(); log('streaming "' + s.title + '" ' + s.lookahead + ' ms ahead of the listener (' + (msg.device || '?') + ')'); return }
     // words the lyrics or the cache already time (Apple's own, a learned song's) stay: only the stream's notes are used

@@ -1,5 +1,5 @@
-// Sonata's one task registry (pure: no DOM, no Electron; Marcy 2026-10-19: "the whole app works the same
-// way for all things"). Anything that needs the user's attention registers a task here, and only here:
+// Sonata's one task registry (pure: no DOM, no Electron; Marcy 2026-10-19: the whole app works the same
+// way for everything). Anything that needs the user's attention registers a task here, and only here:
 //   id       who it is ('helper', 'notice:update', …); set again to change it, clear when resolved or seen
 //   page     the panel page it lives on ('settings' | 'about'): the rail item that shows the dot
 //   section  the section it is about (panel-model.js ids), or '' for the page as a whole

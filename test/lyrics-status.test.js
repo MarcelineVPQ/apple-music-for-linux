@@ -1,4 +1,4 @@
-// What the lyrics window says when a song has no lines (Marcy 2026-10-18: "Lyrics service busy, trying
+// What the lyrics window says when a song has no lines (quote-ok: text on screen; Marcy 2026-10-18: "Lyrics service busy, trying
 // again…" while Apple had no lyrics and LRCLIB answered HTTP 503): each source's state told apart
 // (lyrics-view.js statusText, ≤ 60 characters visible, the rest behind the ⓘ), LRCLIB's failure carried
 // with its status (lyrics-sources.js fetchLrclib), and the retries: fast at first, then backing off, jittered,

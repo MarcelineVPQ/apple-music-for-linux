@@ -23,7 +23,7 @@
 // lyrics-sources.js requires this module, so its isLive is read at call time (no load-order cycle)
 const isLive = (title, album) => require('./lyrics-sources').isLive(title, album)
 
-// Tolerance for "the same recording" by length (s). From Marcy's library (Apple catalog lengths,
+// Tolerance for the same recording by length (s). From Marcy's library (Apple catalog lengths,
 // 2026-10-17): one recording on several albums differs by ≤ 0.79 s (Blondie "Dreaming" 188.13 /
 // 188.49 / 188.92 s; Goo Goo Dolls "Iris" 289.47-289.91; DMB "Stay" 335.23 / 335.78; "Crush" 488.76 /
 // 489.33), while two live recordings of one song were 2.2 s apart at the closest (DMB "Halloween",

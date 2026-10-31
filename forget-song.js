@@ -68,7 +68,7 @@ function forgetStored(deps, song, opts = {}) {
 }
 
 // After a forget, the play under way learns nothing; moving its timeline back to the start begins the fresh first play
-// there and then (Marcy 2026-10-20: she forgot "expectations" mid-play and dragged the timeline to 0:00; the rest of
+// there and then (Marcy 2026-10-20: she forgot "expectations" mid-play (quote-ok: a song title) and dragged the timeline to 0:00; the rest of
 // the play, a whole song, logged "no notes" because only a song change started a new play)
 const RESTART_AT_S = 3     // s: the timeline at most this far in: back at the start
 const RESTART_FROM_S = 6   // s: from at least this far in (a play just begun is already its start)

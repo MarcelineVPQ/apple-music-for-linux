@@ -82,7 +82,7 @@ test('learnState + decide (0.15.70): a song is learned only with its notes and e
   const base = { on: true, ok: true, video: false, viewOpen: true, engine: 'ready', gpuBusy: false, ms: LA.DELAYS.precise }
   // [lyrics, aligned, notes missing] -> learn state -> delay
   const table = [
-    [apple, null, true, 'notes', LA.DELAYS.precise],     // Marcy's "expectations": Apple word-timed, no notes yet
+    [apple, null, true, 'notes', LA.DELAYS.precise],     // Marcy's "expectations" (quote-ok: a song title): Apple word-timed, no notes yet
     [apple, null, false, 'nothing', 0],                  // Apple word-timed, notes + expression cached
     [lines, done, true, 'notes', LA.DELAYS.precise],     // aligned words, notes still to measure
     [lines, done, false, 'learned', 0],                  // aligned, notes and expression cached
@@ -553,7 +553,7 @@ test('session: the helper\'s committed words become the views\' message, word fo
   assert.deepEqual([pcm.readInt16LE(0), pcm.readInt16LE(2), pcm.readInt16LE(4), pcm.readInt16LE(6)], [24576, 8192, -32768, -32768])
 })
 
-// 0.15.65: Marcy "didn't get audio for the first verse": the helper ran with the switch shown off, and a song
+// 0.15.65: Marcy got no audio for the first verse: the helper ran with the switch shown off, and a song
 // change read as a seek gated Sonata's audio until the helper's 3 s timeout
 test('wanted: the helper runs only with the switch on, available, and Precise word timing on', () => {
   const ok = { ok: true }

@@ -205,7 +205,7 @@ function createSheetBand(opts) {
       if (n.show !== 'notes' || gated.song === 'line') return
       // fill: a note the word timing placed (M.fillNotes), not heard as a note start: drawn faded (lyrics.html .n.fill)
       // the note's singer: the same colour class as its lyric line (lyrics-view.js voice), so a second singer's
-      // notes light in that singer's colour as their words do (Marcy 2026-10-19: "we should be matching colors")
+      // notes light in that singer's colour as their words do (Marcy 2026-10-19: the colours match)
       const v = opts.voice && n.line != null ? opts.voice(n.line) : ''
       const g = sv(doc, 'g', { class: 'n' + (v ? ' ' + v : '') + (n.loose ? ' loose' : '') + (n.fill ? ' fill' : '') }, svg)
       const x0 = x(n.t)
@@ -224,7 +224,7 @@ function createSheetBand(opts) {
         // under its note; a syllable sung right after the last one moves along so the two don't touch
         // (widths estimated from the letters: no layout read while building)
         // (widths measured on a canvas in the label's font, no layout read; the estimate was ~15 % short on wide
-        // letters, so "maybe" and "the" ran together: Marcy 2026-10-19, "maybethe")
+        // letters, so "maybe" and "the" ran together: Marcy 2026-10-19, "maybethe"; quote-ok: text on screen)
         const sx = Math.max(x0 - 4, sylRight + SYL_GAP)
         syl = el(doc, 'span', 's' + (v ? ' ' + v : ''), syls)
         syl.textContent = n.syl
@@ -400,8 +400,8 @@ function createSheetBand(opts) {
     const drawn = m.band === 'notes' || m.band === 'line'
     const place = s.place === 'over' ? 'over' : 'band'
     root.classList.toggle('over', drawn && place === 'over')
-    // the placement buttons and the staff always show while Sheet notes is on (Marcy 2026-10-18: "i dont
-    // like it being hidden arbitrarily"): a song with nothing to draw gets an empty staff and its message
+    // the placement buttons and the staff always show while Sheet notes is on (Marcy 2026-10-18: never hidden
+    // arbitrarily): a song with nothing to draw gets an empty staff and its message
     placeSeg.hidden = false
     // loop: NOT-WORTH — two buttons, per state push
     for (const b of placeBtns) b.setAttribute('aria-pressed', String(b.dataset.place === place))

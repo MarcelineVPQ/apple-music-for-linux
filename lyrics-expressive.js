@@ -1,6 +1,6 @@
 // Expressive words (Settings → Lyrics & Studio → Expressive words; on by default on Development
 // channel builds): how the singing was sung, layered on top of the karaoke. The syllable pop stays
-// exactly as it is (Marcy 2026-10-18: "it's how I follow along, it's key"); while a vowel is held, the
+// exactly as it is (Marcy 2026-10-18: it is how she follows along, so it is key); while a vowel is held, the
 // expression lives inside and around the popped syllable:
 //   - Stretch: the held vowel letter repeats as the note is held ("home" -> "hoooome"), each new letter
 //     widening from nothing, the vowel letters wave at the singer's vibrato, and a belted word gains ink.
@@ -25,8 +25,8 @@ const LOUD_CONF = 0.5
 const ENV_CONF = 0.6          // share of a held vowel's loudness points that were measured
 const CONTOUR_CONF = 0.6      // voiced share of a held vowel's contour
 const HOLD_MIN = 0.6          // s: a vowel held this long stretches (tuned 2026-10-18 from the mock-up's 0.45)
-// 0.15.84 (engine 0.2.11, Marcy 2026-10-20: "late" held 4-5 s in "All Along the Watchtower" drew nothing; "holding a
-// note is the number 1 reason for expressions"): look-ahead sends a vowel still sounding where its audio ends as
+// 0.15.84 (engine 0.2.11, Marcy 2026-10-20: "late" held 4-5 s in "All Along the Watchtower" drew nothing; a held
+// note is the main reason for expressions): look-ahead sends a vowel still sounding where its audio ends as
 // open ({ o: 1 }: held at least this long, still going) and again as it goes on, ~2-3 s before the listener. An open
 // vowel held OPEN_MIN so far is a hold: its stretch and ghost take their full size (it goes on), born over the hold
 // known so far, and a later measure of the same hold extends the one playing (sameHold, the view's extend).
@@ -89,7 +89,7 @@ function compact(expr, lineOffset = 0) {
   }
   // held singing on no lyric word (version 2, e.g. Nude's wordless intro): its vowel isn't named (not measured),
   // so it can only ghost as a neutral "ooo", behind its own sub-setting (Wordless vocalise ghosts)
-  // TODO(Marcy): the sung vowel's name once the engine measures it (BACKLOG "Expressive lyrics: the voice shapes the words")
+  // TODO(Marcy): the sung vowel's name once the engine measures it (BACKLOG "Expressive lyrics: the voice shapes the words"; quote-ok: a row name)
   // loop: NOT-WORTH — the song's vocalise spans (a few), once per notes result
   const voc = (Array.isArray(expr.vocalise) ? expr.vocalise : [])
     .filter((x) => x && num(x.t) !== null && num(x.end) > x.t && num(x.conf) >= CONF_MIN)

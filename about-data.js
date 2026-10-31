@@ -150,7 +150,7 @@ function hero(version, channel, appImage, year) {
 }
 
 // Coming soon as the DS5 board's columns: building now first, then planned (empty ones left out). Ideas are not
-// coming soon (Marcy 2026-10-20, "that coming soon section needs cleanup"): they stay in the BACKLOG until planned
+// coming soon (Marcy 2026-10-20: Coming soon needed a cleanup): they stay in the BACKLOG until planned
 const SOON_GROUPS = [['Building', 'Building now'], ['Planned', 'Planned']]
 function soonGroups(items) {
   // loop: NOT-WORTH — once per run (aboutCache), 3 groups × Soon items (tens)

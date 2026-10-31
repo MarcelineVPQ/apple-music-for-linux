@@ -390,7 +390,7 @@ test('view: the slide is capped at the row\'s edge (nothing overflows or wraps);
   assert.equal(X.nudgePx(0, 10, 1, 1.1, 12.4), 0)
 })
 
-// Room from the left (Marcy 2026-10-19, "push the already sung words off the screen to the left"), per
+// Room from the left (Marcy 2026-10-19: the words already sung move off the screen to the left), per
 // alignment: free space first, then the words already sung (and the held word) slide out of the way; the
 // words not yet sung never move left of their place; back in 0.3 s when the hold ends.
 // off: where the row's words start (0 left-aligned; centred and right-aligned (duet) rows start further in)
@@ -986,9 +986,9 @@ test('view, first play: new vocalise that arrives while a ghost plays shows once
   assert.ok(ghosts.length >= 1, 'the new vocalise ghosts')
 })
 
-// 0.15.84 (engine 0.2.11; Marcy 2026-10-20, Dave Matthews Band "All Along the Watchtower (Live at the Gorge)": "no
-// expressions when Dave held this note for like 4 or 5 seconds", "holding a note is the number 1 reason for
-// expressions"): "The hour is getting late," with "hour" held (its stretch playing) and "late" held ~4.5 s. The
+// 0.15.84 (engine 0.2.11; Marcy 2026-10-20, Dave Matthews Band "All Along the Watchtower (Live at the Gorge)": no
+// expressions on a note held 4 or 5 seconds; a held note is the main reason for
+// expressions): "The hour is getting late," with "hour" held (its stretch playing) and "late" held ~4.5 s. The
 // helper now sends "late" open (still held where its audio ended) ~2 s before the listener, then longer as it goes.
 const LATE = [
   { t: 30.0, end: 33.0, text: 'The hour is getting late', words: [{ text: 'The', t: 30.0, end: 30.2 }, { text: 'hour', t: 30.25, end: 30.6 }, { text: 'is', t: 31.5, end: 31.7 }, { text: 'getting', t: 31.75, end: 32.1 }, { text: 'late', t: 32.15, end: 32.5 }], aligned: true },

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Documentation freshness gates (Marcy 2026-10-17: "add that to testing so we can keep it up to date").
+// Documentation freshness gates (Marcy 2026-10-17: part of testing, so the docs stay up to date).
 // The docs, the BACKLOG, About → Coming soon and the in-app help must say what the code does today,
 // and nothing private may reach the public repo. Each gate prints one verdict line (PASS, FAIL or
 // SKIP) and, on FAIL, each problem with how to fix it.
@@ -27,6 +27,14 @@
 //   privacy    no public file holds a phrase from tools/privacy-denylist.txt (SHA-256 of the phrase,
 //              so the list itself names nothing). A line that must say such a word anyway carries
 //              "privacy-ok" and a reason.
+//   quotes     no public file quotes Marcy's words: a line naming Marcy (with up to 3 following lines
+//              while a quote stays open) holds no double-quoted phrase of 8+ letters opening within
+//              160 characters after her name, and no quote opened in brackets right after her name and
+//              date. Write the decision or fact in plain words and keep the attribution (Marcy and the
+//              date). Not counted: phrases with a digit and few words (logs, versions, times), title-like
+//              ones (first word and at least half the longer words capitalised: song titles, labels),
+//              JSON files (their quotes are syntax). A line that must quote other words next to her
+//              name (lyrics, text on screen) carries quote-ok and a reason.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -289,6 +297,48 @@ function loadDenylist(file) {
   return new Set(fs.readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter((l) => /^[0-9a-f]{64}$/.test(l)))
 }
 
+// ---------- quotes ----------
+
+const QUOTE = /["\u201c]([^"\u201c\u201d\n]*)["\u201d]/g
+const SMALL = new Set(['a', 'an', 'the', 'of', 'to', 'in', 'on', 'at', 'for', 'and', 'or', 'by', 'as', 'from', 'with', 'is', 'me', 'it', 'you', 'up', 'out'])
+// a phrase that is not someone's words: a digit and under 6 lowercase words (a log line, a version, a time)
+// or title-like (a song, a label): its first word and at least half its words of 4+ letters capitalised
+function notSpeech(phrase) {
+  const w = phrase.match(/[\p{L}'\u2019-]+/gu) || []
+  if (/\d/.test(phrase) && w.filter((x) => x.length >= 3 && /^\p{Ll}/u.test(x)).length < 6) return true
+  const long = w.filter((x) => x.length >= 4 && !SMALL.has(x.toLowerCase()))
+  return w.length > 0 && /^\p{Lu}/u.test(w[0]) && long.filter((x) => /^\p{Lu}/u.test(x)).length * 2 >= long.length
+}
+const letters = (s) => (s.match(/\p{L}/gu) || []).length
+const MARCY = /\bMarcy\b/
+const NEAR = 160   // characters after her name a quote may open in (a BACKLOG row is one long line of many labels)
+const QUOTES_SKIP = /^(LICENSE|licenses\/|tools\/privacy-denylist\.txt|.*\.json$|.*\.sig$|.*\.(png|jpg|jpeg|webp|glb|blend|wav|flac|mp3|ogg|ico|ttf|woff2?)$)/
+const SHAPE = /\bMarcy\b[^"\u201c()\n]{0,40}\(\s*["\u201c]([^"\u201c\u201d]*)/
+
+// files: [{ name, text }] -> problems
+function quoteProblems(files) {
+  const problems = []
+  // loop: NOT-WORTH — every public text file once (~400 files, a few MB)
+  for (const f of files) {
+    const lines = f.text.split('\n')
+    // loop: NOT-WORTH — once per line
+    for (let i = 0; i < lines.length; i++) {
+      if (!MARCY.test(lines[i]) || /quote-ok/.test(lines[i])) continue
+      let text = lines[i]
+      // loop: NOT-WORTH — at most 3 lines, while a quote stays open
+      for (let j = i + 1; j <= i + 3 && j < lines.length && (text.match(/["\u201c\u201d]/g) || []).length % 2; j++) text += ' ' + lines[j].trim()
+      const shape = SHAPE.exec(text)
+      const bad = []
+      if (shape && !notSpeech(shape[1])) bad.push(shape[1])
+      const near = [...text.matchAll(/\bMarcy\b/g)].map((m) => m.index)
+      // loop: NOT-WORTH — the quoted phrases of one line; only those opening within NEAR characters after her name
+      for (const m of text.matchAll(QUOTE)) if (near.some((at) => m.index > at && m.index - at <= NEAR) && letters(m[1]) >= 8 && !notSpeech(m[1]) && !bad.includes(m[1])) bad.push(m[1])
+      if (bad.length) problems.push(f.name + ':' + (i + 1) + ': quotes words next to Marcy\'s name ("' + bad[0].slice(0, 60) + '"): write the decision or fact in plain words and keep "Marcy <date>", or mark the line quote-ok with a reason if the words are not hers')
+    }
+  }
+  return problems
+}
+
 // ---------- running them on the repo ----------
 
 function tracked() {
@@ -361,7 +411,13 @@ function gatePrivacy() {
   return { problems: privacyProblems(files, hashes), info: [files.length + ' files, ' + hashes.size + ' phrases'] }
 }
 
-const GATES = { soon: gateSoon, changelog: gateChangelog, shipped: gateShipped, refs: gateRefs, version: gateVersion, privacy: gatePrivacy }
+function gateQuotes() {
+  const files = tracked().filter((f) => !QUOTES_SKIP.test(f) && fs.existsSync(path.join(ROOT, f)))
+    .map((f) => ({ name: f, text: read(f) })).filter((f) => !f.text.includes('\u0000'))
+  return { problems: quoteProblems(files), info: [files.length + ' files'] }
+}
+
+const GATES = { soon: gateSoon, changelog: gateChangelog, shipped: gateShipped, refs: gateRefs, version: gateVersion, privacy: gatePrivacy, quotes: gateQuotes }
 
 function main(argv) {
   if (argv[0] === 'privacy-hash') {
@@ -373,7 +429,7 @@ function main(argv) {
   const names = argv.filter((a) => !a.startsWith('--'))
   const run = names.length ? names : Object.keys(GATES)
   let failed = 0
-  // loop: NOT-WORTH — six gates
+  // loop: NOT-WORTH — seven gates
   for (const name of run) {
     if (!GATES[name]) { console.error('unknown gate ' + name + ' (' + Object.keys(GATES).join(', ') + ')'); return 2 }
     const r = GATES[name]()
@@ -388,5 +444,5 @@ function main(argv) {
   return check && failed ? 1 : 0
 }
 
-module.exports = { backlogRows, soonProblems, shippedProblems, changelogSection, changelogProblems, shippedTest, refProblems, helpText, versionProblems, privacyProblems, phraseHash, words, versionCmp, MARKERS }
+module.exports = { backlogRows, soonProblems, shippedProblems, changelogSection, changelogProblems, shippedTest, refProblems, helpText, versionProblems, privacyProblems, quoteProblems, phraseHash, words, versionCmp, MARKERS }
 if (require.main === module) process.exitCode = main(process.argv.slice(2))

@@ -1,5 +1,5 @@
 // 0.15.85 (player-time.js): the song's precise time when MusicKit gives whole seconds and the page's media element
-// runs on another timeline. Marcy's song reports 2026-10-20: "whole seconds" after most song changes ("Brother",
+// runs on another timeline. Marcy's song reports 2026-10-20: whole seconds after most song changes ("Brother",
 // "No Excuses", "Sludge Factory", "Down In a Hole"), with up to 2 s steps in their first seconds.
 'use strict'
 const test = require('node:test')

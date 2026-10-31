@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The hardcode gate (Marcy 2026-10-18: "NOTHING should be hardcoded in this manner. ESPECIALLY FOR
-// TOASTS"). Mechanical, like tools/verdicts.js: it reads every file Sonata ships (package.json
+// The hardcode gate (Marcy 2026-10-18: nothing user-facing is hardcoded this way, toasts
+// above all). Mechanical, like tools/verdicts.js: it reads every file Sonata ships (package.json
 // build.files: the .js files and the pages' inline <script>s) and refuses a user-facing value that is
 // typed where a single source exists:
 //

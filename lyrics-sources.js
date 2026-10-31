@@ -308,8 +308,8 @@ function asPlain(hit) {
 // a search hit "close in length" to the playing recording (s)
 const HIT_NEAR_S = 5
 
-// --- instrumentals (Marcy 2026-10-18, Mad Season "November Hotel (Live At the Moore)": "there are millions of
-// instrumental tracks in the world"). "Instrumental" is said only with evidence: LRCLIB's own instrumental
+// --- instrumentals (Marcy 2026-10-18, Mad Season "November Hotel (Live At the Moore)": the world has millions of
+// instrumental tracks). "Instrumental" is said only with evidence: LRCLIB's own instrumental
 // flag on a hit for this recording, or the title's own marker. Apple having no lyrics is not evidence. Lyrics
 // from any source always win. (The engine can't report "no vocals heard" yet: sonata-engine BACKLOG.) ---
 

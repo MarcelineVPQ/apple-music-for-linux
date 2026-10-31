@@ -2208,8 +2208,8 @@ async function liner() {
   await mp.ev(`(${E}.nativeTheme.themeSource = 'system', true)`)
 
   // --- no dead controls: every kind of control, clicked, does something visible ---
-  // --- turning by the book itself (Marcy 2026-10-18: "we should just be clicking on the book to turn the
-  // pages"): the real mouse (XTest, at the screen's scale, like the stage's pointerReach) on the right-hand page
+  // --- turning by the book itself (Marcy 2026-10-18: a click on the book turns its
+  // pages): the real mouse (XTest, at the screen's scale, like the stage's pointerReach) on the right-hand page
   // turns forward, on the left-hand page back; a turnable page shows it (its corner lifted on hover, the
   // pointer); the cover's and the back cover's outer sides don't; a link, a chip or a text selection never turns
   const wb = await mp.ev(`(() => { const w = ${E}.BrowserWindow.getAllWindows().find((w) => /liner notes/i.test(w.getTitle())); return w.getContentBounds() })()`)

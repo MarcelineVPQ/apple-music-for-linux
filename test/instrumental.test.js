@@ -1,5 +1,5 @@
-// Instrumentals (Marcy 2026-10-18, Mad Season "November Hotel (Live At the Moore)", 13:50: "there are millions
-// of instrumental tracks in the world"): "Instrumental" only with evidence (LRCLIB's flag on a hit for this
+// Instrumentals (Marcy 2026-10-18, Mad Season "November Hotel (Live At the Moore)", 13:50: the world has millions
+// of instrumental tracks): "Instrumental" only with evidence (LRCLIB's flag on a hit for this
 // recording, or the title's own marker), lyrics from any source win, the verdict is cached (no LRCLIB retry),
 // and the lyrics view and the sheet-notes band say "Instrumental" instead of a failure line.
 const test = require('node:test')

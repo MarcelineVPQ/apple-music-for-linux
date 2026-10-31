@@ -442,7 +442,7 @@ test('whole-second player times: the clock locks onto the true phase, not up to 
   assert.match(main, /const LYRICS_TICK_MS = 470\b/, 'the lyrics tick walks through the second')
 })
 
-// 0.15.83: Marcy's song reports 2026-10-20 ("it's the driver"): with look-ahead and whole-second times every song
+// 0.15.83: Marcy's song reports 2026-10-20 (the clock is the cause): with look-ahead and whole-second times every song
 // corrected "at 0:00.0 +979, 0:00.5 +505, 0:00.9 +1032", then "3.9 +116 · 11.9 +104" and on, the same sizes at the
 // same song times in different songs: the clock's own doing. Replayed here as it happens: Apple's time floored to
 // whole seconds, look-ahead's heard clock (lookahead.js heardClock, D s behind, held at 0:00 while it fills), 470 ms

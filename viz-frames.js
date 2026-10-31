@@ -1,6 +1,6 @@
 // The visualizer's frame gate: it draws only while the music plays. On pause it draws a short settle
 // (the bars fall to silence, the scene comes to rest) and then stops requesting frames until playback
-// resumes, so a paused visualizer costs no frames at all (Marcy, 2026-10-16: "freeze while paused").
+// resumes, so a paused visualizer costs no frames at all (Marcy, 2026-10-16: frozen while paused).
 // A scene change or a resize while frozen draws one settle, so the still frame is the right scene.
 //
 //   const gate = createFrameGate({ draw, raf: requestAnimationFrame, now: () => performance.now(), onResume })

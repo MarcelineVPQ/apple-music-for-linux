@@ -230,7 +230,7 @@ function expand(entry) {
 }
 
 // --- every sung syllable represented (0.15.71) ---
-// Marcy 2026-10-19 (Chappell Roan "After Midnight": "we know the 'I' is here but it's not represented"): the note
+// Marcy 2026-10-19 (Chappell Roan "After Midnight": the sung "I" had no note): the note
 // model gives a note to a syllable only where it hears a note start, so a short syllable ("I", "you") or one sung on
 // the same pitch as the one before (one held note over two syllables) gets no note and no label. fillNotes() uses
 // the word timing as candidate note boundaries, after the fact, on the entry's own data:
@@ -496,7 +496,7 @@ function regionAt(regions, t) {
  *   notes     later plays: notes on the staff (gate() decides per stretch: notes, pitch line or nothing)
  *   line      first play: the pitch line, filled in as the sections are heard
  *   message   on, but nothing to draw for this song: one line says why (never an empty box)
- * The long-text rule (the DS5 app's, Marcy 2026-10-18 "we already solved this"): the visible text says
+ * The long-text rule (the DS5 app's, Marcy 2026-10-18: solved there already): the visible text says
  * only what you must know, at most TEXT_MAX characters, and wraps when the row is narrow (never cut off);
  * the longer explanation is `info`, behind the ⓘ beside it. A message has no label: the Experimental chip
  * already says it (the label repeated "Experimental" next to it).
@@ -855,8 +855,8 @@ function roomRuns(runs, room = ROOM) {
 }
 
 /**
- * First play: "Listening and learning" (Marcy 2026-10-18: "some kind of little green blinking dot would really
- * communicate to users"). A section's pitch line comes only after the section has been sung (the helper
+ * First play: "Listening and learning" (Marcy 2026-10-18: a small green blinking dot
+ * tells users). A section's pitch line comes only after the section has been sung (the helper
  * separates the voice of a part once it has heard it; with Apple's or LRCLIB's line timing that is a
  * whole section), so on a first play the staff between the heard line's end and the playhead is empty. While
  * the part at the playhead has no line yet the band's label row says so, with a small blinking dot (also on
@@ -885,7 +885,7 @@ function listening(m, pieces, t, end, covered) {
 
 /**
  * What the staff can show, as merged [t0, t1] spans in song time (0.15.50: the label said "pitch line
- * here" over an empty staff in a vocal break, Marcy on Mad Season "Wake Up (Live At the Moore)").
+ * here" over an empty staff in a vocal break, Marcy on Mad Season "Wake Up (Live At the Moore)"; quote-ok: the label's text).
  * notes: the drawn notes ({ t, end }); runs: the drawn pitch-line runs (pitchRuns); syllables: the sung
  * syllables ({ t, end }). -> { sung, notes, line }: sung is any of the three (someone sings there).
  */

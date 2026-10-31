@@ -1,7 +1,7 @@
 # Lyric word timing: drift on the first play (0.15.32)
 
-Marcy's report (0.15.31): "lots of drift in the majority of songs, by the time it gets to the end
-of each verse." This page has the measurement, the cause, what changed, and the numbers before and
+Marcy's report (0.15.31): the words drifted in most songs, by the end
+of each verse. This page has the measurement, the cause, what changed, and the numbers before and
 after. Tools: `tools/drift-check/` (below).
 
 ## How it is measured
@@ -261,7 +261,7 @@ aligned words from `<bench>/results/auto-j0.json` (in that bench folder). The `-
 
 ## Held notes (0.15.34)
 
-Marcy's report on 0.15.33: in The Goo Goo Dolls' "Home (Live)", "home" in "Come take me home" is held for
+Marcy's report on 0.15.33: in The Goo Goo Dolls' "Home (Live)", "home" in "Come take me home" is held for <!-- quote-ok: lyrics -->
 seconds, but its highlight dropped and the next line lit up while it was still sung. Her cache showed why:
 the aligner's "home" in that line ended at 75.91 s (0.34 s long), while Apple's line runs to 81.47, past the
 next line's start (81.08). A CTC aligner ends a word on the last frame it emits a letter for; a held vowel
@@ -357,7 +357,7 @@ nail live recordings first.
 Live songs, median before → after (ms): Big Machine 871 → 675, January Friend 666 → 365, The Pin 606 → 349,
 So Alive 569 → 369, Slide 567 → 302, Home 359 → 316, Long Way Down 293 → 287.
 
-**Not covered: "Home (Live)", "A million miles, but I will find you" → "So take me home"** (Marcy's
+**Not covered: "Home (Live)", "A million miles, but I will find you" → "So take me home"** (Marcy's <!-- quote-ok: lyrics -->
 screenshot on 0.15.34-dev.1: "So take me home" lit, "me" mid-pop, while the singer was still on the line
 before). Apple stamps line 15 at 95.10 s but ends line 14 at 97.13 s: a 2.04 s overlap, the largest of the
 21 overlapping pairs in her library (median 0.52 s). On that first play lines 14–15 were estimated (their
@@ -501,7 +501,7 @@ that pass and says so. Not investigated further (another branch's area).
 
 ## Hold attribution (0.15.41)
 
-Marcy's report: in The Goo Goo Dolls' "So Alive (Live)", "You can make it on, you can make it on", the
+Marcy's report: in The Goo Goo Dolls' "So Alive (Live)", "You can make it on, you can make it on", the <!-- quote-ok: lyrics -->
 singer holds the last "on", but its highlight dropped after a moment. Her cache (version 3, model `en`):
 "it" 176.81–181.58, held from 176.85; "on" 181.63–182.02. The sung "it" is short and "on" is held from
 about 176.9 to about 182 s.
@@ -543,7 +543,7 @@ it apart on the bench), and languages without a list (MMS).
 ## First-play onset (0.15.42)
 
 Marcy's report on 0.15.41: LIVE, "The River" (Songs from Black Mountain), a new album: on the first play the
-lyrics came in "way before the singer sings them". Her cache (a copy, 2026-10-17): Apple line timing, no
+lyrics came in well before the singer sang them. Her cache (a copy, 2026-10-17): Apple line timing, no
 word timing; the aligned entry partial (sections 0 and 8 done). Apple's stamp vs the first sung word, line 1:
 21.39 → 24.27 s (2.9 s early), line 2: 1.3 s, line 3: 2.7 s.
 

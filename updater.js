@@ -69,8 +69,8 @@ function updateNotice(st, ctx) {
       return {
         id: 'update', kind: 'info', task: true, dismissKey: 'update:ready:' + st.version,   // hardcode: OK — the notice's key (raw version), never shown
         // a Precise timing helper job running: no restart until it has finished (helperBusy). While music plays or the
-        // helper works, Restart now is shown greyed with why (Marcy 2026-10-20: "gray it out with a little 'pause audio
-        // to restart'" instead of hiding it)
+        // helper works, Restart now is shown greyed with why (Marcy 2026-10-20: greyed out with a short note to pause the audio
+        // to restart, instead of hidden)
         text: V.full(st.version) + ' is installed. It starts the next time you open ' + V.NAME + (c.helperBusy ? '. To restart now, wait for the Precise timing helper to finish.' : c.playing ? '. Pause the music to restart now.' : ', or restart now.'),
         actions: [{ id: 'update-restart', label: 'Restart now', primary: true, disabled: !!(c.playing || c.helperBusy), tip: c.helperBusy ? 'Waits for the Precise timing helper to finish' : c.playing ? 'Pause the music to restart' : '' }]
       }
