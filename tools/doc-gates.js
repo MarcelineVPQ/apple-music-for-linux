@@ -35,6 +35,9 @@
 //              ones (first word and at least half the longer words capitalised: song titles, labels),
 //              JSON files (their quotes are syntax). A line that must quote other words next to her
 //              name (lyrics, text on screen) carries quote-ok and a reason.
+//   community  GitHub's community checklist: README.md, LICENSE, CODE_OF_CONDUCT.md, CONTRIBUTING.md,
+//              SECURITY.md, .github/pull_request_template.md and at least one issue form or template in
+//              .github/ISSUE_TEMPLATE/ (config.yml alone doesn't count) are tracked.
 'use strict'
 const fs = require('fs')
 const path = require('path')
@@ -339,12 +342,28 @@ function quoteProblems(files) {
   return problems
 }
 
+// ---------- community files ----------
+
+// GitHub's community checklist for a public repo; the issue templates count when the folder holds a form or template
+const COMMUNITY = ['README.md', 'LICENSE', 'CODE_OF_CONDUCT.md', 'CONTRIBUTING.md', 'SECURITY.md', '.github/pull_request_template.md']
+const ISSUE_TEMPLATE = /^\.github\/ISSUE_TEMPLATE\/[^/]+\.(yml|yaml|md)$/
+
+// files: the tracked paths -> problems
+function communityProblems(files) {
+  const have = new Set(files)
+  const problems = COMMUNITY.filter((f) => !have.has(f)).map((f) => f + ' is missing: GitHub\'s community checklist needs it (restore it from git history, written for Sonata)')
+  if (!files.some((f) => ISSUE_TEMPLATE.test(f) && !f.endsWith('/config.yml'))) problems.push('.github/ISSUE_TEMPLATE/ holds no issue form (.yml) or template (.md): restore the bug form (bug_report.yml)')
+  return problems
+}
+
 // ---------- running them on the repo ----------
 
 function tracked() {
   return execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean)
 }
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8')
+// the tracked files still on disk (a deletion not yet committed is gone)
+const present = () => tracked().filter((f) => fs.existsSync(path.join(ROOT, f)))
 
 function gateSoon() {
   const r = soonProblems(read('BACKLOG.md'))
@@ -406,18 +425,22 @@ function gateVersion() {
 function gatePrivacy() {
   const hashes = loadDenylist(path.join(ROOT, 'tools', 'privacy-denylist.txt'))
   if (!hashes.size) return { problems: ['tools/privacy-denylist.txt has no phrases'] }
-  const files = tracked().filter((f) => !PRIVACY_SKIP.test(f) && fs.existsSync(path.join(ROOT, f)))
+  const files = present().filter((f) => !PRIVACY_SKIP.test(f))
     .map((f) => ({ name: f, text: read(f) })).filter((f) => !f.text.includes('\u0000'))
   return { problems: privacyProblems(files, hashes), info: [files.length + ' files, ' + hashes.size + ' phrases'] }
 }
 
 function gateQuotes() {
-  const files = tracked().filter((f) => !QUOTES_SKIP.test(f) && fs.existsSync(path.join(ROOT, f)))
+  const files = present().filter((f) => !QUOTES_SKIP.test(f))
     .map((f) => ({ name: f, text: read(f) })).filter((f) => !f.text.includes('\u0000'))
   return { problems: quoteProblems(files), info: [files.length + ' files'] }
 }
 
-const GATES = { soon: gateSoon, changelog: gateChangelog, shipped: gateShipped, refs: gateRefs, version: gateVersion, privacy: gatePrivacy, quotes: gateQuotes }
+function gateCommunity() {
+  return { problems: communityProblems(present()), info: [(COMMUNITY.length + 1) + ' community files'] }
+}
+
+const GATES = { soon: gateSoon, changelog: gateChangelog, shipped: gateShipped, refs: gateRefs, version: gateVersion, privacy: gatePrivacy, quotes: gateQuotes, community: gateCommunity }
 
 function main(argv) {
   if (argv[0] === 'privacy-hash') {
@@ -429,7 +452,7 @@ function main(argv) {
   const names = argv.filter((a) => !a.startsWith('--'))
   const run = names.length ? names : Object.keys(GATES)
   let failed = 0
-  // loop: NOT-WORTH — seven gates
+  // loop: NOT-WORTH — eight gates
   for (const name of run) {
     if (!GATES[name]) { console.error('unknown gate ' + name + ' (' + Object.keys(GATES).join(', ') + ')'); return 2 }
     const r = GATES[name]()
@@ -444,5 +467,5 @@ function main(argv) {
   return check && failed ? 1 : 0
 }
 
-module.exports = { backlogRows, soonProblems, shippedProblems, changelogSection, changelogProblems, shippedTest, refProblems, helpText, versionProblems, privacyProblems, quoteProblems, phraseHash, words, versionCmp, MARKERS }
+module.exports = { backlogRows, soonProblems, shippedProblems, changelogSection, changelogProblems, shippedTest, refProblems, helpText, versionProblems, privacyProblems, quoteProblems, communityProblems, phraseHash, words, versionCmp, MARKERS }
 if (require.main === module) process.exitCode = main(process.argv.slice(2))

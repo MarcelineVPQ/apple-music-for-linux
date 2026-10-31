@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Sonata doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. This form is for bugs; ideas are welcome as a plain issue. Security problems: please report them privately (SECURITY.md), not here.
+        Sonata is not made by Apple: problems in Apple Music itself (the catalogue, your account, playback rights) belong to Apple.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Play a song (title and artist help, if you're happy to share them)\n2. Open the lyrics window…\n3. …"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sonata version and update channel
+      description: About shows both (for example "0.15.45 Dev")
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Linux distribution and version, desktop, Wayland or X11
+      placeholder: "e.g. Ubuntu 26.04, KDE Plasma 6.5, Wayland"
+    validations:
+      required: true
+  - type: input
+    id: graphics
+    attributes:
+      label: Graphics card and driver (for display, visualizer or precise-timing problems)
+      placeholder: "e.g. RTX 4070, driver 580"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Sonata?
+      options:
+        - AppImage from the releases page
+        - From source (npm start)
+        - Other (say which above)
+  - type: textarea
+    id: log
+    attributes:
+      label: What Sonata prints
+      description: "Sonata logs to its terminal. Start it from one (`./Sonata.AppImage`, or `npm start` from source), make the bug happen, and paste what it printed. Please look it over first and remove anything you'd rather not share."
+      render: text
+  - type: textarea
+    id: curious
+    attributes:
+      label: For word-timing problems
+      description: "About → For the Curious → *Copy for a bug report* copies the timing numbers as plain text (no lyrics, song names or paths). Paste it here."
+      render: text

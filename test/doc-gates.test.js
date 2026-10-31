@@ -127,6 +127,16 @@ test('quotes: her words beside her name fail; titles, logs and quote-ok lines pa
   assert.deepEqual(p.map((l) => l.split(':')[1]), ['2', '3', '6'])
 })
 
+test('community: each missing community file fails; config.yml alone is no issue form', () => {
+  const all = ['README.md', 'LICENSE', 'CODE_OF_CONDUCT.md', 'CONTRIBUTING.md', 'SECURITY.md', '.github/pull_request_template.md', '.github/ISSUE_TEMPLATE/bug_report.yml', '.github/ISSUE_TEMPLATE/config.yml']
+  assert.deepEqual(G.communityProblems(all), [])
+  // seeded: SECURITY.md gone, and only config.yml left in ISSUE_TEMPLATE
+  const p = G.communityProblems(all.filter((f) => f !== 'SECURITY.md' && f !== '.github/ISSUE_TEMPLATE/bug_report.yml'))
+  assert.equal(p.length, 2)
+  assert.match(p[0], /^SECURITY\.md is missing/)
+  assert.match(p[1], /ISSUE_TEMPLATE\/ holds no issue form/)
+})
+
 test('the real BACKLOG passes soon and shipped', () => {
   const md = fs.readFileSync(path.join(__dirname, '..', 'BACKLOG.md'), 'utf8')
   assert.deepEqual(G.soonProblems(md).problems, [])
