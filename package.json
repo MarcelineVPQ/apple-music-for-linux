@@ -16,7 +16,7 @@
     "predist:appimage": "bash native/lookahead/build.sh"
   },
   "build": {
-    "electronVersion": "45.0.0-alpha.14+wvcus",
+    "electronVersion": "44.9.3+wvcus",
     "electronDownload": {
       "mirror": "https://github.com/castlabs/electron-releases/releases/download/"
     },
@@ -205,7 +205,7 @@
   "license": "GPL-3.0",
   "devDependencies": {
     "acorn": "8.15.0",
-    "electron": "https://github.com/castlabs/electron-releases#v45.0.0-alpha.14+wvcus",
+    "electron": "https://github.com/castlabs/electron-releases#v44.9.3+wvcus",
     "electron-builder": "^26.0.12"
   },
   "dependencies": {

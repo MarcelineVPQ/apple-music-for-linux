@@ -7,6 +7,9 @@ See docs/RELEASING.md.
 
 ## [Unreleased]
 
+### Security
+- **Electron 45.0.0-alpha.14 → 44.9.3 (castlabs, with Widevine): fixes CVE-2026-115570.** Electron did not block the compromised eMudhra intermediate CA certificates (fixed in 45.0.0-beta.6, 44.9.1 and 43.8.1). castlabs has no fixed Electron 45 yet, so Sonata steps back to the fixed 44 line until it does.
+
 ## [0.15.94-dev.1] — Sonata's helper processes end with it, even after a crash
 
 ### Fixed

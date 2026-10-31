@@ -110,8 +110,8 @@ node tools/drift-check/drift-check.js …                 # word-timing accuracy
   `ipcMain` handlers of Sonata's views (rail, panel, toasts, Apple's focus/volume bridge) check the sender
   and top frame and validate each argument; the floating windows' handlers (`lyrics-command`,
   `mini-command`, `viz-close`) don't yet (BACKLOG "Rule gates everywhere"). New handlers check.
-- **Sandboxed preloads load only `electron`** (Electron 45: no `events`/`timers`/`url` shims, no `Buffer` or
-  `setImmediate`); use Web APIs there. The engine is castlabs Electron pinned exactly (`package.json`
+- **Sandboxed preloads load only `electron`** (Electron 45 removes the `events`/`timers`/`url` shims, `Buffer` and
+  `setImmediate`; keep preloads ready for it while Sonata is on 44); use Web APIs there. The engine is castlabs Electron pinned exactly (`package.json`
   `devDependencies.electron` and `build.electronVersion` name the same tag), never stock Electron (no Widevine).
 
 ## Verdicts (gates: `node tools/verdicts.js --check` and `node tools/passes.js --check`, in `npm test`, `npm run gates`, `.hooks/pre-commit` and CI)
