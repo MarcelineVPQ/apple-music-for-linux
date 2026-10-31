@@ -51,6 +51,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.15.95-dev.1" date="2026-10-31" type="development">
+      <description>
+        <p>Moves to castlabs Electron 44.9.3 to fix CVE-2026-115570, which let compromised eMudhra certificates through.</p>
+      </description>
+    </release>
     <release version="0.15.94-dev.1" date="2026-10-20" type="development">
       <description>
         <p>Sonata's helper processes end with it, even after a crash</p>
