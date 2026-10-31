@@ -94,7 +94,7 @@ const PATTERNS = [
 // [title, rows: [what, by / licence, url?]]
 const CREDITS = [
   ['Built on', [
-    [V.NAME, 'Free and open source, GPL-3.0. Made by Marcy Kuhn under 42 Pixel Studios.', V.REPO_URL],
+    [V.NAME, 'Free and open source, GPL-3.0. Made by MarcelineVPQ under 42 Pixel Studios.', V.REPO_URL],
     ['Apple Music for Linux', 'The app Sonata started from, by Marcus Tomlinson (GPL-3.0).', 'https://github.com/cross-platform/apple-music-for-linux'],
     ['Electron for Content Security', 'castlabs\' Electron (MIT), with Chromium (BSD and others). Lets Apple Music\'s DRM play.', 'https://github.com/castlabs/electron-releases'],
     ['Widevine', 'Google\'s DRM module, downloaded by Electron at runtime under Google\'s terms; not part of Sonata.', '']
@@ -139,12 +139,12 @@ function hero(version, channel, appImage, year) {
   return {
     eyebrow: 'A 42 Pixel Studios production',
     name: V.NAME,
-    by: 'Marcy Kuhn',
+    by: 'MarcelineVPQ',
     version: String(version || ''),
     channel: channel === 'dev' ? 'dev' : 'stable',
     // "v0.15.38 · Stable", "v0.15.45 Dev · Development" (from source: no updates, so no channel to follow)
     line: V.tagged(version) + ' · ' + V.channelName(channel) + (appImage ? '' : ' · from source'),
-    copyright: '© ' + (year || new Date().getFullYear()) + ' 42 Pixel Studios — a Marcy Kuhn production.',
+    copyright: '© ' + (year || new Date().getFullYear()) + ' 42 Pixel Studios — a MarcelineVPQ production.',
     links: LINKS
   }
 }

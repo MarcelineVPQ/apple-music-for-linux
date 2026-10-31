@@ -240,13 +240,13 @@ test('about: the hero card (the 42PS card, as in the DS5 About): version, channe
   const h = A.hero('0.15.38-dev.1', 'dev', true, 2026)
   assert.equal(h.eyebrow, 'A 42 Pixel Studios production')
   assert.equal(h.name, 'Sonata')
-  assert.equal(h.by, 'Marcy Kuhn')
+  assert.equal(h.by, 'MarcelineVPQ')
   assert.equal(h.version, '0.15.38-dev.1')
   assert.equal(h.channel, 'dev')
   assert.equal(h.line, 'v0.15.38 Dev · Development', 'the hero shows the version as people see it, never the dev number')
   assert.equal(A.hero('0.15.38', 'stable', true, 2026).line, 'v0.15.38 · Stable')
   assert.equal(A.hero('0.15.38', 'stable', false, 2026).line, 'v0.15.38 · Stable · from source')
-  assert.equal(h.copyright, '© 2026 42 Pixel Studios — a Marcy Kuhn production.')
+  assert.equal(h.copyright, '© 2026 42 Pixel Studios — a MarcelineVPQ production.')
   assert.doesNotMatch(JSON.stringify(h), /joint/i, '"production", never "joint"')
   assert.deepEqual(h.links.map((l) => [l.label, l.url]), [
     ['42pixelstudios.com', 'https://42pixelstudios.com/'],

@@ -835,7 +835,7 @@
     const name = el('h3', 'hero-title')
     name.id = 'hero-title'
     setAttr(card, 'aria-labelledby', 'hero-title')
-    // "Developed by Marcy Kuhn" and "v0.15.38 · Stable" on two lines: the panel is too narrow for one
+    // "Developed by MarcelineVPQ" and "v0.15.38 · Stable" on two lines: the panel is too narrow for one
     const by = el('p', 'hero-by')
     const who = el('strong')
     by.append(doc.createTextNode('Developed by '), who)
