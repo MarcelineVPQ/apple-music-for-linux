@@ -1,11 +1,11 @@
 {
   "channel": "dev",
-  "version": "0.15.94-dev.1",
-  "file": "sonata-0.15.94-dev.1-x86_64.AppImage",
-  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.94-dev.1/sonata-0.15.94-dev.1-x86_64.AppImage",
-  "sha512": "6839dd11bb508b13950d1497b297e80c0a6f43cc28d66e814e19b6c88eb05ba4b02047843f597aff6327bccd598cfd0456b102e962c4431b251710f9379b4ba7",
-  "size": 127668670,
-  "date": "2026-10-21T03:12:28Z",
-  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.94-dev.1",
-  "notes": "### Fixed\n- **Nothing left running after a crash.** The small background processes Sonata starts (for look-ahead play, the visualizer and the system colour scheme) now end when Sonata ends, even when it crashes or is closed by force. Before, they could stay running for hours and keep old copies of Sonata mounted.\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.94-dev.1-source.tar.gz` in this release (GPL-3.0)."
+  "version": "0.15.95-dev.1",
+  "file": "sonata-0.15.95-dev.1-x86_64.AppImage",
+  "url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/download/v0.15.95-dev.1/sonata-0.15.95-dev.1-x86_64.AppImage",
+  "sha512": "a6080bf50d290838886175e4236c7a6eb97dc72028b69d8b2786fbd90df8238c7ee88496e958ac6fb007c7fbb73d1f49d20668787f9964adfa5e9e6575e952f5",
+  "size": 127376697,
+  "date": "2026-10-31T16:10:13Z",
+  "notes_url": "https://github.com/MarcelineVPQ/apple-music-for-linux/releases/tag/v0.15.95-dev.1",
+  "notes": "### Security\n- **Electron 45.0.0-alpha.14 → 44.9.3 (castlabs, with Widevine): fixes CVE-2026-115570.** Electron did not block the compromised eMudhra intermediate CA certificates (fixed in 45.0.0-beta.6, 44.9.1 and 43.8.1). castlabs has no fixed Electron 45 yet, so Sonata steps back to the fixed 44 line until it does.\n\n### Changed\n- **About's credits read MarcelineVPQ and 42 Pixel Studios.**\n\n\n**This is a development build**: newer than the stable release and less tested. Sonata offers it only with Settings -> Updates -> Update channel set to Development.\n\nSource: `sonata-0.15.95-dev.1-source.tar.gz` in this release (GPL-3.0)."
 }
